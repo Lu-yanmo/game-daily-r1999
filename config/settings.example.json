@@ -1,0 +1,73 @@
+{
+  "_readme": [
+    "这是模板。用法：跑 `pwsh -File setup.ps1`(自动探测 M9A / MuMu 装在哪 → 生成 config\\settings.json)，或手工复制成 settings.json 再填 paths。",
+    "paths.m9aDir / paths.mumuDir 必填，MuMu 还要 mumu.vmIndex 指对装了 1999 的那台虚拟机；缺哪一项 setup.ps1 都会告诉你。",
+    "所有路径都是绝对路径；换电脑/换目录只改这里。",
+    "re1999.planToInstance: 长草 / 活动 / 复刻 三个方案分别对应 M9A 里哪个实例名 —— 脚本按版本-活动接口判定该用哪个，然后让 M9A 跑那个实例已经配好的任务队列。",
+    "实例名对不上(你自己在 M9A 里改过名，或重新导入过实例)时先跑 `pwsh -File tools\\probe-m9a-history.ps1`，它会把 M9A 实际有哪些实例、各自历史上跑过几个任务列出来。",
+    "mainStoryRequiresAck: true = 新版本出了主线/活动但你还没自己通一遍时，脚本只跑长草方案并提醒，不会自动烧体力；打完用 -Ack 登记。",
+    "shopDoneStopsEvent: true = 活动商店换空后手动打点(-ShopDone)，之后回落到长草方案；标记记在 state\\r1999-shop-done.json，按版本号分别生效，换了新版本自动不适用。要恢复：-ShopReset。",
+    "runtime.m9aCliArgs / m9aInstanceArg / m9aForceStart: 走 M9A 自带的命令行脚本化入口(--instance/--autostart/--quit-after-run/--force-start)，必须用长参数，短参数 -a 实测不会提交任务队列。",
+    "runtime.r1999StartTimeoutMinutes: M9A 起来了却迟迟不提交任务队列就提前判 not-started，不会白等满 r1999TimeoutMinutes。",
+    "runtime.closeEmulatorAfter: true = 收尾时把 MuMu 虚拟机一起关掉(你还要接着玩模拟器就设 false)。",
+    "runtime.retryOnce: true = 本轮没成功就收尾后重试一次；not-started / empty-queue / unknown-format 不重试(重试也是白烧 10~20 分钟)。",
+    "notify.webhook: 填了就把每轮结果 POST 到这个地址(自己承担密钥泄露风险，仓库不会收录 settings.json)。",
+    "schedule.times: install-task.ps1 用它注册计划任务，两个时间点分别对应早/晚一轮清体力；机器常开、只需登录态在即可。",
+    "schedule.taskPrefix 与方舟那份仓库默认值不同(GameDailyArk / GameDaily1999)，两个仓库装在同一台机器上也不会互相盖掉计划任务。",
+    "这一路不需要管理员权限：MuMu 和 M9A 都在普通权限下跑，所以没有 UAC，计划任务也只是「登录后运行」。"
+  ],
+  "paths": {
+    "m9aDir": "",
+    "m9aExe": "m9a.exe",
+    "m9aAppSettings": "appsettings.json",
+    "m9aInstancesDir": "config\\instances",
+    "m9aActivityData": "data\\activity\\cn.json",
+    "m9aLogDir": "logs",
+    "m9aFrameworkLog": "debug\\maafw.log",
+    "mumuDir": "",
+    "mumuManager": "nx_main\\MuMuManager.exe",
+    "mumuAdb": "nx_main\\adb.exe"
+  },
+  "mumu": {
+    "vmIndex": "0",
+    "vmNameHint": ""
+  },
+  "re1999": {
+    "package": "com.shenlan.m.reverse1999",
+    "planToInstance": {
+      "idle": "日常-长草",
+      "event": "日常-活动",
+      "rerun": "日常-复刻"
+    },
+    "mainStoryRequiresAck": true,
+    "shopDoneStopsEvent": true
+  },
+  "runtime": {
+    "blockSleep": true,
+    "keepScreenOn": true,
+    "retryOnce": true,
+    "quitAssistantAfter": true,
+    "closeEmulatorAfter": true,
+    "takeOverAssistant": true,
+    "mumuBootTimeoutSeconds": 240,
+    "r1999StartTimeoutMinutes": 10,
+    "r1999TimeoutMinutes": 85,
+    "stallTimeoutMinutes": 22,
+    "m9aCliArgs": true,
+    "m9aInstanceArg": "id",
+    "m9aForceStart": true,
+    "idleConfirmSeconds": 75,
+    "taskWaitMinutes": 200
+  },
+  "notify": {
+    "toast": true,
+    "webhook": "",
+    "writeHistory": true
+  },
+  "schedule": {
+    "taskPrefix": "GameDaily1999",
+    "times": ["08:00", "20:00"],
+    "startWhenAvailable": true,
+    "comment": "两个时间点分别对应早/晚一轮清体力；机器常开、只需登录态在即可"
+  }
+}

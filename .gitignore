@@ -1,0 +1,14 @@
+# 本机运行时产物：绝对路径、账号作息、ADB 序列号、M9A 实例名
+logs/
+backups/
+state/
+
+# 本机配置：由 setup.ps1 从 config/settings.example.json 生成
+config/settings.json
+
+# 临时/杂项
+*.tmp
+*.bak
+Thumbs.db
+.DS_Store
+tools/_probe*.ps1

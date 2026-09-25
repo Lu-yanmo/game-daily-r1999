@@ -11,11 +11,17 @@ set "PS="
 where pwsh.exe >nul 2>nul && set "PS=pwsh.exe"
 if not defined PS if exist "%ProgramFiles%\PowerShell\7\pwsh.exe" set "PS=%ProgramFiles%\PowerShell\7\pwsh.exe"
 if not defined PS set "PS=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
-rem 裸开(没带 -SelfTest 之类参数)且 C# 面板已编译过 → 优先它；带参数照旧走 PowerShell 面板，验收链不受影响。
-if "%~1"=="" if exist "%~dp0tools\panel-cs\panel-cs.exe" (
+rem 裸开(没带 -SelfTest 之类参数)默认就是 C# 面板：没有 exe 就先用 Windows 自带的 csc 现编一份(几秒钟，不用装任何东西)。
+rem 编不出来(极精简系统删了 .NET Framework)才回落 PowerShell 面板；带参数照旧走 PowerShell 面板，验收链不受影响。
+if not "%~1"=="" goto pspanel
+if not exist "%~dp0tools\panel-cs\panel-cs.exe" (
+    "%PS%" -NoProfile -ExecutionPolicy Bypass -File "%~dp0tools\panel-cs\build.ps1" -Quiet
+)
+if exist "%~dp0tools\panel-cs\panel-cs.exe" (
     start "" "%~dp0tools\panel-cs\panel-cs.exe"
     exit /b 0
 )
+:pspanel
 "%PS%" -NoProfile -ExecutionPolicy Bypass -File "%~dp0tools\panel.ps1" %*
 set "RC=%ERRORLEVEL%"
 echo.

@@ -715,19 +715,20 @@ $script:theme = @{
     logInfo = New-GdColor 201 209 217
     logDim  = New-GdColor 125 133 144
 }
-$script:cFace    = New-GdColor  34  33  38      # 卡片：从冷蓝灰压成暖炭，配橙色强调才像端游那套深灰+橙
-$script:cCardTitle = New-GdColor 200 190 178    # 卡片小标题(比上一版亮一档：8.5pt 的字再灰就只剩"一片浅灰")
-$script:cWindow  = New-GdColor  22  22  26      # 窗口底
-$script:cNav     = New-GdColor  15  15  18      # 左侧导航带(比窗口底再深一档，靠描边分不出来)
-$script:cNavSub  = New-GdColor 150 141 130
-$script:cLine    = New-GdColor  66  60  54      # 卡片描边
-$script:cAccent  = New-GdColor 240 130  32      # 主动作：方舟橙(端游按钮/辉光那一档)，深炭底上就是唯一光源
-$script:cAccentHi= New-GdColor 255 158  64
-$script:cAccentLo= New-GdColor 202 104  18
-$script:cHover   = New-GdColor  46  43  47      # 次级按钮悬停
-$script:cDown    = New-GdColor  58  53  55
-$script:cNavOn   = New-GdColor  56  41  27      # 导航项选中底(橙压暗：和主动作同族，但别盖过按钮)
-$script:cLogBack = New-GdColor  12  12  15
+# 兜底面板的配色和 C# 面板的深色主题同一族：中性黑白灰 + 语义色，不留任何品牌色(2026-09-25 用户点名"就黑白双色")。
+$script:cFace    = New-GdColor  28  28  28      # 卡片
+$script:cCardTitle = New-GdColor 190 190 190    # 卡片小标题(比正文暗一档，8.5pt 再灰就只剩"一片浅灰")
+$script:cWindow  = New-GdColor  16  16  16      # 窗口底
+$script:cNav     = New-GdColor   8   8   8      # 左侧导航带(比窗口底再深一档)
+$script:cNavSub  = New-GdColor 130 130 130
+$script:cLine    = New-GdColor  60  60  60      # 卡片描边
+$script:cAccent  = New-GdColor 255 255 255      # 主动作：白底黑字，深底上唯一光源(和 panel-cs 的 Theme.Dark 同值)
+$script:cAccentHi= New-GdColor 235 235 235
+$script:cAccentLo= New-GdColor 210 210 210
+$script:cHover   = New-GdColor  46  46  46      # 次级按钮悬停
+$script:cDown    = New-GdColor  58  58  58
+$script:cNavOn   = New-GdColor  46  46  46      # 导航项选中底(中性灰，选中感靠左侧白条)
+$script:cLogBack = New-GdColor  10  10  10
 <# 卡片里的行几何：起始 y / 行高 / 行距。Set-PanelCardLines 按这三个算"这张卡装得下几行"，
    所以改这里就等于改了四张卡的容量 —— 别再回到"高度写死、行数另写一处"的老路。
    三个数是配着 132 的卡高定的：32 + 4*20 + 18 = 130 ≤ 132，正好 5 行；
@@ -1016,7 +1017,7 @@ function New-PanelButton {
     switch ($Kind) {
         'primary' {
             $b.BackColor = $script:cAccent
-            $b.ForeColor = [System.Drawing.Color]::White
+            $b.ForeColor = [System.Drawing.Color]::Black   # 白底强调钮配黑字，和 panel-cs 的 PrimaryFore 同规则
             $b.FlatAppearance.BorderSize = 0
             $b.FlatAppearance.MouseOverBackColor = $script:cAccentHi
             $b.FlatAppearance.MouseDownBackColor = $script:cAccentLo

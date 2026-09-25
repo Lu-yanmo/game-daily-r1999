@@ -35,10 +35,11 @@
 「开始跑一轮」要连点两次才真的开跑。不想用鼠标的人可以 `pwsh -File tools\panel.ps1 -SelfTest`（不显示窗口，
 把状态摘要、参数探测、布局检查打出来）。打包成 exe 的场合对应动词是 `--panel`。
 
-另有一款**黑白双主题的 C# 面板**（`tools\panel-cs\Panel.cs`）随源码发布：跑一次
-`pwsh -File tools\panel-cs\build.ps1`（用 Windows 自带的 .NET 编译器，不用装任何东西）就会得到
-`tools\panel-cs\panel-cs.exe`，此后双击 `panel.cmd` 或 exe 不带参数都优先开它；不编译就照旧开 PowerShell 面板，两不耽误。
-它同样只转达 `tools\panel.ps1` 的结论（通过 `panel.ps1 -DumpSummary` 的机器协议），自己不判定任何东西。
+另有一款**黑白双主题的 C# 面板**（`tools\panel-cs\Panel.cs`）随源码发布：直接双击 `panel.cmd`
+（或不带参数开 exe）就会**自动现编**成 `tools\panel-cs\panel-cs.exe` 并打开它 —— 用的是 Windows
+自带的 .NET 编译器，不用装任何东西；编不出来(极精简系统)才退回 PowerShell 面板，两边看到的结论一模一样。
+想手动预编：`pwsh -File tools\panel-cs\build.ps1`。C# 面板同样只转达 `tools\panel.ps1` 的结论
+（通过 `panel.ps1 -DumpSummary` 的机器协议），自己不判定任何东西。
 
 
 命令行常用姿势：

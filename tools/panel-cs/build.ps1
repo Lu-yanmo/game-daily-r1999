@@ -1,8 +1,11 @@
 ﻿# tools/panel-cs/build.ps1 —— 用系统自带的 csc.exe(.NET Framework 4)把 Panel.cs 编成 panel-cs.exe。
 # 不依赖 dotnet SDK：玩家机器只要有 .NET Framework 4(Win10/11 出厂自带)就能跑产物。
-# 用法： powershell -File tools\panel-cs\build.ps1 [-Verify] [-Quiet]   (-Verify = 编完顺手跑 --selftest；-Quiet = 只留失败信息，给 panel.cmd 自动编译用)
+# 用法： powershell -File tools\panel-cs\build.ps1 [-Verify] [-ConsoleTest] [-Quiet]
+#   -Verify      = 编完顺手跑 --selftest(布局/主题链)
+#   -ConsoleTest = 再跑一遍 --consoletest(主控台四页：取数、写配置的转义与备份、代跑参数、诊断包不含 key)
+#   -Quiet       = 只留失败信息，给 panel.cmd 自动编译用
 [CmdletBinding()]
-param([switch]$Verify, [switch]$Quiet)
+param([switch]$Verify, [switch]$ConsoleTest, [switch]$Quiet)
 
 $ErrorActionPreference = 'Stop'
 $here = $PSScriptRoot
@@ -39,4 +42,11 @@ if ($Verify) {
     & $exe --selftest
     if ($LASTEXITCODE -ne 0) { throw 'panel-cs --selftest 有红项' }
     Write-Host 'panel-cs --selftest OK'
+}
+
+if ($ConsoleTest) {
+    # 主控台四页：转义往返 / 只在 settings 临时副本上写 / 四页版式 / 代跑参数怎么拼 / 诊断包里搜不到 key
+    & $exe --consoletest
+    if ($LASTEXITCODE -ne 0) { throw 'panel-cs --consoletest 有红项' }
+    Write-Host 'panel-cs --consoletest OK'
 }

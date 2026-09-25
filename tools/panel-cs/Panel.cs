@@ -1,19 +1,24 @@
 // tools/panel-cs/Panel.cs —— 每日清体力的图形状态面板(C# / WinForms，.NET Framework 4，系统自带 csc.exe 直接编译)。
 //
 // 和 panel.ps1 的分工：判定/读数仍然只在 panel.ps1 那一套里 —— 本文件不算任何结论，
-// 它做的只有四件事：
+// 它做的只有这几件事：
 //   1. 起一个隐藏子进程跑 `panel.ps1 -DumpSummary`，读 '|' 分隔的协议行(HEADER/GAME/TIME/LAST/GATE/ENV/PROBE/FLAGS/HELP)；
 //   2. 把行画成卡片/导航/日志，并把按钮动作转调现成脚本(daily-clear / status / run-via-task)；
 //   3. 黑/白双主题切换(唯一的"外观判定"，存在 state\panel-theme.txt)；
-//   4. 「实验功能」卡：面板上唯一直接碰 config\settings.json 的地方，而且只碰一个布尔键
-//      (runtime.arkVisionRescue) —— 写之前先备份到 backups\，用整文件行内替换、别的一个字节不动。
-//      这不是判定：用不用视觉兜底仍由 lib\vision-rescue.ps1 看那个键决定，面板只是拧开关。
-//      这也是"PS 面板渐进换 C# 面板"的起点：新功能先落这一侧，panel.ps1 冻结为兜底、不再双写。
+//   4. 「实验功能」卡：只碰一个布尔键(runtime.arkVisionRescue) —— 写之前先备份到 backups\，
+//      用整文件行内替换、别的一个字节不动；用不用视觉兜底仍由 lib\vision-rescue.ps1 看那个键决定。
+//   5. 主控台四页(配置/定时/历史/诊断)：把原来只能敲命令行的日常操作搬进界面。
+//      读 = 行内读 settings.json 的那几个键 + 转达 -DumpSummary 已有的 PROBE/TIME 行 + 直读 history.csv；
+//      写 = 路径改动代跑 setup.ps1、装卸任务代跑 install-task.ps1、换时间点代跑 reschedule-daily.ps1，
+//            只有视觉模型/地址/Key/Webhook 这类标量走行内替换(和 arkVisionRescue 同一套规矩)；
+//      一条硬的：**视觉 Key 不进命令行参数**(命令行在别的用户/工具面前是明文)，也不写进日志。
+//      面板仍然不加判定："这一路就绪没有""下一个时间点几点"都是脚本说的原话。
 // 所以 panel.ps1 里的措辞或 Kind 判据一改，这里一个字不改也跟着变 —— 不会出现两个面板各说各话。
 //
 // 用法：
-//   panel-cs.exe                 打开面板
+//   panel-cs.exe                 打开面板(左侧导航：总览 / 每一路 / 配置 / 定时 / 历史 / 诊断)
 //   panel-cs.exe --selftest      不显示窗口：读一次协议、渲染、查布局，有红项退出码 1
+//   panel-cs.exe --consoletest   不显示窗口：主控台四页的读写回环(打在临时副本上)、版式、抹 key，全对才 0
 //   panel-cs.exe --headless      窗口挪到屏幕外，自动起一次预演，验"子进程→日志区→忙碌复位"这条链后自关(零弹窗)
 //   panel-cs.exe --exptest       实验功能读写回环自测：翻一次开关→读回→翻回去→读回，全对才 0(会动 settings.json，只在测试树上跑)
 //
@@ -319,6 +324,7 @@ namespace GdPanel
 
         void ParseSummary(string dump)
         {
+            lastDump = dump;    // 诊断页把这份协议原文当"当前读数"存档，不另起一次子进程
             // 刷新会再解析一遍：这些列表必须先清空，否则"上一轮/门/环境"每刷新一次翻一倍
             games.Clear(); rowsLast.Clear(); rowsGates.Clear(); rowsEnv.Clear();
             probesByGame.Clear(); helpRows.Clear(); timesByPage.Clear(); elevNames.Clear();
@@ -704,6 +710,17 @@ namespace GdPanel
                 AppendLog("完整参数说明看 README.md。");
             };
 
+            // 主控台四页的操作台：整块盖在"四卡 + 动作区"那块地上(86..470)，默认藏着，导航点到才换上来。
+            // 建在这里而不是每张页各建一块，是为了让四页共用同一套坐标 —— 版式自检只需认这一只容器。
+            consoleHost = new Panel();
+            consoleHost.Location = new Point(X0, 86);
+            consoleHost.Size = new Size(CW, 384);
+            consoleHost.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom;
+            consoleHost.Visible = false;
+            Controls.Add(consoleHost);
+            themeTag(consoleHost, "card");
+            Borderless(consoleHost);
+
             logCard.Location = new Point(X0, 478);
             logCard.Size = new Size(CW, 240);
             logCard.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom;
@@ -730,7 +747,7 @@ namespace GdPanel
             btnTheme.Click += OnThemeClick;
 
             // 页脚两行的文案要等协议解析完才知道(这一仓有哪几路)，这里只建控件，文本在 RefreshCards 里刷
-            foot1 = MakeLabel(rail, "面板 C# · 子进程 " + Path.GetFileName(engine), 21, 684, RailW - 30, 17, null, SmallFont(), false);
+            foot1 = MakeLabel(rail, "面板 C# · 引擎 " + Path.GetFileName(engine).Replace(".exe", ""), 21, 684, RailW - 30, 17, null, SmallFont(), false);
             foot1.Anchor = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
             themeTag(foot1, "navsub");
             foot2 = MakeLabel(rail, "这一仓 …", 21, 705, RailW - 30, 17, null, SmallFont(), false);
@@ -806,6 +823,11 @@ namespace GdPanel
             List<string[]> items = new List<string[]>();
             items.Add(new[] { "all", "总览" });
             foreach (string[] g in games) items.Add(g);
+            // 主控台四页永远在：这一仓有几路只影响"配置页要填几个路径"，不影响能不能进这些页
+            items.Add(new[] { "cfg", "配 置" });
+            items.Add(new[] { "sched", "定 时" });
+            items.Add(new[] { "hist", "历 史" });
+            items.Add(new[] { "diag", "诊 断" });
             foreach (string[] it in items)
             {
                 Button nb = MakeButton(rail, it[1], 12, y, RailW - 24, 34, "nav");
@@ -843,6 +865,13 @@ namespace GdPanel
         void SelectPage(string id)
         {
             page = id;
+            ShowPageFor(id);
+            if (IsConsolePage(id))
+            {
+                // 同一页不重建：人家正在框里打字，45 秒一拍不能把字抹了
+                if (consoleBuilt != id) { RebuildConsole(id); consoleBuilt = id; }
+                else RefreshConsoleInPlace();
+            }
             RefreshCards();
         }
 
@@ -851,9 +880,14 @@ namespace GdPanel
             string title = "总览";
             foreach (string[] g in games) if (g[0] == page) title = g[1];
             if (page == "all") title = "总览";
-            pageTitle.Text = title;
+            string ct = ConsoleTitle(page);
+            pageTitle.Text = ct != null ? ct : title;
             UpdateOnlyBtn();
 
+            // 主控台四页把这块地整个让给操作台，卡片这次不画(它们也看不见)。
+            // 读数照常留在 rows* / timesByPage / probesByGame 里 —— 回到总览或某一路就照原样铺出来。
+            if (!IsConsolePage(page))
+            {
             List<Row> last = PageRows(rowsLast);
             if (last.Count == 0 && page != "all") last.Add(new Row("dim", "", PageTitle() + " 这一路这台机器还没跑过"));
             List<Row> gates = PageRows(rowsGates);
@@ -893,6 +927,8 @@ namespace GdPanel
                 expBtn.Visible = false;
             }
             RenderRows(cardExp, exp, 2);
+            }
+            else RefreshConsoleInPlace();   // 自动刷新那一拍到了主控台页：只把"转达"的那几行换新的
 
             foreach (KeyValuePair<string, Button> kv in navBtns)
             {
@@ -947,7 +983,8 @@ namespace GdPanel
         // 面板只是替玩家拧开关。写法用"整文件行内替换"：只换 true/false 那几个字节，
         // 别的内容(含中文说明、注释性键)一个字节不动，改前照 PS 那边的规矩备份 + 每文件只留 20 份。
         static readonly Regex ExpKeyRe = new Regex("(\"arkVisionRescue\"\\s*:\\s*)(true|false)");
-        string SettingsPath { get { return Path.Combine(root, @"config\settings.json"); } }
+        string settingsPathOverride;       // 只有 --consoletest 用它：把读写指到一份临时副本上
+        string SettingsPath { get { return string.IsNullOrEmpty(settingsPathOverride) ? Path.Combine(root, @"config\settings.json") : settingsPathOverride; } }
         bool ExpImplemented() { return File.Exists(Path.Combine(root, @"lib\vision-rescue.ps1")); }
 
         bool? ReadExpFlag()
@@ -997,6 +1034,776 @@ namespace GdPanel
                 return dest;
             }
             catch { return null; }
+        }
+
+        // ===================== 主控台四页：配置 / 定时 / 历史 / 诊断 =====================
+        // 这一段的定位和「实验功能」卡一样：面板是"把手"，不是"判定"。
+        //   读 —— 路径/时间点/视觉项的现值 = 行内读 settings.json(只取那一个键)；
+        //          「这一路到底就绪没有」「下一个时间点是几点」这类结论一律转达 -DumpSummary 已有的
+        //          PROBE / TIME 行原文，面板不自己算；历史表 = 直读 state\history.csv(判定层写的那几列)。
+        //   写 —— 路径改动代跑 setup.ps1(合并、备份、校验的规矩都留在那儿，面板不复制一套)；
+        //          视觉模型/地址/Webhook/vmIndex 这类标量走行内替换(和 arkVisionRescue 同一套：备份 + 每文件留 20 份)；
+        //          装卸任务、换时间点代跑 install-task.ps1 / reschedule-daily.ps1，那两步会弹一次 UAC，是脚本本来的行为。
+        // 例外一条：**视觉 Key 永远不进命令行参数**(进程命令行在别的用户/工具面前是明文)，只在面板里行内写。
+        static readonly string[] ConsoleIds = new[] { "cfg", "sched", "hist", "diag" };
+        static bool IsConsolePage(string id)
+        {
+            if (id == null) return false;
+            foreach (string s in ConsoleIds) if (s == id) return true;
+            return false;
+        }
+
+        Panel consoleHost;                 // 盖住"四卡 + 动作区"那块地，只在主控台四页可见
+        string consoleBuilt = null;        // consoleHost 里现在装的是哪一页(同页不重建，免得把人家正敲的字抹掉)
+        Label consoleNote;                 // 右上角一句话说明
+        readonly Dictionary<string, TextBox> boxByKey = new Dictionary<string, TextBox>();
+        readonly Dictionary<string, string> loadedVal = new Dictionary<string, string>();
+        Label cfgProbeArk, cfgProbeR1999;
+        Label schedReadout;
+        Panel histHost;
+        Label histHint;
+        int histRows;                      // 这次真的铺了几行，版式自检要用它区分"没历史"和"铺不出来"
+        string lastDump = null;            // 最近一次 -DumpSummary 原文，诊断页直接把它当"当前读数"存档
+        bool diagBusy = false;
+        string lastPackError = "";         // 打包失败的人话原因，自检要拿它说话
+
+        sealed class CfgField
+        {
+            public string Key = "";
+            public string Title = "";
+            public bool Dir;             // true = 目录(浏览用 FolderBrowserDialog)
+            public bool NoPick;          // true = 不给浏览按钮(数字序号这类，选不了文件)
+            public bool Secret;          // true = 不进命令行、框里打码
+            public string SetupArg = ""; // 非空 = 改动通过 setup.ps1 的这个参数下发
+            public string Game = "";     // 归属哪一路(""=两路都用)
+            public string Help = "";
+        }
+
+        // 按"这棵树上真的有这一路"给字段：单游戏仓库里不该出现另一路的路径框
+        List<CfgField> CfgFields()
+        {
+            List<CfgField> f = new List<CfgField>();
+            bool ark = HasGame("ark"), r1999 = HasGame("r1999");
+            if (ark)
+            {
+                f.Add(new CfgField { Key = "maaDir", Title = "方舟助手(MAA)目录", Dir = true, SetupArg = "-MaaDir", Game = "ark", Help = "整个程序目录，不是 MAA.exe 本身" });
+                f.Add(new CfgField { Key = "arknightsExe", Title = "方舟端游程序", Dir = false, SetupArg = "-ArkExe", Game = "ark", Help = "指到 Arknights.exe" });
+            }
+            if (r1999)
+            {
+                f.Add(new CfgField { Key = "m9aDir", Title = "1999 助手(M9A)目录", Dir = true, SetupArg = "-M9aDir", Game = "r1999", Help = "M9A-win-x86_64-… 那一层" });
+                f.Add(new CfgField { Key = "mumuDir", Title = "MuMu 管理器目录", Dir = true, SetupArg = "-MuMuDir", Game = "r1999", Help = "下面要有 nx_main\\MuMuManager.exe" });
+                f.Add(new CfgField { Key = "vmIndex", Title = "MuMu 虚拟机序号", Dir = false, NoPick = true, SetupArg = "-VmIndex", Game = "r1999", Help = "只有一台时 setup.ps1 会自动填；多台必须指对" });
+            }
+            // 视觉兜底是方舟那一路的东西(lib\vision-rescue.ps1 只被 ark 调)，1999 单仓里连键都没有，
+            // 摆两行填了也存不进 settings.json —— 按这一仓有没有 ark 决定要不要给这两行。
+            if (ark)
+            {
+                f.Add(new CfgField { Key = "visionModel", Title = "视觉模型", Dir = false, Game = "", Help = "只在 MAA 判到卡住时用来认弹窗，正常一轮一个请求都不发" });
+                f.Add(new CfgField { Key = "visionApiKey", Title = "视觉 Key", Dir = false, Secret = true, Game = "", Help = "留空 = 这一项不改；面板不把它带上命令行" });
+            }
+            f.Add(new CfgField { Key = "webhook", Title = "通知 Webhook", Dir = false, Game = "", Help = "留空 = 不发通知" });
+            return f;
+        }
+
+        bool HasGame(string id)
+        {
+            foreach (string[] g in games) if (g[0] == id) return true;
+            return false;
+        }
+
+        // ---------- settings.json 的标量读写：只换那一个键所在的一行，别的一个字节不动 ----------
+        static string JsonEscape(string s)
+        {
+            if (s == null) return "";
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < s.Length; i++)
+            {
+                char ch = s[i];
+                if (ch == '\\') sb.Append("\\\\");
+                else if (ch == '"') sb.Append("\\\"");
+                else if (ch == '\t') sb.Append("\\t");
+                else if (ch == '\r' || ch == '\n') sb.Append(' ');
+                else sb.Append(ch);
+            }
+            return sb.ToString();
+        }
+
+        static string JsonUnescape(string s)
+        {
+            if (s == null) return "";
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < s.Length; i++)
+            {
+                char ch = s[i];
+                if (ch != '\\' || i + 1 >= s.Length) { sb.Append(ch); continue; }
+                char n = s[++i];
+                if (n == '\\') sb.Append('\\');
+                else if (n == '"') sb.Append('"');
+                else if (n == '/') sb.Append('/');
+                else if (n == 't') sb.Append('\t');
+                else if (n == 'n') sb.Append('\n');
+                else if (n == 'r') sb.Append('\r');
+                else sb.Append(n);          // \u 之类这台机器的 settings.json 里没有，原样留着别乱猜
+            }
+            return sb.ToString();
+        }
+
+        string ReadSettingString(string key)
+        {
+            try
+            {
+                string path = SettingsPath;
+                if (!File.Exists(path)) return null;
+                Match m = new Regex("\"" + Regex.Escape(key) + "\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"").Match(File.ReadAllText(path));
+                if (!m.Success) return null;
+                return JsonUnescape(m.Groups[1].Value);
+            }
+            catch { return null; }
+        }
+
+        // 返回 null = 改好了；否则是人话版的没改成
+        string WriteSettingString(string key, string value)
+        {
+            string path = SettingsPath;
+            if (!File.Exists(path)) return "还没有 config\\settings.json —— 先点「自动扫描」或跑 setup.ps1 生成配置。";
+            try
+            {
+                string text = File.ReadAllText(path);
+                Regex re = new Regex("(\"" + Regex.Escape(key) + "\"\\s*:\\s*\")((?:[^\"\\\\]|\\\\.)*)(\")");
+                if (!re.IsMatch(text))
+                    return "settings.json 里没有 " + key + " 这一行(多半是老模板)，面板改不动 —— 重跑 setup.ps1 补出这一键再改。";
+                string bak = BackupSettings(path);
+                string repl = re.Replace(text, "$1" + MatcherEscape(JsonEscape(value)) + "$3");
+                File.WriteAllText(path, repl, new UTF8Encoding(false));
+                return bak != null ? "" : "写好了，但备份没成(backups\\ 没写进去) —— 这一项改动没法回退，留意一下。";
+            }
+            catch (Exception ex) { return "写 " + key + " 失败：" + ex.Message; }
+        }
+
+        static string MatcherEscape(string s)
+        {
+            // Regex.Replace 的替换串里 $ 和 \ 有特殊含义，路径里的反斜杠已经转义过了，$ 还得再挡一道
+            return s.Replace("$", "$$");
+        }
+
+        string[] ReadTimes()
+        {
+            try
+            {
+                if (!File.Exists(SettingsPath)) return new string[0];
+                Match m = new Regex("\"times\"\\s*:\\s*\\[([^\\]]*)\\]").Match(File.ReadAllText(SettingsPath));
+                if (!m.Success) return new string[0];
+                List<string> outList = new List<string>();
+                foreach (Match q in Regex.Matches(m.Groups[1].Value, "\"([^\"]*)\"")) outList.Add(q.Groups[1].Value);
+                return outList.ToArray();
+            }
+            catch { return new string[0]; }
+        }
+
+        // ---------- 页面切换：主控台四页把"四卡 + 动作区"整块换成一张操作台 ----------
+        void RebuildConsole(string id)
+        {
+            consoleHost.Controls.Clear();
+            boxByKey.Clear();
+            consoleHost.Visible = true;
+            consoleNote = MakeLabel(consoleHost, "", 300, 10, CW - 320, 17, ContentAlignment.TopRight, SmallFont(), false);
+            themeTag(consoleNote, "dim");
+            if (id == "cfg") BuildCfgPage();
+            else if (id == "sched") BuildSchedPage();
+            else if (id == "hist") BuildHistPage();
+            else BuildDiagPage();
+            ApplyTheme();
+        }
+
+        Label ConsoleCaption(string text, int y)
+        {
+            Label sq = new Label();
+            sq.Text = "";
+            sq.Location = new Point(16, y + 2);
+            sq.Size = new Size(3, 13);
+            sq.Tag = "accent_sq";
+            consoleHost.Controls.Add(sq);
+            // 第一行(y=10)右边那块位置被 consoleNote(右上角小字)占了：标题只留到 x=294，别和它压住
+            int capW = (y <= 10 ? 268 : CW - 42);
+            Label l = MakeLabel(consoleHost, text.ToUpper(), 26, y, capW, 17, null, SectionFont(), false);
+            l.Tag = "cardtitle";
+            return l;
+        }
+
+        TextBox MakeBox(Control parent, string key, int x, int y, int w, bool secret)
+        {
+            TextBox t = new TextBox();
+            t.Location = new Point(x, y);
+            t.Size = new Size(w, 24);
+            t.Font = new Font("Microsoft YaHei UI", 9.5f);
+            t.BorderStyle = BorderStyle.FixedSingle;
+            if (secret) t.UseSystemPasswordChar = true;
+            t.Tag = "input";
+            parent.Controls.Add(t);
+            if (key != null) boxByKey[key] = t;
+            return t;
+        }
+
+        // ---------- 页 1：配置 ----------
+        void BuildCfgPage()
+        {
+            consoleNote.Text = "改路径 → 代跑 setup.ps1 · 视觉与通知 → 面板行内写(写前备份) · 不点保存不落盘";
+            ConsoleCaption("助手路径", 10);
+            int y = 32;
+            List<CfgField> fields = CfgFields();
+            foreach (CfgField f in fields)
+            {
+                if (f.SetupArg.Length == 0) break;     // 剩下的归下面那组
+                AddCfgRow(f, ref y);
+            }
+            ConsoleCaption("视觉兜底与通知(可选)", y + 6);
+            y += 30;   // 标题占 y+6..y+23，下一行输入框从 y+30 起，留出不叠压的空档
+            foreach (CfgField f in fields)
+            {
+                if (f.SetupArg.Length != 0) continue;
+                AddCfgRow(f, ref y);
+            }
+
+            cfgProbeArk = MakeLabel(consoleHost, "", 16, y + 6, CW - 32, 17, null, SmallFont(), false);
+            themeTag(cfgProbeArk, "dim");
+            cfgProbeR1999 = MakeLabel(consoleHost, "", 16, y + 25, CW - 32, 17, null, SmallFont(), false);
+            themeTag(cfgProbeR1999, "dim");
+            RefreshProbeLines();
+
+            Button bScan = MakeButton(consoleHost, "自动扫描并保存", 16, 344, 168, 30, "primary");
+            bScan.Click += delegate { StartTask(Path.Combine(root, "setup.ps1"), new List<string>(), "自动扫描助手位置并写配置(setup.ps1)", false); };
+            Button bPaths = MakeButton(consoleHost, "保存路径改动", 192, 344, 148, 30, "secondary");
+            bPaths.Click += delegate { SavePathEdits(); };
+            Button bScalar = MakeButton(consoleHost, "保存视觉与通知", 348, 344, 148, 30, "secondary");
+            bScalar.Click += delegate { SaveScalarEdits(); };
+            Button bReload = MakeButton(consoleHost, "重读配置", 504, 344, 116, 30, "chip");
+            bReload.Click += delegate { LoadCfgValues(); RefreshNow("重读配置"); RefreshProbeLines(); AppendLog("配置页已按磁盘上的 settings.json 重读。"); };
+            Button bClear = MakeButton(consoleHost, "清空视觉 Key", 628, 344, 116, 30, "chip");
+            bClear.Visible = HasGame("ark");           // 这一仓没有 ark 那一路就没有视觉 Key 可清
+            bClear.Click += delegate
+            {
+                string r = WriteSettingString("visionApiKey", "");
+                TextBox t; if (boxByKey.TryGetValue("visionApiKey", out t)) { t.Text = ""; loadedVal["visionApiKey"] = ""; }
+                AppendLog(r.Length == 0 ? "视觉 Key 已从 settings.json 清掉(旧配置备份在 backups\\)。" : "清不掉：" + r);
+            };
+            Label warn = MakeLabel(consoleHost, "Key 不进命令行、不入仓", 752, 348, 156, 26, null, SmallFont(), false);
+            warn.Visible = HasGame("ark");
+            themeTag(warn, "dim");
+            LoadCfgValues();
+        }
+
+        void AddCfgRow(CfgField f, ref int y)
+        {
+            Label cap = MakeLabel(consoleHost, f.Title, 16, y + 3, 146, 18, null, null, false);
+            cap.Tag = "dim";
+            if (f.Help.Length > 0) rowTip.SetToolTip(cap, f.Help);   // 悬停看"这一项到底指哪儿"，不用把说明挤进标签
+            TextBox t = MakeBox(consoleHost, f.Key, 168, y, 620, f.Secret);
+            loadedVal[f.Key] = "";
+            if (f.SetupArg.Length > 0 && !f.NoPick)
+            {
+                Button b = MakeButton(consoleHost, f.Dir ? "浏览…" : "选文件…", 796, y, 74, 24, "chip");
+                bool dir = f.Dir;
+                b.Click += delegate { PickPath(t, dir, f.Title); };
+            }
+            else if (f.SetupArg.Length > 0 && f.NoPick)
+            {
+                Label s = MakeLabel(consoleHost, "填数字", 796, y + 3, 100, 18, null, SmallFont(), false);
+                themeTag(s, "dim");
+            }
+            else if (f.Secret)
+            {
+                Label s = MakeLabel(consoleHost, "留空=不改", 796, y + 3, 100, 18, null, SmallFont(), false);
+                themeTag(s, "dim");
+            }
+            y += 26;
+        }
+
+        void PickPath(TextBox box, bool dir, string title)
+        {
+            try
+            {
+                if (dir)
+                {
+                    using (FolderBrowserDialog d = new FolderBrowserDialog())
+                    {
+                        d.Description = title;
+                        try { if (box.Text.Length > 0 && Directory.Exists(box.Text)) d.SelectedPath = box.Text; } catch { }
+                        if (d.ShowDialog(this) != DialogResult.OK) return;
+                        box.Text = d.SelectedPath;
+                    }
+                }
+                else
+                {
+                    using (OpenFileDialog d = new OpenFileDialog())
+                    {
+                        d.Title = title;
+                        d.CheckFileExists = false;
+                        try { if (box.Text.Length > 0 && File.Exists(box.Text)) d.FileName = box.Text; } catch { }
+                        if (d.ShowDialog(this) != DialogResult.OK) return;
+                        box.Text = d.FileName;
+                    }
+                }
+                AppendLog("选好了一条：" + box.Text + " —— 还没写盘，点「保存路径改动」才交给 setup.ps1。");
+            }
+            catch (Exception ex) { AppendLog("浏览框没打开：" + ex.Message); }
+        }
+
+        void LoadCfgValues()
+        {
+            foreach (CfgField f in CfgFields())
+            {
+                TextBox t; if (!boxByKey.TryGetValue(f.Key, out t)) continue;
+                string v = ReadSettingString(f.Key);
+                string s = v == null ? "" : v;
+                t.Text = s;
+                loadedVal[f.Key] = s;
+            }
+        }
+
+        void RefreshProbeLines()
+        {
+            if (cfgProbeArk == null) return;
+            cfgProbeArk.Text = "判定层怎么说(转达 PROBE 原文)：" + ProbeLine("ark");
+            cfgProbeR1999.Text = HasGame("r1999") ? "　└ 1999：" + ProbeLine("r1999") : "　└ 这一仓没有 1999 那一路，上面填了也用不上";
+        }
+
+        string ProbeLine(string game)
+        {
+            List<string> parts = new List<string>();
+            List<Row> l;
+            if (probesByGame.TryGetValue(game, out l))
+                foreach (Row r in l) parts.Add(r.Text);
+            return parts.Count == 0 ? "没读到探针(判定库不在？)" : string.Join("　", parts.ToArray());
+        }
+
+        // 把"哪些框被改过、该带哪几个参数给 setup.ps1"这段算法单拎出来：
+        // 它决定"只下发改过的那几项"(其余沿用现有 settings.json)，也决定带引号的路径直接不交给命令行 —— 自检要钉的就是这两条。
+        List<string> ChangedPathArgs(List<string> rejected)
+        {
+            List<string> args = new List<string>();
+            foreach (CfgField f in CfgFields())
+            {
+                if (f.SetupArg.Length == 0 || f.Secret) continue;
+                TextBox t; if (!boxByKey.TryGetValue(f.Key, out t)) continue;
+                string now = t.Text.Trim();
+                string was = loadedVal.ContainsKey(f.Key) ? loadedVal[f.Key] : "";
+                if (now.Length == 0 || now == was) continue;
+                if (now.IndexOf('"') >= 0)
+                {
+                    if (rejected != null) rejected.Add(f.Title + "：路径里有 \"，面板不把它交给命令行");
+                    continue;
+                }
+                args.Add(f.SetupArg);
+                args.Add("\"" + now + "\"");
+            }
+            return args;
+        }
+
+        void SavePathEdits()
+        {
+            List<string> rejected = new List<string>();
+            List<string> args = ChangedPathArgs(rejected);
+            foreach (string r in rejected) AppendLog("这一项没交给 setup.ps1 ——" + r);
+            if (args.Count == 0) { AppendLog("路径没改动(或者上面那几项被挡下了)，这次不跑 setup.ps1。"); return; }
+            foreach (string a in args) if (a.StartsWith("-")) AppendLog("要下发：" + a + " …");
+            List<string> all = new List<string>();
+            all.Add("-SkipScan");                 // 没点的那几项沿用现有 settings.json，不重新扫盘
+            all.AddRange(args.ToArray());
+            StartTask(Path.Combine(root, "setup.ps1"), all, "把改过的路径交给 setup.ps1(-SkipScan：其余沿用现有配置)", false);
+        }
+
+        void SaveScalarEdits()
+        {
+            int changed = 0;
+            foreach (CfgField f in CfgFields())
+            {
+                if (f.SetupArg.Length != 0) continue;
+                TextBox t; if (!boxByKey.TryGetValue(f.Key, out t)) continue;
+                string now = t.Text.Trim();
+                string was = loadedVal.ContainsKey(f.Key) ? loadedVal[f.Key] : "";
+                if (f.Secret && now.Length == 0) continue;          // 留空 = 这一项不动(要清请用「清空视觉 Key」)
+                if (now == was) continue;
+                string r = WriteSettingString(f.Key, now);
+                if (r.Length != 0 && r.IndexOf("写好了") < 0) { AppendLog(f.Title + " 没写成：" + r); continue; }
+                loadedVal[f.Key] = now;
+                changed++;
+                AppendLog(f.Title + " 已写进 settings.json" + (f.Secret ? "(值本身不进日志)" : "：" + now) +
+                          (r.Length == 0 ? "，旧配置备份在 backups\\" : "，" + r));
+            }
+            if (changed == 0) AppendLog("视觉/通知这几项没改动，什么都没写。");
+            else RefreshNow("保存配置后");
+        }
+
+        // ---------- 页 2：定时 ----------
+        void BuildSchedPage()
+        {
+            consoleNote.Text = "时间点存 settings.json 的 schedule.times，注册动作仍归 install-task.ps1";
+            ConsoleCaption("机器上现在的定时任务(转达 TIME 原文)", 10);
+            schedReadout = MakeLabel(consoleHost, "", 16, 34, CW - 32, 84, null, null, false);
+            themeTag(schedReadout, "dim");
+            schedReadout.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+
+            int y = 128;
+            MakeLabel(consoleHost, "时间点", 16, y + 3, 90, 18, null, null, false).Tag = "dim";
+            TextBox t = MakeBox(consoleHost, "times", 108, y, 250, false);
+            string[] cur = ReadTimes();
+            t.Text = cur.Length == 0 ? "" : string.Join(",", cur);
+            loadedVal["times"] = t.Text;
+            Label hint = MakeLabel(consoleHost, "逗号分隔，HH:mm；一个时间点一个任务", 366, y + 3, 300, 18, null, SmallFont(), false);
+            themeTag(hint, "dim");
+            Label note2 = MakeLabel(consoleHost, "跑哪几路由脚本按这一仓有几路决定，面板不动它；换时间点会等正在跑的那一轮结束再动手。", 108, y + 32, 700, 18, null, SmallFont(), false);
+            themeTag(note2, "dim");
+            RefreshSchedReadout();
+
+            Button bDry = MakeButton(consoleHost, "先看要改什么", 16, 344, 148, 30, "secondary");
+            bDry.Click += delegate { RunReschedule(true); };
+            Button bApply = MakeButton(consoleHost, "应用时间点(弹一次 UAC)", 172, 344, 190, 30, "primary");
+            bApply.Click += delegate { RunReschedule(false); };
+            Button bInstall = MakeButton(consoleHost, "按现在的时间点注册", 370, 344, 168, 30, "secondary");
+            bInstall.Click += delegate { StartTask(Path.Combine(root, "install-task.ps1"), new List<string>(), "注册每日计划任务(install-task.ps1，要管理员)", false); };
+            Button bUninstall = MakeButton(consoleHost, "卸掉这些任务", 546, 344, 130, 30, "chip");
+            bUninstall.Click += delegate { StartTask(Path.Combine(root, "install-task.ps1"), new List<string> { "-Uninstall" }, "移除计划任务(install-task.ps1 -Uninstall)", false); };
+            Button bReload2 = MakeButton(consoleHost, "重读", 684, 344, 90, 30, "chip");
+            bReload2.Click += delegate { RebuildConsole("sched"); RefreshNow("重读定时"); };
+        }
+
+        void RunReschedule(bool dryRun)
+        {
+            TextBox t; if (!boxByKey.TryGetValue("times", out t)) return;
+            string raw = t.Text.Trim();
+            if (raw.Length == 0) { AppendLog("时间点框是空的 —— 不敢把任务改成「一个都没有」，先填上 HH:mm。"); return; }
+            List<string> bad = new List<string>();
+            foreach (string one in raw.Split(','))
+            {
+                string s = one.Trim();
+                if (s.Length == 0) continue;
+                if (!Regex.IsMatch(s, @"^\d{1,2}:\d{2}$")) bad.Add(s);
+            }
+            if (bad.Count > 0) { AppendLog("这几个不像时间点：" + string.Join(" ", bad.ToArray()) + "(要 06:00 这种)。"); return; }
+            List<string> args = new List<string>();
+            args.Add("-Times");
+            args.Add("\"" + raw + "\"");
+            if (dryRun) args.Add("-DryRun");
+            StartTask(Path.Combine(root, @"tools\reschedule-daily.ps1"), args,
+                      dryRun ? "预览要改的时间点(reschedule-daily.ps1 -DryRun，不写不注册)" : "改时间点(等当前轮跑完 → 写配置 → 重注册 → 删旧任务)", false);
+        }
+
+        void RefreshSchedReadout()
+        {
+            if (schedReadout == null) return;
+            List<string> lines = new List<string>();
+            List<Row> t;
+            if (timesByPage.TryGetValue("all", out t))
+                foreach (Row r in t) lines.Add(r.Kind + "  " + r.Text);
+            schedReadout.Text = lines.Count == 0 ? "没读到定时行(判定库不在？)" : string.Join("   ｜   ", lines.ToArray());
+        }
+
+        // ---------- 页 3：历史 ----------
+        void BuildHistPage()
+        {
+            consoleNote.Text = "state\\history.csv 是判定层每轮逐字写的，面板只铺表、不改一个字";
+            ConsoleCaption("历  史", 10);
+            histHost = new Panel();
+            histHost.Location = new Point(16, 34);
+            histHost.Size = new Size(CW - 32, 300);
+            histHost.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom;
+            histHost.Tag = "card";
+            consoleHost.Controls.Add(histHost);
+
+            histHint = MakeLabel(consoleHost, "", 16, 340, 560, 18, null, SmallFont(), false);
+            themeTag(histHint, "dim");
+            Button bRef = MakeButton(consoleHost, "刷新历史", 592, 336, 116, 30, "secondary");
+            bRef.Click += delegate { RebuildConsole("hist"); };
+            Button bLog = MakeButton(consoleHost, "打开日志目录", 716, 336, 116, 30, "chip");
+            bLog.Click += delegate
+            {
+                try { Process.Start("explorer.exe", Path.Combine(root, "logs")); }
+                catch (Exception ex) { AppendLog("打不开日志目录：" + ex.Message); }
+            };
+            RenderHistory();
+        }
+
+        void RenderHistory()
+        {
+            if (histHost == null) return;
+            histRows = 0;
+            histHost.Controls.Clear();
+            List<string[]> recs;
+            try { recs = ParseCsv(ReadAllShared(HistoryPath)); }
+            catch (Exception ex) { histHint.Text = "读 history.csv 失败：" + ex.Message; return; }
+            if (recs.Count < 2) { histHint.Text = "还没有历史(跑过一轮才会有)。"; return; }
+            string[] head = recs[0];
+            int ti = CsvCol(head, "time"), gi = CsvCol(head, "game"), si = CsvCol(head, "status"),
+                mi = CsvCol(head, "mode"), di = CsvCol(head, "duration_sec"), vi = CsvCol(head, "detail");
+            if (ti < 0 || gi < 0 || si < 0) { histHint.Text = "history.csv 表头对不上(要 time/game/status)，面板不猜列位。"; return; }
+
+            int total = recs.Count - 1;
+            int cap = 12;
+            int from = total > cap ? total - cap + 1 : 1;   // 记录从下标 1 开始：取最后 cap 条就是 [total-cap+1 .. total]
+            int y = 4;
+            int shown = 0;
+            for (int i = recs.Count - 1; i >= from; i--)
+            {
+                string[] r = recs[i];
+                if (r.Length <= ti || r.Length <= gi || r.Length <= si) continue;
+                string game = r[gi].Trim();
+                string status = r[si].Trim();
+                string detail = vi >= 0 && r.Length > vi ? r[vi].Trim() : "";
+                string kind = status == "ok" ? "ok" : (status == "blocked" || status == "error" ? "err" : "warn");
+                string dur = di >= 0 && r.Length > di && r[di].Trim().Length > 0 ? r[di].Trim() + "s" : "-";
+                string line = Pad(r[ti].Trim(), 20) + "  " + Pad(GameName(game), 8) + "  " + Pad(dur, 8) + "  " +
+                              (detail.Length > 0 ? Cut(detail, 96) : "(这轮没写原因)");
+                // 等宽字体：这几列是靠 Pad() 数格子对齐的，用雅黑那种比例字体"方舟"和"1999"宽度就不齐
+                Label l = MakeLabel(histHost, line, 6, y, histHost.Width - 12, 18, null, MonoFont(), false);
+                themeTag(l, "line:" + kind);
+                if (detail.Length > 0)
+                {
+                    l.Cursor = Cursors.Hand;
+                    Row captured = new Row(kind, game, status + " · " + r[ti].Trim(), detail);
+                    ToolTipHintRow(l, captured);
+                    l.Click += delegate { ShowRowDetail(captured); };
+                }
+                y += 22; shown++;
+            }
+            histRows = shown;
+            histHint.Text = "共 " + total + " 条，这里显示最近 " + shown + " 条(新的在上) —— 带原因的行可以点，完整那句会打进日志区。";
+        }
+
+        void ToolTipHintRow(Label l, Row r)
+        {
+            rowTip.SetToolTip(l, ToolTipHint(r));
+        }
+
+        static string Cut(string s, int n)
+        {
+            return s.Length <= n ? s : s.Substring(0, n) + "…";
+        }
+
+        // ---------- 页 4：诊断打包 ----------
+        void BuildDiagPage()
+        {
+            consoleNote.Text = "只放这台机器上给人看，默认落桌面；包里的 settings 摘要是去掉 key 之后的";
+            ConsoleCaption("打  包", 10);
+            string[] inc = new string[] {
+                "读数.txt —— 最近一次 -DumpSummary 的协议原文(判定层说的那些行，一个字不改)",
+                "体检.txt —— status.ps1 -Offline 的输出(只读，不会启动任何程序)",
+                "配置摘要.txt —— settings.json 里 paths / schedule / runtime 这几段的现值，visionApiKey 与 webhook 已抹掉",
+                "history.csv —— 每轮的状态与结论(判定层逐字写的)",
+                "logs\\run-*.log 最近 5 个 —— 我们自己的那轮日志(单个超 4MB 的跳过)"
+            };
+            int y = 34;
+            foreach (string s in inc)
+            {
+                Label b = MakeLabel(consoleHost, "· " + s, 16, y, CW - 40, 18, null, SmallFont(), false);
+                themeTag(b, "dim");
+                y += 20;
+            }
+            Label warn = MakeLabel(consoleHost, "里面有本机绝对路径和某一天的时间点：这类值只在这台机器上成立，别当成仓库里的东西发出去，也别忘了包里有日志里的那些路径。",
+                                    16, y + 8, CW - 40, 34, null, SmallFont(), false);
+            themeTag(warn, "warn");
+            Button bPack = MakeButton(consoleHost, "打包到桌面", 16, 344, 168, 30, "primary");
+            bPack.Click += delegate { AppendLog("开始打包：体检那一段要现跑 status.ps1 -Offline，十几秒到几十秒，界面会短暂无响应。"); PackDiag(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), true, true); };
+            Button bTmp = MakeButton(consoleHost, "先打一份到临时目录看看", 192, 344, 200, 30, "secondary");
+            bTmp.Click += delegate { PackDiag(Path.Combine(Path.GetTempPath(), "gd-diag-preview"), true, false); };
+            Button bOpen = MakeButton(consoleHost, "打开桌面", 400, 344, 116, 30, "chip");
+            bOpen.Click += delegate
+            {
+                try { Process.Start("explorer.exe", Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory)); }
+                catch (Exception ex) { AppendLog("打不开桌面：" + ex.Message); }
+            };
+        }
+
+        // 打包本身不判定任何东西：只是把已经在盘上的读数/日志按清单抄一份压成 zip。
+        // key 一律不进包(写摘要时按行抹掉)，zip 靠现成的 Compress-Archive 生成，不在 C# 里引新程序集。
+        string PackDiag(string destDir, bool tell, bool withStatus)
+        {
+            if (diagBusy) { if (tell) AppendLog("上一次打包还没完，等它。"); return ""; }
+            diagBusy = true;
+            string stage = "";
+            try
+            {
+                stage = Path.Combine(Path.GetTempPath(), "gd-diag-" + DateTime.Now.ToString("yyyyMMdd-HHmmss"));
+                Directory.CreateDirectory(Path.Combine(stage, "logs"));
+                if (lastDump != null && lastDump.Length > 0) File.WriteAllText(Path.Combine(stage, "读数.txt"), lastDump, new UTF8Encoding(true));
+                else File.WriteAllText(Path.Combine(stage, "读数.txt"), "(这次没读到 -DumpSummary 原文)", new UTF8Encoding(true));
+                WriteSettingsDigest(Path.Combine(stage, "配置摘要.txt"));
+                if (withStatus) File.WriteAllText(Path.Combine(stage, "体检.txt"), RunStatusOffline(), new UTF8Encoding(true));
+                try { if (File.Exists(HistoryPath)) File.Copy(HistoryPath, Path.Combine(stage, "history.csv"), true); } catch { }
+                int copied = CopyRecentLogs(Path.Combine(stage, "logs"));
+
+                // 压缩交给现成的 Compress-Archive。这里刻意走"写一个临时 .ps1 再 -File 调它"：
+                // powershell.exe 5.1 的 -Command 会把整串当成一个单引号字符串字面量，不执行(实测静默什么都不压)。
+                string dest = Path.Combine(destDir, "GD诊断-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".zip");
+                string pack = Path.Combine(Path.GetTempPath(), "gd-diag-pack-" + Process.GetCurrentProcess().Id + ".ps1");
+                StringBuilder ps = new StringBuilder();
+                ps.AppendLine("$ErrorActionPreference = 'Stop'");
+                ps.AppendLine("New-Item -ItemType Directory -Force -Path '" + QuoteSingle(destDir) + "' | Out-Null");
+                ps.AppendLine("Compress-Archive -LiteralPath '" + QuoteSingle(stage) + "' -DestinationPath '" +
+                              QuoteSingle(dest) + "' -Force");
+                // 带 BOM：这台机器的 5.1 读无 BOM 的 UTF-8 中文 .ps1 会翻车(路径本身是 ASCII，但规矩按规矩来)
+                File.WriteAllText(pack, ps.ToString(), new UTF8Encoding(true));
+
+                ProcessStartInfo psi = new ProcessStartInfo();
+                psi.FileName = engine;
+                psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -File \"" + pack + "\"";
+                psi.WorkingDirectory = root;
+                psi.UseShellExecute = false;
+                psi.CreateNoWindow = true;
+                psi.RedirectStandardOutput = true;
+                psi.RedirectStandardError = true;
+                psi.StandardOutputEncoding = Encoding.UTF8;
+                psi.StandardErrorEncoding = Encoding.UTF8;
+                Process p = Process.Start(psi);
+                string so = p.StandardOutput.ReadToEnd();
+                string se = p.StandardError.ReadToEnd();
+                if (!p.WaitForExit(60000))
+                {
+                    try { p.Kill(); } catch { }
+                    lastPackError = "打包超时(60 秒)";
+                    if (tell) AppendLog("打包超时(60 秒)，这次没成。");
+                    CleanupPack(pack, stage); return "";
+                }
+                if (tell)
+                {
+                    foreach (string l in (so + se).Replace("\r", "").Split('\n'))
+                        if (l.Trim().Length > 0) AppendLog("  " + l);
+                }
+                bool ok = p.ExitCode == 0 && File.Exists(dest);
+                lastPackError = ok ? "" : "退出码 " + p.ExitCode + (se.Trim().Length > 0 ? "；" + OneLine(se.Trim()) : (File.Exists(dest) ? "" : "；zip 没生成"));
+                if (tell)
+                {
+                    AppendLog(ok ? "包好了：" + dest + "(日志 " + copied + " 个；settings 摘要里没有 key)"
+                                 : "打包没成 —— " + lastPackError);
+                }
+                CleanupPack(pack, stage);
+                return ok ? dest : "";
+            }
+            catch (Exception ex) { lastPackError = ex.Message; if (tell) AppendLog("打包失败：" + ex.Message); return ""; }
+            finally { diagBusy = false; }
+        }
+
+        static string QuoteSingle(string s)
+        {
+            return s == null ? "" : s.Replace("'", "''");
+        }
+
+        // 打包用的临时脚本和临时目录都得收掉：脚本留在 %TEMP% 里没人清，目录里是抄出来的日志
+        void CleanupPack(string script, string stage)
+        {
+            try { if (script != null && File.Exists(script)) File.Delete(script); } catch { }
+            try { if (stage != null && Directory.Exists(stage)) Directory.Delete(stage, true); } catch { }
+        }
+
+        static string OneLine(string s)
+        {
+            if (s == null) return "";
+            string r = s.Replace("\r", " ").Replace("\n", " ").Trim();
+            return r.Length > 180 ? r.Substring(0, 180) + "…" : r;
+        }
+
+        void WriteSettingsDigest(string path)
+        {
+            StringBuilder sb = new StringBuilder();
+            sb.AppendLine("settings.json 摘要(生成于 " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + ")");
+            sb.AppendLine("规则：_readme 那种长说明不抄；visionApiKey / webhook 两行按值抹成 <已抹掉>，其余原样。");
+            try
+            {
+                if (!File.Exists(SettingsPath)) { sb.AppendLine("(这台机器还没有 config\\settings.json)"); }
+                else
+                {
+                    foreach (string raw in File.ReadAllLines(SettingsPath))
+                    {
+                        string line = raw.TrimEnd();
+                        if (line.Trim() == "{") continue;
+                        if (line.IndexOf("\"_readme\"") >= 0) { sb.AppendLine("  \"_readme\": <模板说明，省略>"); continue; }
+                        if (Regex.IsMatch(line, "\"(visionApiKey|webhook)\"\\s*:\\s*\"[^\"]+\""))
+                            line = Regex.Replace(line, "(:\\s*)\"[^\"]+\"", "$1\"<已抹掉>\"");
+                        sb.AppendLine(line);
+                    }
+                }
+            }
+            catch (Exception ex) { sb.AppendLine("(读 settings.json 失败：" + ex.Message + ")"); }
+            File.WriteAllText(path, sb.ToString(), new UTF8Encoding(true));
+        }
+
+        // 体检那一段是"现跑一次只读脚本再把输出抄进包"，不自己算任何东西。
+        // 同步等最多 60 秒：面板会短暂无响应，所以点按钮时先在日志里预告了。
+        string RunStatusOffline()
+        {
+            try
+            {
+                ProcessStartInfo psi = new ProcessStartInfo();
+                psi.FileName = engine;
+                psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -File \"" + Path.Combine(root, "status.ps1") + "\" -Offline";
+                psi.WorkingDirectory = root;
+                psi.UseShellExecute = false;
+                psi.CreateNoWindow = true;
+                psi.RedirectStandardOutput = true;
+                psi.RedirectStandardError = true;
+                psi.StandardOutputEncoding = Encoding.UTF8;
+                psi.StandardErrorEncoding = Encoding.UTF8;
+                Process p = Process.Start(psi);
+                string so = p.StandardOutput.ReadToEnd();
+                string se = p.StandardError.ReadToEnd();
+                if (!p.WaitForExit(60000)) { try { p.Kill(); } catch { } return "(status.ps1 -Offline 超 60 秒没跑完，这是已拿到的部分)\r\n" + so + se; }
+                return "status.ps1 -Offline 退出码 " + p.ExitCode + "\r\n\r\n" + so + (se.Length > 0 ? "\r\n[stderr]\r\n" + se : "");
+            }
+            catch (Exception ex) { return "(体检没跑成：" + ex.Message + ")"; }
+        }
+
+        int CopyRecentLogs(string logStage)
+        {
+            int n = 0;
+            try
+            {
+                string dir = Path.Combine(root, "logs");
+                if (!Directory.Exists(dir)) return 0;
+                List<FileInfo> files = new List<FileInfo>();
+                foreach (string f in Directory.GetFiles(dir, "run-*.log")) files.Add(new FileInfo(f));
+                files.Sort(delegate(FileInfo a, FileInfo b) { return b.LastWriteTime.CompareTo(a.LastWriteTime); });
+                for (int i = 0; i < files.Count && n < 5; i++)
+                {
+                    if (files[i].Length > 4L * 1024 * 1024) continue;
+                    try { File.Copy(files[i].FullName, Path.Combine(logStage, files[i].Name), true); n++; } catch { }
+                }
+            }
+            catch { }
+            return n;
+        }
+
+        // ---------- 四页共用的显示/刷新 ----------
+        void RefreshConsoleInPlace()
+        {
+            if (page == "cfg") { RefreshProbeLines(); }
+            else if (page == "sched") { RefreshSchedReadout(); }
+            else if (page == "hist") { RenderHistory(); }
+        }
+
+        bool consoleUp;                    // 我们自己"要求显示"的状态：窗体没 Show 时控件的 Visible getter 是有效可见性，一律 false，自检不能拿它当依据
+        bool cardsUp = true;               // 同上，卡片/动作区那一侧
+        void ShowPageFor(string id)
+        {
+            bool console = IsConsolePage(id);
+            consoleUp = console;
+            cardsUp = !console;
+            consoleHost.Visible = console;
+            cardTimes.Visible = !console;
+            cardLast.Visible = !console;
+            cardGates.Visible = !console;
+            cardEnv.Visible = !console;
+            cardExp.Visible = !console;
+            act.Visible = !console;
+            if (!console) consoleBuilt = null;
+        }
+
+        string ConsoleTitle(string id)
+        {
+            if (id == "cfg") return "配置";
+            if (id == "sched") return "定时";
+            if (id == "hist") return "历史";
+            if (id == "diag") return "诊断";
+            return null;
         }
 
         void RenderRows(Panel card, List<Row> rows, int maxLines)
@@ -1085,7 +1892,7 @@ namespace GdPanel
         {
             BackColor = th.Window;
             foreach (Control c in AllControls()) ApplyOne(c);
-            foreach (Panel p in new[] { cardTimes, cardLast, cardGates, cardEnv, cardExp, act, logCard }) p.Invalidate();
+            foreach (Panel p in new[] { cardTimes, cardLast, cardGates, cardEnv, cardExp, act, logCard, consoleHost }) p.Invalidate();
             hdr.Invalidate();
             logBox.Invalidate();
         }
@@ -1123,6 +1930,13 @@ namespace GdPanel
             if (tag == "accent_sq") { c.BackColor = th.Accent; return; }   // 卡片标题前那 3px 小块
             if (tag == "rail") { c.BackColor = th.Rail; return; }
             if (tag == "card") { c.BackColor = th.Card; return; }
+            // 输入框：黑白双主题里"能敲的地方"只靠一档底色差体现，不加第三种颜色
+            if (tag == "input" && c is TextBox)
+            {
+                c.BackColor = th.Name == "dark" ? th.NavOn : th.Window;
+                c.ForeColor = th.Text;
+                return;
+            }
             if (c is Button)
             {
                 Button b = (Button)c;
@@ -1796,6 +2610,37 @@ namespace GdPanel
         Font SmallFont() { return new Font("Microsoft YaHei UI", 8.5f); }
         Font SectionFont() { return new Font("Microsoft YaHei UI", 8.5f, FontStyle.Bold); }
 
+        // 历史表那几列靠 Pad() 数"格子"对齐(中文算两格)，只有等宽字体才数得准。
+        // 挑字体的办法不靠"量一个字母一个空格" —— MeasureText 对短串有个跟长度有关的底补
+        // (这台机器上量单个空格 14px、量 8 个才 63px，按单字算出来的比例全是假的)。
+        // 直接量**真会画出来的那两行**：哪套候选字体下"方舟行"和"1999 行"一样宽，就用哪套；
+        // 一套都找不到就退回雅黑(宁可没对齐也别缺字)，那时 --consoletest 的列对齐断言会当场红给你看。
+        Font monoFont;
+        static string MonoProbeA { get { return Pad("2026-09-25 19:30:00", 20) + "  " + Pad("方舟", 8) + "  " + Pad("662s", 8); } }
+        static string MonoProbeB { get { return Pad("2026-09-25 19:36:15", 20) + "  " + Pad("1999", 8) + "  " + Pad("-", 8); } }
+
+        Font MonoFont()
+        {
+            if (monoFont == null)
+            {
+                Font best = null;
+                foreach (string cand in new string[] { "NSimSun", "SimSun", "Microsoft YaHei UI" })
+                {
+                    Font f = null;
+                    try
+                    {
+                        f = new Font(cand, 9.5f);
+                        if (Math.Abs(TextRenderer.MeasureText(MonoProbeA, f).Width - TextRenderer.MeasureText(MonoProbeB, f).Width) <= 1)
+                        { best = f; break; }
+                        f.Dispose();
+                    }
+                    catch { if (f != null) f.Dispose(); }
+                }
+                monoFont = best != null ? best : SmallFont();
+            }
+            return monoFont;
+        }
+
         static string Pad(string text, int width)
         {
             int cols = 0;
@@ -1905,6 +2750,13 @@ namespace GdPanel
             foreach (string id in new List<string>(navBtns.Keys))
             {
                 SelectPage(id);
+                if (IsConsolePage(id))
+                {
+                    bad += AuditConsole(id);
+                    continue;
+                }
+                if (consoleUp || !cardsUp)
+                { Console.WriteLine("  布局问题 " + PageTitle() + " 不是主控台页，操作台却还挡在卡片前面"); bad++; }
                 foreach (Panel card in new[] { cardTimes, cardLast, cardGates, cardEnv, cardExp })
                 {
                     int lines = 0;
@@ -1946,6 +2798,302 @@ namespace GdPanel
             foreach (Control c in card.Controls)
                 if (c.Tag != null && c.Tag.ToString() == "cardtitle") return c.Text;
             return "?";
+        }
+
+        // 主控台页的版式自检：操作台得露着、卡片/动作区得让位，页内控件不许越出容器、不许互相压住。
+        // 卡片那套断言在主控台页上没有意义(整块被盖住了)，所以这里换成认 consoleHost。
+        int AuditConsole(string id)
+        {
+            int bad = 0;
+            string what = ConsoleTitle(id);
+            if (!consoleUp) { Console.WriteLine("  布局问题 " + what + " 页操作台没要求显示"); return 1; }
+            if (cardsUp) { Console.WriteLine("  布局问题 " + what + " 页卡片或动作区没让位"); bad++; }
+            List<Control> kids = new List<Control>();
+            foreach (Control c in consoleHost.Controls) kids.Add(c);
+            if (kids.Count < 3) { Console.WriteLine("  布局问题 " + what + " 页只摆了 " + kids.Count + " 个控件，像是没建起来"); bad++; }
+            Rectangle cl = new Rectangle(Point.Empty, consoleHost.ClientSize);
+            foreach (Control c in kids)
+            {
+                Rectangle a = c.Bounds;
+                if (a.X < 0 || a.Y < 0 || a.Right > cl.Right || a.Bottom > cl.Bottom)
+                { Console.WriteLine("  布局问题 " + what + " 页控件越出操作台(" + Describe(c) + "): " + a); bad++; }
+            }
+            for (int i = 0; i < kids.Count; i++)
+                for (int j = i + 1; j < kids.Count; j++)
+                {
+                    Rectangle a = kids[i].Bounds, b = kids[j].Bounds;
+                    if (a.X < b.Right && b.X < a.Right && a.Y < b.Bottom && b.Y < a.Bottom)
+                    { Console.WriteLine("  布局问题 " + what + " 页两个控件互相压住(" + Describe(kids[i]) + " × " + Describe(kids[j]) + ")"); bad++; }
+                }
+            if (id == "hist")
+            {
+                int rows = 0;
+                if (histHost != null) foreach (Control c in histHost.Controls) if (c is Label) rows++;
+                if (File.Exists(HistoryPath) && histRows > 0 && rows == 0)
+                { Console.WriteLine("  布局问题 历史页有 " + histRows + " 条历史却一行没铺"); bad++; }
+            }
+            Console.WriteLine("  " + what + " 页：" + kids.Count + " 个控件，边界/叠压检查" + (bad == 0 ? "通过" : "有红项"));
+            return bad;
+        }
+
+        static string Describe(Control c)
+        {
+            string t = c.Text == null ? "" : c.Text;
+            if (t.Length > 14) t = t.Substring(0, 14) + "…";
+            return c.GetType().Name + (t.Length > 0 ? "「" + t + "」" : "");
+        }
+
+        // --consoletest：主控台四页的离线自检。零弹窗、不碰真 settings.json(读写全部打在 %TEMP% 的一份副本上)、
+        // 不起 daily-clear/status/setup 那一类脚本(只有打包那一步按需起一次 Compress-Archive，用完即删)。
+        // 验的是"把手接得对"：转达的行、转发给 setup.ps1 的参数、写回的键、包里抹没抹掉 key。
+        public int ConsoleTest()
+        {
+            int fail = 0;
+            chkFail = 0;    // Chk 的账记在字段上，收尾时并进来(见 Chk 上方注释)
+            Console.WriteLine("---- panel-cs 主控台四页自测(不显示窗口；只起一次压缩，不跑日常脚本) ----");
+            Console.WriteLine("root=" + root + "  引擎=" + Path.GetFileName(engine) + "  这一仓=" + string.Join(" + ", GameIds()));
+            string keepSettings = settingsPathOverride, keepHistory = historyPathOverride;
+            string tmpSettings = Path.Combine(Path.GetTempPath(), "gd-consoletest-settings-" + Process.GetCurrentProcess().Id + ".json");
+            pump.Stop(); beat.Stop();
+            Location = new Point(-16000, -16000);
+            ShowInTaskbar = false;
+            try
+            {
+                // ---- 1) JSON 转义往返：路径里的反斜杠/引号/中文/制表都必须原样回来 ----
+                // 这几条是**编出来的形状**(有空格、有版本号、有反斜杠)，不许抄本机真路径：
+                // tools\publish-split.ps1 的 Test-GdExportLeaks 会拿 settings.json 里的每个本机值来扫源码，
+                // 上一轮就是因为把真实的 MAA 目录端游路径粘进测试样本，导出时被这道闸判红。
+                string[] probes = new string[] {
+                    @"C:\Tools\MAA-v0.0.0-win-x64",
+                    @"D:\Games\Arknights Game\Arknights.exe",
+                    "带\"引号\"的路径",
+                    @"尾巴一个反斜杠\",
+                    "tab\t制表 与 中文"
+                };
+                foreach (string s in probes)
+                {
+                    string rt = JsonUnescape(JsonEscape(s));
+                    Chk("转义往返：" + s.Replace("\t", "\\t"), rt == s, rt == s ? "" : "回来的是 " + rt.Replace("\t", "\\t"));
+                }
+                // 转义过的串里，每个 " 前头都必须是奇数个反斜杠；偶数(含 0)就是裸引号，会把 settings.json 那一行弄断
+                string escq = JsonEscape("他说\"停\"，然后\\继续\"");
+                bool naked = false;
+                for (int i = 0; i < escq.Length; i++)
+                {
+                    if (escq[i] != '"') continue;
+                    int bs = 0;
+                    for (int j = i - 1; j >= 0 && escq[j] == '\\'; j--) bs++;
+                    if (bs % 2 == 0) naked = true;
+                }
+                Chk("转义后没有裸引号(每个 \\\" 前都是奇数个反斜杠)", !naked, escq);
+
+                // ---- 2) 标量读写：全部打在临时副本上，真配置一个字节都不动 ----
+                bool haveReal = File.Exists(Path.Combine(root, @"config\settings.json"));
+                byte[] realBytes = haveReal ? File.ReadAllBytes(Path.Combine(root, @"config\settings.json")) : null;
+                if (haveReal) File.Copy(Path.Combine(root, @"config\settings.json"), tmpSettings, true);
+                else File.WriteAllText(tmpSettings, "{\n  \"paths\": {\n    \"maaDir\": \"C:\\\\Fake\\\\MAA\"\n  },\n  \"notify\": {\n    \"webhook\": \"\"\n  }\n}\n", new UTF8Encoding(false));
+                settingsPathOverride = tmpSettings;
+                string beforeMaa = ReadSettingString("maaDir");
+                Chk("临时副本读得到 maaDir", beforeMaa != null, "值=" + (beforeMaa == null ? "null" : beforeMaa));
+                Chk("键不存在时说的是『老模板、改不动』而不是硬塞",
+                    WriteSettingString("no_such_key_for_test", "x").IndexOf("老模板") >= 0, "");
+
+                string hook = "https://example.invalid/hook?a=1&b=2";
+                string origHook = ReadSettingString("webhook");
+                if (origHook == null) origHook = "";
+                string w = WriteSettingString("webhook", hook);
+                Chk("写 webhook 有成(" + ShortMsg(w) + ")", w.Length == 0 || w.IndexOf("写好了") >= 0, w);
+                Chk("读回来和写进去一模一样", ReadSettingString("webhook") == hook, "读到 " + ReadSettingString("webhook"));
+                Chk("改动没牵连别处：maaDir 还是原来那条", ReadSettingString("maaDir") == beforeMaa, "");
+                string w2 = WriteSettingString("webhook", origHook);
+                Chk("能原样写回(" + ShortMsg(w2) + ")", w2.Length == 0 || w2.IndexOf("写好了") >= 0, w2);
+                Chk("写回后和动手前一字不差", ReadSettingString("webhook") == origHook, "读到[" + ReadSettingString("webhook") + "]");
+                byte[] head = new byte[3];
+                using (FileStream fs = new FileStream(tmpSettings, FileMode.Open, FileAccess.Read)) { if (fs.Read(head, 0, 3) < 3) { head = new byte[] { 0, 0, 0 }; } }
+                Chk("写出去的还是 UTF-8 无 BOM(5.1 读带 BOM 的中文行会翻车)", !(head[0] == 0xEF && head[1] == 0xBB && head[2] == 0xBF),
+                    head[0].ToString("X2") + head[1].ToString("X2") + head[2].ToString("X2"));
+                if (haveReal)
+                {
+                    byte[] tmpBytes = File.ReadAllBytes(tmpSettings);
+                    Chk("绕完这一圈，副本和真 settings.json 逐字节一样(那几笔写全回退了)",
+                        SameBytes(tmpBytes, realBytes), tmpBytes.Length + " vs " + realBytes.Length + " 字节");
+                }
+
+                // ---- 3) 四页都能建起来、都让卡片让位、控件不越界不叠压 ----
+                Show(); Hide();
+                string[] ids = new string[] { "cfg", "sched", "hist", "diag" };
+                foreach (string id in ids)
+                {
+                    SelectPage(id);
+                    int btns = 0;
+                    foreach (Control c in consoleHost.Controls) if (c is Button) btns++;
+                    int a = AuditConsole(id);
+                    Chk(id + " 页版式自检", a == 0, "红项 " + a);
+                    Chk(id + " 页有能点的把手(按钮 " + btns + " 个)", btns >= 2, "");
+                    fail += a;
+                    if (btns < 2) fail++;
+                }
+                SelectPage("all");
+                Chk("回总览后卡片回来了、操作台退下去了", consoleUp == false && cardsUp, "");
+
+                // ---- 4) 配置页：现值进框、只把改过的交给 setup.ps1、带引号的路径挡在命令行外 ----
+                SelectPage("cfg");
+                TextBox maa;
+                if (boxByKey.TryGetValue("maaDir", out maa))
+                {
+                    Chk("配置页的 maaDir 框里就是 settings.json 里那条", maa.Text == beforeMaa, "框[" + maa.Text + "] 文件[" + beforeMaa + "]");
+                    string was = maa.Text;
+                    maa.Text = @"D:\Tools\MAA 新位置";
+                    List<string> rejected = new List<string>();
+                    List<string> args = ChangedPathArgs(rejected);
+                    Chk("改过的那项变成 -MaaDir + 带引号的值", args.IndexOf("-MaaDir") >= 0 &&
+                        (args.IndexOf("\"D:\\Tools\\MAA 新位置\"") >= 0 || args.Contains("\"D:\\Tools\\MAA 新位置\"")), string.Join(" ", args.ToArray()));
+                    Chk("没改动的项不跟着下发(其余沿用现有配置)", CountSwitches(args, "-ArkExe") == 0 && CountSwitches(args, "-M9aDir") == 0, string.Join(" ", args.ToArray()));
+                    maa.Text = "有\"引号\"的路径";
+                    rejected.Clear();
+                    List<string> args2 = ChangedPathArgs(rejected);
+                    Chk("带引号的路径不交给命令行，并且当面说清为什么", args2.Count == 0 && rejected.Count == 0 == false,
+                        "args=" + args2.Count + " 挡下=" + rejected.Count);
+                    maa.Text = was;
+                    Chk("全部回到原值后不再下发任何参数", ChangedPathArgs(null).Count == 0, "");
+                }
+                else Chk("这棵树上没有 maaDir 这一项(单游戏仓正常)，跳过第 4 段", true, "");
+
+                // ---- 5) 定时页：面板读到的时间点 == 判定层转达的行数；不像时间点的字符串不落地 ----
+                string[] times = ReadTimes();
+                List<Row> trows; timesByPage.TryGetValue("all", out trows);
+                int tn = trows == null ? 0 : trows.Count;
+                Chk("时间点读到了(" + times.Length + " 个)并且和 TIME 行对得上(" + tn + " 行)",
+                    times.Length == 0 || tn == 0 || times.Length == tn, times.Length + " vs " + tn);
+                TextBox tb;
+                if (boxByKey.TryGetValue("times", out tb)) Chk("定时页框里是现值(逗号分隔)", tb.Text.Replace(" ", "") == string.Join(",", times), "[" + tb.Text + "]");
+
+                // ---- 6) 历史页：铺的行数 = min(12, 历史条数)，带原因的行点得动 ----
+                SelectPage("hist");
+                int recs = 0;
+                try { List<string[]> rr = ParseCsv(ReadAllShared(HistoryPath)); recs = rr.Count > 1 ? rr.Count - 1 : 0; } catch { }
+                int expect = recs > 12 ? 12 : recs;
+                Chk("历史页铺了 " + histRows + " 行，该是 " + expect, histRows == expect, "history.csv 共 " + recs + " 条");
+                Label clickable = null, plain = null;
+                foreach (Control c in histHost.Controls)
+                {
+                    Label l = c as Label; if (l == null) continue;
+                    if (HasClick(l) && clickable == null) clickable = l;
+                    if (!HasClick(l) && plain == null) plain = l;
+                }
+                if (clickable != null)
+                {
+                    int n0 = logLines.Count;
+                    Chk("点一行带原因的，完整那句进了日志区", RaiseClick(clickable) && logLines.Count > n0, "日志行数 " + n0 + "→" + logLines.Count);
+                }
+                else Console.WriteLine("  (这份历史里没有带原因的行，跳过分身检查)");
+                if (plain != null) Chk("没原因的行不装得能点", !HasClick(plain), "");
+                // 行是"数格子"拼出来的(Pad 里中文算两格)，只有等宽字体才对得齐；
+                // 这里量两行前三列的像素宽，差太多就说明换字体后列又歪了。
+                if (clickable != null)
+                {
+                    int wArk = TextRenderer.MeasureText(MonoProbeA, MonoFont()).Width;
+                    int wR = TextRenderer.MeasureText(MonoProbeB, MonoFont()).Width;
+                    Chk("历史表前三列在不同行之间对得齐", Math.Abs(wArk - wR) <= 1, "字体[" + MonoFont().FontFamily.Name + "] 方舟行 " + wArk + "px · 1999 行 " + wR + "px");
+                }
+
+                // ---- 7) 诊断包：摘要里没有 key，包本身能生成 ----
+                settingsPathOverride = null;                 // 抹除检查要拿真配置说事
+                string key = ReadSettingString("visionApiKey");
+                string digest = Path.Combine(Path.GetTempPath(), "gd-consoletest-digest-" + Process.GetCurrentProcess().Id + ".txt");
+                WriteSettingsDigest(digest);
+                string dtxt = File.ReadAllText(digest);
+                if (key != null && key.Length > 0)
+                {
+                    Chk("配置摘要里没有那把视觉 Key", dtxt.IndexOf(key) < 0, "");
+                    Chk("抹掉的是值，键名还在(不然看不出配过没配)", dtxt.IndexOf("visionApiKey") >= 0 && dtxt.IndexOf("<已抹掉>") >= 0, "");
+                    int leaks = 0;
+                    foreach (string[] e in logLines) if (e[1].IndexOf(key) >= 0) leaks++;
+                    Chk("逛完四页，日志区里也没露出过 key", leaks == 0, "命中 " + leaks + " 行");
+                }
+                else Console.WriteLine("  (这台机器没配视觉 key，抹除检查只能看键名)");
+                Chk("摘要里带着路径类读数(不然递给人也看不出什么)", dtxt.IndexOf("maaDir") >= 0 || dtxt.IndexOf("m9aDir") >= 0, "");
+                string packDir = Path.Combine(Path.GetTempPath(), "gd-consoletest-pack-" + Process.GetCurrentProcess().Id);
+                string zip = PackDiag(packDir, false, false);
+                Chk("包打出来了", zip.Length > 0 && File.Exists(zip), "回报：" + (zip.Length > 0 ? zip : lastPackError));
+                if (zip.Length > 0 && File.Exists(zip))
+                {
+                    Chk("包不是空的(至少几 KB)", new FileInfo(zip).Length > 2048, new FileInfo(zip).Length + " 字节");
+                    if (key != null && key.Length > 0)
+                    {
+                        byte[] raw = File.ReadAllBytes(zip);
+                        Chk("zip 里也搜不到那把 key(明文和转义两种都不在)",
+                            IndexOfBytes(raw, Encoding.UTF8.GetBytes(key)) < 0 && IndexOfBytes(raw, Encoding.UTF8.GetBytes(JsonEscape(key))) < 0, "");
+                    }
+                    try { File.Delete(zip); } catch { }
+                }
+                try { Directory.Delete(packDir, true); } catch { }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("  FAIL 自测自己炸了：" + ex.Message);
+                if (ex.StackTrace != null)
+                {
+                    // 只点到第一处自家帧，别把整条 WinForms 栈刷下来
+                    string[] fr = ex.StackTrace.Split('\n');
+                    for (int i = 0; i < fr.Length && i < 6; i++) Console.WriteLine("      " + fr[i].Trim());
+                }
+                fail++;
+            }
+            finally
+            {
+                settingsPathOverride = keepSettings;
+                historyPathOverride = keepHistory;
+                try { if (File.Exists(tmpSettings)) File.Delete(tmpSettings); } catch { }
+                try { if (File.Exists(Path.Combine(Path.GetTempPath(), "gd-consoletest-digest-" + Process.GetCurrentProcess().Id + ".txt")))
+                        File.Delete(Path.Combine(Path.GetTempPath(), "gd-consoletest-digest-" + Process.GetCurrentProcess().Id + ".txt")); } catch { }
+                if (autoBeat) beat.Start();
+            }
+            fail += chkFail;   // 把 Chk 的账并进来，红项数才和上面打印的一条条对得上
+            Console.WriteLine("结论: " + (fail == 0 ? "PASS(四页都接对了)" : "FAIL —— 红 " + fail + " 项"));
+            return fail == 0 ? 0 : 1;
+        }
+
+        // Chk = 断言 + 计数。以前只打印不计数，"结论 PASS"和退出码都盖不住这里的红项(2026-09-25 发现，已修)：
+        // 任何一条 Chk(false) 都必须让 --consoletest 整体变红、退出码非 0。
+        // 计数走自家字段(各测试方法里的 fail 是局部变量，方法够不着)，ConsoleTest 在收尾时把它并进 fail。
+        int chkFail;
+        void Chk(string name, bool ok, string extra)
+        {
+            if (!ok) chkFail++;
+            Console.WriteLine((ok ? "  PASS  " : "  FAIL  ") + name + (extra.Length > 0 && !ok ? "　[" + extra + "]" : (extra.Length > 0 ? "　(" + extra + ")" : "")));
+        }
+
+        static string ShortMsg(string m)
+        {
+            if (m.Length == 0) return "无告警";
+            return m.Length > 24 ? m.Substring(0, 24) + "…" : m;
+        }
+
+        static int CountSwitches(List<string> args, string sw)
+        {
+            int n = 0;
+            foreach (string a in args) if (a == sw) n++;
+            return n;
+        }
+
+        static bool SameBytes(byte[] a, byte[] b)
+        {
+            if (a == null || b == null || a.Length != b.Length) return false;
+            for (int i = 0; i < a.Length; i++) if (a[i] != b[i]) return false;
+            return true;
+        }
+
+        static int IndexOfBytes(byte[] hay, byte[] needle)
+        {
+            if (hay == null || needle == null || needle.Length == 0 || hay.Length < needle.Length) return -1;
+            for (int i = 0; i + needle.Length <= hay.Length; i++)
+            {
+                bool hit = true;
+                for (int j = 0; j < needle.Length; j++) if (hay[i + j] != needle[j]) { hit = false; break; }
+                if (hit) return i;
+            }
+            return -1;
         }
 
         // --exptest：实验功能读写回环自测(会真动 settings.json，只在测试树上跑，测完自己翻回去)。
@@ -2295,7 +3443,7 @@ namespace GdPanel
         [STAThread]
         static void Main(string[] argv)
         {
-            bool selftest = false, headless = false, dump = false, exptest = false, exttest = false, whytest = false;
+            bool selftest = false, headless = false, dump = false, exptest = false, exttest = false, whytest = false, consoletest = false;
             foreach (string a in argv)
             {
                 string l = a.ToLowerInvariant();
@@ -2305,6 +3453,7 @@ namespace GdPanel
                 if (l == "--exptest") exptest = true;
                 if (l == "--exttest") exttest = true;
                 if (l == "--whytest") whytest = true;
+                if (l == "--consoletest") consoletest = true;
                 if (l == "--no-beat") PanelForm.AutoBeatDefault = false;
             }
             Application.EnableVisualStyles();
@@ -2313,6 +3462,7 @@ namespace GdPanel
             if (exptest) Environment.Exit(f.ExpTest());
             if (exttest) Environment.Exit(f.ExtTest());
             if (whytest) Environment.Exit(f.WhyTest());
+            if (consoletest) Environment.Exit(f.ConsoleTest());
             if (dump) { f.DumpTree(); return; }
             if (selftest) Environment.Exit(f.SelfTest());
             if (headless) Environment.Exit(f.Headless());

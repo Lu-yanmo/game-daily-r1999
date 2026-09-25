@@ -16,32 +16,48 @@
 **还有一条硬编码偏好**：出了新活动但你还没手动通一遍时，脚本**不会**自动进未确认的新主线/活动，
 本轮回落到长草方案（第 3 节门 1）。
 
-## 1. 四个入口
+## 1. 日常操作：双击 `panel.cmd` 就够了
+
+面板是**面向用户的主控台**：从今天跑哪个方案、为什么这么判，到改配置、改时间点、翻历史、打包诊断，
+都在界面里点，不需要记命令。（命令行还在，但位置是「兜底与自动化」，见 [1.2](#12-兜底与自动化命令行)。）
+
+双击 `panel.cmd`（或不带参数打开打包好的 exe）会先用 **Windows 自带的 .NET 编译器**把
+`tools\panel-cs\Panel.cs` 现编成 `tools\panel-cs\panel-cs.exe`（几秒钟，不用装任何东西）再打开它。
+这是一份**黑白双主题**的 C# 面板，右上角可以切深/浅。极精简系统上编不出来才回落到 PowerShell 面板
+（`tools\panel.ps1`，功能一致，是兜底版）。
+
+左边一条导航，上面两项是「看哪一路的读数」，下面四项是主控台的四页：
+
+| 页 | 干什么 | 落到哪儿 |
+| --- | --- | --- |
+| 总览 / 1999 | 今天跑哪个方案、用的是哪个 M9A 实例、两道门、下次几点跑、上一轮结果（带原因，点行看整句） | 只读 |
+| 配 置 | 助手路径（M9A 目录、MuMu 管理器目录、虚拟机序号）+ 通知 Webhook | 路径改动代跑 `setup.ps1`（探测/合并/备份归它），Webhook 行内写 `config\settings.json`、写前备份到 `backups\` |
+| 定 时 | 把「机器上现在真注册着的 `GameDaily-*` 任务 + 下次触发」和 `schedule.times` 并排摆出来，改时间点、注册、卸载 | 代跑 `install-task.ps1` / `tools\reschedule-daily.ps1`（改时间点会等当前轮次跑完） |
+| 历 史 | `state\history.csv` 最近 12 轮，带原因的行可以点，整句打进下面的日志区；一键打开 `logs\` | 只读 |
+| 诊 断 | 一键把「读数 / 体检 / 去掉敏感值的配置摘要 / history.csv / 最近 5 个运行日志」打成 zip 落桌面 | 只读 + 打包 |
+
+这一仓是 1999 单路，所以**配 置 页里没有视觉模型 / 视觉 Key 那两行** —— 视觉兜底只服务方舟端游那一路
+（`lib\vision-rescue.ps1` 只在 ark 里被调用），这里连对应的配置键都没有，摆两行只会填了存不进。
+
+**面板不自己判定任何东西**：界面上每一行结论都来自判定层（`panel.ps1 -DumpSummary` 的机器协议行，
+以及判定层逐字写进 `state\history.csv` 的那句原因），面板只转达、不改写。所以面板里看到的和命令行跑出来的是同一个。
+「开始跑一轮」要连点两次才真的开跑。
+
+不想用鼠标的人可以 `pwsh -File tools\panel.ps1 -SelfTest`（不显示窗口，把状态摘要、参数探测、布局检查打出来）；
+C# 面板另有两个不弹窗的自检：`tools\panel-cs\panel-cs.exe --selftest`（布局/主题链）和 `--consoletest`
+（四页取数、写配置的转义与备份、代跑参数怎么拼、诊断包里搜不搜得到敏感值 —— 全程只在 `settings.json` 的**临时副本**上写，
+跑完逐字节比对确认原件没动）。打包成 exe 的场合对应动词是 `--panel`。
+
+### 1.2 兜底与自动化（命令行）
+
+界面没做的边角、以及定时任务和脚本化调用走这里；下面这些和面板点出来的做的是同一套脚本。
 
 | 想做什么 | 怎么做 |
 | --- | --- |
 | 看今天会怎么跑（**什么都不改、不启动**） | `pwsh -File status.ps1` 或 `pwsh -File daily-clear.ps1 -DryRun` |
 | 手动跑一轮 | 双击 `run-daily.cmd`，等价于 `pwsh -File run-via-task.ps1` |
 | 每天按 `config\settings.json` 里 `schedule.times` 的时间自动跑 | `pwsh -File install-task.ps1` |
-| 不想记命令，只想瞟一眼今天怎么样 | 双击 `panel.cmd`（图形状态面板，见第 1.1 节） |
-
-### 1.1 图形状态面板（`panel.cmd` / `tools\panel.ps1`）
-
-一屏显示：今天会刷哪个方案、用的是哪个 M9A 实例、两道手动门的状态、定时任务下次几点跑、上一轮结果；
-按钮上留着：今天会跑什么（预演）/ 开始跑一轮 / 环境体检 / 我打过活动了 / 商店已领空 / 打开日志目录。
-左边那条导航（总览 / 1999）只是换个角度看同一批读数 —— 点它不改变要跑什么，环境那一卡会换成这一路自己的路径探针。
-
-面板**只是外壳**：每个按钮都是去调上面那几个脚本，不自己算结论，所以面板里看到的和命令行跑出来的是同一个。
-「开始跑一轮」要连点两次才真的开跑。不想用鼠标的人可以 `pwsh -File tools\panel.ps1 -SelfTest`（不显示窗口，
-把状态摘要、参数探测、布局检查打出来）。打包成 exe 的场合对应动词是 `--panel`。
-
-另有一款**黑白双主题的 C# 面板**（`tools\panel-cs\Panel.cs`）随源码发布：直接双击 `panel.cmd`
-（或不带参数开 exe）就会**自动现编**成 `tools\panel-cs\panel-cs.exe` 并打开它 —— 用的是 Windows
-自带的 .NET 编译器，不用装任何东西；编不出来(极精简系统)才退回 PowerShell 面板，两边看到的结论一模一样。
-想手动预编：`pwsh -File tools\panel-cs\build.ps1`。C# 面板同样只转达 `tools\panel.ps1` 的结论
-（通过 `panel.ps1 -DumpSummary` 的机器协议），自己不判定任何东西。
-面板上那张「实验功能」卡目前只有方舟一路有内容(AI 辅助 / 视觉兜底)，这一仓里它会写明"没有可配置的实验功能"。
-
+| 第一次装：探测 M9A / MuMu 装在哪 | `pwsh -File setup.ps1`（见第 4 节） |
 
 命令行常用姿势：
 
@@ -119,6 +135,10 @@ M9A 已经在跑时这条命令会被**转发**给正在跑的实例，所以冷
 
 ## 4. 首次使用（新机器上一次性）
 
+> 不想记命令：面板「配 置」页的**自动扫描并保存**就是下面第 0 步的 `setup.ps1`，**保存路径改动**等于手工带那几个参数
+> （M9A 目录 / MuMu 目录 / 虚拟机序号）；「定 时」页的**按现在的时间点注册**就是第 5 节的 `install-task.ps1`。
+> 下面写命令本身，是为了知道按钮按下去到底跑了什么。
+
 0. **生成配置**：仓库里只有 `config\settings.example.json`（`settings.json` 被 `.gitignore` 排除，见第 8 节）。
 
    ```powershell
@@ -186,7 +206,7 @@ pwsh -File install-task.ps1 -Uninstall
   status.ps1           只读体检
   install-task.ps1     计划任务注册/卸载
   run-daily.cmd        双击手动跑
-  panel.cmd            双击打开图形状态面板（转调上面那些脚本，见第 1.1 节）
+  panel.cmd            双击打开主控台（现编 C# 面板；编不出来回落 tools\panel.ps1，见第 1 节）
   config\settings.example.json  配置模板（入仓）
   config\settings.json  唯一需要配的文件（不入仓）
   lib\common.ps1       日志/JSON/备份/防睡眠/进程/通知
@@ -194,7 +214,8 @@ pwsh -File install-task.ps1 -Uninstall
   lib\decisions.ps1    今天用哪个方案：版本窗口、确认门、实例选择
   lib\m9a.ps1          M9A 实例切换 + 命令行启动 + logs\log-*.log 判定
   lib\mumu.ps1         MuMuManager 启停、adb 探活
-  tools\panel.ps1      面板本体（-SelfTest 不显示窗口，给自动化验证用）
+  tools\panel.ps1      面板本体（-SelfTest 不显示窗口，给自动化验证用；-DumpSummary 出机器协议行）
+  tools\panel-cs\      C# 主控台本体（Panel.cs + build.ps1 用系统自带 csc 现编；只转达 panel.ps1 的结论）
   tools\               自检 / 探测脚本（含 replay-m9a-log）
   logs\ state\ backups\  运行时生成（不入仓）
 ```

@@ -11,4 +11,6 @@ config/settings.json
 *.bak
 Thumbs.db
 .DS_Store
+# 编译产物永不入仓(C# 面板用 tools/panel-cs/build.ps1 现编现用)
+*.exe
 tools/_probe*.ps1

@@ -32,6 +32,7 @@ param(
     [switch]$SelfTest,
     [switch]$HeadlessCheck,
     [switch]$DumpTree,
+    [switch]$DumpSummary,
     [switch]$SkipSummary
 )
 
@@ -287,6 +288,45 @@ function Get-PanelSummaryText {
     $out += '环境：'
     foreach ($r in $p.Env) { $out += ('  ' + [string]$r.Text) }
     return ($out -join "`r`n")
+}
+
+<# 机器可读版：tools\panel-cs\Panel.cs(图形外壳)唯一的读数入口。
+   行式协议、'|' 分隔，C# 那边按前 4 个 '|' 切(正文允许再带 '|')：
+     HEADER|<仓内游戏,空格分隔>|<入口脚本>|<引擎 exe 文件名>|<引擎绝对路径>|<root>
+     GAME|<id>|<显示名>
+     TIME|<kind>|<文本>            LAST|<kind>|<game或''>|<文本>
+     GATE|<kind>|<game>|<文本>     ENV|<kind>|<文本>
+     PROBE|<kind>|<game>|<文本>    (某一路自己的路径探针；分页时环境卡要用，总览页不显示)
+     FLAGS|<有Ack参数的参数名或''>|<有ShopDone参数的参数名或''>|<有Games参数则yes否则''>|<run-via-task.ps1在则yes否则''>|<要管理员的显示名,逗号分隔>
+     HELP|<标签>|<命令>
+   设计约束：这里只转达 Get-PanelSummaryParts 的既有结论，一个新判定都不加 ——
+   判定改了只需要改上面一处，PowerShell 面板和 C# 面板就永远说同一句话。 #>
+function Dump-PanelSummaryMachine {
+    $p = Get-PanelSummaryParts
+    Write-Output ('HEADER|' + ($script:games -join ' ') + '|' + $entryName + '|' +
+                  [System.IO.Path]::GetFileName($script:engine) + '|' + [string]$script:engine + '|' + $root)
+    foreach ($g in $script:games) {
+        $shown = [string]$g
+        if ($haveModules) {
+            $mm = Get-GdModule -Id ([string]$g)
+            if ($mm -and [string]$mm.ShortName) { $shown = [string]$mm.ShortName }
+        }
+        Write-Output ('GAME|' + [string]$g + '|' + $shown)
+    }
+    foreach ($r in $p.Times)  { Write-Output ('TIME|' + [string]$r.Kind + '|' + [string]$r.Text) }
+    foreach ($r in $p.Last)   { Write-Output ('LAST|' + [string]$r.Kind + '|' + [string]$r.Game + '|' + [string]$r.Text) }
+    foreach ($r in $p.Gates)  { Write-Output ('GATE|' + [string]$r.Kind + '|' + [string]$r.Game + '|' + [string]$r.Text) }
+    foreach ($r in $p.Env)    { Write-Output ('ENV|' + [string]$r.Kind + '|' + [string]$r.Text) }
+    foreach ($g in $script:games) {
+        foreach ($r in @(Get-PanelModuleEnvRows -Id ([string]$g))) {
+            Write-Output ('PROBE|' + [string]$r.Kind + '|' + [string]$g + '|' + [string]$r.Text)
+        }
+    }
+    Write-Output ('FLAGS|' + [string]$flagAck + '|' + [string]$flagShopDone + '|' +
+                  $(if ($flagGames) { 'yes' } else { '' }) + '|' +
+                  $(if (Test-Path -LiteralPath (Join-Path $root 'run-via-task.ps1')) { 'yes' } else { '' }) + '|' +
+                  ($adminNames -join ','))
+    foreach ($r in $script:helpRows) { Write-Output ('HELP|' + [string]$r.Label + '|' + [string]$r.Cmd) }
 }
 
 # ---------- 分页(左侧导航按模块过滤卡片) ----------
@@ -658,36 +698,36 @@ function Get-PanelHeadlessStats {
 #>
 function New-GdColor { param([int]$R,[int]$G,[int]$B) return [System.Drawing.Color]::FromArgb($R,$G,$B) }
 $script:cLogDim  = New-GdColor 125 133 144
-<# 配色(2026-09-25 第二次重排，参考 MAA 主界面)：整窗深色底 + 方舟蓝做唯一强调色，
-   语义色一律往"深底上看得清"那一档走 —— 卡片行是浅色文字，绿/黄/红要亮,不能拿浅底那套深色凑。
+<# 配色(2026-09-25 第三次重排，方舟风深色科幻)：整窗深炭底 + 方舟橙做唯一强调色(对应端游 UI 里
+   那圈橙色辉光)，语义色一律往"深底上看得清"那一档走 —— 卡片行是浅色文字，绿/黄/红要亮,不能拿浅底那套深色凑。
    只有 info(正文) 和 dim(说明) 是中性色，其余三色都带语义：改任何一色都会同时改四张卡的读感。 #>
 $script:theme = @{
     ok     = New-GdColor  74 222 128
     warn   = New-GdColor 251 191  36
     err    = New-GdColor 248 113 113
     info   = New-GdColor 226 232 240
-    step   = New-GdColor  96 165 250
+    step   = New-GdColor 255 184  77
     dim    = New-GdColor 148 163 184     # 深底上的"纯说明"行：比正文暗一档就够，再浅就和 ok 分不开了
     logOk   = New-GdColor 126 231 135
     logWarn = New-GdColor 227 179  65
     logErr  = New-GdColor 255 123 114
-    logStep = New-GdColor 121 192 255
+    logStep = New-GdColor 255 195  96
     logInfo = New-GdColor 201 209 217
     logDim  = New-GdColor 125 133 144
 }
-$script:cFace    = New-GdColor  31  39  51      # 卡片
-$script:cCardTitle = New-GdColor 165 182 208    # 卡片小标题(比上一版亮一档：8.5pt 的字再灰就只剩"一片浅灰")
-$script:cWindow  = New-GdColor  21  27  36      # 窗口底
-$script:cNav     = New-GdColor  16  22  30      # 左侧导航带(比窗口底再深一档，靠描边分不出来)
-$script:cNavSub  = New-GdColor 124 140 163
-$script:cLine    = New-GdColor  44  55  74      # 卡片描边
-$script:cAccent  = New-GdColor  28 126 214      # 主动作：从 0,160,233 那档"系统青"挪到偏靛的蓝，深底上不刺眼
-$script:cAccentHi= New-GdColor  62 150 235
-$script:cAccentLo= New-GdColor  20 102 178
-$script:cHover   = New-GdColor  39  49  63      # 次级按钮悬停
-$script:cDown    = New-GdColor  46  58  74
-$script:cNavOn   = New-GdColor  31  48  70      # 导航项选中底(强调色往深里压一点，别盖过主动作按钮)
-$script:cLogBack = New-GdColor  13  18  25
+$script:cFace    = New-GdColor  34  33  38      # 卡片：从冷蓝灰压成暖炭，配橙色强调才像端游那套深灰+橙
+$script:cCardTitle = New-GdColor 200 190 178    # 卡片小标题(比上一版亮一档：8.5pt 的字再灰就只剩"一片浅灰")
+$script:cWindow  = New-GdColor  22  22  26      # 窗口底
+$script:cNav     = New-GdColor  15  15  18      # 左侧导航带(比窗口底再深一档，靠描边分不出来)
+$script:cNavSub  = New-GdColor 150 141 130
+$script:cLine    = New-GdColor  66  60  54      # 卡片描边
+$script:cAccent  = New-GdColor 240 130  32      # 主动作：方舟橙(端游按钮/辉光那一档)，深炭底上就是唯一光源
+$script:cAccentHi= New-GdColor 255 158  64
+$script:cAccentLo= New-GdColor 202 104  18
+$script:cHover   = New-GdColor  46  43  47      # 次级按钮悬停
+$script:cDown    = New-GdColor  58  53  55
+$script:cNavOn   = New-GdColor  56  41  27      # 导航项选中底(橙压暗：和主动作同族，但别盖过按钮)
+$script:cLogBack = New-GdColor  12  12  15
 <# 卡片里的行几何：起始 y / 行高 / 行距。Set-PanelCardLines 按这三个算"这张卡装得下几行"，
    所以改这里就等于改了四张卡的容量 —— 别再回到"高度写死、行数另写一处"的老路。
    三个数是配着 132 的卡高定的：32 + 4*20 + 18 = 130 ≤ 132，正好 5 行；
@@ -852,6 +892,21 @@ $script:form.ClientSize = New-Object System.Drawing.Size(1140, 730)
 $script:form.BackColor = $script:cWindow
 $script:form.Font = $script:fontUI
 $script:form.MinimumSize = New-Object System.Drawing.Size(($script:form.Width), ($script:form.Height - 90))
+<# 窗体图标 + 品牌区头像 = tools\assets\icon.png(阿米娅 Q 版头像)。Bitmap→Icon 走 GetHicon：
+   FromHandle 只是包一层、不复制像素，所以 $script: 里必须同时扣住 Bitmap 和 Icon 两个引用，
+   也别自己 DestroyIcon(表单还在用这个句柄)——面板是短命进程，退出时系统统一回收。
+   资产没导出/解码失败就维持默认图标、标题顶回头像位：面板是给人看状态的，
+   不该因一张图缺失而起不来，也不该留个 52px 的空洞，整段静默降级。 #>
+$script:iconOk = $false
+try {
+    $iconPng = Join-Path $PSScriptRoot 'assets\icon.png'
+    if (Test-Path -LiteralPath $iconPng) {
+        $script:iconBmp = New-Object System.Drawing.Bitmap $iconPng
+        $script:formIcon = [System.Drawing.Icon]::FromHandle($script:iconBmp.GetHicon())
+        $script:form.Icon = $script:formIcon
+        $script:iconOk = $true
+    }
+} catch { }
 
 <# ---- 版式：左侧导航带 + 右侧内容区(参考 MAA) ----
    内容区整体右移 $railW，宽度 CW 维持重排前的 916 —— 卡片内部坐标(标题 14/行 14)因此一个字都不用改。
@@ -867,8 +922,25 @@ $rail.Size = New-Object System.Drawing.Size($script:railW, 730)
 $rail.BackColor = $script:cNav
 $rail.Anchor = 'Top,Left,Bottom'
 $null = $script:form.Controls.Add($rail)
-$null = New-PanelLabel -Parent $rail -Text '每日清体力' -X 20 -Y 18 -Color ([System.Drawing.Color]::White) -Font $script:fontTitle
-$null = New-PanelLabel -Parent $rail -Text '状态面板 · 只转达不判定' -X 21 -Y 50 -Color $script:cNavSub -Font $script:fontSmall
+<# 品牌区头像：和窗体图标同一张 assets\icon.png，Zoom 等比缩放。图标段加载失败($script:iconOk=false)时
+   标题/副标顶回 X 20/21，头像框整个隐藏——不留"文字凭空右移 52px"的空洞。 #>
+$script:avatar = New-Object System.Windows.Forms.PictureBox
+$script:avatar.Location = New-Object System.Drawing.Point(20, 16)
+$script:avatar.Size = New-Object System.Drawing.Size(44, 44)
+$script:avatar.SizeMode = 'Zoom'
+$script:avatar.Anchor = 'Top,Left'
+$script:avatar.Tag = 'accent'
+$null = $rail.Controls.Add($script:avatar)
+$brandTitle = New-PanelLabel -Parent $rail -Text '每日清体力' -X 72 -Y 18 -Color ([System.Drawing.Color]::White) -Font $script:fontTitle
+$brandSub    = New-PanelLabel -Parent $rail -Text '只转达 · 不判定' -X 73 -Y 50 -Color $script:cNavSub -Font $script:fontSmall
+if ($script:iconOk) {
+    $script:avatar.Image = $script:iconBmp
+    $script:avatar.Visible = $true
+} else {
+    $script:avatar.Visible = $false
+    $brandTitle.Location = New-Object System.Drawing.Point(20, 18)
+    $brandSub.Location   = New-Object System.Drawing.Point(21, 50)
+}
 # 品牌区和导航之间画一条分隔线 + 一个"导航"小标：不然左侧带从上到下是一整块同色，眼睛找不到分组
 $sep = New-Object System.Windows.Forms.Panel
 $sep.Location = New-Object System.Drawing.Point(20, 76)
@@ -1191,6 +1263,12 @@ if ($flagAck)      { Add-PanelHelpRow '我打过活动了' ('.\' + $entryName + 
 if ($flagShopDone) { Add-PanelHelpRow '商店领空'     ('.\' + $entryName + ' -' + $flagShopDone + ' -DryRun') @($entryName) }
 Add-PanelHelpRow '图形面板'    '.\panel.cmd   (或 exe 加 --panel)' @('panel.cmd')
 Add-PanelHelpRow '命令行菜单'  '.\start.cmd   (双击=打开这个菜单)' @('start.cmd', 'tools\menu.ps1')
+
+if ($DumpSummary) {
+    # C# 面板(tools\panel-cs\Panel.cs)的读数路径：只打上面那套 '|' 协议行，不建任何控件、不进消息循环。
+    Dump-PanelSummaryMachine
+    exit 0
+}
 
 Refresh-PanelSummary
 Append-PanelLog '提示：面板只转达，不替你判定 —— 上面的结论和命令行里跑同一套脚本得到的一样。'

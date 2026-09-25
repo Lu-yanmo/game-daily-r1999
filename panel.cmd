@@ -11,6 +11,11 @@ set "PS="
 where pwsh.exe >nul 2>nul && set "PS=pwsh.exe"
 if not defined PS if exist "%ProgramFiles%\PowerShell\7\pwsh.exe" set "PS=%ProgramFiles%\PowerShell\7\pwsh.exe"
 if not defined PS set "PS=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
+rem 裸开(没带 -SelfTest 之类参数)且 C# 面板已编译过 → 优先它；带参数照旧走 PowerShell 面板，验收链不受影响。
+if "%~1"=="" if exist "%~dp0tools\panel-cs\panel-cs.exe" (
+    start "" "%~dp0tools\panel-cs\panel-cs.exe"
+    exit /b 0
+)
 "%PS%" -NoProfile -ExecutionPolicy Bypass -File "%~dp0tools\panel.ps1" %*
 set "RC=%ERRORLEVEL%"
 echo.

@@ -1,16 +1,21 @@
 // tools/panel-cs/Panel.cs —— 每日清体力的图形状态面板(C# / WinForms，.NET Framework 4，系统自带 csc.exe 直接编译)。
 //
 // 和 panel.ps1 的分工：判定/读数仍然只在 panel.ps1 那一套里 —— 本文件不算任何结论，
-// 它做的只有三件事：
+// 它做的只有四件事：
 //   1. 起一个隐藏子进程跑 `panel.ps1 -DumpSummary`，读 '|' 分隔的协议行(HEADER/GAME/TIME/LAST/GATE/ENV/PROBE/FLAGS/HELP)；
 //   2. 把行画成卡片/导航/日志，并把按钮动作转调现成脚本(daily-clear / status / run-via-task)；
-//   3. 黑/白双主题切换(唯一的"外观判定"，存在 state\panel-theme.txt)。
+//   3. 黑/白双主题切换(唯一的"外观判定"，存在 state\panel-theme.txt)；
+//   4. 「实验功能」卡：面板上唯一直接碰 config\settings.json 的地方，而且只碰一个布尔键
+//      (runtime.arkVisionRescue) —— 写之前先备份到 backups\，用整文件行内替换、别的一个字节不动。
+//      这不是判定：用不用视觉兜底仍由 lib\vision-rescue.ps1 看那个键决定，面板只是拧开关。
+//      这也是"PS 面板渐进换 C# 面板"的起点：新功能先落这一侧，panel.ps1 冻结为兜底、不再双写。
 // 所以 panel.ps1 里的措辞或 Kind 判据一改，这里一个字不改也跟着变 —— 不会出现两个面板各说各话。
 //
 // 用法：
 //   panel-cs.exe                 打开面板
 //   panel-cs.exe --selftest      不显示窗口：读一次协议、渲染、查布局，有红项退出码 1
 //   panel-cs.exe --headless      窗口挪到屏幕外，自动起一次预演，验"子进程→日志区→忙碌复位"这条链后自关(零弹窗)
+//   panel-cs.exe --exptest       实验功能读写回环自测：翻一次开关→读回→翻回去→读回，全对才 0(会动 settings.json，只在测试树上跑)
 //
 // 编译：powershell -File tools\panel-cs\build.ps1   (用 C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe)
 
@@ -155,11 +160,11 @@ namespace GdPanel
         readonly Dictionary<string, Button> navBtns = new Dictionary<string, Button>();
         readonly Dictionary<string, Panel> navStripes = new Dictionary<string, Panel>();
         readonly Dictionary<string, Label> navDots = new Dictionary<string, Label>();
-        readonly Panel cardTimes = new Panel(), cardLast = new Panel(), cardGates = new Panel(), cardEnv = new Panel();
+        readonly Panel cardTimes = new Panel(), cardLast = new Panel(), cardGates = new Panel(), cardEnv = new Panel(), cardExp = new Panel();
         readonly Panel act = new Panel();
         readonly Panel logCard = new Panel();
         readonly RichTextBox logBox = new RichTextBox();
-        Button runBtn, btnDry, btnStatus, btnRefresh, ackBtn, btnShop, btnLog, btnHelp, btnTheme;
+        Button runBtn, btnDry, btnStatus, btnRefresh, ackBtn, btnShop, btnLog, btnHelp, btnTheme, expBtn;
         readonly System.Windows.Forms.Timer pump = new System.Windows.Forms.Timer();
 
         Process child;
@@ -418,7 +423,19 @@ namespace GdPanel
             MakeCard(cardTimes, X0, 86, 300, 132, "定时任务", AnchorStyles.Top | AnchorStyles.Left);
             MakeCard(cardLast, X0 + 312, 86, 300, 132, "上一轮", AnchorStyles.Top | AnchorStyles.Left);
             MakeCard(cardEnv, X0 + 624, 86, 292, 132, "环境", AnchorStyles.Top | AnchorStyles.Right);
-            MakeCard(cardGates, X0, 226, CW, 132, "两道确认门(新活动要先你手动打过 / 商店领空后不再刷活动)", AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right);
+            // 第二行原来被"两道门"整行占满；让出右半边给「实验功能」(门最多 5 行、600px 宽装得下最长那条)
+            MakeCard(cardGates, X0, 226, 600, 132, "两道确认门(新活动要先你手动打过 / 商店领空后不再刷活动)", AnchorStyles.Top | AnchorStyles.Left);
+            MakeCard(cardExp, X0 + 612, 226, CW - 612, 132, "实验功能", AnchorStyles.Top | AnchorStyles.Right);
+            // 按钮放卡片右下角：行区到 y=70 为止(RenderRows 最多 2 行)，96 起 26 高，永远不会和行压住
+            expBtn = MakeButton(cardExp, "关掉它", 198, 96, 92, 26, "chip");
+            expBtn.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            expBtn.Click += delegate
+            {
+                string to = expBtn.AccessibleName == null ? "" : expBtn.AccessibleName;
+                if (to != "on" && to != "off") { AppendLog("实验状态没读到，这个按钮这次不做事。"); return; }
+                AppendLog("实验功能：" + WriteExpFlag(to == "on"));
+                RefreshCards();
+            };
 
             act.Location = new Point(X0, 366);
             act.Size = new Size(CW, 104);
@@ -580,6 +597,26 @@ namespace GdPanel
             RenderRows(cardGates, gates, 5);
             RenderRows(cardEnv, env, 6);
 
+            // ---- 实验功能卡：唯一不经 -DumpSummary 的读数(只读那一个布尔键)，分页时不隐藏 ----
+            List<Row> exp = new List<Row>();
+            if (ExpImplemented())
+            {
+                bool? v = ReadExpFlag();
+                bool on = !v.HasValue || v.Value;      // 和 vision-rescue 同语义：没显式 false 就是开
+                exp.Add(new Row(on ? "ok" : "dim", "",
+                    "AI 辅助(视觉兜底)：" + (v.HasValue ? (on ? "开着" : "关了") : "开着(默认)")));
+                exp.Add(new Row("dim", "", "卡住时才用 · 正常一轮零请求"));
+                expBtn.Text = on ? "关掉它" : "打开它";
+                expBtn.AccessibleName = on ? "off" : "on";   // 点击要写去的目标值，这里一次算好
+                expBtn.Visible = true;
+            }
+            else
+            {
+                exp.Add(new Row("dim", "", "这一仓没有可配置的实验功能"));
+                expBtn.Visible = false;
+            }
+            RenderRows(cardExp, exp, 2);
+
             foreach (KeyValuePair<string, Button> kv in navBtns)
             {
                 bool on = kv.Key == page;
@@ -626,6 +663,63 @@ namespace GdPanel
             foreach (Row r in rows)
                 if (page == "all" || r.Game.Length == 0 || r.Game == page) outRows.Add(r);
             return outRows;
+        }
+
+        // ---------- 实验功能：面板唯一直接读写 settings.json 的地方(只碰一个布尔键) ----------
+        // 为什么敢让 C# 直接碰配置：这不是判定 —— 用不用视觉兜底仍由 lib\vision-rescue.ps1 读同一个键决定，
+        // 面板只是替玩家拧开关。写法用"整文件行内替换"：只换 true/false 那几个字节，
+        // 别的内容(含中文说明、注释性键)一个字节不动，改前照 PS 那边的规矩备份 + 每文件只留 20 份。
+        static readonly Regex ExpKeyRe = new Regex("(\"arkVisionRescue\"\\s*:\\s*)(true|false)");
+        string SettingsPath { get { return Path.Combine(root, @"config\settings.json"); } }
+        bool ExpImplemented() { return File.Exists(Path.Combine(root, @"lib\vision-rescue.ps1")); }
+
+        bool? ReadExpFlag()
+        {
+            try
+            {
+                string path = SettingsPath;
+                if (!File.Exists(path)) return null;
+                Match m = ExpKeyRe.Match(File.ReadAllText(path));
+                if (!m.Success) return null;
+                return m.Groups[2].Value == "true";
+            }
+            catch { return null; }
+        }
+
+        string WriteExpFlag(bool on)
+        {
+            string path = SettingsPath;
+            if (!ExpImplemented()) return "这一仓没有实验功能的实现库，这个按钮不该出现。";
+            if (!File.Exists(path)) return "还没有 config\\settings.json —— 先跑 setup.ps1 生成配置，再回来开/关。";
+            try
+            {
+                string text = File.ReadAllText(path);
+                if (!ExpKeyRe.IsMatch(text))
+                    return "settings.json 里没有 arkVisionRescue 这一行(多半是老模板)，面板改不动 —— 重跑 setup.ps1 或手动补一行再试。";
+                string bak = BackupSettings(path);
+                File.WriteAllText(path, ExpKeyRe.Replace(text, "$1" + (on ? "true" : "false")), new UTF8Encoding(false));
+                return "AI 辅助(视觉兜底)已" + (on ? "打开" : "关掉") + "(写进 config\\settings.json" +
+                       (bak != null ? "，旧配置已备份到 backups\\" : "，注意：备份没成") + ")。";
+            }
+            catch (Exception ex) { return "写配置失败：" + ex.Message; }
+        }
+
+        string BackupSettings(string path)
+        {
+            try
+            {
+                string dir = Path.Combine(root, "backups");
+                if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+                string dest = Path.Combine(dir, "settings.json." + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".bak");
+                File.Copy(path, dest, true);
+                List<FileInfo> olds = new List<FileInfo>();
+                foreach (string f in Directory.GetFiles(dir, "settings.json.*.bak"))
+                { try { olds.Add(new FileInfo(f)); } catch { } }
+                olds.Sort(delegate(FileInfo a, FileInfo b) { return b.LastWriteTime.CompareTo(a.LastWriteTime); });
+                for (int i = 20; i < olds.Count; i++) { try { olds[i].Delete(); } catch { } }
+                return dest;
+            }
+            catch { return null; }
         }
 
         void RenderRows(Panel card, List<Row> rows, int maxLines)
@@ -704,7 +798,7 @@ namespace GdPanel
         {
             BackColor = th.Window;
             foreach (Control c in AllControls()) ApplyOne(c);
-            foreach (Panel p in new[] { cardTimes, cardLast, cardGates, cardEnv, act, logCard }) p.Invalidate();
+            foreach (Panel p in new[] { cardTimes, cardLast, cardGates, cardEnv, cardExp, act, logCard }) p.Invalidate();
             hdr.Invalidate();
             logBox.Invalidate();
         }
@@ -726,7 +820,9 @@ namespace GdPanel
             if (c == brandTitle) { brandTitle.ForeColor = th.Name == "dark" ? Color.White : Color.Black; brandTitle.BackColor = rail.BackColor; return; }
             if (c == brandSub) { brandSub.ForeColor = th.NavSub; brandSub.BackColor = rail.BackColor; return; }
             if (c == logBox) { logBox.BackColor = th.LogBack; logBox.ForeColor = th.LogInfo; RepaintLog(); return; }
-            if (tag == "chip") { SetChip(chipText, busy); return; }
+            // "chip" 这个 Tag 被两类控件共用：runChip 那颗状态灯(Label)和一排小按钮(Button)。
+            // 早先不区分，chip 按钮全被 SetChip 分支提前 return，切主题时字色不跟着换 —— 这里只留 Label 走 SetChip。
+            if (tag == "chip" && !(c is Button)) { SetChip(chipText, busy); return; }
             if (tag.StartsWith("navstripe:")) { /* RefreshCards 统一刷 */ return; }
             if (tag.StartsWith("navdot:")) { return; }
             // Label 的 BackColor 默认是"控件默认浅色"而不是透明 —— 建控件时抓的父底色在
@@ -1253,6 +1349,9 @@ namespace GdPanel
             Console.WriteLine("---- 解析出的行 ----");
             DumpRows("LAST", rowsLast);
             DumpRows("GATE", rowsGates);
+            bool? expFlag = ReadExpFlag();
+            Console.WriteLine("EXP implemented=" + ExpImplemented() + " flag=" + (expFlag.HasValue ? expFlag.Value.ToString() : "-") +
+                              " 按钮=" + expBtn.Text + "/" + expBtn.AccessibleName);
             List<Row> tt;
             if (timesByPage.TryGetValue("all", out tt)) DumpRows("TIME", tt);
             DumpWalk(this, "");
@@ -1294,7 +1393,7 @@ namespace GdPanel
             foreach (string id in new List<string>(navBtns.Keys))
             {
                 SelectPage(id);
-                foreach (Panel card in new[] { cardTimes, cardLast, cardGates, cardEnv })
+                foreach (Panel card in new[] { cardTimes, cardLast, cardGates, cardEnv, cardExp })
                 {
                     int lines = 0;
                     foreach (Control c in card.Controls)
@@ -1325,7 +1424,7 @@ namespace GdPanel
             OnThemeClick(null, EventArgs.Empty);
             if (BackColor == before) { Console.WriteLine("  主题没生效"); bad++; }
             OnThemeClick(null, EventArgs.Empty);
-            Console.WriteLine("布局自检: " + (bad == 0 ? "OK，每一页都不重叠、都在各自容器内、四张卡片都有内容" : "有问题(见上)"));
+            Console.WriteLine("布局自检: " + (bad == 0 ? "OK，每一页都不重叠、都在各自容器内、各张卡片都有内容" : "有问题(见上)"));
             Close();
             return bad == 0 ? 0 : 1;
         }
@@ -1335,6 +1434,30 @@ namespace GdPanel
             foreach (Control c in card.Controls)
                 if (c.Tag != null && c.Tag.ToString() == "cardtitle") return c.Text;
             return "?";
+        }
+
+        // --exptest：实验功能读写回环自测(会真动 settings.json，只在测试树上跑，测完自己翻回去)。
+        public int ExpTest()
+        {
+            Console.WriteLine("---- panel-cs 实验功能读写自测 ----");
+            if (!ExpImplemented()) { Console.WriteLine("这一仓没有实现库(lib\\vision-rescue.ps1 不在)，卡片就该是空的 —— 没得测。"); return 0; }
+            string path = SettingsPath;
+            if (!File.Exists(path)) { Console.WriteLine("没有 " + path + " —— 把 config\\settings.example.json 复制成 settings.json 再跑。"); return 1; }
+            bool? before = ReadExpFlag();
+            if (!before.HasValue) { Console.WriteLine("settings.json 里没有 arkVisionRescue 键，写路径测不了。"); return 1; }
+            bool target = !before.Value;
+            string m1 = WriteExpFlag(target);
+            bool? mid = ReadExpFlag();
+            string m2 = WriteExpFlag(before.Value);
+            bool? after = ReadExpFlag();
+            int baks = 0;
+            try { baks = Directory.GetFiles(Path.Combine(root, "backups"), "settings.json.*.bak").Length; } catch { }
+            Console.WriteLine("初始 " + before.Value + " → 写 " + target + " 读到 " + mid + "；写回 " + before.Value + " 读到 " + after + "；备份份数 " + baks);
+            Console.WriteLine("  " + m1);
+            Console.WriteLine("  " + m2);
+            bool ok = mid.HasValue && mid.Value == target && after.HasValue && after.Value == before.Value && baks > 0;
+            Console.WriteLine("结论: " + (ok ? "PASS(读写一致，settings.json 已还原)" : "FAIL —— 检查 config\\settings.json 的 arkVisionRescue 是否停在 " + after));
+            return ok ? 0 : 1;
         }
 
         public int Headless()
@@ -1376,17 +1499,19 @@ namespace GdPanel
         [STAThread]
         static void Main(string[] argv)
         {
-            bool selftest = false, headless = false, dump = false;
+            bool selftest = false, headless = false, dump = false, exptest = false;
             foreach (string a in argv)
             {
                 string l = a.ToLowerInvariant();
                 if (l == "--selftest") selftest = true;
                 if (l == "--headless") headless = true;
                 if (l == "--dump") dump = true;
+                if (l == "--exptest") exptest = true;
             }
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             PanelForm f = new PanelForm(headless);
+            if (exptest) Environment.Exit(f.ExpTest());
             if (dump) { f.DumpTree(); return; }
             if (selftest) Environment.Exit(f.SelfTest());
             if (headless) Environment.Exit(f.Headless());

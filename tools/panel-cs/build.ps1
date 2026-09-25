@@ -1,5 +1,7 @@
-﻿# tools/panel-cs/build.ps1 —— 用系统自带的 csc.exe(.NET Framework 4)把 Panel.cs 编成 panel-cs.exe。
+﻿# tools/panel-cs/build.ps1 —— 用系统自带的 csc.exe(.NET Framework 4)把本目录的 .cs 编成 panel-cs.exe。
 # 不依赖 dotnet SDK：玩家机器只要有 .NET Framework 4(Win10/11 出厂自带)就能跑产物。
+# 源码从 2026-09-26 起是一个 partial class 的多份(Panel.cs + Panel.*.cs)，这里**按目录扫 *.cs 全给 csc**，
+# 新加一份就自动进编译，不需要回来改这条命令行。
 # 用法： powershell -File tools\panel-cs\build.ps1 [-Verify] [-ConsoleTest] [-Quiet]
 #   -Verify      = 编完顺手跑 --selftest(布局/主题链)
 #   -ConsoleTest = 再跑一遍 --consoletest(主控台四页：取数、写配置的转义与备份、代跑参数、诊断包不含 key)
@@ -9,7 +11,8 @@ param([switch]$Verify, [switch]$ConsoleTest, [switch]$Quiet)
 
 $ErrorActionPreference = 'Stop'
 $here = $PSScriptRoot
-$cs   = Join-Path $here 'Panel.cs'
+$cs   = @(Get-ChildItem -LiteralPath $here -Filter '*.cs' -File | Sort-Object Name | ForEach-Object { $_.FullName })
+if ($cs.Count -eq 0) { throw "本目录里没有 .cs 源码：$here" }
 $exe  = Join-Path $here 'panel-cs.exe'
 $icon = Join-Path (Split-Path $here) 'assets\icon.png'
 

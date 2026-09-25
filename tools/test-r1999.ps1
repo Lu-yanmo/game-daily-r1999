@@ -280,8 +280,9 @@ Write-Host "`n[t17] 单任务识别失败 / 版本落后 / 连不上模拟器 �
   也不认 M9A 自己喊的版本差(「最新资源版本」还被 noise 那条按子串吞了)。
 #>
 # 下面这批日志行是从 09-25 19:24 那一轮原样抄来的，只有 [inst=名字/id] 里的 id 换成了合成值：
-# 真实实例 id 属于"本机专属值"，写进会被 tools\publish-split.ps1 的 Test-GdExportLeaks 拦下(它扫的就是
-# M9A 实例目录下每个 .json 的文件名)，导出的 r1999 仓库就发不出去。解析器只按"传进来的 id 和行内 id 对不对得上"过滤，
+# 真实实例 id 属于"本机专属值"，写进来会被 lib\common.ps1 的 Test-GdExportLeaks 拦下(它扫的就是
+# M9A 实例目录下每个 .json 的文件名)：现在 tools\test-modules.ps1 [m8] 扫源码时就先红一次，
+# 不用等导出那一步才发现。导出的 r1999 仓库发不出去是晚了两轮的代价。解析器只按"传进来的 id 和行内 id 对不对得上"过滤，
 # 用哪个 id 都不影响断言的意义，所以这里固定用 deadbeef(本文件上面那组断言用的也是它)。
 $raw17 = @(
     '[2026-09-25 19:24:21.177][INF] [cfg=Default][inst=日常-长草/deadbeef][src=Monitor][op=MonitorLog] [Record] 当前资源版本：v4.7.1',

@@ -292,6 +292,7 @@ function Get-PanelSummaryText {
 
 <# 机器可读版：tools\panel-cs\Panel.cs(图形外壳)唯一的读数入口。
    行式协议、'|' 分隔，C# 那边按前 4 个 '|' 切(正文允许再带 '|')：
+     PROTO|<协议版本>              (恒为第一行；消费方靠它判断"我读不读得懂这份读数")
      HEADER|<仓内游戏,空格分隔>|<入口脚本>|<引擎 exe 文件名>|<引擎绝对路径>|<root>
      GAME|<id>|<显示名>
      TIME|<kind>|<文本>            LAST|<kind>|<game或''>|<文本>
@@ -300,9 +301,17 @@ function Get-PanelSummaryText {
      FLAGS|<有Ack参数的参数名或''>|<有ShopDone参数的参数名或''>|<有Games参数则yes否则''>|<run-via-task.ps1在则yes否则''>|<要管理员的显示名,逗号分隔>
      HELP|<标签>|<命令>
    设计约束：这里只转达 Get-PanelSummaryParts 的既有结论，一个新判定都不加 ——
-   判定改了只需要改上面一处，PowerShell 面板和 C# 面板就永远说同一句话。 #>
+   判定改了只需要改上面一处，PowerShell 面板和 C# 面板就永远说同一句话。
+
+   为什么要单独一行 PROTO(而不是往 HEADER 尾巴上加一列)：加在尾巴上，老消费方按位次取字段
+   会错位；单独一行时不认这个标签的消费方只会把它当陌生行跳过(两边的 switch 都没有 default 分支)。
+   改协议 = 这一行的数字 +1，同时在 $GdPanelProtoKnown 上面写清改了什么；面板侧不认识时
+   要在日志区明说"判定层协议 v几 / 我认 v几"，不许让某一格静默变空。 #>
+$script:GdPanelProtoVer = 1
+
 function Dump-PanelSummaryMachine {
     $p = Get-PanelSummaryParts
+    Write-Output ('PROTO|' + $script:GdPanelProtoVer)
     Write-Output ('HEADER|' + ($script:games -join ' ') + '|' + $entryName + '|' +
                   [System.IO.Path]::GetFileName($script:engine) + '|' + [string]$script:engine + '|' + $root)
     foreach ($g in $script:games) {

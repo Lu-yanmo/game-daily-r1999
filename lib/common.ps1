@@ -700,3 +700,67 @@ function Format-GdUnixMs {
         return ([DateTimeOffset]::FromUnixTimeMilliseconds([long]$Ms)).ToOffset([TimeSpan]::FromHours(8)).ToString($Pattern)
     } catch { return '?' }
 }
+
+# ---------- 本机专属值：两道扫描共用的判据(2026-09-25 从 tools\publish-split.ps1 挪上来) ----------
+# 为什么在这儿：原来只有导出那一步扫得到，于是要等 publish-split 跑起来才看得见"源码里粘了本机路径"。
+# 同一套判据挪进 lib\ 之后，tools\test-modules.ps1 [m8] 也能用它扫源码 —— 早一步红，就少一轮返工。
+# 两个函数都不含任何一条本机字面量(值全部运行时从 settings.json / 注册表目录里取)，所以扫自己的时候不会命中自己。
+
+function Get-GdLocalOnlyValues {
+    <# 只有这台机器才成立的东西：settings.json 里的绝对路径、MuMu 虚拟机名、M9A 给每个实例生成的短 hash。
+       这些东西一旦跟着源码出去，就等于把"我装在哪、我几点跑、我的实例叫什么"发给陌生仓库。
+       值全部在运行时从本机配置里取，本文件里不出现任何一条字面量 —— 所以这道检查不会自己命中自己。 #>
+    param([string]$LocalSettings)
+    $vals = @()
+    if (Test-Path -LiteralPath $LocalSettings) {
+        $cfg = Read-GdJson -Path $LocalSettings
+        foreach ($k in @('maaDir', 'm9aDir', 'mumuDir', 'arknightsExe')) {
+            $v = [string]$cfg.paths.$k
+            if ($v) { $vals += [pscustomobject]@{ Label = "paths.$k"; Value = $v } }
+        }
+        $hint = [string]$cfg.mumu.vmNameHint
+        if ($hint) { $vals += [pscustomobject]@{ Label = 'mumu.vmNameHint'; Value = $hint } }
+        # 密钥类同样算"本机专属"：视觉兜底的模型 key、通知 webhook(里面常带 token)。
+        # 它们本该只活在 settings.json 里，但一旦有人在代码/README 里粘了一份，这道扫描要能抓到。
+        $vkey = [string]$cfg.runtime.visionApiKey
+        if ($vkey) { $vals += [pscustomobject]@{ Label = 'runtime.visionApiKey'; Value = $vkey } }
+        $hook = [string]$cfg.notify.webhook
+        if ($hook) { $vals += [pscustomobject]@{ Label = 'notify.webhook'; Value = $hook } }
+        # 单游戏仓(方舟那一路)和新机器上 m9a 那几项可能压根没配 → 别把 $null 塞进 Join-GdPath 的
+        # -Parts(它是 Mandatory，绑 null 会直接抛"无法将自变量绑定到参数 'Parts'")。
+        $m9aDir = [string]$cfg.paths.m9aDir
+        $instRel = [string]$cfg.paths.m9aInstancesDir
+        $instDir = if ($m9aDir -and $instRel) { Join-GdPath $m9aDir @($instRel) } else { '' }
+        if ($instDir -and (Test-Path -LiteralPath $instDir)) {
+            $i = 0
+            foreach ($f in @(Get-ChildItem -LiteralPath $instDir -Filter '*.json')) {
+                $i++
+                $vals += [pscustomobject]@{ Label = "m9a-instance-id#$i"; Value = $f.BaseName }
+            }
+        }
+    }
+    $vals += [pscustomobject]@{ Label = 'env.USERPROFILE'; Value = $env:USERPROFILE }
+    return @($vals | Where-Object { $_.Value -and $_.Value.Trim().Length -ge 6 } |
+        Sort-Object -Property Value -Unique | ForEach-Object { [pscustomobject]@{ Label = $_.Label; Value = $_.Value.Trim() } })
+}
+
+function Test-GdExportLeaks {
+    <# 对一个目录做一遍"本机数据"扫描；返回 "相对路径 <- 是哪一项" 的列表，空 = 干净。
+       两处调用：publish-split 扫导出目录(发出去之前那道闸)，test-modules [m8] 扫工作副本的源码。
+       跳过运行时产物(logs/state/backups)、.git 和 settings.json 本身 —— 那些本来就该带着本机值。 #>
+    param([string]$Dir, [object[]]$Values)
+    if (-not $Values -or -not @($Values).Count) { return @() }
+    $hits = @()
+    foreach ($f in @(Get-ChildItem -LiteralPath $Dir -Recurse -File |
+            Where-Object { $_.FullName -notmatch '\\(logs|state|backups|\.git)\\' -and $_.FullName -notmatch '\\config\\settings\.json$' -and $_.Extension -notin '.png', '.ico', '.exe', '.dll', '.zip' })) {
+        $text = Get-Content -LiteralPath $f.FullName -Raw -Encoding utf8
+        if (-not $text) { continue }
+        $rel = $f.FullName.Substring($Dir.Length + 1)
+        foreach ($v in $Values) {
+            if ($text.IndexOf([string]$v.Value, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
+                $hits += "$rel <- $($v.Label)"
+            }
+        }
+    }
+    return @($hits | Sort-Object -Unique)
+}

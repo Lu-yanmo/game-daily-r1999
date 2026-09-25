@@ -208,6 +208,17 @@ Check '清空后 Get-GdGameIds 落到老的两款兜底' ((@(Get-GdGameIds) -joi
 foreach ($k in @($snap.Keys)) { $global:GdModules[$k] = $snap[$k] }
 Check '还原后注册表数量不变' ($global:GdModules.Count -eq $snap.Count) "$($snap.Count) → $($global:GdModules.Count)"
 
+Write-Host "`n[m8] 本机专属值不许出现在源码/文案里(导出前那道闸，前移到这里)"
+# 判据和"发出去之前扫导出目录"用的是同一个函数(lib\common.ps1)，所以这里先红一次，就不用等
+# publish-split 跑到最后一步才发现某份自检样本里粘了本机路径 —— 那已经是晚一整轮的代价(2026-09-25 两轮连踩)。
+# 值全部运行时从本机 settings.json / M9A 实例目录里取：这段自含零条本机字面量，不会自己命中自己。
+# 新机器上没跑过 setup 也照样有得扫(env.USERPROFILE 那一条拦的是"源码里写死家目录")。
+# 红的时候只报"哪个文件 <- 哪一项"，值本身不进日志(日志是要进诊断包给人看的)。
+$m8Vals = @(Get-GdLocalOnlyValues -LocalSettings (Join-Path $root 'config\settings.json'))
+Check "本机专属值取到 $($m8Vals.Count) 项(有的扫)" ($m8Vals.Count -gt 0)
+$m8Hits = @(Test-GdExportLeaks -Dir $root -Values $m8Vals)
+Check '源码 / README / 自检样本里一项本机专属值都没有' ($m8Hits.Count -eq 0) (@($m8Hits | ForEach-Object { $_ }) -join ' ｜ ')
+
 $res = Show-GdTestResult -Tag 'modules'
 if ($NoExit) { return $res }
 exit $(if ($res.Fail) { 1 } else { 0 })

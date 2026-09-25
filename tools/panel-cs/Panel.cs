@@ -2,7 +2,9 @@
 //
 // 和 panel.ps1 的分工：判定/读数仍然只在 panel.ps1 那一套里 —— 本文件不算任何结论，
 // 它做的只有这几件事：
-//   1. 起一个隐藏子进程跑 `panel.ps1 -DumpSummary`，读 '|' 分隔的协议行(HEADER/GAME/TIME/LAST/GATE/ENV/PROBE/FLAGS/HELP)；
+//   1. 起一个隐藏子进程跑 `panel.ps1 -DumpSummary`，读 '|' 分隔的协议行(PROTO/HEADER/GAME/TIME/LAST/GATE/ENV/PROBE/FLAGS/HELP)；
+//      第一行 PROTO|<版本> 是这份读数的版本号：不认识时面板要在日志区明说"判定层协议 v几 / 我只认 v几"，
+//      而不是让某个格子静默变空 —— 面板只会转达，读不懂必须说出来。
 //   2. 把行画成卡片/导航/日志，并把按钮动作转调现成脚本(daily-clear / status / run-via-task)；
 //   3. 黑/白双主题切换(唯一的"外观判定"，存在 state\panel-theme.txt)；
 //   4. 「实验功能」卡：只碰一个布尔键(runtime.arkVisionRescue) —— 写之前先备份到 backups\，
@@ -160,6 +162,11 @@ namespace GdPanel
         readonly string root;
         readonly string engine;
         string entryName = "daily-clear.ps1";   // 由 HEADER 协议行赋值(不能 readonly)
+        // -DumpSummary 的协议版本：判定层第一行 PROTO|<n> 报上来的。面板只认 ProtoKnown，
+        // 对不上就在日志区说一次(-1 = 判定层压根没给版本行，那是它比这个面板旧)。
+        const int ProtoKnown = 1;
+        int protoVer = -1;
+        int protoReported = -2;    // 只在不认识/版本变了的那一次说话，别每 45 秒刷一遍横幅
         bool flagsGames, flagsViaTask;   // FLAGS 协议行赋值
         readonly List<string[]> games = new List<string[]>();   // [id, 显示名]
         readonly List<string> elevNames = new List<string>();
@@ -328,6 +335,7 @@ namespace GdPanel
             // 刷新会再解析一遍：这些列表必须先清空，否则"上一轮/门/环境"每刷新一次翻一倍
             games.Clear(); rowsLast.Clear(); rowsGates.Clear(); rowsEnv.Clear();
             probesByGame.Clear(); helpRows.Clear(); timesByPage.Clear(); elevNames.Clear();
+            protoVer = -1;
             string[] lines = dump.Replace("\r\n", "\n").Split('\n');
             foreach (string raw in lines)
             {
@@ -336,6 +344,10 @@ namespace GdPanel
                 string[] f = line.Split('|');
                 switch (f[0])
                 {
+                    case "PROTO":
+                        int v;
+                        if (f.Length > 1 && int.TryParse(f[1], out v)) protoVer = v;
+                        break;
                     case "HEADER":
                         if (f.Length > 2) entryName = f[2];
                         break;
@@ -367,9 +379,26 @@ namespace GdPanel
                         break;
                 }
             }
+            // 对不上协议就说一次，对得上什么都不说(别每 45 秒刷一条横幅盖住真读数)。
+            if (protoVer != protoReported)
+            {
+                protoReported = protoVer;
+                string pw = ProtoMismatch();
+                if (pw.Length > 0) AppendLog("协议对不上：" + pw);
+            }
             // 结论行到位了再补"为什么"：这一步读的是判定层自己写的 history.csv，不加任何新判断。
             LoadLastDetails();
             AttachDetails();
+        }
+
+        // 判定层和这个面板对不上协议时该说的那句话；对得上返回空串。
+        // 单拆成一个纯函数，是为了让自测能直接问"这份读数你认不认"，不用去翻日志区里的那一条。
+        string ProtoMismatch()
+        {
+            if (protoVer == ProtoKnown) return "";
+            if (protoVer < 0) return "判定层给的读数里没有协议版本号(它比这个面板还旧)，按 v" + ProtoKnown + " 尽力渲染 —— 有格子空着先更新仓库";
+            if (protoVer > ProtoKnown) return "判定层协议 v" + protoVer + "，这个面板只认 v" + ProtoKnown + " —— 某些格子可能是空的或错位的，重编一次：tools\\panel-cs\\build.ps1";
+            return "判定层协议 v" + protoVer + "，比这个面板认的 v" + ProtoKnown + " 还旧 —— 重编一次：tools\\panel-cs\\build.ps1";
         }
 
         static Row RowOf(string[] f, bool hasGame)
@@ -2861,7 +2890,8 @@ namespace GdPanel
             {
                 // ---- 1) JSON 转义往返：路径里的反斜杠/引号/中文/制表都必须原样回来 ----
                 // 这几条是**编出来的形状**(有空格、有版本号、有反斜杠)，不许抄本机真路径：
-                // tools\publish-split.ps1 的 Test-GdExportLeaks 会拿 settings.json 里的每个本机值来扫源码，
+                // lib\common.ps1 的 Test-GdExportLeaks 会拿 settings.json 里的每个本机值来扫源码
+                // (tools\test-modules.ps1 [m8] 现在就扫，不用等导出)，
                 // 上一轮就是因为把真实的 MAA 目录端游路径粘进测试样本，导出时被这道闸判红。
                 string[] probes = new string[] {
                     @"C:\Tools\MAA-v0.0.0-win-x64",
@@ -3028,6 +3058,23 @@ namespace GdPanel
                     try { File.Delete(zip); } catch { }
                 }
                 try { Directory.Delete(packDir, true); } catch { }
+
+                // ---- 8) 协议版本：读不懂的时候必须说出来，不能让格子静默变空 ----
+                // 前四条问的是"这份真读数"，后面几条是把 protoVer 拨到对不上的位置，单问 ProtoMismatch()
+                // 那句话长什么样(纯函数，不解析、不起子进程，所以对得上/对不上都不会污染上面的四页检查)。
+                Chk("判定层这份读数带版本号，而且正好是这个面板认的那一版", protoVer == ProtoKnown,
+                    "读到 v" + protoVer + "，面板认 v" + ProtoKnown);
+                int keepProto = protoVer;
+                protoVer = -1;
+                Chk("没有版本行时说的是「它比这个面板旧」，不是沉默", ProtoMismatch().IndexOf("没有协议版本号") >= 0, ProtoMismatch());
+                int newer = ProtoKnown + 7;
+                protoVer = newer;
+                Chk("判定层比面板新：两个版本号都报出来，并给出重编命令",
+                    ProtoMismatch().IndexOf("v" + newer) >= 0 && ProtoMismatch().IndexOf("build.ps1") >= 0, ProtoMismatch());
+                protoVer = 0;
+                Chk("判定层比面板旧(但报了 v0)：说的是「比这个面板认的还旧」", ProtoMismatch().IndexOf("还旧") >= 0, ProtoMismatch());
+                protoVer = keepProto;
+                Chk("对得上时一个字都不说(别每 45 秒刷一条横幅盖住真读数)", ProtoMismatch().Length == 0, ProtoMismatch());
             }
             catch (Exception ex)
             {
@@ -3246,6 +3293,7 @@ namespace GdPanel
         static string SyntheticDump()
         {
             StringBuilder sb = new StringBuilder();
+            sb.Append("PROTO|1").Append('\n');
             sb.Append("HEADER|ark r1999|daily-clear.ps1|pwsh.exe|pwsh|" + "root").Append('\n');
             sb.Append("GAME|ark|方舟").Append('\n');
             sb.Append("GAME|r1999|1999").Append('\n');

@@ -150,6 +150,7 @@ $script:timer       = $null
 $script:proc        = $null
 $script:page        = 'all'          # 左侧导航当前停在哪儿：'all' 或某个模块 id
 $script:navBtns     = @{}            # id -> 导航按钮(刷新时要按这一路的状态改灯)
+$script:navStripes  = @{}            # id -> 导航项左边那条 3px 强调条(只有选中那项点亮，比"整块换底色"清楚)
 $script:navKind     = @{}            # id -> 这一路此刻该亮什么色(ok/warn/err/dim)，由摘要行的 Kind 得来
 $script:pageTitle   = $null          # 头部那行页标题(跟着 $script:page 变)
 <# 重定向文件带上本进程的 PID：定时器一上来就会从 0 开始读这两个文件，
@@ -513,6 +514,9 @@ function Set-PanelNavLight {
     $b.Text = ([string]$b.Tag) + $(if ($on -or $Kind -ne 'dim') { '   ●' } else { '   ○' })
     $b.ForeColor = $(if ($Kind -eq 'dim') { $script:theme['dim'] } else { $script:theme[[string]$Kind] })
     $b.BackColor = $(if ($on) { $script:cNavOn } else { $script:cNav })
+    # 左边那条 3px 强调条：选中才亮。整块换底色在深色导航带上太含蓄，光靠底色经常看不出停在哪一条。
+    $st = $script:navStripes[$Id]
+    if ($st) { $st.BackColor = $(if ($on) { $script:cAccent } else { $script:cNav }) }
 }
 function Select-PanelPage {
     <# 换页只做两件事：记住这一页，然后让 Refresh-PanelSummary 重画(它自己会重画导航选中态和页标题)。
@@ -672,18 +676,25 @@ $script:theme = @{
     logDim  = New-GdColor 125 133 144
 }
 $script:cFace    = New-GdColor  31  39  51      # 卡片
-$script:cCardTitle = New-GdColor 143 163 191    # 卡片小标题(大写字母那么小，再浅就没对比了)
+$script:cCardTitle = New-GdColor 165 182 208    # 卡片小标题(比上一版亮一档：8.5pt 的字再灰就只剩"一片浅灰")
 $script:cWindow  = New-GdColor  21  27  36      # 窗口底
 $script:cNav     = New-GdColor  16  22  30      # 左侧导航带(比窗口底再深一档，靠描边分不出来)
 $script:cNavSub  = New-GdColor 124 140 163
 $script:cLine    = New-GdColor  44  55  74      # 卡片描边
-$script:cAccent  = New-GdColor   0 160 233      # 主动作(MAA 那一档方舟蓝)
-$script:cAccentHi= New-GdColor  51 180 240
-$script:cAccentLo= New-GdColor   0 134 196
+$script:cAccent  = New-GdColor  28 126 214      # 主动作：从 0,160,233 那档"系统青"挪到偏靛的蓝，深底上不刺眼
+$script:cAccentHi= New-GdColor  62 150 235
+$script:cAccentLo= New-GdColor  20 102 178
 $script:cHover   = New-GdColor  39  49  63      # 次级按钮悬停
 $script:cDown    = New-GdColor  46  58  74
-$script:cNavOn   = New-GdColor  34  52  74      # 导航项选中底(强调色往深里压一点，别盖过主动作按钮)
+$script:cNavOn   = New-GdColor  31  48  70      # 导航项选中底(强调色往深里压一点，别盖过主动作按钮)
 $script:cLogBack = New-GdColor  13  18  25
+<# 卡片里的行几何：起始 y / 行高 / 行距。Set-PanelCardLines 按这三个算"这张卡装得下几行"，
+   所以改这里就等于改了四张卡的容量 —— 别再回到"高度写死、行数另写一处"的老路。
+   三个数是配着 132 的卡高定的：32 + 4*20 + 18 = 130 ≤ 132，正好 5 行；
+   行距从 18 放到 20 是为了让 8.5pt 的省略行不至于和上一条粘住，代价就是不能再多一行。 #>
+$script:rowY0    = 32
+$script:rowH     = 18
+$script:rowPitch = 20
 <# 日志区是深底，卡片那套绿/黄/红在上面太暗 → 同一套语义换一组亮色，别拿卡片色去涂日志 #>
 $script:logTheme = @{
     ok   = $script:theme['logOk']
@@ -708,7 +719,7 @@ function New-PanelLabel {
        这台机器上 YaHei UI 8.5 的 Font.Height=16、9.5 的=17，所以 15px 高的行是隐形的。
        -SelfTest 里那条"矮到装不下字体"的检查就是钉这个的。 #>
     param($Parent, [string]$Text, [int]$X, [int]$Y, [int]$W = 0, [int]$H = 0,
-          $Color = $null, $Font = $null, [string]$Align = 'Left')
+          $Color = $null, $Font = $null, [string]$Align = 'Left', [string]$Anchor = '')
     $l = New-Object System.Windows.Forms.Label
     $l.Text = $Text
     $l.Location = New-Object System.Drawing.Point($X, $Y)
@@ -720,6 +731,7 @@ function New-PanelLabel {
     if ($Color) { $l.ForeColor = $Color }
     if ($Font)  { $l.Font = $Font }
     if ($Align -eq 'Right') { $l.TextAlign = 'TopRight' }
+    if ($Anchor) { $l.Anchor = $Anchor }
     $null = $Parent.Controls.Add($l)
     return $l
 }
@@ -776,7 +788,15 @@ function New-PanelCard {
     $p.Anchor = $Anchor
     Set-PanelBorder $p
     $null = $script:form.Controls.Add($p)
-    $t = New-PanelLabel -Parent $p -Text $Title.ToUpper() -X 14 -Y 10 -W ($W - 28) -H 17 `
+    # 标题前那一小块强调色：卡片标题只有 8.5pt，深底上光靠字色分不出"这是标题"，给个固定的视觉锚点
+    $sq = New-Object System.Windows.Forms.Panel
+    $sq.Location = New-Object System.Drawing.Point(14, 13)
+    $sq.Size = New-Object System.Drawing.Size(3, 13)
+    $sq.BackColor = $script:cAccent
+    $sq.Anchor = 'Top,Left'
+    $sq.Tag = 'accent'
+    $null = $p.Controls.Add($sq)
+    $t = New-PanelLabel -Parent $p -Text $Title.ToUpper() -X 24 -Y 10 -W ($W - 38) -H 17 `
                         -Color $script:cCardTitle -Font $script:fontSection
     $t.Tag = 'title'
     $t.Anchor = 'Top,Left,Right'
@@ -787,8 +807,8 @@ function Set-PanelCardLines {
     <# 卡片里的行：一条一个 Label(定宽、超出省略号)，这样才能逐行着色。
        行与行只按 y 排、宽度都等于卡片内宽 → 结构上不可能互相压住(-SelfTest 会继续钉这条)
 
-       行数上限不再写死在调用方：卡片高度决定装得下几行(第 i 行底 = 47 + i*18，不能超出高度)，
-       所以 $MaxLines 只是"最多说到第几条"，真画几条由容器算。
+       行数上限不写死在调用方：由 $script:rowY0 / $script:rowH / $script:rowPitch 和卡片高度算
+       (第 i 行底 = rowY0 + rowH + i*rowPitch，不能超出高度)，所以 $MaxLines 只是"最多说到第几条"。
        为什么必须算：分页后"环境"这一路会多出模块自己的探针行，写死 6 就会把最后一行画到卡片外面，
        而 -SelfTest 的"越出容器"是唯一能发现它的自动化闸门 —— 让它自己少画一行、把余下条数报进省略行。 #>
     param($Card, [object[]]$Rows, [int]$MaxLines = 4)
@@ -798,26 +818,28 @@ function Set-PanelCardLines {
     }
     $rows = @($Rows)
     $w = [int]$Card.ClientSize.Width - 28
-    $cap = [int][Math]::Floor((([int]$Card.ClientSize.Height) - 47) / 18)   # 装得下的最多行数
+    $y0 = [int]$script:rowY0; $rh = [int]$script:rowH; $pitch = [int]$script:rowPitch
+    $ch = [int]$Card.ClientSize.Height                                   # PowerShell 只有 [int] 方括号转换，别写 C# 式 (int)
+    $cap = [int][Math]::Floor(($ch - $y0 - $rh) / $pitch) + 1            # 装得下的最多行数
     if ($cap -lt 1) { $cap = 1 }
     $n = $rows.Count
     if ($n -gt $MaxLines) { $n = $MaxLines }
     if ($n -gt $cap) { $n = $cap }
     if ($rows.Count -gt $n -and $n -ge $cap) { $n = $n - 1 }   # 末尾还要留一行给"…另有 N 条"
     if ($n -lt 0) { $n = 0 }
-    $y = 30
+    $y = $y0
     for ($i = 0; $i -lt $n; $i++) {
         $r = $rows[$i]
         $kind = 'info'
         if ($r.Kind) { $kind = [string]$r.Kind }
-        $l = New-PanelLabel -Parent $Card -Text ([string]$r.Text) -X 14 -Y $y -W $w -H 17 -Color $script:theme[$kind]
+        $l = New-PanelLabel -Parent $Card -Text ([string]$r.Text) -X 14 -Y $y -W $w -H $rh -Color $script:theme[$kind]
         $l.Tag = 'line'
         $l.Anchor = 'Top,Left,Right'
-        $y += 18
+        $y += $pitch
     }
     if ($rows.Count -gt $n) {
         $l = New-PanelLabel -Parent $Card -Text ('…另有 ' + ($rows.Count - $n) + ' 条，命令行跑 status.ps1 看全部') `
-                            -X 14 -Y $y -W $w -H 17 -Color $script:theme['dim']
+                            -X 14 -Y $y -W $w -H $rh -Color $script:theme['dim']
         $l.Tag = 'line'
         $l.Anchor = 'Top,Left,Right'
     }
@@ -847,7 +869,16 @@ $rail.Anchor = 'Top,Left,Bottom'
 $null = $script:form.Controls.Add($rail)
 $null = New-PanelLabel -Parent $rail -Text '每日清体力' -X 20 -Y 18 -Color ([System.Drawing.Color]::White) -Font $script:fontTitle
 $null = New-PanelLabel -Parent $rail -Text '状态面板 · 只转达不判定' -X 21 -Y 50 -Color $script:cNavSub -Font $script:fontSmall
-$script:railNavY = 84                     # 导航项从这里往下排(建按钮时用它)
+# 品牌区和导航之间画一条分隔线 + 一个"导航"小标：不然左侧带从上到下是一整块同色，眼睛找不到分组
+$sep = New-Object System.Windows.Forms.Panel
+$sep.Location = New-Object System.Drawing.Point(20, 76)
+$sep.Size = New-Object System.Drawing.Size(($script:railW - 40), 1)
+$sep.BackColor = $script:cLine
+$sep.Anchor = 'Top,Left,Right'
+$sep.Tag = 'accent'
+$null = $rail.Controls.Add($sep)
+$null = New-PanelLabel -Parent $rail -Text '导 航' -X 21 -Y 86 -Color $script:cNavSub -Font $script:fontSection
+$script:railNavY = 112                    # 导航项从这里往下排(建按钮时用它)
 
 # ---- 头部：当前页 / 一句话定位 / 状态灯 / 刷新时刻 ----
 $hdr = New-Object System.Windows.Forms.Panel
@@ -884,7 +915,7 @@ function Set-PanelChip {
 }
 
 # ---- 四张状态卡 ----
-# 132 高 = 标题(10+15) + 最多 5 行(30 起每行 18，最后一行底 119) + 留白。
+# 132 高 = 标题(10+17) + 最多 5 行(32 起每行 20，最后一行底 130) + 留白 2。
 # 每张卡实际画几行由 Set-PanelCardLines 按容器高度算(见那里的注释)，$MaxLines 只是想说到第几条 —— 加行不必再改高度。
 $script:cardTimes = New-PanelCard $script:x0         86 300 132 '定时任务' 'Top,Left'
 $script:cardLast  = New-PanelCard ($script:x0 + 312) 86 300 132 '上一轮'   'Top,Left'
@@ -925,7 +956,7 @@ function New-PanelButton {
             $b.ForeColor = $script:theme['info']
             $b.Font = $script:fontUI
             $b.TextAlign = 'MiddleLeft'
-            $b.Padding = New-Object System.Windows.Forms.Padding(6, 0, 0, 0)
+            $b.Padding = New-Object System.Windows.Forms.Padding(12, 0, 0, 0)   # 左边让给 3px 强调条 + 留白
             $b.FlatAppearance.BorderSize = 0
             $b.FlatAppearance.MouseOverBackColor = $script:cHover
             $b.FlatAppearance.MouseDownBackColor = $script:cDown
@@ -969,17 +1000,33 @@ foreach ($g in $script:games) {
 }
 for ($i = 0; $i -lt $navItems.Count; $i++) {
     $it = $navItems[$i]
-    $nb = New-PanelButton -Parent $rail -Text ([string]$it.Label) -X 12 -Y ($script:railNavY + $i * 38) -W ($script:railW - 24) -H 34 -Kind 'nav'
+    $nb = New-PanelButton -Parent $rail -Text ([string]$it.Label) -X 12 -Y ($script:railNavY + $i * 40) -W ($script:railW - 24) -H 34 -Kind 'nav'
     $nb.Tag = [string]$it.Label
     $nb.AccessibleName = [string]$it.Id
+    # 强调条做成按钮的孩子：跟着按钮走(选中态只改一条颜色)，也不用自己维护"第几项在哪像素"
+    $st = New-Object System.Windows.Forms.Panel
+    $st.Location = New-Object System.Drawing.Point(0, 8)
+    $st.Size = New-Object System.Drawing.Size(3, 18)
+    $st.BackColor = $script:cNav
+    $st.Tag = 'navstripe'
+    $null = $nb.Controls.Add($st)
+    $script:navStripes[[string]$it.Id] = $st
     # 页 id 用 sender 取(不用 $this)：$this 只在"事件脚本块"这一种上下文里有定义，写成 param($s,$e) 才是显式的，
     # 也才让 -SelfTest 能拿 Invoke-PanelClick 把这条点击链真演一遍(见下面的导航断言)。
     $nb.Add_Click({ param($s, $e) Select-PanelPage -Page ([string]$s.AccessibleName) })
     $script:navBtns[[string]$it.Id] = $nb     # 'all' 也要存：不存就没人给它重画选中底色，离开总览后它还留着高亮
 }
-$navHintY = $script:railNavY + $navItems.Count * 38 + 6
+$navHintY = $script:railNavY + $navItems.Count * 40 + 10
 $null = New-PanelLabel -Parent $rail -Text '导航只是换个角度看同一批' -X 21 -Y $navHintY -W ($script:railW - 30) -H 17 -Color $script:cNavSub -Font $script:fontSmall
 $null = New-PanelLabel -Parent $rail -Text '读数，不改变要跑什么' -X 21 -Y ($navHintY + 17) -W ($script:railW - 30) -H 17 -Color $script:cNavSub -Font $script:fontSmall
+<# 导航带底下这两行：一是把"这一台跑在什么上面"说清楚(截图给人看问题时很有用)，
+   二是让左侧带不至于一半是空的。锚在底部，所以窗口拉高它也跟着贴着。
+   文字要短：这两行宽只有 railW-30，写成整句会被省略号吃掉半截(截图里实测过)。 #>
+$null = New-PanelLabel -Parent $rail -Text ('面板 PS ' + ('{0}.{1}' -f [int]$PSVersionTable.PSVersion.Major, [int]$PSVersionTable.PSVersion.Minor) + `
+                                               ' · ' + [System.IO.Path]::GetFileName($script:engine)) `
+                                               -X 21 -Y 684 -W ($script:railW - 30) -H 17 -Color $script:cNavSub -Font $script:fontSmall -Anchor 'Bottom,Left,Right'
+$null = New-PanelLabel -Parent $rail -Text ('这一仓 ' + ($script:games -join ' + ')) `
+                                               -X 21 -Y 705 -W ($script:railW - 30) -H 17 -Color $script:cNavSub -Font $script:fontSmall -Anchor 'Bottom,Left,Right'
 
 $script:runBtn = New-PanelButton -Parent $act -Text $script:idleRunText -X 16 -Y 16 -W 214 -H 44 -Kind 'primary'
 $btnDry     = New-PanelButton -Parent $act -Text '今天会跑什么'  -X 238 -Y 16 -W 150

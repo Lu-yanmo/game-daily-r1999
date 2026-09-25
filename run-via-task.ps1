@@ -21,9 +21,13 @@ $ErrorActionPreference = 'Stop'
 
 # 这份文件会原样进两个导出仓库，所以先问"这棵树上装了哪一路"：只有一路时 -Games 没有意义，
 # 而且单游戏入口 daily-clear.ps1 压根没有 -Games 参数，硬传会当场报"找不到参数"。
+# 判据按 lib\<id>-module.ps1 有几个来数(模块清单文件本身就是"这一路在不在"的标记)，
+# 这样将来加第三款游戏不用回来改这句 -xor；本文件也不为此要多点一份 modules.ps1 —— 它只要知道"几款"。
+$moduleIds = @(Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot 'lib') -Filter '*-module.ps1' -ErrorAction SilentlyContinue |
+    ForEach-Object { $_.Name -replace '-module\.ps1$', '' } | Sort-Object)
 $onlyGame = $null
-if ((Test-Path -LiteralPath (Join-Path $PSScriptRoot 'lib\ark-daily.ps1')) -xor (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'lib\r1999-daily.ps1'))) {
-    $onlyGame = if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'lib\ark-daily.ps1')) { 'ark' } else { 'r1999' }
+if ($moduleIds.Count -eq 1) {
+    $onlyGame = $moduleIds[0]
     if ($Games -notin @('all', $onlyGame)) { Write-GdLog "本仓库只有 $onlyGame 这一路，-Games $Games 被忽略" -Level WARN }
 }
 $S = Get-GdSettings -Quiet

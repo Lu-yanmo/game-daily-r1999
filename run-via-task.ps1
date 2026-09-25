@@ -3,6 +3,7 @@
 
   pwsh -File run-via-task.ps1                 # 完整一轮(方舟 + 1999)，不弹 UAC
   pwsh -File run-via-task.ps1 -NoWait         # 只点火，不等结果
+  pwsh -File run-via-task.ps1 -Stop           # 结束正在跑的这一轮(连它起的助手/端游一起收)
   pwsh -File run-via-task.ps1 -Games ark      # 只跑一路 → 计划任务参数是固定的，会自动改成本机直跑(可能弹一次 UAC)
   pwsh -File run-via-task.ps1 -Direct         # 强制本机直跑
   (单游戏发布仓库里只装得下一路的代码，-Games 这个参数就是空转：不用管它)
@@ -13,6 +14,7 @@ param(
     [ValidateSet('all', 'ark', 'r1999')][string]$Games = 'all',
     [string]$TaskName,
     [switch]$NoWait,
+    [switch]$Stop,
     [switch]$Direct
 )
 
@@ -41,14 +43,81 @@ function Invoke-Direct {
     exit $LASTEXITCODE
 }
 
+# 只跑一路时给任务覆盖参数。以前这里看见 -Games ark 就直接回落本机直跑(要弹一次 UAC)，
+# 而"只补跑某一路"恰恰是最常在人不在机器前发生的场景，弹 UAC 等于那一轮根本跑不起来。
+# 返回 $null = 没拼出来，调用方照旧回落直跑 —— 宁可多弹一次 UAC，也不能把参数拆错、跑成别的东西。
+function Get-GdTaskArgsWithGames {
+    param([Parameter(Mandatory)][string]$Task, [Parameter(Mandatory)][string]$WithGames)
+    try {
+        # @() 必须套在 .Actions 外面，不能只套 Get-ScheduledTask：
+        # 那样是"@一个任务对象" 再成员枚举出 .Actions，单动作时拿到的是单个对象而不是数组，
+        # $act.Count 就成了 $null，下面 "-ne 1" 永真 → 参数覆盖永远静默回落直跑(2026-09-25 实测踩过)。
+        $act = @(@(Get-ScheduledTask -TaskName $Task -ErrorAction Stop).Actions)
+        if ($act.Count -ne 1) { Write-GdLog "任务 $Task 有 $($act.Count) 个动作，参数没法覆盖 → 只跑一路改走直跑" -Level WARN; return $null }
+        $text = [string]$act[0].Arguments
+        if (-not $text) { return $null }
+        # 任务定义里的 Arguments 是一整条字符串(-File "带空格的路径" 那种)，
+        # 而 Start-ScheduledTask -Argument 要的是参数数组。先剥掉原有的 -Games/-Tag，再按引号切：
+        # 引号内整体成一项(去掉引号)，其余按空白切。
+        $text = ($text -replace '\s+-Games\s+"?\w+"?', '') -replace '\s+-Tag\s+"?\w+"?', ''
+        $pieces = @()
+        foreach ($m in [regex]::Matches($text, '"([^"]*)"|(\S+)')) {
+            $pieces += $(if ($m.Groups[1].Success) { $m.Groups[1].Value } else { $m.Groups[2].Value })
+        }
+        if ($pieces.Count -lt 3) { Write-GdLog "任务参数拆出来只剩 $($pieces.Count) 段，不像话 → 只跑一路改走直跑" -Level WARN; return $null }
+        $pieces += @('-Tag', 'manual', '-Games', $WithGames)
+        return ,$pieces
+    } catch {
+        Write-GdLog "读任务参数失败($($_.Exception.Message)) → 只跑一路改走直跑" -Level WARN
+        return $null
+    }
+}
+
 $exists = [bool](Get-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue)
+
+# ---------- 结束正在跑的这一轮 ----------
+# 为什么走"停任务"而不是让面板直接 Kill 进程：那一轮是提权进程，普通完整性的面板没权限结束它；
+# Stop-ScheduledTask 由任务调度服务(系统身份)执行，才使得上劲。
+if ($Stop) {
+    if (-not $exists) { Write-GdLog "还没注册 $task，也没有要走任务的轮次可停" -Level WARN; exit 0 }
+    $cur = Get-GdTaskState -Name $task
+    if ([string]$cur.State -ne 'Running') {
+        Write-GdLog "任务 $task 现在没在跑(状态=$($cur.State))，不用停"
+        exit 0
+    }
+    Write-GdLog "结束计划任务 $task —— 它起的助手/端游会跟着收，但不会等它们跑完再收尾" -Level STEP
+    try { Stop-ScheduledTask -TaskName $task }
+    catch { Write-GdLog "结束失败：$($_.Exception.Message)(这台机器的任务权限配置不认这个操作，去任务计划程序里手工结束)" -Level ERROR; exit 2 }
+    # Stop 是异步的，立刻回查还是 Running，等它真停下来再下结论
+    $till = (Get-Date).AddSeconds(30)
+    while ((Get-Date) -lt $till) {
+        Start-Sleep -Seconds 2
+        if ([string](Get-GdTaskState -Name $task).State -ne 'Running') { break }
+    }
+    $cur = Get-GdTaskState -Name $task
+    if ([string]$cur.State -eq 'Running') {
+        Write-GdLog "已经请求结束，但 30 秒后任务还是 Running —— 去任务计划程序里手工结束它" -Level ERROR
+        exit 2
+    }
+    # 被掐掉的那一轮走不到自己 finally 里的收尾，活体标记留在原地。虽然读方按 PID 判活会识破它，
+    # 主动清掉更干净：省下面板一次"这是残留"的判断。
+    Stop-GdRunLock
+    # 睡眠屏蔽是线程句柄，任务进程一死系统自动撤销；屏保遗留由下一轮起跑时 Enter-GdNoSleep 自己复原。
+    # 所以这里两样都不碰 —— 跨进程去改注册表反而是新增风险。
+    Write-GdLog "任务已停止(状态=$($cur.State))。助手/端游要是还开着，是它没跟着任务一起退，手动关掉即可。" -Level OK
+    exit 0
+}
+
 if (-not $exists) { Invoke-Direct -Why "还没注册按需任务 $task(先跑 install-task.ps1)" }
 if ($Direct) { Invoke-Direct -Why '-Direct' }
-if (-not $onlyGame -and $Games -ne 'all') { Invoke-Direct -Why "计划任务的参数固定是 -Games all，-Games $Games 走不了任务" }
+# 只跑一路：先试着给任务覆盖参数(免 UAC)，拼不出来才走直跑那条会弹 UAC 的路。
+$taskArgs = $null
+if (-not $onlyGame -and $Games -ne 'all') { $taskArgs = Get-GdTaskArgsWithGames -Task $task -WithGames $Games }
+if (-not $onlyGame -and $Games -ne 'all' -and -not $taskArgs) { Invoke-Direct -Why "没能覆盖任务参数，-Games $Games 走不了任务" }
 
-Write-GdLog "触发计划任务 $task(最高权限、免 UAC)" -Level STEP
+Write-GdLog ("触发计划任务 $task(最高权限、免 UAC)" + $(if ($taskArgs) { "，本轮只跑 $Games" } else { '' })) -Level STEP
 try {
-    Start-ScheduledTask -TaskName $task
+    if ($taskArgs) { Start-ScheduledTask -TaskName $task -Argument $taskArgs } else { Start-ScheduledTask -TaskName $task }
 } catch {
     Invoke-Direct -Why "触发 $task 失败：$($_.Exception.Message)"
 }

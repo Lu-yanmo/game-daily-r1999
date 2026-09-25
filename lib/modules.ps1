@@ -319,6 +319,9 @@ function Invoke-GdDailyRound {
     }
 
     # ---------- 运行 ----------
+    # 登记活体标记：从这一行起，别的进程(面板/另一个终端)才认得出"有人正在跑"。
+    # 放在 dry-run 返回之后是刻意的 —— 预演不占助手、不占端游，登记了反而会把面板挡在门外。
+    Start-GdRunLock -Games $(if ($Ids) { $Ids -join '+' } else { 'all' }) -Tag $Tag
     if ($S.runtime.blockSleep) { Enter-GdNoSleep -KeepScreenOn ([bool]$S.runtime.keepScreenOn) }
     $results = [ordered]@{}
     $fatal = $null
@@ -339,6 +342,9 @@ function Invoke-GdDailyRound {
             }
         }
         Exit-GdNoSleep
+        # 撤活体标记。硬杀(面板停不掉提权轮、系统重启)走不到这里 —— 那种残留由读方按 PID 判活识破，
+        # 所以标记不需要额外的心跳或超时字段。
+        Stop-GdRunLock
     }
 
     # ---------- 汇总 ----------
@@ -364,7 +370,10 @@ function Invoke-GdDailyRound {
     $modeLine = (@($plan.Keys) | ForEach-Object { "$($plan[$_].Module.ShortName)：$(if ($plan[$_].Decision) { [string]$plan[$_].Decision.Mode } else { 'skip' })" }) -join ' / '
     $noticeText = "$modeLine`n$summary"
     if (-not $allOk) { $noticeText += "`n(详情见 logs\$([System.IO.Path]::GetFileName($global:GD.LogFile)))" }
-    Send-GdNotice -Title $(if ($allOk) { "$NoticeOwner日常已完成" } else { "$NoticeOwner日常需要人工看一眼" }) -Text $noticeText -Level $(if ($allOk) { 'OK' } else { 'WARN' })
+    # 注意 ${NoticeOwner} 的大括号不能省：CJK 是合法的变量名字符，"$NoticeOwner日常…" 会被解析成
+    # 一个叫 $NoticeOwner日常已完成 的不存在变量 → 展开成空串 → Send-GdNotice 的 Mandatory Title 绑不上，
+    # 整轮在"全部完成"日志之后、写通知之前抛异常退出(退出码 1，2026-09-25 晚实机踩中)。
+    Send-GdNotice -Title $(if ($allOk) { "${NoticeOwner}日常已完成" } else { "${NoticeOwner}日常需要人工看一眼" }) -Text $noticeText -Level $(if ($allOk) { 'OK' } else { 'WARN' })
 
     if ($allOk) { return 0 }
     if (@($results.Keys).Count -gt 0 -and (@($results.Values | Where-Object { $_.Status -eq 'ok' }).Count -gt 0)) { return 1 }

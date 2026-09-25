@@ -74,13 +74,17 @@ function Start-GdR1999Daily {
     $m9aCfg.Changes | ForEach-Object { Write-GdLog "  M9A：$_" }
     $run9 = { Invoke-M9ARun -S $S -Instance $inst }
     $r = Invoke-GdStep -Name '1999' -Body $run9
-    if ($r.Status -notin @('ok', 'not-started', 'empty-queue', 'unknown-format') -and $S.runtime.retryOnce) {
+    if ($r.Status -notin @('ok', 'not-started', 'empty-queue', 'unknown-format', 'blocked') -and $S.runtime.retryOnce) {
         Write-GdLog '1999 本轮未成功 → 关闭游戏后重试一次' -Level WARN
         Stop-M9A -S $S
         Start-Sleep -Seconds 20
         $r = Invoke-GdStep -Name '1999重试' -Body $run9
     } elseif ($r.Status -eq 'unknown-format') {
         Write-GdLog '1999 日志标志一条都没认出来 → 重试同样看不懂，直接记入本轮告警(见下面的处理建议)' -Level ERROR
+    } elseif ($r.Status -eq 'blocked') {
+        <# 实测 09-25 19:24：客户端在模拟器里下 1.91G 更新包，10 个任务里 8 个「任务失败」，
+           重试只是再空转 5 分钟。这种"游戏没在界面上"的形态重试无用，要人去处理。 #>
+        Write-GdLog '1999 从头一个任务起就没进游戏 → 是客户端/资源要更新或模拟器状态不对，重试没有意义，直接记入本轮告警' -Level ERROR
     } elseif ($r.Status -in @('not-started', 'empty-queue')) {
         Write-GdLog '1999 队列没开始/空跑完成 → 重试没有意义，直接记入本轮告警' -Level WARN
     }

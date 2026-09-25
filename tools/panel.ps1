@@ -221,7 +221,7 @@ function Get-PanelSummaryParts {
                 if ($dur) { $dur = ('{0:N0}s' -f [int]$dur) } else { $dur = '-' }
                 $st = [string]$r.status
                 $kind = 'ok'
-                if ($st -match 'stall|timeout|error|fail|not-started|unknown') { $kind = 'err' }
+                if ($st -match 'stall|timeout|error|fail|not-started|unknown|blocked') { $kind = 'err' }
                 elseif ($st -notmatch '^(ok|done|完成)') { $kind = 'warn' }
                 $time = [string]$r.time
                 if ($time -match '\d{4}-\d{2}-\d{2}\s+(\d{2}:\d{2})') { $time = $matches[1] }

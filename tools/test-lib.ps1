@@ -198,6 +198,56 @@ function Show-GdCommonEmptyPathChecks {
     } finally { Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue }
 }
 
+# ---------- 活体标记(跨进程互斥)：state\running.json 的登记/判活/撤销 ----------
+# 这一组是面板撞车保护的唯一数据源，所以两条反向断言都不能省：
+# 残留必须判成"没在跑"(否则一次硬杀会把面板永久锁死)，别人登记的必须删不掉(否则两轮互相拆保护)。
+# 已知窗口：这一段会临时改写 running.json。真有一轮在跑时跑自检，面板会在那几百毫秒里
+# 把本测试进程看成"在跑的那一轮"，测完快照原样还原 —— 所以别拿自检结果当"此刻有没有在跑"的依据。
+function Show-GdCommonRunLockChecks {
+    Write-Host "`n[t16] 活体标记 running.json"
+    Save-GdTestState -Names @('running')
+    try {
+        $p = Get-GdTestStatePath -Name 'running'
+        Remove-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue
+        Check '没有标记时 Get-GdRunLock 返回 null' ($null -eq (Get-GdRunLock))
+        Check '标记文件确实不存在' (-not (Test-Path -LiteralPath $p))
+
+        Start-GdRunLock -Games 'ark+r1999' -Tag 'manual'
+        $o = Get-GdRunLock
+        Check '登记后判成在跑' ($o.Alive -eq $true) $(if ($o) { "pid=$($o.Pid)" } else { '读回 null' })
+        Check 'PID 记的是本进程' ($o.Pid -eq $PID) "$($o.Pid)"
+        Check 'games 原样读回' ($o.Games -eq 'ark+r1999') "$($o.Games)"
+        Check 'tag 原样读回' ($o.Tag -eq 'manual') "$($o.Tag)"
+        Check 'started 是可解析的时间' ($( try { [void][DateTime]::ParseExact($o.Started, 'yyyy-MM-dd HH:mm:ss', $null); $true } catch { $false } )) "$($o.Started)"
+
+        # 别人的 PID(活着、但不是本进程)：判活要是 true，而本进程的撤销必须不动它
+        $other = @(Get-Process | Where-Object { $_.Id -ne $PID } | Select-Object -First 1).Id
+        if ($other) {
+            '{"pid":' + $other + ',"started":"2026-09-25 19:00:00","games":"ark","tag":"auto","log":""}' | Set-Content -LiteralPath $p -Encoding utf8
+            $o2 = Get-GdRunLock
+            Check '别人活着的 PID 判成在跑' ($o2.Alive -eq $true) "pid=$other"
+            Stop-GdRunLock
+            Check '本进程撤销不动别人登记的标记' (Test-Path -LiteralPath $p)
+        } else {
+            Check '本进程撤销不动别人登记的标记' $false '拿不到别的活进程 PID，这条没测到'
+        }
+
+        '{"pid":2147483646,"started":"2026-09-25 19:00:00","games":"ark","tag":"auto","log":""}' | Set-Content -LiteralPath $p -Encoding utf8
+        $o3 = Get-GdRunLock
+        Check '查无此 PID 判成残留(不在跑)' ($o3.Alive -eq $false) '面板据此放行，不会被崩溃残留永久挡住'
+
+        Start-GdRunLock -Games 'all' -Tag 'manual'
+        Stop-GdRunLock
+        Check '撤销后标记文件消失' (-not (Test-Path -LiteralPath $p))
+
+        '{ 这不是 JSON' | Set-Content -LiteralPath $p -Encoding utf8
+        $o4 = $null
+        $noThrow = try { $o4 = Get-GdRunLock; $true } catch { $false }
+        Check '坏文件读成 null 且不抛(不能让面板/命令行因此炸)' ($noThrow -and $null -eq $o4)
+    } finally { Restore-GdTestState }
+    Check '测完 state 快照已原样还原' (Test-GdTestStateRestored)
+}
+
 # ---------- 收尾：打印那一行"结果"，并把计数交给调用方(test-decisions.ps1 汇总用) ----------
 function Show-GdTestResult {
     param([Parameter(Mandatory)][string]$Tag)

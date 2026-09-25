@@ -516,6 +516,75 @@ function Add-GdHistory {
     Add-Content -LiteralPath $file -Value $row -Encoding utf8
 }
 
+# --- 活体标记(跨进程互斥用，面板只读不写) ---
+# 为什么需要它：面板只看得见自己起的子进程。定时任务、命令行、另一个面板窗口起的轮次它一概不知道，
+# 于是"再来一轮"会把两轮叠到同一个助手/端游上(实机撞过：19:11 从命令行点火，面板全程显示空闲)。
+# 判据为什么是 PID 而不是"日志最近有没有新行"：实机量过，MAA 跑基建(Infrast)那一段能连着
+# 10 分 41 秒一行都不写(2026-09-25 18:50:44 Recruit → 19:01:25 Infrast)，按日志新鲜度判会把
+# "正在跑基建"看成空闲。只有进程活没活不会骗人。
+function Start-GdRunLock {
+    param(
+        [Parameter(Mandatory)][string]$Games,
+        [string]$Tag = ''
+    )
+    $file = Join-Path $global:GD.State 'running.json'
+    # 已有别的轮在跑：这里只把话说出来，不拦。拦的活交给面板和计划任务那两侧 ——
+    # 在判定层硬拦会让 06:00/18:00 撞上时整轮直接失败，而"失败"对无人值守的人来说
+    # 比"多跑一遍"更难发现。要改成硬拦，得先有"两轮叠跑真把助手搞坏了"的证据。
+    $prev = Get-GdRunLock
+    if ($prev -and $prev.Alive) {
+        Write-GdLog "已有一轮在跑(PID $($prev.Pid)，$($prev.Started) 起，games=$($prev.Games)) —— 本轮照跑，两轮会抢同一个助手/端游" -Level WARN
+    }
+    $obj = [ordered]@{
+        pid     = $PID
+        started = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+        games   = $Games
+        tag     = $Tag
+        log     = [string]$global:GD.LogFile
+    }
+    try {
+        $obj | ConvertTo-Json -Compress | Set-Content -LiteralPath $file -Encoding utf8
+    } catch {
+        Write-GdLog "活体标记没写进去：$($_.Exception.Message)(面板这一轮就认不出有人在跑)" -Level WARN
+    }
+}
+
+# 读标记并判活。返回 $null = 压根没有标记；.Alive=$false = 上一轮崩了没清掉的残留
+# (残留按"没在跑"处理是刻意的：否则一次硬杀会把面板永久挡在门外)。
+function Get-GdRunLock {
+    $file = Join-Path $global:GD.State 'running.json'
+    if (-not (Test-Path -LiteralPath $file)) { return $null }
+    try {
+        $o = Get-Content -LiteralPath $file -Raw | ConvertFrom-Json
+        if ($null -eq $o.pid) { return $null }
+        $alive = $true
+        try {
+            # 只问"有没有这个 PID"。Get-Process 在 5.1/7 上找不到进程时抛的类型并不一致
+            # (ProcessException / InvalidOperationException 都见过)，所以不分类型，一律按"没了"处理。
+            $p = Get-Process -Id ([int]$o.pid) -ErrorAction Stop
+            $p.Dispose()
+        } catch { $alive = $false }
+        return [pscustomobject]@{
+            Alive   = $alive
+            Pid     = [int]$o.pid
+            Started = [string]$o.started
+            Games   = [string]$o.games
+            Tag     = [string]$o.tag
+            Log     = [string]$o.log
+        }
+    } catch { return $null }
+}
+
+function Stop-GdRunLock {
+    $file = Join-Path $global:GD.State 'running.json'
+    if (-not (Test-Path -LiteralPath $file)) { return }
+    try {
+        # 只删自己登记的那一份：万一别的轮已经覆盖了它，删就等于把别人的撞车保护拆了
+        $txt = [string](Get-Content -LiteralPath $file -Raw)
+        if ($txt -match ('"pid"\s*:\s*' + $PID + '[\s,}]')) { Remove-Item -LiteralPath $file -Force }
+    } catch { }
+}
+
 # --- 状态文件(活动确认门等) ---
 function Get-GdStateObject {
     param([Parameter(Mandatory)][string]$Name, $Default = $null)

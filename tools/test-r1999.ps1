@@ -12,6 +12,7 @@ Show-GdCommonVerbChecks
 Show-GdCommonEntryHintChecks
 Show-GdCommonScriptHygieneChecks
 Show-GdCommonEmptyPathChecks
+Show-GdCommonRunLockChecks
 
 # [t4] 往后的每一组都要读 M9A 自己的文件(config\instances\*.json、日志)。paths.m9aDir 还没填时
 # 先说人话，别让人对着"参数 'Path' 是空字符串"这种内部报错猜(和 test-ark.ps1 同一处理)。
@@ -155,7 +156,8 @@ Check '能读出战它提交了几个任务' ((Read-GdM9ALine -Line '[..][inst=�
 
 function New-M9AState {
     return @{ tasks = @(); chainStarted = $false; chainDone = $false; connectPhase = 'none'; failed = $null;
-              lastLog = (Get-Date); queueCount = $null; startRequested = $false; eventCount = 0 }
+              lastLog = (Get-Date); queueCount = $null; startRequested = $false; eventCount = 0;
+              failedTasks = @(); resCurrent = $null; resLatest = $null; connectFail = $null }
 }
 $instS12 = [pscustomobject]@{ Id = 'deadbeef'; Name = '日常-长草' }
 
@@ -265,7 +267,75 @@ Check '新版文案不认识时 Read-GdM9ALine 返回 $null(而不是硬凑一�
 # 重试策略跟着"跑一轮"一起搬进了 lib\r1999-daily.ps1，入口脚本只剩参数分发。
 # 断言对象随之换文件，断言内容(那条跳过清单)一个字没改。
 $r1999Daily = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\lib\r1999-daily.ps1') -Raw -Encoding utf8
-Check '1999 重试会跳过 not-started/empty-queue/unknown-format' ($r1999Daily -match "Status -notin @\('ok', 'not-started', 'empty-queue', 'unknown-format'\)")
+Check '1999 重试会跳过 not-started/empty-queue/unknown-format/blocked' ($r1999Daily -match "Status -notin @\('ok', 'not-started', 'empty-queue', 'unknown-format', 'blocked'\)")
+
+Write-Host "`n[t17] 单任务识别失败 / 版本落后 / 连不上模拟器 —— 09-25 19:24 那一轮的复盘"
+<#
+  那一轮的真实形态(证据：M9A logs\log-20260925.log 1336~1766 行 + 我们自己的
+  logs\run-20260925-191135-daily-manual.log 第 36~51 行)：
+    模拟器连上了、截图 11ms 正常，但客户端正在下 1.91G 的 Reverse1999_sub1009 更新包，
+    界面停在安卓下拉通知栏上 → 「启动游戏」失败，之后每个任务约 22 秒各失败一次，共 8 个。
+  我们当时一路报「M9A 进行中[1..8]」，最后只给出「进程提前退出」，然后原样重试一遍又白烧 5 分钟。
+  根因是解析器不认「任务失败：<中文名>」这一行(只认「任务运行失败」，差一个字)，
+  也不认 M9A 自己喊的版本差(「最新资源版本」还被 noise 那条按子串吞了)。
+#>
+# 下面这批日志行是从 09-25 19:24 那一轮原样抄来的，只有 [inst=名字/id] 里的 id 换成了合成值：
+# 真实实例 id 属于"本机专属值"，写进会被 tools\publish-split.ps1 的 Test-GdExportLeaks 拦下(它扫的就是
+# M9A 实例目录下每个 .json 的文件名)，导出的 r1999 仓库就发不出去。解析器只按"传进来的 id 和行内 id 对不对得上"过滤，
+# 用哪个 id 都不影响断言的意义，所以这里固定用 deadbeef(本文件上面那组断言用的也是它)。
+$raw17 = @(
+    '[2026-09-25 19:24:21.177][INF] [cfg=Default][inst=日常-长草/deadbeef][src=Monitor][op=MonitorLog] [Record] 当前资源版本：v4.7.1',
+    '[2026-09-25 19:24:21.185][INF] [cfg=Default][inst=日常-长草/deadbeef][src=Monitor][op=MonitorLog] [Record] 最新资源版本：v4.10.0',
+    '[2026-09-25 19:24:23.165][INF] [cfg=Default][inst=日常-长草/deadbeef][src=Worker][op=ExecuteTaskQueue] 准备执行任务队列：任务数量=10',
+    '[2026-09-25 19:24:25.126][INF] [cfg=Default][inst=日常-长草/deadbeef][src=Monitor][op=MonitorLog] 开始任务：启动游戏',
+    '[2026-09-25 19:26:27.316][INF] [cfg=Default][inst=日常-长草/deadbeef][src=Monitor][op=MonitorLog] 任务失败：启动游戏',
+    '[2026-09-25 19:26:45.511][INF] [cfg=Default][inst=日常-长草/deadbeef][src=Monitor][op=MonitorLog] 开始任务：收取荒原',
+    '[2026-09-25 19:26:49.543][INF] [cfg=Default][inst=日常-长草/deadbeef][src=Monitor][op=MonitorLog] 任务失败：收取荒原',
+    '[2026-09-25 19:28:50.180][INF] [cfg=Default][inst=日常-长草/deadbeef][src=Worker][op=StopTask] 停止前状态：NOT_STARTED'
+)
+Check '「任务失败：<中文名>」认得，且带出任务名' ((Read-GdM9ALine -Line $raw17[4] -InstanceId 'deadbeef').Kind -eq 'task-fail')
+Check '「当前资源版本」认得' ((Read-GdM9ALine -Line $raw17[0] -InstanceId 'deadbeef').Kind -eq 'res-current')
+Check '「最新资源版本」不再被 noise 按子串吞掉' ((Read-GdM9ALine -Line $raw17[1] -InstanceId 'deadbeef').Kind -eq 'res-latest')
+Check '「初始化控制器失败」算连接失败' ((Read-GdM9ALine -Line '[..][inst=日常-长草/deadbeef][src=Worker][op=ExecuteTaskQueue] 初始化控制器失败：message=连接模拟器时发生错误！' -InstanceId 'deadbeef').Kind -eq 'connect-fail')
+Check '连接失败只留原因，不带时间戳/字段头' ((Read-GdM9ALine -Line '[2026-09-25 19:29:33.726][INF] [cfg=Default] 按指纹匹配到的设备数量：0' -InstanceId 'deadbeef').Text -eq '按指纹匹配到的设备数量：0')
+Check '旧的"新资源版本还请更新"提示仍算噪音(不抢 res-latest)' ((Read-GdM9ALine -Line '[..][inst=x/deadbeef][src=Agent][op=StdErr] 如前面有提示新资源版本还请更新' -InstanceId 'deadbeef').Kind -eq 'noise')
+
+$s17 = New-M9AState
+foreach ($l in $raw17) {
+    $ev = Read-GdM9ALine -Line $l -InstanceId 'deadbeef'
+    if ($ev) { Register-M9AEvent -State $s17 -Event $ev }
+}
+Check '两个任务失败都累计进来了' (@($s17.failedTasks).Count -eq 2) "failedTasks=$($s17.failedTasks -join ',')"
+Check '读到了版本差' ($s17.resCurrent -eq 'v4.7.1' -and $s17.resLatest -eq 'v4.10.0') "$($s17.resCurrent)/$($s17.resLatest)"
+$r17 = Resolve-M9AStatus -State $s17 -Elapsed 280 -S $S -Instance $instS12 -ProcessGone $true -LogName 'log-20260925.log'
+Check '第一个任务就失败 → blocked(不再报成"进程提前退出"这种没指向的 error)' ($r17.Status -eq 'blocked') "$($r17.Status)｜$($r17.Detail)"
+Check 'blocked 点名是第一个任务失败、后面全是空转' ($r17.Detail -match '第一个任务\[启动游戏\]') $r17.Detail
+Check 'blocked 把版本差说成可行动的整包更新' (($r17.Detail -match 'v4\.10\.0') -and ($r17.Detail -match '整包更新')) $r17.Detail
+Check 'blocked 带上失败任务清单' ($r17.Detail -match '收取荒原') $r17.Detail
+Check 'blocked 不是 ok：这一轮不能算清完体力' ($r17.Status -ne 'ok')
+
+# 只有中间某个任务失败(实测「使用兑换码」没码可换就这样)→ 不许整轮判红
+$s17b = New-M9AState
+foreach ($e in @(@{Kind='queue-prepared';Text='10'}, @{Kind='task';Text='启动游戏'}, @{Kind='task';Text='使用兑换码'},
+                 @{Kind='task-fail';Text='使用兑换码'}, @{Kind='chain-done';Text=''})) { Register-M9AEvent -State $s17b -Event $e }
+$r17b = Resolve-M9AStatus -State $s17b -Elapsed 300 -S $S -Instance $instS12 -ProcessGone $true
+Check '中间任务单独失败 → 仍判 ok，但把失败任务写进告警' (($r17b.Status -eq 'ok') -and ($r17b.Detail -match '1 个任务报过')) "$($r17b.Status)｜$($r17b.Detail)"
+
+# 19:29 那一轮：声明了 10 个任务却一个没开始，真因是连不上模拟器 —— 旧文案说成"队列为空"
+$s17c = New-M9AState
+foreach ($e in @(@{Kind='queue-prepared';Text='10'}, @{Kind='connect-fail';Text='初始化控制器失败：AdbSerial 为空'}, @{Kind='chain-done';Text=''})) { Register-M9AEvent -State $s17c -Event $e }
+$r17c = Resolve-M9AStatus -State $s17c -Elapsed 30 -S $S -Instance $instS12 -LogName 'log-20260925.log'
+Check '连不上模拟器时 empty-queue 说清是连接失败' ($r17c.Detail -match '连模拟器这一步就失败') "$($r17c.Status)｜$($r17c.Detail)"
+Check '声明了 10 个任务时不再谎称"队列为空"' (-not ($r17c.Detail -match '队列为空')) $r17c.Detail
+Check '连接失败会把 adb/虚拟机指向出来' ($r17c.Detail -match 'MuMu') $r17c.Detail
+
+# 老状态包没有新键(比如 replay 工具自己拼的)不许把 @($null) 数成一个失败
+$s17d = @{ tasks = @(); chainStarted = $false; chainDone = $false; connectPhase = 'none'; failed = $null;
+           lastLog = (Get-Date); queueCount = $null; startRequested = $false; eventCount = 0 }
+Register-M9AEvent -State $s17d -Event @{ Kind = 'task-fail'; Text = '启动游戏' }
+Check '状态包缺 failedTasks 键时不会把 $null 数成一个失败' (@($s17d.failedTasks).Count -eq 1) "count=$(@($s17d.failedTasks).Count)"
+$r17d = Resolve-M9AStatus -State $s17d -Elapsed 60 -S $S -Instance $instS12 -ProcessGone $true
+Check '零任务+只有失败行 → 不报"开始过的 0 个任务全部失败"这种话' (-not ($r17d.Detail -match '0 个任务全部')) "$($r17d.Status)｜$($r17d.Detail)"
 
 $res = Show-GdTestResult -Tag 'r1999'
 if ($NoExit) { return $res }

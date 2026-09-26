@@ -130,7 +130,7 @@ function Get-GdEntryVerbs {
 }
 function Get-GdEntryVerb {
     param([Parameter(Mandatory)][string]$Game,
-          [Parameter(Mandatory)][ValidateSet('Ack', 'ShopDone', 'ShopReset')][string]$Verb)
+          [Parameter(Mandatory)][ValidateSet('Ack', 'ShopDone', 'ShopReset', 'Farm')][string]$Verb)
     $t = Get-GdEntryVerbs
     if ($t.ContainsKey($Game) -and $t[$Game].ContainsKey($Verb) -and $t[$Game][$Verb]) { return $t[$Game][$Verb] }
     # 没被 Sync 过 = 这就是单游戏仓库(或者只点了 common+decisions 的老消费方) → 干净短名
@@ -138,7 +138,7 @@ function Get-GdEntryVerb {
 }
 function Set-GdEntryVerb {
     param([Parameter(Mandatory)][string]$Game,
-          [Parameter(Mandatory)][ValidateSet('Ack', 'ShopDone', 'ShopReset')][string]$Verb,
+          [Parameter(Mandatory)][ValidateSet('Ack', 'ShopDone', 'ShopReset', 'Farm')][string]$Verb,
           [Parameter(Mandatory)][string]$Name)
     $t = Get-GdEntryVerbs
     if (-not $t.ContainsKey($Game)) { $t[$Game] = @{} }
@@ -171,7 +171,7 @@ function Sync-GdEntryVerbs {
         foreach ($m in @(Get-GdModules)) {
             $v = $m.EntryVerbs.Merged
             if (-not $v) { continue }
-            foreach ($k in @('Ack', 'ShopDone', 'ShopReset')) {
+            foreach ($k in @('Ack', 'ShopDone', 'ShopReset', 'Farm')) {
                 $name = [string]$v.$k
                 if (-not $name) { continue }
                 Set-GdEntryVerb -Game ([string]$m.Id) -Verb $k -Name $name
@@ -184,6 +184,7 @@ function Sync-GdEntryVerbs {
             @{ Game = 'ark'; Verb = 'Ack'; Name = '-AckArk' },
             @{ Game = 'ark'; Verb = 'ShopDone'; Name = '-ArkShopDone' },
             @{ Game = 'ark'; Verb = 'ShopReset'; Name = '-ArkShopReset' },
+            @{ Game = 'ark'; Verb = 'Farm'; Name = '-FarmArk' },
             @{ Game = 'r1999'; Verb = 'Ack'; Name = '-Ack1999' },
             @{ Game = 'r1999'; Verb = 'ShopDone'; Name = '-RShopDone' },
             @{ Game = 'r1999'; Verb = 'ShopReset'; Name = '-RShopReset' }

@@ -16,7 +16,7 @@ param([switch]$Offline)
 $ErrorActionPreference = 'Stop'
 # 有什么点什么：lib 里的模块按这个顺序 dot-source，文件不在就跳过。
 # 本地工作副本都在；只发布一款时导出的仓库里没有另一款那几个文件，于是体检自动只剩那一路 —— 不靠改代码。
-foreach ($lib in @('common', 'decisions', 'modules', 'maa', 'm9a', 'mumu', 'ark-status', 'r1999-status')) {
+foreach ($lib in @('common', 'decisions', 'modules', 'maa', 'm9a', 'mumu', 'ark-farm', 'ark-status', 'r1999-status')) {
     $libPath = Join-Path $PSScriptRoot "lib\$lib.ps1"
     if (Test-Path -LiteralPath $libPath) { . $libPath }
 }

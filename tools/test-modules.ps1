@@ -246,7 +246,21 @@ try {
 Check 'daily-clear.ps1 的参数表读得到' ($dailyTable.Count -gt 0) "$($dailyTable.Count) 个参数"
 foreach ($m in @(Get-GdModules)) {
     $id = [string]$m.Id
-    foreach ($verb in @('Ack', 'ShopDone', 'ShopReset')) {
+    # 默认三门每路都查；此外只查该模块在 Merged 里自己声明过的动词 ——
+    # ark 声明了 Farm='-FarmArk' 会被查，r1999 没有 Farm 这道门，硬塞给它就是假红。
+    $verbs = @('Ack', 'ShopDone', 'ShopReset')
+    if ($m.EntryVerbs -and $m.EntryVerbs.Merged) {
+        # Merged 多半是 hashtable：它的 PSObject.Properties 会把 .NET 成员(Count/IsReadOnly…)也吐出来，
+        # 拿键枚举才对；写成对象(PSCustomObject)的那种清单则只有属性名。两种都兼容。
+        $mv = $m.EntryVerbs.Merged
+        $declared = @()
+        if ($mv -is [System.Collections.IDictionary]) { $declared = @($mv.Keys | ForEach-Object { [string]$_ }) }
+        else { $declared = @($mv.PSObject.Properties.Name) }
+        foreach ($p in $declared) {
+            if ($p -in @('Ack', 'ShopDone', 'ShopReset', 'Farm') -and $p -notin $verbs) { $verbs += $p }
+        }
+    }
+    foreach ($verb in $verbs) {
         $flag = Get-GdEntryVerb -Game $id -Verb $verb        # 函数返回的是带前导连字符的完整开关名(判定日志直接拼进提示语)
         Check "[$id] $verb 的开关名 $flag 是入口真认识的参数" ($dailyTable.ContainsKey($flag.TrimStart('-')))
     }

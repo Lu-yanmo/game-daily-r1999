@@ -86,6 +86,10 @@ Invoke-GdTolerant {
     if ($txt.StartsWith('屏保：')) { $txt = $txt.Substring(3) }
     Write-Host ("  {0,-10} {1}" -f '屏保', $txt) -ForegroundColor $col
 }
+Invoke-GdTolerant {
+    # 版本号只有仓库根那个 VERSION 文件一处；报问题前先跑一次 status，第一屏就能说清"我用的是哪版"。
+    Write-Host ("  {0,-10} {1}" -f '版本', (Get-GdVersion)) -ForegroundColor Gray
+}
 
 Show-GdSectionHeader '进程 / 模拟器'
 foreach ($m in $mods) {

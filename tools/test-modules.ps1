@@ -541,6 +541,80 @@ if ((Test-Path -LiteralPath $supLib) -and (Test-Path -LiteralPath $supLoop)) {
     }
 }
 
+Write-Host "`n[m12] 版本号：唯一来源 + 三个读数都接上(2026-09-26 起)"
+# 为什么钉这一条：v2026.09.26 那次发布时，版本只活在 git tag 上 —— 代码/exe/面板里都没有读数，
+# 玩家报"我这儿不对"的时候第一句"你用的哪版"就答不上来。改成仓库根一个 VERSION 之后，
+# 真正的风险变成"有人图省事在第二个地方也写一份" —— 那种错不会当场坏，只会哪天改版忘了它，
+# 于是 exe 印一个版本、面板印另一个，两边各自都"绿"，谁也不觉得少了什么。所以下面既钉"来源只有一个"，也钉"三个读数都从它取"。
+$verFile = Join-Path $root 'VERSION'
+Check '仓库根 VERSION 在(它是唯一的版本来源)' (Test-Path -LiteralPath $verFile)
+$verNow = ''
+if (Test-Path -LiteralPath $verFile) { $verNow = Get-GdVersion }
+Check "VERSION 的形状是 x.y.z(读到 '$verNow')" ($verNow -match '^\d+\.\d+\.\d+$')
+Check 'Get-GdVersion 读的就是仓库根那份(不是硬编码回来的)' ((Get-GdVersion -File $verFile) -eq $verNow)
+# 坏值一律退成 0.0.0：只读的体检/面板不许因为一个文件写坏就抛(喂临时假文件，不要求机器现场状态)
+$verTmp = Join-Path $env:TEMP ('gd-ver-' + $PID)
+[void](New-Item -ItemType Directory -Path $verTmp -Force)
+try {
+    'v1.2.3' | Set-Content -LiteralPath (Join-Path $verTmp 'v.txt') -Encoding ascii
+    '1.2'    | Set-Content -LiteralPath (Join-Path $verTmp 'short.txt') -Encoding ascii
+    ''       | Set-Content -LiteralPath (Join-Path $verTmp 'empty.txt') -Encoding ascii
+    $bad = @((Get-GdVersion -File (Join-Path $verTmp 'v.txt')), (Get-GdVersion -File (Join-Path $verTmp 'short.txt')),
+             (Get-GdVersion -File (Join-Path $verTmp 'empty.txt')), (Get-GdVersion -File (Join-Path $verTmp 'nope.txt')))
+    Check '坏值(带 v / 段数不对 / 空 / 文件不在)全退成 0.0.0，且不抛' (@($bad | Where-Object { $_ -ne '0.0.0' }).Count -eq 0) ($bad -join ' ')
+} finally { Remove-Item -LiteralPath $verTmp -Recurse -Force -ErrorAction SilentlyContinue }
+# 第二处写死：拿同一个扫描函数扫工作副本，命中只允许是 VERSION 自己
+if ($verNow -and $verNow -ne '0.0.0') {
+    $verHits = @(Test-GdExportLeaks -Dir $root -Values @([pscustomobject]@{ Label = '版本号'; Value = $verNow }) |
+        Where-Object { $_ -notmatch '^VERSION <-' })
+    Check "全仓只有 VERSION 自己写着 '$verNow'(没有第二处写死版本号)" ($verHits.Count -eq 0) (@($verHits) -join ' ｜ ')
+}
+# 三个读数各自接上来源(源级钉法：改了来源却忘了下游，这里红，而不是等玩家截图里两个版本打架)。
+# 注意"这一棵树上没有那个文件"是常态：publish-split 只带脚本与面板源码，tools\build-exe.ps1、
+# publish\exe\GDLauncher.cs、tools\publish-split.ps1 三样都不进导出树(打包是本地那侧的事)，
+# 所以每一句都先探在不在 —— 不在就 PASS 并把"跳过了"写在明细里，绝不用 ReadAllText 硬读(那会在导出验收链里抛)。
+function Read-GdSrcIfPresent {
+    param([string]$Rel)
+    $p = Join-Path $root $Rel
+    if (-not (Test-Path -LiteralPath $p)) { return $null }
+    return [System.IO.File]::ReadAllText($p)
+}
+$stText = Read-GdSrcIfPresent 'status.ps1'
+Check 'status.ps1 的「版本」行走 Get-GdVersion' ([string]::IsNullOrEmpty($stText) -or ($stText -match 'Get-GdVersion' -and $stText -match "'版本'")) `
+    $(if ($stText) { '' } else { '跳过：这一棵树没有 status.ps1' })
+$pData = Read-GdSrcIfPresent 'tools\panel-cs\Panel.Data.cs'
+$pMain = Read-GdSrcIfPresent 'tools\panel-cs\Panel.cs'
+Check 'C# 面板读仓库根 VERSION 当标题，且自己不含版本号字面量' (
+    ([string]::IsNullOrEmpty($pData) -or [string]::IsNullOrEmpty($pMain)) -or
+    (($pData -match '"VERSION"') -and ($pMain -match '状态面板 · v" \+ version') -and
+     -not ($pData -match 'Version\("\d' -or $pMain -match '· v\d'))) `
+    $(if ($pData -and $pMain) { '' } else { '跳过：这一棵树没有 panel-cs 源码' })
+$launcher = Read-GdSrcIfPresent 'publish\exe\GDLauncher.cs'
+Check 'exe 有 --version，读的是释放出来的 app\VERSION(不是常量)' (
+    ([string]::IsNullOrEmpty($launcher)) -or
+    (($launcher -match '"--version"') -and ($launcher -match 'Path\.Combine\(appDir, "VERSION"\)'))) `
+    $(if ($launcher) { '' } else { '跳过：exe 外壳只在本地那棵树里，不进导出仓库' })
+# 顺手钉一件本轮真踩到的事：往 GDLauncher.cs 里插方法时，把下一个方法的签名挤到了注释同一行 ——
+# 签名整行被 // 吃掉，csc 从下一行起一路 CS1519，而这份文件只有 build-exe 才会编它(自检套件平时碰不到)。
+# 这里只做形状检查(一行里"注释 + 一个方法签名")，不做语义分析，误报空间小。
+if ($launcher) {
+    $swallowed = @()
+    foreach ($ln in ($launcher -split "`n")) {
+        $t = $ln.Trim()
+        if ($t.StartsWith('//') -and $t -match '\b(private|public|internal|protected)\s+(static\s+)?[\w\[\]<>,\s]+\s+\w+\s*\(') { $swallowed += $t.Substring(0, 40) }
+    }
+    Check 'GDLauncher.cs 里没有"方法签名被并进注释行"(那只有 build-exe 编得到，自检平时碰不到)' ($swallowed.Count -eq 0) ($swallowed -join ' ｜ ')
+}
+$beText = Read-GdSrcIfPresent 'tools\build-exe.ps1'
+Check 'build-exe 拒绝形状不对的 VERSION，并把它盖进 exe 的文件属性' (
+    ([string]::IsNullOrEmpty($beText)) -or
+    (($beText -match "'VERSION'") -and ($beText -match 'AssemblyFileVersion') -and ($beText -match '不打包'))) `
+    $(if ($beText) { '' } else { '跳过：打包脚本不进导出仓库' })
+$psText = Read-GdSrcIfPresent 'tools\publish-split.ps1'
+Check 'VERSION 进导出归属表的共用内核(两仓都带)' (
+    ([string]::IsNullOrEmpty($psText)) -or ($psText -match "'VERSION',")) `
+    $(if ($psText) { '' } else { '跳过：导出脚本本身不进导出仓库' })
+
 $res = Show-GdTestResult -Tag 'modules'
 if ($NoExit) { return $res }
 exit $(if ($res.Fail) { 1 } else { 0 })

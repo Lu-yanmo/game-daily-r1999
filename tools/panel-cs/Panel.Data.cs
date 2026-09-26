@@ -237,6 +237,29 @@ namespace GdPanel
                 return sr.ReadToEnd();
         }
 
+        // 版本号：唯一来源是仓库根那个 VERSION 文件(PowerShell 侧的 Get-GdVersion 读的是同一个)。
+        // 这里不写死任何数字，也不要求它一定在 —— 读不到就退成 "0.0.0"，面板照常开。
+        static string ReadVersion(string dir)
+        {
+            try
+            {
+                string p = Path.Combine(dir, "VERSION");
+                if (!File.Exists(p)) { return "0.0.0"; }
+                string first = (ReadAllShared(p) ?? "").Replace("\r\n", "\n").Split('\n')[0].Trim();
+                return VersionShape(first);
+            }
+            catch { return "0.0.0"; }
+        }
+
+        static string VersionShape(string raw)
+        {
+            // 纯函数：形状不对(空、多段、带 v、带空格)一律退成 0.0.0，让"版本号读不出来"在界面上是个看得见的假值。
+            if (raw == null) { return "0.0.0"; }
+            string s = raw.Trim();
+            if (!System.Text.RegularExpressions.Regex.IsMatch(s, @"^\d+\.\d+\.\d+$")) { return "0.0.0"; }
+            return s;
+        }
+
         static int CsvCol(string[] head, string name)
         {
             for (int i = 0; i < head.Length; i++) if (head[i].Trim().Trim('"') == name) return i;

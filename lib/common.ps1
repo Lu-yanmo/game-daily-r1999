@@ -29,6 +29,29 @@ foreach ($d in @($global:GD.Logs, $global:GD.State, $global:GD.Backup)) {
 function Get-GdRoot { $global:GD.Root }
 function Get-GdDir  { param([string]$Name) $global:GD.$Name }
 
+# ---------- 版本号：全工程只有一处写着它，就是仓库根那个 VERSION 文件 ----------
+# 为什么要单独一个文件：以前版本只活在 git tag 上(v2026.09.26 那次临时起的)，代码里、exe 上、面板上
+# 都没有"这是哪一版"的读数 —— 玩家报问题时第一句"你用的哪版"就没法答。做成文件之后：
+# PowerShell 读它(Get-GdVersion)、C# 面板读它(标题栏 + 诊断包里的 版本.txt)、exe 读它(--version)、
+# build-exe 拿它盖进产物的文件属性(AssemblyVersion / AssemblyFileVersion)，打 tag 也用它。
+# 五个下游同一个来源；tools\test-modules.ps1 的 [m12] 钉住"不许有第二处写死版本号"(注释里写一遍也算第二处)。
+$global:GdVersionCache = $null
+function Get-GdVersion {
+    param([string]$File, [switch]$Refresh)
+    # -File 只给自检喂假文件用(规矩：只读自检不许要求机器现场状态)，这一支不碰缓存。
+    $path = Join-Path $global:GD.Root 'VERSION'
+    if ($File) { $path = $File }
+    elseif ($global:GdVersionCache -and -not $Refresh) { return $global:GdVersionCache }
+    $v = ''
+    if (Test-Path -LiteralPath $path) {
+        try { $v = ([string](Get-Content -LiteralPath $path -TotalCount 1)).Trim() } catch { $v = '' }
+    }
+    # 读不到 / 形状不对都不抛：体检和面板是只读的，宁可说"版本号读不出来"也别把整段体检带走。
+    if ($v -notmatch '^\d+\.\d+\.\d+$') { $v = '0.0.0' }
+    if (-not $File) { $global:GdVersionCache = $v }
+    return $v
+}
+
 # 进程内缓存(StrictMode 下必须先声明再读)
 $global:GdStageTable = $null
 # Python 定位结果：GdPythonExe 存找到的路径(空串=确实没有)，GdPythonProbed 区分"还没查过"和"查过没有"

@@ -408,6 +408,7 @@ namespace GdPanel
                 "监督.txt / 监督流水.txt —— state\\supervision.json 现值 + 当天 jsonl 最近 200 拍(这一轮没监督过就不进包)",
                 "配置摘要.txt —— settings.json 里 paths / schedule / runtime 这几段的现值，visionApiKey 与 webhook 已抹掉",
                 "history.csv —— 每轮的状态与结论(判定层逐字写的)",
+                "版本.txt —— 这一份是哪一版(读仓库根 VERSION) + 面板外壳/引擎/仓库根",
                 "logs\\run-*.log 最近 5 个 —— 我们自己的那轮日志(单个超 4MB 的跳过)"
             };
             int y = 34;
@@ -446,6 +447,10 @@ namespace GdPanel
                 if (lastDump != null && lastDump.Length > 0) File.WriteAllText(Path.Combine(stage, "读数.txt"), lastDump, new UTF8Encoding(true));
                 else File.WriteAllText(Path.Combine(stage, "读数.txt"), "(这次没读到 -DumpSummary 原文)", new UTF8Encoding(true));
                 WriteSettingsDigest(Path.Combine(stage, "配置摘要.txt"));
+                // 版本单独进包：递诊断包给人看的时候，"这是哪一版"必须是包自己说得清，而不是靠聊天记录里补一句。
+                File.WriteAllText(Path.Combine(stage, "版本.txt"),
+                    "版本 v" + version + "`r`n面板 C# 外壳 · 引擎 " + Path.GetFileName(engine) + "`r`n仓库根 " + root + "`r`n",
+                    new UTF8Encoding(true));
                 if (withStatus) File.WriteAllText(Path.Combine(stage, "体检.txt"), RunStatusOffline(), new UTF8Encoding(true));
                 try { if (File.Exists(HistoryPath)) File.Copy(HistoryPath, Path.Combine(stage, "history.csv"), true); } catch { }
                 int copied = CopyRecentLogs(Path.Combine(stage, "logs"));

@@ -423,6 +423,16 @@ namespace GdPanel
                     v1ok && protoVer == 1 && rowsEnv.Count == 1, "环境卡 " + rowsEnv.Count + " 行 / v" + protoVer);
                 if (keepDump != null && keepDump.Length > 0) ParseSummary(keepDump);   // 把真读数还回去，后面几段用的是它
 
+                // ---- 8c) 版本号：标题栏那一串必须来自仓库根的 VERSION，而不是代码里抄的一份 ----
+                Chk("VERSION 读得到，形状是 x.y.z(读不到会退成 0.0.0，那说明文件没进这一棵树)",
+                    System.Text.RegularExpressions.Regex.IsMatch(version, @"^\d+\.\d+\.\d+$") && version != "0.0.0",
+                    "读到 " + version + " / 根 " + root);
+                Chk("标题栏带的是同一个读数", Text.IndexOf("· v" + version) >= 0, Text);
+                Chk("坏形状(带 v / 段数不对 / 空)一律退成 0.0.0",
+                    VersionShape("v1.2.3") == "0.0.0" && VersionShape("1.2") == "0.0.0" && VersionShape("") == "0.0.0",
+                    VersionShape("v1.2.3") + " " + VersionShape("1.2") + " " + VersionShape(""));
+                Chk("读不到文件也照常开(退 0.0.0，不抛)", ReadVersion(Path.GetTempPath()) != null, "非空即算过");
+
                 // ---- 9) 实验功能卡 + 「只问不点」：三颗勾各自对应一个键，命令行上只有模块 id ----
                 // 这一页的控件清单会被 RebuildConsole 清掉重建，所以问配置页之前必须先把配置页换上来
                 // (上面第 6 段停在历史页，那会儿 boxByKey 里只有历史页那一两个框)。

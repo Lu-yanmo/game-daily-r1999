@@ -83,6 +83,7 @@ namespace GdPanel
         string page = "all";
         bool busy; DateTime confirmAt = DateTime.MinValue, ackAt = DateTime.MinValue;
         string idleRunText = "开始跑一轮(全部)";
+        string version = "0.0.0";             // 仓库根 VERSION 的读数(唯一来源是那个文件，这里只缓存)
         // 外部轮次(别的进程/计划任务起的这一轮)：面板既不能当它不存在(会二次点火撞车)，
         // 也不能把它当自己的子进程(停不掉、也不该由面板的退出码来下结论)。
         bool extBusy; string extNote = "";
@@ -143,8 +144,11 @@ namespace GdPanel
 
             engine = PickEngine();
             th = LoadTheme();
+            version = ReadVersion(root);
 
-            Text = "每日清体力 · 状态面板";
+            // 版本号来自仓库根那个 VERSION(唯一来源)，标题栏带它是为了"玩家一抬头就知道自己跑的是哪一版"。
+            // 窗体是无边框的，这一句主要给任务栏/截图脚本/自检读；看得见的位置在启动日志和诊断页。
+            Text = "每日清体力 · 状态面板 · v" + version;
             StartPosition = FormStartPosition.CenterScreen;
             // 无边框：系统白标题栏去掉，标题区由 hdr 自绘(拖拽 + — □ × 三个键)。
             // 左边缘被 rail 子窗口盖住，鼠标命中测试到不了本窗体 → 左边不提供拉宽，用最大化按钮兜住。
@@ -173,7 +177,7 @@ namespace GdPanel
             if (dump != null) ParseSummary(dump);
             RebuildNav();
             RefreshCards();
-            AppendLog("提示：面板只转达，不替你判定 —— 结论和命令行跑同一套脚本得到的一样。(C# 外壳 · " + (th.Name == "dark" ? "黑" : "白") + "底)");
+            AppendLog("提示：面板只转达，不替你判定 —— 结论和命令行跑同一套脚本得到的一样。(C# 外壳 v" + version + " · " + (th.Name == "dark" ? "黑" : "白") + "底)");
             HintDetails();
 
             pump.Interval = 800;

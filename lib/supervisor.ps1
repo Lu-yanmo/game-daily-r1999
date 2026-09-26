@@ -281,6 +281,56 @@ function Read-GdSupervisorSummary {
     } catch { return $null }
 }
 
+function Get-GdSupervisorDetailLines {
+    <# 把 supervision.json 里**已经算好**的东西念成给人看的展开文本(面板那一行点开来就是它)。
+       纯函数、一个字都不判：state/action/screen/why 都是采集与判据那两层写进去的值，
+       这里只按固定字段取值、按固定说法拼句子 —— 所以自检可以喂一份假文档把整段话钉死。
+       行数刻意收敛：详情进的是 -DumpSummary 的协议行正文(C# 面板的日志区才是落点，卡片不装)，
+       最近 MaxBeats 拍 × 每路一行 + 现值头 + 介入记录，够回看"当时在不在场"，再多就没人翻了。 #>
+    param($Sv, [int]$MaxBeats = 6)
+    $out = @()
+    if (-not $Sv) { return $out }
+    $out += ('现值：PID ' + [string]$Sv.pid + ' · 盯的路线 ' + [string]$Sv.games +
+             ' · 上岗 ' + [string]$Sv.started + ' · 最后一拍 ' + [string]$Sv.updated +
+             $(if ($Sv.stopped) { ' · 收工 ' + [string]$Sv.stopped } else { '' }))
+    $out += ('流水：logs\supervision-' + (Get-Date -Format 'yyyyMMdd') + '.jsonl(一行一拍，留 7 天)')
+    $beats = @($Sv.beats)
+    if (-not $beats.Count) {
+        # 只说"还没第一拍"，不许就此 return：json 里的 beats 只留最近 30 拍，而 actions 是整轮的账本 ——
+        # 拍被挤掉、介入记录还在，提前返回会把"它干预过什么"整个吞掉(2026-09-26 自检抓到的)。
+        $out += '这一枚监督进程还没落下第一拍(起拍间隔默认 60 秒)。'
+    } else {
+        if ($MaxBeats -lt 1) { $MaxBeats = 1 }
+        $out += '最近 ' + [Math]::Min($MaxBeats, $beats.Count) + ' 拍(字段：状态 / 助手日志静默 / 进程 / 完成线 / 画面 / 动作)：'
+        foreach ($b in @($beats | Select-Object -Last $MaxBeats)) {
+            $ts = [string]$b.ts
+            if ($ts.Length -ge 19) { $ts = $ts.Substring(11, 8) }
+            foreach ($g in @($b.games)) {
+                $age = [string]$g.asst_age
+                if ($age -eq '-1') { $age = '读不到' } else { $age += '秒' }
+                $out += ('  ' + $ts + ' ' + [string]$g.game + '=' + [string]$g.state +
+                         ' 助手日志静默 ' + $age +
+                         ' 进程 ' + $(if ($g.alive) { '在' } else { '没' }) +
+                         ' 完成线 ' + $(if ($g.done) { '见过' } else { '没有' }) +
+                         ' 画面 ' + $(if ($g.screen) { [string]$g.screen } else { '没问' }) +
+                         ' 动作 ' + $(if ($g.action) { [string]$g.action } else { 'none' }) +
+                         $(if ($g.why) { ' 原因 ' + [string]$g.why } else { '' }))
+            }
+        }
+    }
+    $acts = @($Sv.actions)
+    if ($acts.Count) {
+        $out += '介入记录(' + $acts.Count + ' 次)：'
+        foreach ($a in $acts) {
+            $out += ('  ' + [string]$a.ts + ' ' + [string]$a.game + ' ' + [string]$a.kind +
+                     ' ' + $(if ($a.ok) { '成' } else { '没成' }) + ' — ' + [string]$a.why)
+        }
+    } else {
+        $out += '这一轮没有介入过(它唯一的干预是重启助手，重启过会记在这里)。'
+    }
+    return $out
+}
+
 # ---------- 起停(主流程调这两个；子进程本体在 tools\supervise.ps1) ----------
 function Start-GdSupervisor {
     <# 起一个隐藏的 PowerShell 子进程当监督者，主流程只登记不陪跑。

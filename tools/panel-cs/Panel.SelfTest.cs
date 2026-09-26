@@ -243,8 +243,21 @@ namespace GdPanel
                 if (haveReal)
                 {
                     byte[] tmpBytes = File.ReadAllBytes(tmpSettings);
-                    Chk("绕完这一圈，副本和真 settings.json 逐字节一样(那几笔写全回退了)",
-                        SameBytes(tmpBytes, realBytes), tmpBytes.Length + " vs " + realBytes.Length + " 字节");
+                    bool same = SameBytes(tmpBytes, realBytes);
+                    string why = tmpBytes.Length + " vs " + realBytes.Length + " 字节";
+                    // 差 3 个字节、且多的那 3 个正好是文件开头那串 EF BB BF —— 这不是"哪笔写没回退"，
+                    // 是这份 config\settings.json 被 5.1 的 Set-Content -Encoding utf8 写过(它必带 BOM)，
+                    // 而面板按这个工程的规矩写出去的一直是"UTF-8 无 BOM"。分开说，别让人去查写回的键。
+                    if (!same && realBytes.Length >= 3 && tmpBytes.Length == realBytes.Length - 3 &&
+                        realBytes[0] == 0xEF && realBytes[1] == 0xBB && realBytes[2] == 0xBF)
+                    {
+                        byte[] realNoBom = new byte[realBytes.Length - 3];
+                        Array.Copy(realBytes, 3, realNoBom, 0, realNoBom.Length);
+                        if (SameBytes(tmpBytes, realNoBom))
+                            why = "差的正好是开头那 3 个 BOM 字节：真 config\\settings.json 带 BOM(被 5.1 的 Set-Content 写过)，" +
+                                  "面板写出去的是工程规定的无 BOM 那份，键本身一个没变 —— 把配置另存成 UTF-8 无 BOM(或跑一次 setup.ps1)再复测";
+                    }
+                    Chk("绕完这一圈，副本和真 settings.json 逐字节一样(那几笔写全回退了)", same, why);
                 }
 
                 // ---- 3) 四页都能建起来、都让卡片让位、控件不越界不叠压 ----
@@ -373,6 +386,42 @@ namespace GdPanel
                 Chk("判定层比面板旧(但报了 v0)：说的是「比这个面板认的还旧」", ProtoMismatch().IndexOf("还旧") >= 0, ProtoMismatch());
                 protoVer = keepProto;
                 Chk("对得上时一个字都不说(别每 45 秒刷一条横幅盖住真读数)", ProtoMismatch().Length == 0, ProtoMismatch());
+
+                // ---- 8b) SV 行(v2)：监督那一行进环境卡、详情按段回来、点它说的是 supervision.json ----
+                // 喂合成读数，不碰 state\supervision.json —— 这台机器这一轮可能根本没开监督 agent，
+                // 拿现场文件断言就等于把自检押在机器状态上(和 test-ark 不许赌桌面同一条规矩)。
+                string keepDump = lastDump;
+                string v2 = "PROTO|2\nHEADER|ark r1999|daily-clear.ps1|pwsh.exe|pwsh|root\n" +
+                            "ENV|ok|助手路径 3 项全部就绪\n" +
+                            "SV|warn|监督：在岗 · ark=quiet|现值：PID 4321 · 上岗 13:00:00¦收尾 13:20:00|" +
+                            "最近 1 拍：13:04:00 ark=quiet 助手日志静默 1810秒 进程 在|这一轮没有介入过\n" +
+                            "ENV|dim|这一仓：ark + r1999\n";
+                ParseSummary(v2);
+                Row sv = null;
+                foreach (Row r in rowsEnv) if (r.Text.StartsWith("监督：")) sv = r;
+                Chk("SV 行进的是环境卡(不是被当成陌生标签整行跳过)", sv != null, "环境卡 " + rowsEnv.Count + " 行");
+                Chk("那一句话原样是判定层给的(外壳一个字没改写)", sv != null && sv.Text == "监督：在岗 · ark=quiet", sv == null ? "" : "[" + sv.Text + "]");
+                Chk("第三段之后每一段都是一行详情", sv != null && sv.Detail.Split('\n').Length == 3,
+                    sv == null ? "无" : sv.Detail.Split('\n').Length + " 段");
+                Chk("正文里的 '¦' 没被当成分隔符(它替的是真竖线，是判定层转义过的)",
+                    sv != null && sv.Detail.IndexOf("上岗 13:00:00¦收尾 13:20:00") >= 0, sv == null ? "" : sv.Detail);
+                Chk("ENV 行不受影响，仍然只有那两条", rowsEnv.Count == 3, rowsEnv.Count + " 行");
+                int beforeSv = logLines.Count;
+                if (sv != null) ShowRowDetail(sv);
+                string svLog = JoinLog(beforeSv);
+                Chk("点这一行 → 抬头说的是 supervision.json，不是 history.csv",
+                    svLog.IndexOf("supervision.json") >= 0 && svLog.IndexOf("history.csv") < 0, svLog.Replace("\n", " "));
+                // 数的是"往日志区添了几条"，不是拼起来的字符串里有几个 \n ——
+                // JoinLog 是把每条日志首尾相接返回的(日志区本身就是一行一条)，拿它数换行会永远数出 1。
+                Chk("详情三段各自成行(没被折成一整块)", logLines.Count - beforeSv >= 4,
+                    (logLines.Count - beforeSv) + " 行");
+                // 老判定层(v1，没有 SV)必须照样能读：环境卡少一行而已，不许抛、不许连累别的行
+                ParseSummary("PROTO|1\nHEADER|ark r1999|daily-clear.ps1|pwsh.exe|pwsh|root\nENV|ok|助手路径 3 项全部就绪\n");
+                bool v1ok = true;
+                foreach (Row r in rowsEnv) if (r.Text.StartsWith("监督：")) v1ok = false;
+                Chk("v1 读数里没有 SV：环境卡少那一行就完了，不报错也不静默吞掉别的行",
+                    v1ok && protoVer == 1 && rowsEnv.Count == 1, "环境卡 " + rowsEnv.Count + " 行 / v" + protoVer);
+                if (keepDump != null && keepDump.Length > 0) ParseSummary(keepDump);   // 把真读数还回去，后面几段用的是它
 
                 // ---- 9) 实验功能卡 + 「只问不点」：三颗勾各自对应一个键，命令行上只有模块 id ----
                 // 这一页的控件清单会被 RebuildConsole 清掉重建，所以问配置页之前必须先把配置页换上来

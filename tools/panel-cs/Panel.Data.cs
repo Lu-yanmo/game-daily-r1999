@@ -26,6 +26,10 @@ namespace GdPanel
         // 为什么单开一个字段而不是塞进 Text：卡片一行只有 272px，判定层那句几百字的
         // "M9A 连模拟器这一步就失败了…" 会把整张「上一轮」卡撑成省略号，反而什么都看不见。
         public string Detail = "";   // 长文本原因(不参与卡片渲染，点这一行才展开)；没有就是空串
+        // 原文出处：点了那一行之后，日志区那一句抬头要说的"这段话是从哪儿抄来的"。
+        // 空串 = 走默认那套(「上一轮」的行，出处是 state\history.csv 的 detail 列)；
+        // SV 行喂的是 state\supervision.json，抬头不说清楚就会让人去翻历史 CSV 找它。
+        public string Source = "";
         public Row(string kind, string game, string text) { Kind = kind; Game = game; Text = text; }
         public Row(string kind, string game, string text, string detail) { Kind = kind; Game = game; Text = text; Detail = detail ?? ""; }
     }
@@ -98,6 +102,25 @@ namespace GdPanel
                     case "LAST": rowsLast.Add(RowOf(f, true)); break;
                     case "GATE": rowsGates.Add(RowOf(f, true)); break;
                     case "ENV": rowsEnv.Add(RowOf(f, false)); break;
+                    case "SV":
+                        // SV|kind|一行文本|详情行1|详情行2…  (v2)：环境卡里那一行"监督：…"，正文之后的每段是一行展开。
+                        // 外壳在这里一个新判定都不加：kind 和那一句都是判定层(lib\supervisor.ps1 的读数)算好的，
+                        // 详情段是它逐拍写下的原文 —— 这里只按固定字段位次取文本、拼详情，然后交给 RenderRows。
+                        if (f.Length > 2)
+                        {
+                            Row sv = RowOf(f, false);            // f[2..] 全拼回文本，先把详情段摘掉
+                            StringBuilder sd = new StringBuilder();
+                            for (int i = 3; i < f.Length; i++)
+                            {
+                                if (sd.Length > 0) sd.Append('\n');
+                                sd.Append(f[i]);
+                            }
+                            sv.Text = f[2];
+                            sv.Detail = sd.ToString();
+                            sv.Source = "state\\supervision.json 的现值与逐拍记录(监督 agent 自己写的原文)";
+                            rowsEnv.Add(sv);
+                        }
+                        break;
                     case "PROBE":
                         if (f.Length > 3)
                         {
@@ -231,8 +254,15 @@ namespace GdPanel
         // 点卡片行 → 完整原因进日志区(日志区是面板里唯一能装下长句的地方，而且本来就在那里等人看)
         void ShowRowDetail(Row r)
         {
-            AppendLog("──── " + GameName(r.Game) + " 上一轮的完整结论(state\\history.csv 的 detail 列，判定层原文) ────");
-            foreach (string l in WrapUnits(r.Detail, 96)) AppendLog("  " + l);
+            string src = string.IsNullOrEmpty(r.Source) ? @"state\history.csv 的 detail 列，判定层原文" : r.Source;
+            AppendLog("──── " + GameName(r.Game) + " 这一行的完整原文(" + src + ") ────");
+            // 先按 '\n' 切成段(SV 行的每一拍是一段)，每段再各自折行 ——
+            // 直接把整段丢进 WrapUnits 会让"一拍一行"的排版糊成一团，回看时反而数不清几拍。
+            foreach (string seg in (r.Detail ?? "").Replace("\r\n", "\n").Split('\n'))
+            {
+                if (seg.Trim().Length == 0) continue;
+                foreach (string l in WrapUnits(seg, 96)) AppendLog("  " + l);
+            }
         }
 
         // 开机第一眼就把"有原因可看"这件事说清楚：红色的行点了有反应，人才会去点。

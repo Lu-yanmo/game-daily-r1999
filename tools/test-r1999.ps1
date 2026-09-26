@@ -13,6 +13,7 @@ Show-GdCommonEntryHintChecks
 Show-GdCommonScriptHygieneChecks
 Show-GdCommonEmptyPathChecks
 Show-GdCommonRunLockChecks
+Show-GdCommonScreensaverChecks
 
 # [t4] 往后的每一组都要读 M9A 自己的文件(config\instances\*.json、日志)。paths.m9aDir 还没填时
 # 先说人话，别让人对着"参数 'Path' 是空字符串"这种内部报错猜(和 test-ark.ps1 同一处理)。

@@ -67,7 +67,8 @@ namespace GdPanel
         string entryName = "daily-clear.ps1";   // 由 HEADER 协议行赋值(不能 readonly)
         // -DumpSummary 的协议版本：判定层第一行 PROTO|<n> 报上来的。面板只认 ProtoKnown，
         // 对不上就在日志区说一次(-1 = 判定层压根没给版本行，那是它比这个面板旧)。
-        const int ProtoKnown = 1;
+        // v2(2026-09-26)：多了 SV 行(监督 agent 那一行 + 它的展开详情)，那一行不再出现在 ENV 里。
+        const int ProtoKnown = 2;
         int protoVer = -1;
         int protoReported = -2;    // 只在不认识/版本变了的那一次说话，别每 45 秒刷一遍横幅
         bool flagsGames, flagsViaTask;   // FLAGS 协议行赋值

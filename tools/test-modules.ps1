@@ -493,6 +493,38 @@ if ((Test-Path -LiteralPath $supLib) -and (Test-Path -LiteralPath $supLoop)) {
         } finally { $global:GD.State = $oldState; $global:GD.Logs = $oldLogs }
     } finally { Remove-Item -LiteralPath $svTmp -Recurse -Force -ErrorAction SilentlyContinue }
 
+    # ---- 详情文本(SV 行的正文)：喂假文档逐字段转达，一点现场都不许依赖 ----
+    # 这段是钉 2026-09-26 那次"C# 主控台看不到监督现场"的：外壳只会按 '|' 切字段、按段显示，
+    # 所以"给人看的话"必须在这儿(能被喂假数据)验完，而不是等真跑一轮有 supervision.json 才第一次见面。
+    $fakeBeat = [pscustomobject]@{ ts = '2026-09-26 13:05:00'; games = @(
+        [pscustomobject]@{ game = 'ark'; state = 'quiet'; alive = $true; asst_age = 1810; done = $false; screen = 'clear'; action = 'notify'; why = '连续静止，额度用完' },
+        [pscustomobject]@{ game = 'r1999'; state = 'dead'; alive = $false; asst_age = -1; done = $true; screen = $null; action = 'none'; why = '' }) }
+    $fakeDoc = [pscustomobject]@{ pid = 4321; owner = 1; started = '2026-09-26 13:00:00'; games = 'ark+r1999';
+        updated = '2026-09-26 13:05:00'; stopped = ''; beats = @($fakeBeat); actions = @() }
+    $dl = @(Get-GdSupervisorDetailLines -Sv $fakeDoc)
+    Check '详情头一句把 PID/路线/上岗/最后一拍念全' (@($dl | Where-Object { $_ -match '4321' -and $_ -match 'ark\+r1999' -and $_ -match '13:00:00' -and $_ -match '13:05:00' }).Count -eq 1) ($dl[0])
+    Check '没收工的文档不许出现「收工」二字' (-not (@($dl) -join ' ').Contains('收工'))
+    Check '一拍两路 → 展开成两行(谁都没被合并)' (@($dl | Where-Object { $_ -match '^\s+13:05:00 ' }).Count -eq 2)
+    Check 'asst_age=-1 说成"读不到"，不是"-1秒"' (@($dl | Where-Object { $_ -match '助手日志静默 读不到' }).Count -eq 1)
+    Check '画面没问过说"没问"(空串不许直接印出来)' (@($dl | Where-Object { $_ -match '画面 没问' }).Count -eq 1)
+    Check '没动作说 none，有动作把动作名原样念出来' ((@($dl | Where-Object { $_ -match '动作 none' }).Count -eq 1) -and (@($dl | Where-Object { $_ -match '动作 notify' }).Count -eq 1))
+    Check 'why 为空的那一路不缀"原因 "(不制造空句子)' (-not (@($dl | Where-Object { $_ -match 'r1999=dead.*原因\s*$' }).Count))
+    Check '这一轮没介入过 → 明说没有，而不是留一行空的「介入记录()」' (@($dl | Where-Object { $_ -match '这一轮没有介入过' }).Count -eq 1)
+    $docStopped = $fakeDoc; $docStopped.stopped = '2026-09-26 13:20:00'
+    $docStopped.actions = @([pscustomobject]@{ ts = '13:06:00'; game = 'ark'; kind = 'restart_assistant'; ok = $false; why = '重启没成' })
+    $dl2 = @(Get-GdSupervisorDetailLines -Sv $docStopped)
+    Check '收工时间只在真收工时出现' (@($dl2 | Where-Object { $_ -match '收工 2026-09-26 13:20:00' }).Count -eq 1)
+    Check '介入记录把次数/成没成都念出来' `
+          ((@($dl2 | Where-Object { $_ -match '介入记录\(1 次\)：$' }).Count -eq 1) -and (@($dl2 | Where-Object { $_ -match 'restart_assistant 没成 — 重启没成' }).Count -eq 1)) `
+          ($dl2[-2] + ' | ' + $dl2[-1])
+    Check '喂 $null(这台机器从没监督过)返回空数组而不是抛' (@(Get-GdSupervisorDetailLines -Sv $null).Count -eq 0)
+    # 拍被 30 拍上限挤掉、介入记录还在：这两件事必须能同时说。用 Where 数行，不押第几行(位置会随措辞变)。
+    $noBeat = @(Get-GdSupervisorDetailLines -Sv ([pscustomobject]@{ pid = 1; games = 'all'; started = 'x'; updated = ''; beats = @();
+        actions = @([pscustomobject]@{ ts = '13:06:00'; game = 'ark'; kind = 'restart_assistant'; ok = $true; why = '已重启' }) }))
+    Check '只有现值没有拍时说的是"还没落下第一拍"' (@($noBeat | Where-Object { $_ -match '还没落下第一拍' }).Count -eq 1) ($noBeat -join ' / ')
+    Check '没有拍也不许顺手吞掉介入记录(节拍被 30 拍上限挤掉时账本还在)' (@($noBeat | Where-Object { $_ -match 'restart_assistant 成' }).Count -eq 1)
+    Check "详情文本自己不带'|'(协议分隔符只由 -DumpSummary 那层转义成 '¦')" ((@($dl + $dl2) -join "`n").IndexOf('|') -lt 0)
+
     # ---- 纯洁性：监督层也不许认识具体游戏(和 m3 同一把尺) ----
     foreach ($f in @('lib\supervisor.ps1', 'tools\supervise.ps1')) {
         $code = Get-GdCodeOnlyText -Text ([System.IO.File]::ReadAllText((Join-Path $root $f)))

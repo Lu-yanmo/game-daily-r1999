@@ -201,6 +201,73 @@ public static class GdPower {
 '@ -ErrorAction Stop
     $global:GdSleepHandle = $true
 }
+function Get-GdScreensaverConfig {
+    <# 只读注册表：这台机器的屏保"现在是怎么装的"。刻意不碰 SPI ——
+       SPI 现值在会话已被屏保接管时和注册表不一致(2026-09-26 06:00：日志「关闭屏保失败」，
+       注册表 ScreenSaveActive 仍是 1)，而体检要看的正是**下次到点会不会触发**那个稳态。
+       也正因为它是稳态：任何程序(实测 Wallpaper Engine 的 wpxscreensaver64.scr)把它改回去，这里当场看得见。
+       读不到返回 $null —— 调用方一律按"不知道"处理，绝不许据此判"没装屏保"。 #>
+    param([string]$RegPath = 'HKCU:\Control Panel\Desktop')
+    $dp = $null
+    try { $dp = Get-ItemProperty -LiteralPath $RegPath -ErrorAction Stop } catch { return $null }
+    if (-not $dp) { return $null }
+    $scr = ''
+    try { $scr = [string]$dp.'SCRNSAVE.EXE' } catch { $scr = '' }
+    $prod = ''
+    if ($scr) { try { $prod = [string](Get-Item -LiteralPath $scr -ErrorAction Stop).VersionInfo.ProductName } catch { } }
+    $to = 0
+    try { if ($dp.ScreenSaveTimeOut) { $to = [int]$dp.ScreenSaveTimeOut } } catch { }
+    $act = ''
+    try { $act = [string]$dp.ScreenSaveActive } catch { $act = '' }
+    return [pscustomobject]@{ Saver = $scr; Product = $prod; Active = $act; TimeoutSec = $to }
+}
+
+function Get-GdScreensaverWho {
+    <# 纯函数：这个 .scr 是谁。优先用它自己的 ProductName(实测 wpxscreensaver64.scr →
+       "Wallpaper Engine Screensaver")，读不到才退回文件名 —— 面板那行要给人名，不给 8.3 短名。 #>
+    param($Cfg)
+    if (-not $Cfg -or -not $Cfg.Saver) { return '' }
+    $prod = [string]$Cfg.Product
+    if ($prod -match '(?i)wallpaper\s*engine') { return 'Wallpaper Engine' }
+    if ($prod) { return $prod }
+    try { return [System.IO.Path]::GetFileNameWithoutExtension([string]$Cfg.Saver) } catch { return [string]$Cfg.Saver }
+}
+
+function Get-GdScreensaverVerdict {
+    <# 纯函数：读数 → 一句面板短文 + 一句体检长话 + 要不要管。
+       喂字典不喂现场(只读自检不许要求机器现场状态，见 project memory)：$Cfg 给假的就能全表覆盖。
+       四档，判据顺序是认真的：
+         unknown —— 注册表读不到，只能报"不知道"(Risk=$false：不知道就别吓唬人，但也别说没事)
+         none    —— 没挂 .scr，这条路断根了，到点没人接管输入桌面
+         armed   —— 挂了 .scr 且武装位=1 → 到点必接管会话，方舟那一路起跑前置判定会直接早退
+         off     —— 挂了 .scr 但武装位=0 → 暂不触发；日常"只关不复"就是落到这一档，
+                    所以它不是终态：任何程序重新拉闸(或用户在屏保设置里点一下)就回到 armed #>
+    param($Cfg, [int]$TimeoutFloorSec = 0)
+    $who = Get-GdScreensaverWho -Cfg $Cfg
+    if ($null -eq $Cfg) {
+        return @{ Kind = 'unknown'; Risk = $false; Text = '屏保：注册表读不到，判断不了';
+                  Detail = '屏保：读不到 HKCU\Control Panel\Desktop，判断不了武装没有(不代表没事)' }
+    }
+    if (-not $Cfg.Saver) {
+        return @{ Kind = 'none'; Risk = $false; Text = '屏保：没挂 .scr(不会接管会话)';
+                  Detail = '屏保：系统里没有指定屏幕保护程序 → 到点不会有任何东西盖住端游窗口，06:00 那一路安全' }
+    }
+    $secs = [int]$Cfg.TimeoutSec
+    if ($TimeoutFloorSec -gt 0 -and $secs -lt $TimeoutFloorSec) { $secs = $TimeoutFloorSec }
+    # 卡片上那一行用的是 $short，体检长话用的是 $whoSecs —— 长话自己再缀一遍"屏保："会念成
+    # 「屏保：仍武装着(屏保：Wallpaper Engine/300秒)」那种套娃(2026-09-26 首次实跑 status.ps1 就是这样)，所以这里把前缀拆干净。
+    $whoSecs = $(if ($who) { $who } else { '某个 .scr' }) + '/' + $secs + '秒'
+    $short = '屏保：' + $whoSecs
+    if ($Cfg.Active -eq '1') {
+        return @{ Kind = 'armed'; Risk = $true; Text = ($short + ' 仍武装');
+                  Detail = ('屏保：' + $whoSecs + ' 仍武装 → 到点会接管输入桌面，方舟那一路起跑前置判定会直接早退 not-started；' +
+                            '解法：tools\unarm-screensaver.ps1 -Apply(或 设置→个性化→锁屏界面→屏幕保护程序→选「(无)」)') }
+    }
+    return @{ Kind = 'off'; Risk = $false; Text = ($short + ' 已解除');
+              Detail = ('屏保：' + $whoSecs + '，武装位是 0 → 到点不触发(日常"只关不复"就停在这档)。' +
+                        '注意它不是终态：' + $(if ($who) { $who } else { '挂屏保的那个程序' }) + ' 的设置里仍勾着屏保时，改一次设置就可能被重新武装，体检看到这行变成"仍武装"就是这个原因') }
+}
+
 function Get-GdScreensaverStateFile { Join-Path $global:GD.State 'screensaver.restore' }
 function Get-GdInputDesktopName {
     <# 输入事件当前落到哪个桌面：正常='Default'；Lock Screen/Screen-saver/Winlogon 时鼠标键盘到不了普通窗口。
@@ -272,7 +339,7 @@ function Enter-GdNoSleep {
                 if (Set-GdScreensaverActive -Active $false) {
                     Write-GdLog '屏保已关闭(策略：只关不复，收尾不再恢复)'
                 } else {
-                    Write-GdLog '关闭屏保失败：会话可能已被屏保桌面接管(方舟会因此早退)；建议长期解法=在 Wallpaper Engine 里取消「用作 Windows 屏保」' -Level WARN
+                    Write-GdLog '关闭屏保失败：会话可能已被屏保桌面接管(方舟会因此早退)；长期解法见 status.ps1 的「屏保」那一行(解除命令 tools\unarm-screensaver.ps1 -Apply)' -Level WARN
                 }
             } else {
                 Write-GdLog '屏保本来就是关闭状态(稳态)'

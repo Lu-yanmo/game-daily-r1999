@@ -404,7 +404,8 @@ namespace GdPanel
             ConsoleCaption("打  包", 10);
             string[] inc = new string[] {
                 "读数.txt —— 最近一次 -DumpSummary 的协议原文(判定层说的那些行，一个字不改)",
-                "体检.txt —— status.ps1 -Offline 的输出(只读，不会启动任何程序)",
+                "体检.txt —— status.ps1 -Offline 的输出(只读，不会启动任何程序；含「屏保」那一行稳态读数)",
+                "监督.txt / 监督流水.txt —— state\\supervision.json 现值 + 当天 jsonl 最近 200 拍(这一轮没监督过就不进包)",
                 "配置摘要.txt —— settings.json 里 paths / schedule / runtime 这几段的现值，visionApiKey 与 webhook 已抹掉",
                 "history.csv —— 每轮的状态与结论(判定层逐字写的)",
                 "logs\\run-*.log 最近 5 个 —— 我们自己的那轮日志(单个超 4MB 的跳过)"
@@ -448,6 +449,7 @@ namespace GdPanel
                 if (withStatus) File.WriteAllText(Path.Combine(stage, "体检.txt"), RunStatusOffline(), new UTF8Encoding(true));
                 try { if (File.Exists(HistoryPath)) File.Copy(HistoryPath, Path.Combine(stage, "history.csv"), true); } catch { }
                 int copied = CopyRecentLogs(Path.Combine(stage, "logs"));
+                int svN = CopySupervision(stage);   // 没监督过就是 0，包里不会多出两个空文件
 
                 // 压缩交给现成的 Compress-Archive。这里刻意走"写一个临时 .ps1 再 -File 调它"：
                 // powershell.exe 5.1 的 -Command 会把整串当成一个单引号字符串字面量，不执行(实测静默什么都不压)。
@@ -490,7 +492,7 @@ namespace GdPanel
                 lastPackError = ok ? "" : "退出码 " + p.ExitCode + (se.Trim().Length > 0 ? "；" + OneLine(se.Trim()) : (File.Exists(dest) ? "" : "；zip 没生成"));
                 if (tell)
                 {
-                    AppendLog(ok ? "包好了：" + dest + "(日志 " + copied + " 个；settings 摘要里没有 key)"
+                    AppendLog(ok ? "包好了：" + dest + "(日志 " + copied + " 个；监督件 " + svN + " 份；settings 摘要里没有 key)"
                                  : "打包没成 —— " + lastPackError);
                 }
                 CleanupPack(pack, stage);
@@ -567,6 +569,37 @@ namespace GdPanel
                 return "status.ps1 -Offline 退出码 " + p.ExitCode + "\r\n\r\n" + so + (se.Length > 0 ? "\r\n[stderr]\r\n" + se : "");
             }
             catch (Exception ex) { return "(体检没跑成：" + ex.Message + ")"; }
+        }
+
+        // 监督 agent 的两件现物：supervision.json 是"此刻"(整体重写)，supervision-YYYYMMDD.jsonl 是流水(逐拍追加)。
+        // 为什么流水要裁尾而不是整本拷：它一行一拍、一天几百拍，而跑着的那一枚还在往里写 ——
+        // 共享读 + 取末尾 200 行，既不会独占锁死，也不会把几 MB 搬进诊断包(同一条理由见 lib\supervise.ps1 的采集契约)。
+        int CopySupervision(string stage)
+        {
+            int n = 0;
+            try
+            {
+                string sj = Path.Combine(root, @"state\supervision.json");
+                if (File.Exists(sj))
+                {
+                    try { File.WriteAllText(Path.Combine(stage, "监督.txt"), ReadAllShared(sj), new UTF8Encoding(true)); n++; } catch { }
+                }
+                string dir = Path.Combine(root, "logs");
+                if (!Directory.Exists(dir)) return n;
+                List<FileInfo> beats = new List<FileInfo>();
+                foreach (string f in Directory.GetFiles(dir, "supervision-*.jsonl")) beats.Add(new FileInfo(f));
+                beats.Sort(delegate(FileInfo a, FileInfo b) { return b.LastWriteTime.CompareTo(a.LastWriteTime); });
+                if (beats.Count == 0) return n;
+                string[] lines = ReadAllShared(beats[0].FullName).Replace("\r\n", "\n").Split('\n');
+                int from = lines.Length > 200 ? lines.Length - 200 : 0;
+                StringBuilder sb = new StringBuilder();
+                sb.Append("# 摘自 ").Append(beats[0].Name).Append("，只给最近 200 拍(全文还在 logs\\ 里，包里没塞整本)").Append('\n');
+                for (int i = from; i < lines.Length; i++) { if (lines[i].Trim().Length > 0) sb.Append(lines[i]).Append('\n'); }
+                File.WriteAllText(Path.Combine(stage, "监督流水.txt"), sb.ToString(), new UTF8Encoding(true));
+                n++;
+            }
+            catch { }
+            return n;
         }
 
         int CopyRecentLogs(string logStage)

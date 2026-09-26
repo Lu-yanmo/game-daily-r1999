@@ -24,6 +24,61 @@ function Check {
 
 $S = Get-GdSettings -Quiet
 
+# 屏保读数：06:00 方舟连败的根因，判据必须能脱离本机注册表被验完。
+# 全部喂构造出来的 $Cfg(只读自检不许要求机器现场状态：这台机器解除没解除都不该让套件变红)，
+# 最后两条才碰真注册表，而且只要求"落在四态之一、不许抛" —— 不押它是哪一种。
+function Show-GdCommonScreensaverChecks {
+    Write-Host "`n[t1g] 屏保读数(武装没有 / 是谁挂的 / 解除工具会不会误写)"
+    $none = [pscustomobject]@{ Saver = ''; Product = ''; Active = '0'; TimeoutSec = 0 }
+    $armed = [pscustomobject]@{ Saver = 'C:\Windows\system32\wpxscreensaver64.scr'; Product = 'Wallpaper Engine Screensaver'; Active = '1'; TimeoutSec = 300 }
+    $off = [pscustomobject]@{ Saver = 'C:\Windows\system32\some.scr'; Product = ''; Active = '0'; TimeoutSec = 600 }
+    $vNone = Get-GdScreensaverVerdict -Cfg $none
+    $vArmed = Get-GdScreensaverVerdict -Cfg $armed
+    $vOff = Get-GdScreensaverVerdict -Cfg $off
+    $vNull = Get-GdScreensaverVerdict -Cfg $null
+    Check '没挂 .scr → none，且不算风险' ($vNone.Kind -eq 'none' -and -not $vNone.Risk) ($vNone.Text)
+    Check '挂了且武装位=1 → armed，是唯一要标红的一档' ($vArmed.Kind -eq 'armed' -and $vArmed.Risk) ($vArmed.Kind)
+    Check '挂了但武装位=0 → off，不吓人(日常"只关不复"就落这档)' ($vOff.Kind -eq 'off' -and -not $vOff.Risk) ($vOff.Kind)
+    Check '注册表读不到 → 说的是"判断不了"，绝不显示成没事' ($vNull.Kind -eq 'unknown' -and $vNull.Text -match '读不到' -and -not $vNull.Risk) ($vNull.Text)
+    Check 'armed 的长话里带得出解除命令(让人看完知道下一步敲什么)' ($vArmed.Detail -match 'unarm-screensaver') ($vArmed.Detail)
+    Check 'off 的长话里说明它不是终态(会被重新武装)' ($vOff.Detail -match '不是终态')
+    Check '是谁挂的：ProductName 认 Wallpaper Engine' ((Get-GdScreensaverWho -Cfg $armed) -eq 'Wallpaper Engine')
+    Check '是谁挂的：读不到 ProductName 时退回文件名，不印 8.3 短名' ((Get-GdScreensaverWho -Cfg $off) -eq 'some')
+    Check '面板那行(短话)不带箭头和路径，卡片装得下' ($vArmed.Text.Length -le 30 -and $vArmed.Text.IndexOf('→') -lt 0) ($vArmed.Text)
+    # 本机真读数：只验"不许抛 + 落在四态里"，不押它此刻是哪一种(解除/没解除都该绿)
+    $live = $null
+    $threw = $false
+    try { $live = Get-GdScreensaverVerdict -Cfg (Get-GdScreensaverConfig) } catch { $threw = $true }
+    Check '读本机注册表不抛，且结论落在 none/armed/off/unknown 四种之一' (-not $threw -and @('none','armed','off','unknown') -contains $live.Kind) ($live.Text)
+    # 解除工具：默认只读这道规矩用行序钉死 —— 写注册表的调用一个都不许出现在两个显式分支闸门之前
+    $toolPath = Join-Path $root 'tools\unarm-screensaver.ps1'
+    if (Test-Path -LiteralPath $toolPath) {
+        $t = @(Get-Content -LiteralPath $toolPath -Encoding utf8)
+        $restoreAt = @($t | Select-String -SimpleMatch 'if ($Restore)' | Select-Object -First 1).LineNumber
+        $applyAt = @($t | Select-String -SimpleMatch 'if (-not $Apply)' | Select-Object -First 1).LineNumber
+        # 两个 if 块各自的收尾括号(顶格 })：写操作只有落在 Restore 块内、或在 Apply 闸门闭合之后才算被门管住
+        $restoreEnd = @($t | Select-String -Pattern '^\}' | Where-Object { $_.LineNumber -gt $restoreAt } | Select-Object -First 1).LineNumber
+        $applyEnd = @($t | Select-String -Pattern '^\}' | Where-Object { $_.LineNumber -gt $applyAt } | Select-Object -First 1).LineNumber
+        $writes = @($t | Select-String -Pattern 'Set-ItemProperty|Remove-ItemProperty|New-ItemProperty|Set-GdScreensaverActive' | ForEach-Object { $_.LineNumber })
+        $ungated = @($writes | Where-Object {
+                -not ($_ -gt $restoreAt -and $_ -lt $restoreEnd) -and -not ($_ -gt $applyEnd)
+            })
+        Check 'tools\unarm-screensaver.ps1 的写操作(注册表 + SPI)全在 -Restore / -Apply 两道闸门之内(裸跑=只读)' `
+              ($restoreAt -gt 0 -and $applyAt -gt 0 -and $restoreEnd -gt $restoreAt -and $applyEnd -gt $applyAt -and $ungated.Count -eq 0) `
+              ("Restore=$restoreAt..$restoreEnd Apply=$applyAt..$applyEnd 漏门行 " + $(if ($ungated.Count) { $ungated -join ',' } else { '无' }))
+        # 只读那一支的退出码必须跟着读数走(0=没风险 / 1=仍武装) —— 它同时是别的脚本"想知道屏保武装没有"的闸，
+        # 只读一律退 0 会让这道闸永远说没事。取 -not $Apply 到它的收尾括号之间那几行(数组是 0 基，行号是 1 基)。
+        $roLines = @()
+        if ($applyAt -gt 0 -and $applyEnd -gt $applyAt + 1) { $roLines = @($t[$applyAt..($applyEnd - 2)]) }
+        $roExits = @($roLines | Select-String -SimpleMatch 'exit')
+        Check '裸跑(-not $Apply 那一支)的退出码跟着 Risk 走，不是写死 0' `
+              (@($roExits | Where-Object { $_ -match 'Risk' }).Count -eq 1 -and (@($roExits | Where-Object { $_ -match 'exit\s+0\s*$' }).Count -eq 0)) `
+              ('这一支的 exit: ' + $(if ($roExits.Count) { ($roExits | ForEach-Object { $_.Line.Trim() }) -join ' / ' } else { '一个都没有' }))
+    } else {
+        Check 'tools\unarm-screensaver.ps1 在(屏保解除要有它)' $false
+    }
+}
+
 # ---------- 临时改 state 文件那一段的保险：跑之前存，跑完(含抛异常)原样放回 ----------
 $script:GdTestSnap = @{}
 function Get-GdTestStatePath {

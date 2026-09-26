@@ -76,6 +76,16 @@ foreach ($m in $mods) {
 foreach ($m in $mods) {
     if ($m.Hooks.StatusVersion) { & $m.Hooks.StatusVersion $S }
 }
+Invoke-GdTolerant {
+    # 屏保不属于任何一路，属于这台机器：06:00 / 18:00 方舟连败的根因就是它接管了输入桌面，
+    # 所以它必须出现在体检第一段里，而不是藏在某一路的钩子后面。
+    $scv = Get-GdScreensaverVerdict -Cfg (Get-GdScreensaverConfig)
+    $col = switch ($scv.Kind) { 'armed' { 'Red' } 'none' { 'Green' } 'off' { 'Green' } default { 'Yellow' } }
+    # 长话本身以「屏保：」开头，这一列的列名也叫"屏保" —— 把前缀剥掉，别让体检里念成「屏保  屏保：…」
+    $txt = [string]$scv.Detail
+    if ($txt.StartsWith('屏保：')) { $txt = $txt.Substring(3) }
+    Write-Host ("  {0,-10} {1}" -f '屏保', $txt) -ForegroundColor $col
+}
 
 Show-GdSectionHeader '进程 / 模拟器'
 foreach ($m in $mods) {

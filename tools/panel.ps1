@@ -272,6 +272,16 @@ function Get-PanelSummaryParts {
         $envRows += @{ Text = ('配置还差：' + ($show -join ' , ') + $tail + ' → 跑 setup.ps1'); Kind = 'err' }
     }
     elseif ($keys.Count) { $envRows += @{ Text = ('助手路径 ' + $keys.Count + ' 项全部就绪'); Kind = 'ok' } }
+    <# 屏保：这台机器的稳态，不属于任何一路。它武装着的时候方舟那一路必然在起跑前置判定上早退
+       (06:00 两轮就是这么烧掉的)，所以宁可占一行也要让人在面板上看一眼"到底解除没解除"。
+       读不到注册表时说的是"判断不了"，绝不显示成"没事"。
+       位置按风险走：armed 插在前面(环境卡只有 5 行，得挤掉说明行也要让它露出来)；
+       none/off 是常态，落到最后面去 —— 卡装不下时先被省略掉的就是它，不为了"一切正常"占人的地方。 #>
+    $scv = $null
+    try { $scv = Get-GdScreensaverVerdict -Cfg (Get-GdScreensaverConfig) } catch { }
+    $scvRow = $null
+    if ($scv) { $scvRow = @{ Text = [string]$scv.Text; Kind = $(if ($scv.Risk) { 'warn' } else { 'dim' }); Slot = 'screensaver' } }
+    if ($scvRow -and $scv.Risk) { $envRows += $scvRow }
     <# 监督 agent 在岗状态：只把 supervision.json 里算好的读数念出来，三种口径 ——
        在岗(PID 还活着) / 已收工(它自己写了 stopped) / 没了但没说收工(崩了或被硬杀，标红让人去看 jsonl)。
        从没监督过(文件不在)就不占一行。各路 busy/done 是常态不上行(上一轮卡里已有每路读数)，
@@ -299,13 +309,13 @@ function Get-PanelSummaryParts {
             if ($sv.stopped) {
                 $when = [string]$sv.stopped
                 if ($when.Length -ge 19 -and $when.Substring(0, 10) -eq (Get-Date -Format 'yyyy-MM-dd')) { $when = $when.Substring(11, 8) }
-                $envRows += @{ Text = ('监督：已收工 ' + $when + $(if ($svTxt) { ' · ' + $svTxt } else { '' })); Kind = $(if ($svOdd) { 'warn' } else { 'dim' }) }
+                $envRows += @{ Text = ('监督：已收工 ' + $when + $(if ($svTxt) { ' · ' + $svTxt } else { '' })); Kind = $(if ($svOdd) { 'warn' } else { 'dim' }); Slot = 'supervisor' }
             }
             elseif ($svAlive) {
-                $envRows += @{ Text = ('监督：在岗' + $(if ($svTxt) { ' · ' + $svTxt } else { '' })); Kind = $(if ($svOdd) { 'warn' } else { 'ok' }) }
+                $envRows += @{ Text = ('监督：在岗' + $(if ($svTxt) { ' · ' + $svTxt } else { '' })); Kind = $(if ($svOdd) { 'warn' } else { 'ok' }); Slot = 'supervisor' }
             }
             else {
-                $envRows += @{ Text = ('监督：进程没了但没说收工(最后心跳 ' + [string]$sv.updated + ') → 看 supervision.jsonl'); Kind = 'err' }
+                $envRows += @{ Text = ('监督：进程没了但没说收工(最后心跳 ' + [string]$sv.updated + ') → 看 supervision.jsonl'); Kind = 'err'; Slot = 'supervisor' }
             }
         }
     }
@@ -314,6 +324,7 @@ function Get-PanelSummaryParts {
     <# 版本号只取 Major.Minor：5.1 的完整版本是 5.1.26100.94281，写全会把这一行顶出卡片宽度 #>
     $psv = '{0}.{1}' -f [int]$PSVersionTable.PSVersion.Major, [int]$PSVersionTable.PSVersion.Minor
     $envRows += @{ Text = ('面板 PS ' + $psv + ' · 子进程 ' + [System.IO.Path]::GetFileName($script:engine)); Kind = 'dim' }
+    if ($scvRow -and -not $scv.Risk) { $envRows += $scvRow }   # 常态屏保 → 排最后，装不下先省它
 
     return @{ Times = $timeRows; Last = $lastRows; Gates = $gateRows; Env = $envRows }
 }
@@ -342,6 +353,8 @@ function Get-PanelSummaryText {
      TIME|<kind>|<文本>            LAST|<kind>|<game或''>|<文本>
      GATE|<kind>|<game>|<文本>     ENV|<kind>|<文本>
      PROBE|<kind>|<game>|<文本>    (某一路自己的路径探针；分页时环境卡要用，总览页不显示)
+     SV|<kind>|<一行文本>|<详情行>…  (v2 新增：监督 agent 那一行改走这里，ENV 里不再重复出现；
+                                    第三段之后每段是一行展开详情，消费方原样拼接显示、不解释含义)
      FLAGS|<有Ack参数的参数名或''>|<有ShopDone参数的参数名或''>|<有Games参数则yes否则''>|<run-via-task.ps1在则yes否则''>|<要管理员的显示名,逗号分隔>
      HELP|<标签>|<命令>
    设计约束：这里只转达 Get-PanelSummaryParts 的既有结论，一个新判定都不加 ——
@@ -350,8 +363,21 @@ function Get-PanelSummaryText {
    为什么要单独一行 PROTO(而不是往 HEADER 尾巴上加一列)：加在尾巴上，老消费方按位次取字段
    会错位；单独一行时不认这个标签的消费方只会把它当陌生行跳过(两边的 switch 都没有 default 分支)。
    改协议 = 这一行的数字 +1，同时在 $GdPanelProtoKnown 上面写清改了什么；面板侧不认识时
-   要在日志区明说"判定层协议 v几 / 我认 v几"，不许让某一格静默变空。 #>
-$script:GdPanelProtoVer = 1
+   要在日志区明说"判定层协议 v几 / 我认 v几"，不许让某一格静默变空。
+
+   v2(2026-09-26)：新增 SV 行。动机是 C# 主控台的环境卡只能显示一行短文，
+   而监督 agent 每拍落的现场(哪一路什么状态、助手日志几分钟没动、有没有介入过)本来就在
+   state\supervision.json 里算好了 —— 外壳要的是"能不能给我点开的原文"，不是再判一次。
+   老面板(v1)读不到 SV 就等于少那一行，PROTO 对不上时它会自己说，不会静默。 #>
+$script:GdPanelProtoVer = 2
+
+function Get-PanelSupervisorDetailLines {
+    <# 只是转达：展开文本的措辞在 lib\supervisor.ps1 的 Get-GdSupervisorDetailLines 里(那儿能被只读自检
+       喂假文档直接验)。监督库不在这棵树上(单游戏仓裁掉了)时返回空，SV 行退化成只有那一句话。 #>
+    param($Sv)
+    if (-not (Get-Command Get-GdSupervisorDetailLines -ErrorAction SilentlyContinue)) { return @() }
+    try { return @(Get-GdSupervisorDetailLines -Sv $Sv) } catch { return @() }
+}
 
 function Dump-PanelSummaryMachine {
     $p = Get-PanelSummaryParts
@@ -369,7 +395,21 @@ function Dump-PanelSummaryMachine {
     foreach ($r in $p.Times)  { Write-Output ('TIME|' + [string]$r.Kind + '|' + [string]$r.Text) }
     foreach ($r in $p.Last)   { Write-Output ('LAST|' + [string]$r.Kind + '|' + [string]$r.Game + '|' + [string]$r.Text) }
     foreach ($r in $p.Gates)  { Write-Output ('GATE|' + [string]$r.Kind + '|' + [string]$r.Game + '|' + [string]$r.Text) }
-    foreach ($r in $p.Env)    { Write-Output ('ENV|' + [string]$r.Kind + '|' + [string]$r.Text) }
+    # 监督那一行走 SV(带展开详情)，其余环境行走 ENV —— 两个分支互斥，所以同一句话不会在环境卡出现两遍。
+    $svRow = $null
+    foreach ($r in $p.Env) {
+        if ($r.Slot -eq 'supervisor') { $svRow = $r; continue }
+        Write-Output ('ENV|' + [string]$r.Kind + '|' + [string]$r.Text)
+    }
+    if ($svRow) {
+        $sv = $null
+        try { $sv = Read-GdSupervisorSummary } catch { }
+        $det = @(Get-PanelSupervisorDetailLines -Sv $sv)
+        # 详情正文里绝不能再出现 '|'：消费方按 '|' 切字段，多出来的会被当成又一行详情。
+        # 所以这里把每段里的 '|' 换成 '¦'，一个字符都不丢，只是不再顶替分隔符。
+        $parts = @($det | ForEach-Object { ([string]$_).Replace('|', '¦') })
+        Write-Output (@(@('SV', [string]$svRow.Kind, [string]$svRow.Text) + @($parts)) -join '|')
+    }
     foreach ($g in $script:games) {
         foreach ($r in @(Get-PanelModuleEnvRows -Id ([string]$g))) {
             Write-Output ('PROBE|' + [string]$r.Kind + '|' + [string]$g + '|' + [string]$r.Text)

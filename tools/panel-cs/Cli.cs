@@ -5,6 +5,11 @@
 // 读的动作也搬了进来：detect 的 roots 可由壳注入(golden 用假树)，两个 *-lines 只按路径读、不写任何东西。
 // 批次 3：外部进程层(maa/m9a/mumu)的纯解析/纯规划十件(见 Processes.cs 头注的切分口径)——
 // parse-asst-* / plan-maa-queue / m9a-launch-args / parse-m9a-lines / resolve-m9a-status / parse-mumu-* / parse-adb-*。
+// 批次 4：视觉兜底层的纯规则段八件(见 Vision.cs 头注)——build-vision-prompt / parse-vision-verdict /
+// vision-click-point / resolve-vision-endpoint / shot-changed / parse-vision-reply / rescue-entry /
+// compose-ark-desktop-state。截图、点击、起子进程、兜底编排与整个 vision-mumu(定义文本被自检钉死)留 PS。
+// 批次 5：编排/排程层的纯规则段七件(见 Orchestration.cs 头注)——parse-farm-target-spec / parse-ark-drop-text /
+// resolve-ark-farm-plan / apply-ark-daily-intent / apply-r1999-daily-intent / parse-maa-gui-lines / split-task-args。
 // 起进程、监控循环、写文件仍全在 PS 壳；plan-maa-queue 出的 NewConfig 由壳决定写不写。
 //
 // 三通道铁律：
@@ -88,7 +93,22 @@ namespace GdPanel
                 else if (verb == "parse-mumu-vms") r = Decide(a, Processes.MumuVms);
                 else if (verb == "parse-adb-devices") r = Decide(a, Processes.AdbDevices);
                 else if (verb == "parse-adb-pidof") r = Decide(a, Processes.AdbPidof);
-                else throw new GdUsageException("未知子命令：" + verb + "(现有：echo + 批次 1 判定四件 + 批次 2 探测/状态行 + 批次 3 的 parse-asst-*/plan-maa-queue/m9a-launch-args/parse-m9a-lines/resolve-m9a-status/parse-mumu-*/parse-adb-*；后续批次见 docs\\ps-migration-batch0.md)");
+                else if (verb == "build-vision-prompt") r = Decide(a, Vision.Prompt);
+                else if (verb == "parse-vision-verdict") r = Decide(a, Vision.Verdict);
+                else if (verb == "vision-click-point") r = Decide(a, Vision.ClickPoint);
+                else if (verb == "resolve-vision-endpoint") r = Decide(a, Vision.Endpoint);
+                else if (verb == "shot-changed") r = Decide(a, Vision.ShotChanged);
+                else if (verb == "parse-vision-reply") r = Decide(a, Vision.Reply);
+                else if (verb == "rescue-entry") r = Decide(a, Vision.Entry);
+                else if (verb == "compose-ark-desktop-state") r = Decide(a, Vision.DesktopState);
+                else if (verb == "parse-farm-target-spec") r = Decide(a, Orchestration.FarmTargetSpec);
+                else if (verb == "parse-ark-drop-text") r = Decide(a, Orchestration.FarmDropText);
+                else if (verb == "resolve-ark-farm-plan") r = Decide(a, Orchestration.FarmPlan);
+                else if (verb == "apply-ark-daily-intent") r = Decide(a, Orchestration.ArkIntent);
+                else if (verb == "apply-r1999-daily-intent") r = Decide(a, Orchestration.R1999Intent);
+                else if (verb == "parse-maa-gui-lines") r = Decide(a, Orchestration.MaaGuiLines);
+                else if (verb == "split-task-args") r = Decide(a, Orchestration.TaskArgs);
+                else throw new GdUsageException("未知子命令：" + verb + "(现有：echo + 批次 1 判定四件 + 批次 2 探测/状态行 + 批次 3 的 parse-asst-*/plan-maa-queue/m9a-launch-args/parse-m9a-lines/resolve-m9a-status/parse-mumu-*/parse-adb-* + 批次 4 的 build-vision-prompt/parse-vision-verdict/vision-click-point/resolve-vision-endpoint/shot-changed/parse-vision-reply/rescue-entry/compose-ark-desktop-state + 批次 5 的 parse-farm-target-spec/parse-ark-drop-text/resolve-ark-farm-plan/apply-ark-daily-intent/apply-r1999-daily-intent/parse-maa-gui-lines/split-task-args；后续批次见 docs\\ps-migration-batch0.md)");
             }
             catch (GdUsageException ex)
             {

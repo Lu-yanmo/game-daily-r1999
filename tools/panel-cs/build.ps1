@@ -64,6 +64,14 @@ if ($Verify) {
     & $exe --proctest
     if ($LASTEXITCODE -ne 0) { throw 'panel-cs --proctest 有红项' }
     Write-Host 'panel-cs --proctest OK'
+    # 批次 4 视觉兜底层：纯规则段回环(不联网/不碰窗口/不起子进程)，期望串逐字抄自旧实现(同上一条纪律)
+    & $exe --visiontest
+    if ($LASTEXITCODE -ne 0) { throw 'panel-cs --visiontest 有红项' }
+    Write-Host 'panel-cs --visiontest OK'
+    # 批次 5 编排/排程层：纯规则段回环(不起进程/不读盘/不写文件)，期望串逐字抄自旧实现(同上一条纪律)
+    & $exe --orchtest
+    if ($LASTEXITCODE -ne 0) { throw 'panel-cs --orchtest 有红项' }
+    Write-Host 'panel-cs --orchtest OK'
     # 面板自证：读一次 -DumpSummary 协议 + 渲染 + 逐页布局断言 + 主题切换链
     & $exe --selftest
     if ($LASTEXITCODE -ne 0) { throw 'panel-cs --selftest 有红项' }

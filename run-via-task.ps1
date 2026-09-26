@@ -46,6 +46,12 @@ function Invoke-Direct {
 # 只跑一路时给任务覆盖参数。以前这里看见 -Games ark 就直接回落本机直跑(要弹一次 UAC)，
 # 而"只补跑某一路"恰恰是最常在人不在机器前发生的场景，弹 UAC 等于那一轮根本跑不起来。
 # 返回 $null = 没拼出来，调用方照旧回落直跑 —— 宁可多弹一次 UAC，也不能把参数拆错、跑成别的东西。
+#
+# ── 冻结(2026-09-27，PS→C# 批次 5)：下面函数里"剥 -Games/-Tag + 按引号切词"的规则段
+# 已迁到 tools\panel-cs\Orchestration.cs(verb：split-task-args；契约见 docs\ps-migration-batch0.md)。
+# 壳里留的是活：Get-ScheduledTask 读任务、动作数守卫、Count<3 的"不像话"拒绝、追加 -Tag manual -Games、
+# 以及一切回落直跑的决断。改切词规则请改 C# 并跑 tools\probe-orch-golden.ps1 对拍，不要在这里加规则。
+# ──────────────────────────────────────────────────────────────────────────────
 function Get-GdTaskArgsWithGames {
     param([Parameter(Mandatory)][string]$Task, [Parameter(Mandatory)][string]$WithGames)
     try {
@@ -58,12 +64,8 @@ function Get-GdTaskArgsWithGames {
         if (-not $text) { return $null }
         # 任务定义里的 Arguments 是一整条字符串(-File "带空格的路径" 那种)，
         # 而 Start-ScheduledTask -Argument 要的是参数数组。先剥掉原有的 -Games/-Tag，再按引号切：
-        # 引号内整体成一项(去掉引号)，其余按空白切。
-        $text = ($text -replace '\s+-Games\s+"?\w+"?', '') -replace '\s+-Tag\s+"?\w+"?', ''
-        $pieces = @()
-        foreach ($m in [regex]::Matches($text, '"([^"]*)"|(\S+)')) {
-            $pieces += $(if ($m.Groups[1].Success) { $m.Groups[1].Value } else { $m.Groups[2].Value })
-        }
+        # 剥参与切词的规则在 C#(split-task-args)，引号内整体成一项(去掉引号)、其余按空白切。
+        $pieces = @((Invoke-GdCli -Verb 'split-task-args' -Body ([pscustomobject]@{ text = $text })).Pieces)
         if ($pieces.Count -lt 3) { Write-GdLog "任务参数拆出来只剩 $($pieces.Count) 段，不像话 → 只跑一路改走直跑" -Level WARN; return $null }
         $pieces += @('-Tag', 'manual', '-Games', $WithGames)
         return ,$pieces

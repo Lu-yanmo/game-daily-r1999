@@ -45,6 +45,21 @@
 # 计划任务那一路(RunLevel Highest)本来就有提权，所以定时跑不受影响；手动跑别加 -NoElevate。
 #
 # 依赖：调用方先点 lib\common.ps1。两份后端文件各点各的库，本文件不点它们。
+#
+# ── 冻结(2026-09-26，PS→C# 批次 4)────────────────────────────────────────────
+# 纯规则段已迁到 tools\panel-cs\Vision.cs(契约见 docs\ps-migration-batch0.md)：
+#   Get-GdVisionSystemPrompt     → verb build-vision-prompt(提示词五条规则与两个分支的全文在 C#，t13 逐字盯)
+#   Get-GdVisionVerdictFromText  → verb parse-vision-verdict(抠 JSON/坏点位过滤/X-Y-Why 兼容字段)
+#   Get-GdRescueClickPoint       → verb vision-click-point(千分比→客户区换算与越界拒绝)
+#   Resolve-GdVisionEndpoint     → verb resolve-vision-endpoint
+#   Test-GdShotChanged           → verb shot-changed(签名格数比对)
+#   Invoke-GdVisionRaw 的 stdout 回扫段 → verb parse-vision-reply(起子进程与请求组装仍在本壳，Context 截 200 也在)
+#   Add-GdRescueRecord 的字段合成段 → verb rescue-entry(读写盘、Test-Path 守卫与裁剪留本壳)
+# 所以：改规则/文案请改 Vision.cs 并跑 tools\probe-vision-golden.ps1 对拍，不要在这里加规则。
+# 故意留在 PS 侧的：Get-GdVisionTarget(命名约定探路)、Invoke-GdVisionAsk、Invoke-GdVisionRescue(闸门顺序与
+# 多候选点击循环全靠靶子闭包，属编排层)、Get-GdShotStats(要 Bitmap)、Get-GdVisionApiKey(key 绝不进 JSON 信封)、
+# Clear-* 系(摸盘的)。vision-mumu 整份留壳：test-r1999 把两段正则钉在函数定义文本上，薄壳就红。
+# ──────────────────────────────────────────────────────────────────────────────
 
 function Get-GdRescueShotDir { Join-Path $global:GD.State 'rescue' }
 
@@ -97,112 +112,53 @@ function Get-GdVisionTarget {
 }
 
 function Get-GdVisionSystemPrompt {
-    <# 提示词单独成一个函数：这样自检能直接断言"禁止点领取"这类关键约束还在，
-       而不是改一句话把安全边界改没了都没人发现。
-       -Scene 只换开头那段"这是什么画面"，后面那几条规则两路共用、一个字不改；
-       默认值是端游那套文案 —— ark 一路的措辞不许变，tools\test-ark.ps1 的 t13 也盯着它。
-       2026-09-26 起允许最多 3 个候选点位：实测模型认得弹窗、却把 × 认成了"暂不查看"那类相邻按钮，
-       一次只给一个点位时"点完画面没变"就只能整轮放弃；给它三个按把握排序的备选，
-       兜底就能在**同一次问价**里连着试(试错不额外花钱，也不额外问模型)。
-       -AllowReward 是第 3 条规则的口子(默认关)：开了之后允许它给"领取日常奖励"那类按钮。
-       为什么默认关、又为什么要这个口子：兜底的本职是"把挡路的东西弄走"，点领取会把号往奖励里去，
-       判错一次就是拿账号换一次不确定；但每日签到/邮箱领奖励恰好也是"人眼一看就该点"的那类，
-       所以做成**要人在面板里明写勾选**的可选档，而不是默认行为，也不是永远不许。 #>
+    <# 转发壳(build-vision-prompt)：提示词全文(两条分支的规则 3、两处 here-string 粘连的"没换行")住在
+       tools\panel-cs\Vision.cs —— 改文案去那边改并跑 probe-vision-golden 对拍，在这里加规则会被对拍打回。
+       安全边界(禁止点领取/前往参与/充值；领奖档要面板明写勾选)的由来与两次实测教训见 Vision.cs 头注。 #>
     param([string]$Scene = '', [bool]$AllowReward = $false)
-    $head = if ($Scene) { [string]$Scene } else { @'
-你是明日方舟端游自动化流程里的"看屏幕的人"。自动化助手(MAA)不认识界面上没收录过的弹窗，有时会一直在原地
-点同一个按钮。给你一张端游窗口截图，请判断画面上有没有挡住主流程的弹窗，并指出该点哪里把它关掉。
-'@.TrimEnd() }
-    # 两条规则只差"领取"这一个词能不能给，其余(不碰充值/前往参与/开始行动)一个字都不松。
-    $rule3 = if ($AllowReward) { @'
-3. 这一轮已允许"领取日常奖励"：画面里有**明确的**领取/一键领取/邮箱领奖励按钮时可以给出它。
-   但"前往参与""开始行动""确定""充值"这类会改变游戏进度或花钱的按钮绝对不给，即使它在画面正中。
-'@ } else { @'
-3. 绝对不要给"领取""前往参与""确定""开始行动""充值"这类会推进游戏状态的按钮，即使它在画面正中。
-'@ }
-    $body = @'
-
-只输出一个 JSON 对象，不要 markdown 代码块、不要任何解释文字：
-{"blocking": true 或 false, "what": "不超过20字，说明挡住的是什么", "clicks": [{"x": 整数, "y": 整数, "why": "不超过14字"}]}
-
-必须遵守的规则：
-1. x、y 是相对这张图片宽、高的千分比(0-1000)，不是像素。换算：像素x = x/1000*图片宽。
-2. clicks 最多 3 个，按你的把握从大到小排。只允许给"关闭/取消/暂不/跳过/知道了/X"这类**只会把弹窗关掉**的位置。
-'@ + $rule3.TrimEnd() + @'
-4. 关闭按钮通常在该弹窗的右上角(常常是一个 X 或小圆圈)。弹窗有多个关闭位时，把最像关闭的那个排第一。
-5. 画面上没有挡住流程的弹窗 → blocking 给 false、clicks 给空数组。拿不准也一律给空数组。
-6. 不要输出坐标以外的多余字段。
-'@
-    return $head + $body
+    $d = Invoke-GdCli -Verb 'build-vision-prompt' -Body ([pscustomobject]@{ scene = [string]$Scene; allowReward = [bool]$AllowReward })
+    return [string]$d.Prompt
 }
 
 function Get-GdVisionVerdictFromText {
-    <# 把模型回复解析成 @{Blocking;What;X;Y;Why;Clicks}，解析不出来返回 $null。
-       模型偶尔会裹一层 ```json 或前后带一句话，所以从整段文本里"抠"第一个 JSON 对象，
-       而不是假设整段就是 JSON。纯字符串处理，自检直接喂样本。
-       X/Y/Why 一直等于 Clicks 的第一个：老代码和 t13 那批断言认的是这三个字段，
-       新的多候选循环认 Clicks —— 加字段不破约，改名字才破约。 #>
+    <# 转发壳(parse-vision-verdict)：抠 JSON 的括号扫描、坏点位过滤、X/Y/Why=Clicks 第一个 的兼容约定，
+       本体在 Vision.cs。这里只做"信封 data → 旧返回形状"的还原，Found:false 翻回 $null。
+       空文本壳内早退(与旧实现同结果)，省一次子进程 —— 兜底循环里这不是高频路径，但自检喂空样本很勤。 #>
     param([string]$Text)
     if ([string]::IsNullOrWhiteSpace($Text)) { return $null }
-    $t = $Text -replace '```[a-zA-Z]*', ''
-    $start = $t.IndexOf('{')
-    if ($start -lt 0) { return $null }
-    $depth = 0; $json = ''
-    for ($i = $start; $i -lt $t.Length; $i++) {
-        $ch = $t[$i]
-        if ($ch -eq '{') { $depth++ }
-        elseif ($ch -eq '}') { $depth-- }
-        if ($depth -lt 0) { break }
-        $json += $ch                                  # 收尾那个 } 也要留着，否则抠出来的是半个 JSON
-        if ($depth -eq 0 -and $i -gt $start) { break }
-    }
-    if (-not $json) { return $null }
-    try { $o = $json | ConvertFrom-Json } catch { return $null }
-    # 只留"三个 x/y 都是整数"的那几个：模型给出 {"x":null} 或把 y 写成 "右上角" 时，
-    # 后面 Get-GdRescueClickPoint 的 TryParse 会把它拒掉，但那样一条坏点位就把两个好点位一起带走了。
-    $clicks = @(foreach ($c in @($o.clicks)) {
-        if ($null -eq $c) { continue }
-        $cx = 0; $cy = 0
-        if (-not ([int]::TryParse([string]$c.x, [ref]$cx) -and [int]::TryParse([string]$c.y, [ref]$cy))) { continue }
-        [pscustomobject]@{ X = $cx; Y = $cy; Why = [string]$c.why }
-    })
-    if ($clicks.Count -gt 3) { $clicks = @($clicks | Select-Object -First 3) }
-    $first = if ($clicks.Count) { $clicks[0] } else { $null }
-    [pscustomobject]@{
-        Blocking = [bool]$o.blocking
-        What     = [string]$o.what
-        X        = $(if ($first) { $first.X } else { $null })
-        Y        = $(if ($first) { $first.Y } else { $null })
-        Why      = $(if ($first) { $first.Why } else { '' })
-        Clicks   = $clicks
+    $d = Invoke-GdCli -Verb 'parse-vision-verdict' -Body ([pscustomobject]@{ text = [string]$Text })
+    if (-not $d.Found) { return $null }
+    return [pscustomobject]@{
+        Blocking = [bool]$d.Blocking
+        What     = [string]$d.What
+        X        = $d.X
+        Y        = $d.Y
+        Why      = [string]$d.Why
+        Clicks   = @(foreach ($c in @($d.Clicks)) { [pscustomobject]@{ X = [int]$c.X; Y = [int]$c.Y; Why = [string]$c.Why } })
     }
 }
 
 function Get-GdRescueClickPoint {
-    <# 模型 verdict(千分比，相对整张截图) → 后端点击要的**那幅图的坐标**。
-       端游拍的是整窗位图，里面有标题栏和边框，所以要先减掉客户区在位图里的原点，再按客户区尺寸裁住边界；
-       模拟器拍的就是整块屏幕，它的靶子把 ClientLeft/ClientTop 报 0、ClientW/ClientH 报图的宽高，
-       同一个函数算出来正好是设备像素 —— 所以这里不需要认识后端。
-       越界(说明模型指到画面外/标题栏上，或者它压根没给坐标)返回 $null → 宁可这一轮不救。 #>
+    <# 转发壳(vision-click-point)：千分比→位图像素→客户区的换算与全部越界拒绝(含"右下角最后一个像素")
+       住在 Vision.cs；两路共用一把尺子的原理(mumu 靶子把客户区报成整块屏)也记在那边注释里。 #>
     param(
         [Parameter(Mandatory)]$Shot,
         [Parameter(Mandatory)]$Verdict,
         [int]$Max = 1000
     )
     if ($null -eq $Verdict.X -or $null -eq $Verdict.Y) { return $null }
-    $nx = 0; $ny = 0
-    if (-not ([int]::TryParse([string]$Verdict.X, [ref]$nx) -and [int]::TryParse([string]$Verdict.Y, [ref]$ny))) { return $null }
-    if ($nx -lt 0 -or $nx -gt $Max -or $ny -lt 0 -or $ny -gt $Max) { return $null }
-    $px = [int][math]::Round($nx / $Max * $Shot.ImgW)     # 位图里的像素
-    $py = [int][math]::Round($ny / $Max * $Shot.ImgH)
-    $cx = $px - [int]$Shot.ClientLeft                     # 客户区坐标
-    $cy = $py - [int]$Shot.ClientTop
-    if ($cx -lt 0 -or $cy -lt 0) { return $null }
-    if ($cx -ge [int]$Shot.ClientW -or $cy -ge [int]$Shot.ClientH) { return $null }
+    $d = Invoke-GdCli -Verb 'vision-click-point' -Body ([pscustomobject]@{
+        nx = $Verdict.X; ny = $Verdict.Y
+        imgW = [int]$Shot.ImgW; imgH = [int]$Shot.ImgH
+        clientLeft = [int]$Shot.ClientLeft; clientTop = [int]$Shot.ClientTop
+        clientW = [int]$Shot.ClientW; clientH = [int]$Shot.ClientH
+        max = [int]$Max; why = [string]$Verdict.Why
+    })
+    if (-not $d.Found) { return $null }
     # Why 是从 verdict 那里顺带过来的：调用方要把"这个点位模型说它是干什么的"打进日志，
     # 否则日志里只有三个坐标，回看时谁也说不清当时点的是 × 还是"暂不查看"。
-    return [pscustomobject]@{ ClientX = $cx; ClientY = $cy; BitmapX = $px; BitmapY = $py; NormX = $nx; NormY = $ny;
-        Why = $(if ($Verdict.Why) { [string]$Verdict.Why } else { '' }) }
+    return [pscustomobject]@{ ClientX = [int]$d.ClientX; ClientY = [int]$d.ClientY; BitmapX = [int]$d.BitmapX;
+        BitmapY = [int]$d.BitmapY; NormX = [int]$d.NormX; NormY = [int]$d.NormY; Why = [string]$d.Why }
 }
 
 function Get-GdVisionApiKey {
@@ -216,14 +172,10 @@ function Get-GdVisionApiKey {
 }
 
 function Resolve-GdVisionEndpoint {
-    <# 从控制台复制下来的往往是"基础地址"(以 /v1 或 /compatible-mode/v1 结尾)，而 POST 要打到
-       .../chat/completions。两种写法都给同一个结果，已经带全的原样返回 —— 免得玩家对着 README
-       里那个默认值发愣：他自己的地址末尾少了 /chat/completions 就会 404，而这看起来像"模型不可用"。 #>
+    <# 转发壳(resolve-vision-endpoint)：补 /chat/completions 的规矩(为什么补、末尾斜杠、已写全不重补)在 Vision.cs。 #>
     param([string]$Base)
-    $b = if ($Base) { ([string]$Base).Trim().TrimEnd('/') } else { '' }
-    if (-not $b) { $b = 'https://dashscope.aliyuncs.com/compatible-mode/v1' }
-    if ($b -match '(?i)/chat/completions$') { return $b }
-    return "$b/chat/completions"
+    $d = Invoke-GdCli -Verb 'resolve-vision-endpoint' -Body ([pscustomobject]@{ base = [string]$Base })
+    return [string]$d.Url
 }
 
 function Get-GdVisionAskDir { Join-Path $global:GD.State 'vision' }
@@ -293,9 +245,9 @@ function Invoke-GdVisionRaw {
     if ($out) {
         # ask.py 保证 stdout 只有一个 JSON 对象；万一解释器往前面打了别的(版本警告、site 报错)，
         # 从后往前找第一行能解析的就够了 —— 别整段 ConvertFrom-Json，那样一句警告就能把兜底弄挂。
-        foreach ($line in @(($out -split "`r?`n") | Where-Object { $_ -match '^\s*\{' } | ForEach-Object { $_ })) {
-            try { $parsed = $line | ConvertFrom-Json; break } catch { }
-        }
+        # 逐行挑哪个对象(parse-vision-reply)住在 Vision.cs；这里只接住"挑到了就拿来用"。
+        $pick = Invoke-GdCli -Verb 'parse-vision-reply' -Body ([pscustomobject]@{ out = $out })
+        if ($pick.Found) { $parsed = $pick.Parsed }
     }
     if (-not $parsed) {
         $why = "Python 没回 JSON(退出码 $($r.Code))"
@@ -335,27 +287,19 @@ function Invoke-GdVisionAsk {
 }
 
 function Test-GdShotChanged {
-    <# 点完到底有没有真变：比两张图的 16x9 粗亮度签名，数"变了多少格"。
-       阈值(≥2 格、每格 ≥3 档)是按端游实测噪声定的：噪点动画顶多让个别格子抖 1~2 档，
-       而"关掉一个弹窗"必然动到一整片区域。纯字符串处理 → 自检能直接喂样本，不用真截图。 #>
+    <# 转发壳(shot-changed)：格数比对与三种结论话术(没签名/格数不同/变了 N 格)住在 Vision.cs，
+       阈值为什么是"≥2 格、每格 ≥3 档"(端游噪点实测)的来由也记在那边。#>
     param(
         [Parameter(Mandatory)]$Before,
         [Parameter(Mandatory)]$After,
         [int]$MinCells = 2,
         [int]$MinDelta = 3
     )
-    if (-not $Before.Sig -or -not $After.Sig) {
-        return [pscustomobject]@{ Known = $false; Changed = $false; Cells = -1; Detail = '没有画面签名可比对(截图那一步就没成)' }
-    }
-    $a = @($Before.Sig -split ',' | ForEach-Object { [int]$_ })
-    $b = @($After.Sig  -split ',' | ForEach-Object { [int]$_ })
-    if ($a.Count -ne $b.Count) {
-        return [pscustomobject]@{ Known = $false; Changed = $false; Cells = -1; Detail = "两次画面尺寸不同($($a.Count) 格 vs $($b.Count) 格)" }
-    }
-    $diff = 0
-    for ($i = 0; $i -lt $a.Count; $i++) { if ([math]::Abs($a[$i] - $b[$i]) -ge $MinDelta) { $diff++ } }
-    return [pscustomobject]@{ Known = $true; Changed = ($diff -ge $MinCells); Cells = $diff
-        Detail = "画面变了 $diff 格(判据：≥$MinCells 格、每格 ≥$MinDelta 档)" }
+    $d = Invoke-GdCli -Verb 'shot-changed' -Body ([pscustomobject]@{
+        beforeSig = [string]$Before.Sig; afterSig = [string]$After.Sig
+        minCells = [int]$MinCells; minDelta = [int]$MinDelta
+    })
+    return [pscustomobject]@{ Known = [bool]$d.Known; Changed = [bool]$d.Changed; Cells = [int]$d.Cells; Detail = [string]$d.Detail }
 }
 
 function Invoke-GdVisionRescue {
@@ -491,15 +435,26 @@ function Add-GdRescueRecord {
         try { $old = Read-GdJson -Path $path } catch { Write-GdLog "救火账本旧内容读不动(按空账继续)：$($_.Exception.Message)" -Level WARN }
         if ($old -and $old.events) { $ledger.events = @($old.events) }
     }
-    $detail = [string]$Result.Detail
+    # 七个字段的合成规矩(target 空回退、detail 换行压平成 ' | '、tried/done 归真)住在 Vision.cs(rescue-entry)。
+    # 时间戳仍由本壳现取：对拍要逐字符比，而时钟不是规则 —— 把它留在壳里，golden 两侧喂同一个值才比得出规矩。
+    $e = Invoke-GdCli -Verb 'rescue-entry' -Body ([pscustomobject]@{
+        time           = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+        game           = $Game
+        target         = [string]$Target
+        fallbackTarget = [string]$Result.Target
+        tag            = $Tag
+        tried          = [bool]$Result.Tried
+        done           = [bool]$Result.Done
+        detail         = [string]$Result.Detail
+    })
     $ledger.events = @($ledger.events) + @{
-        time   = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
-        game   = $Game
-        target = $(if ($Target) { $Target } else { [string]$Result.Target })
-        tag    = $Tag
-        tried  = [bool]$Result.Tried
-        done   = [bool]$Result.Done
-        detail = ($detail -replace "`r?`n", ' | ')
+        time   = [string]$e.Time
+        game   = [string]$e.Game
+        target = [string]$e.Target
+        tag    = [string]$e.Tag
+        tried  = [bool]$e.Tried
+        done   = [bool]$e.Done
+        detail = [string]$e.Detail
     }
     if ($ledger.events.Count -gt $Keep) {
         $ledger.events = @($ledger.events | Select-Object -Last $Keep)

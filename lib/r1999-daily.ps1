@@ -6,6 +6,14 @@
 #
 # 依赖：调用方先点 lib\common.ps1、lib\r1999-decisions.ps1(或聚合的 lib\decisions.ps1)、
 #       lib\m9a.ps1、lib\mumu.ps1。本文件不重复点它们，理由见 lib\decisions.ps1 开头。
+#
+# ── 冻结(2026-09-27，PS→C# 批次 5)────────────────────────────────────────────
+# Resolve-GdR1999Decision 的**构造段规则**(-Force 跳确认门、-Plan≠auto 无条件覆盖、两段文案与键序)
+# 已迁到 tools\panel-cs\Orchestration.cs(verb：apply-r1999-daily-intent；契约见 docs\ps-migration-batch0.md)。
+# 壳里留的是"活"：Get-R1999Event 取数、Resolve-R1999Instance 实例解析、"1999 方案：…"日志行与返回形状；
+# Set-Gd*Ack/ShopState 与 Start-GdR1999Daily 整函数留壳(起进程/切实例归后续批次)。
+# 改规则请改 C# 并跑 tools\probe-orch-golden.ps1 对拍，不要在这里加规则。
+# ──────────────────────────────────────────────────────────────────────────────
 
 function Set-GdR1999Ack {
     <# -Ack1999：确认"这一版的主线活动我已经手动打过" → 之后日常才允许跑活动方案 #>
@@ -35,17 +43,16 @@ function Set-GdR1999ShopState {
 }
 
 function Resolve-GdR1999Decision {
-    <# 命令行意图 -> 本轮 1999 方案 + M9A 实例(-Plan 手动指定、-Force 跳过确认门)。返回 @{Decision;Instance}
+    <# 转发壳(批次 5)：-Force/-Plan 两段构造的规则在 C#(apply-r1999-daily-intent)；
+       这里取数(Get-R1999Event)、解析实例(Resolve-R1999Instance)、打日志并把 {Decision;Instance} 交回。
        参数故意叫 -Plan 而不是 -RPlan：本文件只管 1999，带前缀的名字留给合体入口 daily-clear.ps1。 #>
     param([Parameter(Mandatory)]$S, [string]$Plan = 'auto', [switch]$Force)
     $r1999 = Get-R1999Event -S $S
-    if ($Force -and $r1999.Mode -eq 'event-pending') {
-        $r1999 = [pscustomobject]@{ Mode = 'event'; Instance = 'event'; Version = $r1999.Version; VersionName = $r1999.VersionName; EventKey = $r1999.EventKey; EventTip = $r1999.EventTip; Reason = '(-Force) 跳过 1999 活动确认门，直接用活动方案'; DataAge = $r1999.DataAge }
-        Write-GdLog '-Force：1999 本轮忽略活动确认门' -Level WARN
-    }
-    if ($Plan -ne 'auto') {
-        $r1999 = [pscustomobject]@{ Mode = $Plan; Instance = $Plan; Version = 'manual'; VersionName = '命令行指定'; EventKey = $null; EventTip = $null; Reason = "命令行指定 $Plan"; DataAge = $null }
-    }
+    $d = Invoke-GdCli -Verb 'apply-r1999-daily-intent' -Body ([pscustomobject]@{
+        decision = $r1999; plan = $Plan; force = [bool]$Force
+    })
+    $r1999 = $d.Decision
+    foreach ($w in @($d.Warnings)) { Write-GdLog $w -Level WARN }
     try { $inst = Resolve-R1999Instance -S $S -PlanKey $r1999.Instance }
     catch { Write-GdLog "1999 实例解析失败：$($_.Exception.Message)" -Level ERROR; throw }
     Write-GdLog "1999 方案：$($r1999.Mode) → 实例[$($inst.Name)]— $($r1999.Reason)"

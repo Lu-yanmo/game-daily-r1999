@@ -56,6 +56,13 @@ namespace GdPanel
             hdr.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             Controls.Add(hdr);
             themeTag(hdr, "rail");
+            // 标题条和内容区之间补一条 1px 分隔线：rail 侧本来就有 sep 那条线，hdr 侧原来只靠
+            // rail 色和 Window 色的一档色差，浅色主题下几乎连成一片，标题条像浮着的。
+            hdr.Paint += delegate (object s, PaintEventArgs pe)
+            {
+                using (Pen pen = new Pen(th.Line))
+                    pe.Graphics.DrawLine(pen, 0, hdr.Height - 1, hdr.Width - 1, hdr.Height - 1);
+            };
 
             btnMin = MakeCaptionBtn("—", CW - 96);
             btnMax = MakeCaptionBtn("□", CW - 64);
@@ -86,6 +93,8 @@ namespace GdPanel
             runChip.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             hdr.Controls.Add(runChip);
             runChip.Tag = "chip";
+            // 状态灯也描一圈 1px：它和 hdr(同 rail 色)原来只差一档底色，浅色主题下几乎看不见这块灯
+            Borderless(runChip);
 
             stampLabel.Text = "状态刷新于 -";
             stampLabel.Location = new Point(606, 55);

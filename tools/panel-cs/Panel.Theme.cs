@@ -71,7 +71,9 @@ namespace GdPanel
             t.Card      = C(255, 255, 255);
             t.CardTitle = C(60, 60, 60);
             t.NavSub    = C(120, 120, 120);
-            t.Line      = C(210, 210, 210);
+            // 2026-09-26 视觉第二轮：描边和 chip 底色原来离白卡太近(210/238 对 255)，
+            // 浅色主题下交互件的可辨性明显弱于深色 —— 两档灰各自加深一点，仍是纯灰阶。
+            t.Line      = C(198, 198, 198);
             t.Accent    = C(20, 20, 20);      // 白底上唯一的"强调"就是黑
             t.NavOn     = C(228, 228, 228);
             t.Hover     = C(238, 238, 238);
@@ -89,7 +91,7 @@ namespace GdPanel
             t.LogInfo   = C(45, 45, 45);
             t.LogDim    = C(140, 140, 140);
             t.LogStamp  = C(140, 140, 140);
-            t.ChipBack  = C(238, 238, 238);
+            t.ChipBack  = C(232, 232, 232);
             t.ChipFore  = C(110, 110, 110);
             t.BusyBack  = C(255, 242, 204);
             t.BusyFore  = C(158, 106, 0);
@@ -128,14 +130,7 @@ namespace GdPanel
         {
             object tagObj = c.Tag;
             string tag = tagObj == null ? "" : tagObj.ToString();
-            if (c == runBtn)
-            {
-                runBtn.BackColor = th.Accent;
-                runBtn.ForeColor = th.PrimaryFore;
-                runBtn.FlatAppearance.MouseOverBackColor = th.Name == "dark" ? ControlPaint.Light(th.Accent, 0.6f) : ControlPaint.Dark(th.Accent, 0.15f);
-                runBtn.FlatAppearance.MouseDownBackColor = th.Name == "dark" ? ControlPaint.Dark(th.Accent, 0.15f) : ControlPaint.Light(th.Accent, 0.6f);
-                return;
-            }
+            // runBtn 不再单开分支：它就是 kind="primary"，走下面 Button 分支的填充样式。
             if (c == rail) { rail.BackColor = th.Rail; return; }
             if (c == avatar) { avatar.BackColor = th.Rail; return; }
             if (c == brandTitle) { brandTitle.ForeColor = th.Text; brandTitle.BackColor = rail.BackColor; return; }
@@ -171,8 +166,24 @@ namespace GdPanel
                 b.FlatAppearance.MouseOverBackColor = th.Hover;
                 b.FlatAppearance.MouseDownBackColor = th.Down;
                 if (tag == "capbtn") { b.BackColor = th.Rail; return; }   // 贴在 hdr(同为 rail 色)上，看不出是控件
-                if (tag == "nav") b.BackColor = th.Rail;          // 选中态由 RefreshCards 覆盖
-                else b.BackColor = tag == "chip" ? th.Card : th.Card;
+                if (tag == "nav") { b.BackColor = th.Rail; return; }      // 选中态由 RefreshCards 覆盖
+                // 交互件的可辨性分两层：primary 实心块(Accent 底)，secondary/chip 一档底色差 + 1px 描边。
+                // 之前所有按钮都是"和本容器同色 + BorderSize=0"，看起来就是一排纯文本 —— 全面板最掉质感的地方。
+                // 描边由 FlatAppearance 画在控件内侧，不改 Bounds，自检的越界/叠压断言不受影响。
+                if (tag == "primary")
+                {
+                    b.BackColor = th.Accent;
+                    b.ForeColor = th.PrimaryFore;
+                    b.FlatAppearance.MouseOverBackColor = th.Name == "dark" ? ControlPaint.Light(th.Accent, 0.6f) : ControlPaint.Dark(th.Accent, 0.15f);
+                    b.FlatAppearance.MouseDownBackColor = th.Name == "dark" ? ControlPaint.Dark(th.Accent, 0.15f) : ControlPaint.Light(th.Accent, 0.6f);
+                    return;
+                }
+                b.FlatAppearance.BorderSize = 1;
+                b.FlatAppearance.BorderColor = th.Line;
+                b.BackColor = th.ChipBack;
+                // chip/secondary 的反馈色从自己的底色推出来，黑白两档都成立，不引入第三种颜色
+                b.FlatAppearance.MouseOverBackColor = ControlPaint.Light(th.ChipBack, 0.15f);
+                b.FlatAppearance.MouseDownBackColor = ControlPaint.Dark(th.ChipBack, 0.25f);
                 return;
             }
             // 勾选框(实验功能卡那三个)：只换字色和底色这两档，方框本体交给系统画 —— 不加第三种颜色

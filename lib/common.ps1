@@ -95,13 +95,56 @@ function Read-GdJson {
 }
 
 function Write-GdJson {
-    param(
-        [Parameter(Mandatory)][string]$Path,
-        [Parameter(Mandatory)]$Object,
-        [int]$Depth = 100
-    )
+    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)]$Object, [int]$Depth = 100)
     $json = $Object | ConvertTo-Json -Depth $Depth
     [System.IO.File]::WriteAllText($Path, $json, (New-Object System.Text.UTF8Encoding($false)))
+}
+
+# ---------- PS→C# 转发(批次 1 起判定层的真身住在 tools\panel-cs\Decisions.cs) ----------
+# 契约全文在 docs\ps-migration-batch0.md §2：机读结果只认 --out 信封文件，stdout 不参与判定。
+# 探针 tools\probe-cli-contract.ps1 已在 5.1/7.6 双引擎把这套握手钉绿，这里是它的正式化。
+function Get-GdCliExe {
+    <# 判定层 exe 是编译产物、永不入仓(.gitignore 的规矩，和 C# 面板现编现用同源)：
+       没编译过/被人清掉 → 现场自愈编一次(build.ps1 -Quiet 里已含 System.Web.Extensions 引用链)；
+       连 csc 都没有(Quiet 退 3)或编失败 → 才说一句能照着做的人话。 #>
+    $exe = Join-Path $global:GD.Root 'tools\panel-cs\panel-cs.exe'
+    if (-not (Test-Path -LiteralPath $exe)) {
+        Write-GdLog 'C# 判定层未编译，现场编一次(之后复用)' -Level WARN
+        & (Join-Path $global:GD.Root 'tools\panel-cs\build.ps1') -Quiet
+        if (-not (Test-Path -LiteralPath $exe)) { throw "C# 判定层编译失败：跑 tools\panel-cs\build.ps1 看具体报错(产物 $exe 仍不存在)" }
+    }
+    return $exe
+}
+
+function Invoke-GdCli {
+    <#
+      唯一转发通道：把 Body 序列化成临时 JSON 走 --in，读回 --out 信封后把 data 交出去。
+      退出码语义(0 完成 / 1 内部错 / 2 前置缺或规则拒)：非 0 一律 throw —— 判定层拿不到可信结论时，
+      宁可这一轮拒跑，也不带着猜出来的配置继续跑(与 Stop-GdBeforeRun 同哲学)。
+      throw 的是信封 error 原话：Resolve-R1999Instance 的调用方(Show-GdDecision)会把这句并进 Reason。
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Verb,
+        [Parameter(Mandatory)]$Body,
+        [string[]]$More = @()
+    )
+    $stamp = [guid]::NewGuid().ToString('N')
+    $inPath = Join-Path ([System.IO.Path]::GetTempPath()) "gd-cli-$stamp.in.json"
+    $outPath = Join-Path ([System.IO.Path]::GetTempPath()) "gd-cli-$stamp.out.json"
+    try {
+        Write-GdJson -Path $inPath -Object $Body -Depth 32
+        $exe = Get-GdCliExe
+        & $exe $Verb "--in=$inPath" "--out=$outPath" @($More) | Out-Null
+        $code = $LASTEXITCODE
+        if (-not (Test-Path -LiteralPath $outPath)) { throw "C# 侧($Verb)没吐出结果文件(退出码 $code)" }
+        $env0 = Read-GdJson -Path $outPath
+        if ($null -eq $env0 -or [string]$env0.verb -ne $Verb) { throw "C# 侧($Verb)信封不对或缺 verb 字段" }
+        if ([int]$env0.exit -ne $code) { throw "C# 侧($Verb)退出码($code)与信封 exit($($env0.exit))不一致" }
+        if (-not $env0.ok) { throw ([string]$env0.error) }
+        return $env0.data
+    } finally {
+        Remove-Item -LiteralPath $inPath, $outPath -Force -ErrorAction SilentlyContinue
+    }
 }
 
 function Backup-GdFile {

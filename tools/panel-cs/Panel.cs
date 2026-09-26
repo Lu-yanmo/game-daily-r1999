@@ -25,6 +25,14 @@
 //   panel-cs.exe --consoletest   不显示窗口：主控台四页的读写回环(打在临时副本上)、版式、抹 key，全对才 0
 //   panel-cs.exe --headless      窗口挪到屏幕外，自动起一次预演，验"子进程→日志区→忙碌复位"这条链后自关(零弹窗)
 //   panel-cs.exe --exptest       实验功能读写回环自测：翻一次开关→读回→翻回去→读回，全对才 0(会动 settings.json，只在测试树上跑)
+//   panel-cs.exe <verb> --k=v…   无头子命令：批次 0 echo；批次 1 decide-ark/decide-r1999/check-stages/r1999-instance；
+//                                批次 2 detect-installs/maa-queue-lines/m9a-instance-lines。
+//                                机读结果走 --out 文件，退出码 0/1/2/3=完成/内部错/前置缺/判定拒。
+//                                三通道契约见 docs\ps-migration-batch0.md —— PS→C# 迁移期间 PS 转发壳就按这份转调。
+//   panel-cs.exe --coretest      不显示窗口：Core 四件套(Core.Env/Json/Log/Settings)喂临时树断言，不要求机器现场状态
+//   panel-cs.exe --echotest      不显示窗口：echo 样板的契约回环(信封/退出码/违约识别) + 真子进程走一遍 Main 分发
+//   panel-cs.exe --dectest       不显示窗口：批次 1 判定层(Decisions.cs)假数据回环 —— 期望文案逐字抄自旧 PS，红即移植走样
+//   panel-cs.exe --statetest     不显示窗口：批次 2 探测/状态行(Detect.cs)假树回环 —— 同上，期望串逐字抄自旧实现
 //
 // 编译：powershell -File tools\panel-cs\build.ps1   (用 C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe)
 
@@ -246,7 +254,16 @@ namespace GdPanel
         [STAThread]
         static void Main(string[] argv)
         {
+            // verb 分发(批次 0，契约见 docs\ps-migration-batch0.md)：第一个参数不带 -- 就是子命令，
+            // 无头跑完直接退 —— 必须赶在任何 WinForms/PanelForm 之前，绝不碰窗体构造里的 DumpSummary 子进程。
+            if (argv.Length > 0 && !string.IsNullOrEmpty(argv[0]) && !argv[0].StartsWith("--"))
+            {
+                string[] tail = new string[argv.Length - 1];
+                Array.Copy(argv, 1, tail, 0, tail.Length);
+                Environment.Exit(GdCli.Run(argv[0], tail));
+            }
             bool selftest = false, headless = false, dump = false, exptest = false, exttest = false, whytest = false, consoletest = false;
+            bool coretest = false, echotest = false, dectest = false, statetest = false;
             foreach (string a in argv)
             {
                 string l = a.ToLowerInvariant();
@@ -257,8 +274,17 @@ namespace GdPanel
                 if (l == "--exttest") exttest = true;
                 if (l == "--whytest") whytest = true;
                 if (l == "--consoletest") consoletest = true;
+                if (l == "--coretest") coretest = true;
+                if (l == "--echotest") echotest = true;
+                if (l == "--dectest") dectest = true;
+                if (l == "--statetest") statetest = true;
                 if (l == "--no-beat") PanelForm.AutoBeatDefault = false;
             }
+            // Core/契约自检同理走无头早退：它们只喂临时树，不需要(也不该)把面板整副构造起来。
+            if (coretest) Environment.Exit(GdCliSelfTest.CoreTest());
+            if (echotest) Environment.Exit(GdCliSelfTest.EchoTest());
+            if (dectest) Environment.Exit(GdDecisionsSelfTest.DecTest());
+            if (statetest) Environment.Exit(GdDetectSelfTest.StatTest());
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             PanelForm f = new PanelForm(headless);

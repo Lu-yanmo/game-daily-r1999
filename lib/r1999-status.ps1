@@ -1,6 +1,10 @@
 ﻿# lib/r1999-status.ps1 — 重返未来：1999 这一路的"体检段落"(与 lib\ark-status.ps1 同一套接口形状)
 # 为什么这么拆、外壳怎么用，见 lib\ark-status.ps1 开头那段注释。
 # 依赖：调用方先点 lib\common.ps1、lib\decisions.ps1、lib\m9a.ps1、lib\mumu.ps1。
+#
+# ── 冻结(2026-09-26，PS→C# 批次 2)── Show-GdR1999InstanceList 的"扫实例目录 + 行式"本体
+# 已迁 tools\panel-cs\Detect.cs(verb：m9a-instance-lines)，这里只剩转发壳与"路径没填→黄字"守卫。
+# MuMu 探活/VM 列表仍在本路(外部进程层，批次 3)；今日判定行已在批次 1 的 Decisions.cs。
 
 function Get-GdR1999EnvRows {
     <# [1] 环境：1999 这边要探的三个路径 #>
@@ -45,15 +49,15 @@ function Show-GdR1999StatusPlan {
 }
 
 function Show-GdR1999InstanceList {
-    <# [5] M9A 实例现状：把 config\instances 里的实例逐个列出来，标出当前活动的那个 #>
+    <# [5] M9A 实例现状：转发壳 —— 扫 config\instances + 行式的本体在 C#(m9a-instance-lines)。
+       注意没保护 try/catch 是故意的：旧实现读 app 设置失败就直接往上抛，展示层不吞。 #>
     param([Parameter(Mandatory)]$S)
     $dir = Join-GdPath $S.paths.m9aDir @($S.paths.m9aInstancesDir)
     # 同 Show-GdArkQueueState：路径没填就讲清是"还没 setup"，别抛一句看不懂的绑定错误
     if (-not (Test-GdPathReady $dir)) { Write-Host "  读不到 M9A 实例目录：$dir(助手目录还没填 → 先跑 setup.ps1)" -ForegroundColor Yellow; return }
-    $app = Read-GdJson -Path (Join-GdPath $S.paths.m9aDir @($S.paths.m9aAppSettings))
-    foreach ($f in @(Get-ChildItem -LiteralPath $dir -Filter '*.json')) {
-        $c = Read-GdJson -Path $f.FullName
-        $mark = if ([string]$c.InstanceName -eq [string]$app.'Instances.LastActiveName') { ' <== 当前' } else { '' }
-        Write-Host "  $($c.InstanceName)($($f.BaseName))$mark — $((@($c.CurrentTasks) | ForEach-Object { ($_ -split '<\|\|\>')[0] }) -join '/')"
-    }
+    $d = Invoke-GdCli -Verb 'm9a-instance-lines' -Body ([pscustomobject]@{
+        dir     = $dir
+        appFile = (Join-GdPath $S.paths.m9aDir @($S.paths.m9aAppSettings))
+    })
+    foreach ($l in @($d.Lines)) { Write-Host $l }
 }

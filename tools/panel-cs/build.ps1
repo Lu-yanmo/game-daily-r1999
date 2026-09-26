@@ -28,7 +28,10 @@ if (-not (Test-Path -LiteralPath $csc)) {
 $args = @(
     '/nologo', '/target:winexe', '/optimize+', '/codepage:65001',   # 源码是无 BOM 的 UTF-8，别按机器 ANSI 码页猜中文
     "/out:$exe",
-    '/reference:System.Windows.Forms.dll', '/reference:System.Drawing.dll'
+    '/reference:System.Windows.Forms.dll', '/reference:System.Drawing.dll',
+    # 批次 0(Core.Json.cs)破例上 JavaScriptSerializer：那次 Panel.Settings.cs 说"为一处自检不值当加引用"判断不变，
+    # 但迁移地基上的 JSON 不能靠手写近似。System.Web.Extensions 是 .NET Framework 自带装配(GAC)，玩家机器零新增依赖。
+    '/reference:System.Web.Extensions.dll'
 )
 if (Test-Path -LiteralPath $icon) { $args += "/resource:$icon,gdpanel.icon.png" }
 $args += $cs
@@ -42,7 +45,22 @@ if ($LASTEXITCODE -ne 0) {
 if (-not $Quiet) { Write-Host ('产物: ' + $exe + ' (' + (Get-Item -LiteralPath $exe).Length + ' bytes)') }
 
 if ($Verify) {
-    # 自检不进屏幕：读一次 -DumpSummary 协议 + 渲染 + 逐页布局断言 + 主题切换链
+    # 批次 0 的 Core/契约自检先跑：轻、无窗体、只喂临时树(见 docs\ps-migration-batch0.md §6)
+    & $exe --coretest
+    if ($LASTEXITCODE -ne 0) { throw 'panel-cs --coretest 有红项' }
+    Write-Host 'panel-cs --coretest OK'
+    & $exe --echotest
+    if ($LASTEXITCODE -ne 0) { throw 'panel-cs --echotest 有红项' }
+    Write-Host 'panel-cs --echotest OK'
+    # 批次 1 判定层：假数据回环，期望文案逐字抄自旧 PS(移植走样在这里就红)
+    & $exe --dectest
+    if ($LASTEXITCODE -ne 0) { throw 'panel-cs --dectest 有红项' }
+    Write-Host 'panel-cs --dectest OK'
+    # 批次 2 探测/状态行：假树回环，期望串逐字抄自旧实现(同上一条纪律)
+    & $exe --statetest
+    if ($LASTEXITCODE -ne 0) { throw 'panel-cs --statetest 有红项' }
+    Write-Host 'panel-cs --statetest OK'
+    # 面板自证：读一次 -DumpSummary 协议 + 渲染 + 逐页布局断言 + 主题切换链
     & $exe --selftest
     if ($LASTEXITCODE -ne 0) { throw 'panel-cs --selftest 有红项' }
     Write-Host 'panel-cs --selftest OK'

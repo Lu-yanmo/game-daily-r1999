@@ -1,75 +1,43 @@
-﻿# lib/r1999-decisions.ps1 — 重返未来：1999(MuMu + M9A)侧"今天跑哪个方案"的判定 + 实例解析
-# 依赖 lib/common.ps1 + lib/decisions-common.ps1；只读判定，不启动任何程序。
+﻿# lib/r1999-decisions.ps1 — 重返未来：1999(MuMu + M9A)侧的取数层 + PS→C# 转发壳
+# 依赖 lib/common.ps1 + lib/decisions-common.ps1；只读判定，不启动任何助手程序。
+#
+# ── 冻结(2026-09-26，PS→C# 批次 1)────────────────────────────────────────────
+# Resolve-R1999Plan / Resolve-R1999Instance(扫描部分)的**规则本体**已迁到
+# tools\panel-cs\Decisions.cs(verb：decide-r1999 / r1999-instance；契约见 docs\ps-migration-batch0.md)。
+# 本文件留下的是：取数层 Get-R1999Event(读 M9A 活动数据、算 DataAge、追后缀) + 两个转发壳。
+# 壳里保留的两件事是协议的一部分：
+#   * IgnoreShopDone 与 shopDoneStopsEvent 决定"给不给领空图" —— 门留在 PS，规则读值；
+#   * Resolve-R1999Instance 的两道前置检查(计划名没配 / M9A 目录不在)留在 PS，
+#     那两句人话是"这台机器没配好"，不是判定规则。
+# 改文案/改分支请改 C# 那份并跑 tools\probe-decisions-golden.ps1 对拍，不要在这里加规则。
+# ──────────────────────────────────────────────────────────────────────────────
 
 function Resolve-R1999Plan {
-    <# 纯判定：M9A 活动数据 + 当前时间 -> 1999 方案(Mode = idle | event | rerun | event-pending) #>
+    <# 转发壳：版本窗口/主线确认门/领空回落/文案的规则在 C#(decide-r1999) #>
     param(
         [Parameter(Mandatory)]$S,
         [Parameter(Mandatory)]$Data,
         [Parameter(Mandatory)][long]$Now,
         [switch]$IgnoreShopDone
     )
-
-    $cur = $null
-    foreach ($p in $Data.PSObject.Properties) {
-        if ($p.Value.start_time -le $Now -and $Now -le $p.Value.end_time) { $cur = $p; break }
+    $shopDone = @{}
+    if (-not $IgnoreShopDone -and (Test-GdShopDoneEnabled -S $S -Game 'r1999')) {
+        $shopDone = Get-GdShopDoneMap -Game 'r1999'
     }
-
-    $result = [pscustomobject]@{
-        Mode = 'idle'; Version = $null; VersionName = $null; EventKey = $null; EventTip = $null
-        Reason = ''; Instance = 'idle'; DataAge = $null; ShopDone = $false
+    $body = [pscustomobject]@{
+        re1999 = [pscustomobject]@{ mainStoryRequiresAck = $S.re1999.mainStoryRequiresAck }
+        now = $Now
+        data = $Data
+        ack = (Get-GdAckMap -Game 'r1999')
+        shopDone = $shopDone
+        verbAck = (Get-GdEntryVerb -Game r1999 -Verb Ack)
+        verbShopReset = (Get-GdEntryVerb -Game r1999 -Verb ShopReset)
     }
-
-    if (-not $cur) {
-        $latest = 0
-        foreach ($p in $Data.PSObject.Properties) { if ($p.Value.end_time -gt $latest) { $latest = $p.Value.end_time } }
-        $note = if ($latest -lt $Now) { "；活动数据只记录到 $(Format-GdUnixMs $latest 'yyyy-MM-dd')，可能未更新" } else { '' }
-        $result.Reason = "不在任何已记录版本的窗口内 → 长草$note"
-        return $result
-    }
-
-    $result.Version = $cur.Name
-    $result.VersionName = [string]$cur.Value.version_name
-    $activity = Get-GdMapValue $cur.Value 'activity'
-    $combat = Get-GdMapValue $activity 'combat'
-    $rerun  = Get-GdMapValue $activity 're-release'
-
-    if ($combat -and $combat.start_time -le $Now -and $Now -le $combat.end_time) {
-        $isMain = [string](Get-GdMapValue $combat 'event_type') -match 'MainStory'
-        $key = "$($cur.Name)-combat"
-        $ack = Get-GdAckMap -Game 'r1999'
-        $result.EventKey = $key
-        $result.EventTip = $result.VersionName
-        if ((-not $IgnoreShopDone) -and (Test-GdShopDoneEnabled -S $S -Game 'r1999') `
-                -and ((Get-GdShopDoneMap -Game 'r1999').ContainsKey($key))) {
-            $result.ShopDone = $true
-            $result.Reason = "版本 $($cur.Name)[$($result.VersionName)]活动商店已标记领空 → 本轮跑长草方案(要恢复：daily-clear.ps1 $(Get-GdEntryVerb -Game r1999 -Verb ShopReset))"
-            return $result
-        }
-        if ($isMain -and $S.re1999.mainStoryRequiresAck -and -not $ack.ContainsKey($key)) {
-            $result.Mode = 'event-pending'
-            $result.Instance = 'idle'
-            $result.Reason = "版本 $($cur.Name)[$($result.VersionName)]主线活动进行中(至 $(Format-GdUnixMs $combat.end_time))，未确认手动通关 → 本轮跑长草方案；确认后运行 daily-clear.ps1 $(Get-GdEntryVerb -Game r1999 -Verb Ack)"
-        } else {
-            $result.Mode = 'event'
-            $result.Instance = 'event'
-            $result.Reason = "版本 $($cur.Name)[$($result.VersionName)]活动进行中($(Format-GdUnixMs $combat.start_time) ~ $(Format-GdUnixMs $combat.end_time))"
-        }
-        return $result
-    }
-    if ($rerun -and $rerun.start_time -le $Now -and $Now -le $rerun.end_time) {
-        $result.Mode = 'rerun'
-        $result.Instance = 'rerun'
-        $result.EventTip = "$($result.VersionName) 复刻"
-        $result.Reason = "版本 $($cur.Name) 复刻进行中($(Format-GdUnixMs $rerun.start_time) ~ $(Format-GdUnixMs $rerun.end_time))"
-        return $result
-    }
-    $result.Reason = "版本 $($cur.Name)[$($result.VersionName)]当前无进行中活动(版本窗口 $(Format-GdUnixMs $cur.Value.start_time) ~ $(Format-GdUnixMs $cur.Value.end_time))→ 长草"
-    return $result
+    return Invoke-GdCli -Verb 'decide-r1999' -Body $body
 }
 
 function Get-R1999Event {
-    <# 读 M9A 自带活动数据(会随 M9A 资源更新)后交给 Resolve-R1999Plan #>
+    <# 读 M9A 自带活动数据(会随 M9A 资源更新)后交给 Resolve-R1999Plan(现即转发壳) #>
     param([Parameter(Mandatory)]$S, [switch]$IgnoreShopDone)
 
     $now = Get-GdNowMs
@@ -94,7 +62,7 @@ function Get-R1999Event {
 }
 
 function Resolve-R1999Instance {
-    <# 按实例名在 M9A config/instances 里找 id #>
+    <# 两道前置检查留在 PS(那是"这台机器没配好"的人话)；按实例名扫文件的重活转发给 C#(r1999-instance) #>
     param([Parameter(Mandatory)]$S, [Parameter(Mandatory)][string]$PlanKey)
     $want = Get-GdMapValue $S.re1999.planToInstance $PlanKey
     if (-not $want) { throw "settings.re1999.planToInstance 里没有 $PlanKey 对应的实例名" }
@@ -102,12 +70,5 @@ function Resolve-R1999Instance {
     if (-not (Test-GdPathReady $dir)) {
         throw $(if ($dir) { "M9A 实例目录不存在：$dir" } else { 'M9A 目录还没填(先跑 setup.ps1)，读不到实例列表' })
     }
-    foreach ($f in @(Get-ChildItem -LiteralPath $dir -Filter '*.json')) {
-        $cfg = Read-GdJson -Path $f.FullName
-        if ([string]$cfg.InstanceName -eq [string]$want) {
-            $tasks = @($cfg.CurrentTasks | ForEach-Object { ($_ -split '<\|\|\>')[-1] })
-            return [pscustomobject]@{ Id = $f.BaseName; Name = [string]$cfg.InstanceName; Path = $f.FullName; Tasks = $tasks }
-        }
-    }
-    throw "M9A 中找不到名为[$want]的实例(计划 $PlanKey)"
+    return Invoke-GdCli -Verb 'r1999-instance' -Body ([pscustomobject]@{ dir = $dir; want = [string]$want; planKey = $PlanKey })
 }

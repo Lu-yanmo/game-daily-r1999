@@ -1,4 +1,12 @@
 ﻿# lib/mumu.ps1 — MuMu 模拟器 12 的启停与 adb 探活
+#
+# ── 冻结(2026-09-26，PS→C# 批次 3)────────────────────────────────────────────
+# 三段"给一段输出现一个结论"的规则已迁 tools\panel-cs\Processes.cs：
+#   Get-GdMuMuState 的 JSON 解读段(verb：parse-mumu-state)、
+#   Connect-GdAdb 的 devices 判定段(parse-adb-devices)、Get-Gd1999Pid 的 pidof 剥数字段(parse-adb-pidof)。
+# 这里留下的只有起外部进程(Invoke-GdNative)与"目录没填"的现场检查 —— 启停编排本身归批次 5/6。
+# 改这些判定/文案 = 改 C# + 跑 tools\probe-process-golden.ps1 对拍，不要在这里加规则。
+# ──────────────────────────────────────────────────────────────────────────────
 
 function Get-GdMuMu {
     param([Parameter(Mandatory)]$S)
@@ -19,17 +27,11 @@ function Get-GdMuMuState {
         return [pscustomobject]@{ Available = $false; Raw = 'MuMu 目录还没填(先跑 setup.ps1)'; AndroidStarted = $false; ProcessStarted = $false }
     }
     $r = Invoke-GdNative -File $m.Manager -Arguments @('info', '-v', $m.Index) -TimeoutSeconds 40
-    if ($r.Code -ne 0 -or -not $r.Out.Trim()) {
-        return [pscustomobject]@{ Available = $false; Raw = ($r.Out + $r.Err); AndroidStarted = $false; ProcessStarted = $false }
-    }
-    try {
-        $j = $r.Out | ConvertFrom-Json
-        return [pscustomobject]@{
-            Available = $true; AndroidStarted = [bool]$j.is_android_started
-            ProcessStarted = [bool]$j.is_process_started; Name = [string]$j.name; Raw = $r.Out
-        }
-    } catch {
-        return [pscustomobject]@{ Available = $false; AndroidStarted = $false; ProcessStarted = $false; Raw = $r.Out }
+    # 转发壳：非零退出/空输出/坏 JSON/三字段解读全在 C#(parse-mumu-state)，这里只起进程与递交 {code,out,err}。
+    $d = Invoke-GdCli -Verb 'parse-mumu-state' -Body ([pscustomobject]@{ code = [int]$r.Code; out = [string]$r.Out; err = [string]$r.Err })
+    return [pscustomobject]@{
+        Available = [bool]$d.Available; AndroidStarted = [bool]$d.AndroidStarted
+        ProcessStarted = [bool]$d.ProcessStarted; Name = [string]$d.Name; Raw = [string]$d.Raw
     }
 }
 
@@ -61,13 +63,16 @@ function Connect-GdAdb {
     if (-not (Test-Path -LiteralPath $AdbPath)) { throw "adb 不存在：$AdbPath" }
     [void](Invoke-GdNative -File $AdbPath -Arguments @('connect', $Serial) -TimeoutSeconds 30)
     $r = Invoke-GdNative -File $AdbPath -Arguments @('devices') -TimeoutSeconds 30
-    return ($r.Out -match [regex]::Escape($Serial) -and $r.Out -match "`tdevice")
+    # 转发壳：serial 转义匹配 + "\tdevice" 两条判据在 C#(parse-adb-devices)
+    $d = Invoke-GdCli -Verb 'parse-adb-devices' -Body ([pscustomobject]@{ out = [string]$r.Out; serial = $Serial })
+    return [bool]$d.Ok
 }
 
 function Get-Gd1999Pid {
     param([Parameter(Mandatory)][string]$AdbPath, [Parameter(Mandatory)][string]$Serial, [Parameter(Mandatory)][string]$Package)
     $r = Invoke-GdNative -File $AdbPath -Arguments @('-s', $Serial, 'shell', 'pidof', $Package) -TimeoutSeconds 25
-    $digits = ($r.Out -replace '\D', '')
-    if ($digits) { return [int]$digits }
+    # 转发壳：剥非数字/取 pid 在 C#(parse-adb-pidof)；Found:false = "游戏没在跑"，翻回旧语义的 $null
+    $d = Invoke-GdCli -Verb 'parse-adb-pidof' -Body ([pscustomobject]@{ out = [string]$r.Out })
+    if ($d.Found) { return [int]$d.Pid }
     return $null
 }

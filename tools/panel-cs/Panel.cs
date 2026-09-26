@@ -33,6 +33,7 @@
 //   panel-cs.exe --echotest      不显示窗口：echo 样板的契约回环(信封/退出码/违约识别) + 真子进程走一遍 Main 分发
 //   panel-cs.exe --dectest       不显示窗口：批次 1 判定层(Decisions.cs)假数据回环 —— 期望文案逐字抄自旧 PS，红即移植走样
 //   panel-cs.exe --statetest     不显示窗口：批次 2 探测/状态行(Detect.cs)假树回环 —— 同上，期望串逐字抄自旧实现
+//   panel-cs.exe --proctest      不显示窗口：批次 3 外部进程层(Processes.cs)纯函数回环 —— 同上，不起进程不写文件
 //
 // 编译：powershell -File tools\panel-cs\build.ps1   (用 C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe)
 
@@ -263,7 +264,7 @@ namespace GdPanel
                 Environment.Exit(GdCli.Run(argv[0], tail));
             }
             bool selftest = false, headless = false, dump = false, exptest = false, exttest = false, whytest = false, consoletest = false;
-            bool coretest = false, echotest = false, dectest = false, statetest = false;
+            bool coretest = false, echotest = false, dectest = false, statetest = false, proctest = false;
             foreach (string a in argv)
             {
                 string l = a.ToLowerInvariant();
@@ -278,6 +279,7 @@ namespace GdPanel
                 if (l == "--echotest") echotest = true;
                 if (l == "--dectest") dectest = true;
                 if (l == "--statetest") statetest = true;
+                if (l == "--proctest") proctest = true;
                 if (l == "--no-beat") PanelForm.AutoBeatDefault = false;
             }
             // Core/契约自检同理走无头早退：它们只喂临时树，不需要(也不该)把面板整副构造起来。
@@ -285,6 +287,7 @@ namespace GdPanel
             if (echotest) Environment.Exit(GdCliSelfTest.EchoTest());
             if (dectest) Environment.Exit(GdDecisionsSelfTest.DecTest());
             if (statetest) Environment.Exit(GdDetectSelfTest.StatTest());
+            if (proctest) Environment.Exit(GdProcSelfTest.ProcTest());
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             PanelForm f = new PanelForm(headless);

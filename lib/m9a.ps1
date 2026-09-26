@@ -1,4 +1,17 @@
 ﻿# lib/m9a.ps1 — 配置并驱动 M9A(重返未来：1999 / MuMu + ADB)
+#
+# ── 冻结(2026-09-26，PS→C# 批次 3)────────────────────────────────────────────
+# 本体已迁到 tools\panel-cs\Processes.cs(契约见 docs\ps-migration-batch0.md)：
+#   Get-M9ALaunchArgs  → verb m9a-launch-args(一律长参数：短参数 -a 实测无效的老规矩在 C# 注释里)
+#   Read-GdM9ALine     → verb parse-m9a-lines(单行走一次；解析顺序敏感，改文案改 C# 那份)
+#   Read-M9ALogEvents  → verb parse-m9a-lines(整批文本一次转发，绝不逐行起进程)
+#   Resolve-M9AStatus  → verb resolve-m9a-status(所有结论文案/优先级在 C#；
+#                        本壳把 $State.lastLog 换算成 quietSeconds 递进去，Found:false 翻译回 $null)
+# 所以：改日志解析/结论话术请改 Processes.cs 并跑 tools\probe-process-golden.ps1 对拍，不要在这里加规则。
+# 故意留在 PS 侧的：Get-M9APaths/Get-GdM9ACliEnabled(读配置)、Set-M9AInstance(写 appsettings+回读)、
+# Get-M9AConnection(读实例 JSON)、Get-M9ADailyLog/Register-M9AEvent(状态累计+日志染色)、
+# Invoke-M9ARun(起进程与轮询，归批次 5 编排层)。
+# ──────────────────────────────────────────────────────────────────────────────
 
 function Get-M9APaths {
     param([Parameter(Mandatory)]$S)
@@ -21,16 +34,8 @@ function Get-GdM9ACliEnabled {
 
 function Get-M9ALaunchArgs {
     <#
-      M9A 自带的脚本化入口(帮助文本原文)：
-        -i, --instance <instance>   指定启动的实例
-        -a, --autostart             自动开始任务
-        -f, --force-start           配合 -i：停掉现有任务，按命令行重新连接并开始，不读上次任务状态
-        -q, --quit-after-run        配合 -i：任务结束后退出程序，"用于脚本化调度"
-      M9A 已在运行时，这条命令会被转发给正在跑的实例(日志里是"转发启动命令…")。
-
-      实测坑(09-23 两轮对比)：**短参数 -a 会被原样记成 key "a"，自动开始判定匹配不上，队列根本不提交；
-      长参数 --autostart 才会打出「用户操作：启动任务 / 准备执行任务队列：任务数量=N」**。
-      (-i/--instance 两种写法都能被识别，但为了不再踩同一个坑，这里一律用长参数。)
+      转发壳：参数拼装本体在 Processes.cs(m9a-launch-args)。
+      老规矩留在 C# 注释里：一律长参数 —— 短参数 -a 会被 M9A 记成 key "a"、自动开始判定匹配不上(09-23 实测)。
     #>
     param(
         [Parameter(Mandatory)]$Instance,
@@ -38,11 +43,14 @@ function Get-M9ALaunchArgs {
         [bool]$ForceStart = $true,
         [bool]$CliArgs = $true
     )
-    if (-not $CliArgs) { return @() }
-    $value = if ($Mode -eq 'name') { [string]$Instance.Name } else { [string]$Instance.Id }
-    $out = @('--instance', $value, '--autostart', '--quit-after-run')
-    if ($ForceStart) { $out += '--force-start' }
-    return $out
+    $d = Invoke-GdCli -Verb 'm9a-launch-args' -Body ([pscustomobject]@{
+        cliArgs    = [bool]$CliArgs
+        mode       = $Mode
+        id         = [string]$Instance.Id
+        name       = [string]$Instance.Name
+        forceStart = [bool]$ForceStart
+    })
+    return @(foreach ($a in @($d.Args)) { [string]$a })
 }
 
 function Set-M9AInstance {
@@ -96,50 +104,16 @@ function Get-M9ADailyLog {
 
 function Read-GdM9ALine {
     <#
-      把一行 M9A 日志解析成事件：
-        $null / @{Kind=task|queue-prepared|ui-start|chain-start|chain-done|finish|connect-start|fail|task-fail|res-current|res-latest|connect-fail|noise; Text=...}
-      实测语义(对照 08-30 手工成功日志 + 09-23 命令行真跑日志)：
-        用户操作：启动任务          = 开始命令真的下发了(命令行 --autostart 走的就是这条路)
-        准备执行任务队列：任务数量=N = 队列已提交，N 是任务数
-        队列任务开始                = 每个任务开跑前都会打一次
-        开始任务：<中文名>          = 单个任务开始
-        启动任务开始                = 「连接模拟器 + 起 Agent」这一步开始
-        启动任务完成 / 任务已全部完成 = 整条链路结束。两种模式形态不同：
-          · 手工界面跑：结束时会打「任务已全部完成！」，进程继续留着
-          · 命令行带 --quit-after-run：只打「启动任务完成」+「停止前状态：SUCCEEDED」，
-            紧接着「应用已关闭」——**根本没有「任务已全部完成！」这一行**(实测 09-23 17:43)
-        所以「启动任务完成」必须按上下文判断：前面已经跑过任务 = 链路完成；否则只是连上了模拟器。
-        这条判断在 Register-M9AEvent 里做，解析函数只负责给出中性的 'finish' 事件。
+      转发壳(parse-m9a-lines 的单行入口)：一行 → 至多一个事件。
+      实测语义/顺序敏感点(如 res-latest 必须排在 noise 前)全部在 Processes.cs 的 ParseM9aLine 注释里。
+      返回形状与旧实现一致：$null 或 @{Kind;Text}(Register-M9AEvent 吃 hashtable，别改成对象)。
+      注意：轮询路径上的正式取数走 Read-M9ALogEvents 的整批转发，这里只给别人手动解析单行用。
     #>
     param([Parameter(Mandatory)][string]$Line, [string]$InstanceId = '')
-    if ($InstanceId -and ($Line -match '\[inst=') -and (-not $Line.Contains("/$InstanceId]"))) { return $null }
-    if ($Line -match '开始任务：(.+?)\s*$') { return @{ Kind = 'task'; Text = $Matches[1].Trim() } }
-    if ($Line -match '准备执行任务队列：任务数量=(\d+)') { return @{ Kind = 'queue-prepared'; Text = $Matches[1] } }
-    if ($Line -match '用户操作：启动任务') { return @{ Kind = 'ui-start'; Text = '' } }
-    if ($Line -match '队列任务开始') { return @{ Kind = 'chain-start'; Text = '' } }
-    if ($Line -match '任务已全部完成') { return @{ Kind = 'chain-done'; Text = '' } }
-    if ($Line -match '启动任务完成') { return @{ Kind = 'finish'; Text = '' } }
-    if ($Line -match '启动任务开始') { return @{ Kind = 'connect-start'; Text = '' } }
-    if ($Line -match '任务运行失败|停止前状态：FAILED') {
-        return @{ Kind = 'fail'; Text = (($Line -replace '^.*?op=\w+\]\s*', '') -replace '>>>\s*任务\s*', '').Trim() }
-    }
-    <#
-      下面三条是 2026-09-25 19:24 那轮之后补的，当时 10 个任务里 8 个都在识别失败，
-      我们却一路报「M9A 进行中[1..8]」、最后只给出「进程提前退出」——因为这三类行根本没进解析器：
-        任务失败：<中文名>        每个识别不出界面的任务都会打一行(旧解析器只认「任务运行失败」，差一个字)
-        当前/最新资源版本：vX     M9A 自己报的版本差(实测 当前 v4.7.1 / 最新 v4.10.0)；
-                                 「最新资源版本」含「新资源版本」子串，会被下面 noise 那条吞掉，所以必须排在 noise 前面
-        初始化控制器失败/连接失败  连不上模拟器的硬信号(实测 19:29：AdbSerial 为空、按指纹匹配到的设备数量=0)
-    #>
-    if ($Line -match '任务失败：(.+?)\s*$') { return @{ Kind = 'task-fail'; Text = $Matches[1].Trim() } }
-    if ($Line -match '当前资源版本：(\S+)') { return @{ Kind = 'res-current'; Text = $Matches[1] } }
-    if ($Line -match '最新资源版本：(\S+)') { return @{ Kind = 'res-latest'; Text = $Matches[1] } }
-    if ($Line -match '初始化控制器失败|连接模拟器时发生错误|按指纹匹配到的设备数量：0|连接任务已在重试耗尽后结束|\[Record\]\s*连接失败') {
-        # 这类行有的带 [op=...]、有的只有 [cfg=Default]，统一把开头连续的 [...] 段剥掉再当原因用
-        return @{ Kind = 'connect-fail'; Text = (($Line -replace '^(\[[^\]]*\]\s*)+', '') -replace '^>>>\s*任务\s*', '').Trim() }
-    }
-    if ($Line -match '截图超时|Agent程序|资源检测|控制器检测|热更新|新资源版本') { return @{ Kind = 'noise'; Text = '' } }
-    return $null
+    $d = Invoke-GdCli -Verb 'parse-m9a-lines' -Body ([pscustomobject]@{ text = $Line; instanceId = $InstanceId })
+    $evs = @($d.Events)
+    if ($evs.Count -eq 0) { return $null }
+    return @{ Kind = [string]$evs[0].Kind; Text = [string]$evs[0].Text }
 }
 
 function Read-M9ALogEvents {
@@ -158,9 +132,14 @@ function Read-M9ALogEvents {
     }
     $tail = Get-GdFileTail -Path $logPath -Offset ([long]$Offsets[$logPath])
     $Offsets[$logPath] = $tail.Offset
-    foreach ($line in (@($tail.Text -split "`r?`n") | Where-Object { $_.Trim() })) {
-        $ev = Read-GdM9ALine -Line $line -InstanceId $Instance.Id
-        if ($ev) { $events += $ev }
+    <#
+      整批一次转发(批次 3 的省钱点)：拆行/空行过滤/逐行解析都在 parse-m9a-lines 本体里，
+      轮询一次只起一次进程 —— 别改回 foreach 行内调 Read-GdM9ALine，那是每行一个进程。
+      本轮没有新字节就干脆不起进程(和旧实现在这一点上同形)。
+    #>
+    if ($tail.Text.Trim()) {
+        $d = Invoke-GdCli -Verb 'parse-m9a-lines' -Body ([pscustomobject]@{ text = $tail.Text; instanceId = $Instance.Id })
+        foreach ($e in @($d.Events)) { $events += @{ Kind = [string]$e.Kind; Text = [string]$e.Text } }
     }
     return @{ LogPath = $logPath; Events = $events }
 }
@@ -238,15 +217,12 @@ function Register-M9AEvent {
 
 function Resolve-M9AStatus {
     <#
-      根据已收集的事件判定结果；返回 $null = 还在跑。顺序讲究：
-        0) 第一个任务(启动游戏)就失败，或开始过的任务全失败 = blocked
-           —— 界面根本没进游戏，后面每条「开始任务」都是空转，重试也没用(实测 09-25 19:24：客户端正在下 1.91G 更新包)
-        1) 有完成信号且确实跑过任务，或「任务数已达队列声明的数量 + 进程已按 -q 退出」 = ok
-           (--quit-after-run 会让 M9A 在最后一个任务后立刻关闭，日志常来不及写完成行就被读到退出)
-        2) 有"任务已全部完成"但一条"开始任务"都没有 = empty-queue(队列没提交；实测 08-30 长草/09-23 16:39 都是这个形态)
-        3) 一条认识的事件都没解析出来却已经到点/进程没了 = unknown-format(日志文案或实例 id 变了，别按本轮结果下结论)
-        4) 进程已消失(且经过两轮确认)             = error
-        5) 超时 / 到点没开始 / 日志停滞           = timeout / not-started / stalled
+      转发壳(resolve-m9a-status)：八种 Status 的优先级与全部结论文案都在 Processes.cs 的 M9aStatus 本体里
+      (blocked→ok→empty-queue→unknown-format→error→timeout→not-started→stalled，注释跟着代码走)。
+      壳只干三件事：
+        1) $State 拷一份、摘掉 lastLog —— DateTime 不进信封，C# 侧也不看挂钟；
+        2) 把 ((Get-Date) - $State.lastLog).TotalSeconds 算成 quietSeconds 递进去(停滞判定与"几分钟"文案吃它)；
+        3) 拆信封：Found:false = 还在跑 → 回 $null(与批次 2 探测壳同一协议)；blocked 才带 FailedTasks 键。
     #>
     param(
         [Parameter(Mandatory)][hashtable]$State,
@@ -256,84 +232,24 @@ function Resolve-M9AStatus {
         [bool]$ProcessGone = $false,
         [string]$LogName = ''
     )
-    $tasks = @($State.tasks)
-    $progress = $(if ($tasks.Count) { "已到[$($tasks[-1])]" }
-                  elseif ($State.chainStarted) { '队列已开始但还没有任务' }
-                  elseif ($State.connectPhase -eq 'done') { '只完成了连接(队列任务从未开始)' }
-                  elseif ($State.connectPhase -eq 'started') { '正在连接模拟器' }
-                  else { '尚未开始任何任务' })
-
-    # 队列声明过任务数量、实际任务数已达标、且进程已经退出 → 视为按 -q 正常收尾
-    $allQueuedDone = ($null -ne $State.queueCount) -and ([int]$State.queueCount -gt 0) -and ($tasks.Count -ge [int]$State.queueCount)
-    $seenNothing = ([int]$State.eventCount -eq 0)
-    # hashtable 里没这个键时取出来是 $null，而 @($null) 的长度是 1；空数组从 if 里赋值又会塌成 $null —— 用 @(foreach) 拿真正的 0 长度数组
-    $failedTasks = @(foreach ($ft in $State.failedTasks) { $ft })
-    <#
-      两条"可行动"提示，拼到所有非 ok 结论后面。09-25 那轮就是吃了没这两条的亏：
-      客户端在模拟器里下 1.91G 更新包、M9A 自己报了版本差，我们却只说「进程提前退出」然后原样重试一遍。
-    #>
-    $updateHint = ''
-    if ($State.resLatest -and $State.resCurrent -and ([string]$State.resLatest -ne [string]$State.resCurrent)) {
-        $updateHint = "；M9A 报资源/程序落后(当前 $($State.resCurrent) → 最新 $($State.resLatest))——这是整包更新，命令行没有更新入口，得在 M9A 界面点『更新』"
-    }
-    $connectHint = ''
-    if ($State.connectFail) { $connectHint = "；M9A 连不上模拟器($($State.connectFail))——多半是 MuMu 虚拟机没起来或 adb 设备指纹变了" }
-    $firstTaskFailed = ($failedTasks.Count -gt 0) -and ($tasks.Count -gt 0) -and ($failedTasks -contains $tasks[0])
-    <# 一条"开始任务"都没有时不算"全失败"——那种形态该走 empty-queue/not-started，别报"开始过的 0 个任务全部识别失败" #>
-    $allStartedFailed = ($tasks.Count -gt 0) -and ($failedTasks.Count -gt 0) -and ($failedTasks.Count -ge $tasks.Count)
-    if ($ProcessGone -and ($firstTaskFailed -or $allStartedFailed)) {
-        $why = if ($firstTaskFailed) { "第一个任务[$($tasks[0])]就失败，后面 $($tasks.Count - 1) 个都是在没进游戏的情况下空转" }
-               else { "开始过的 $($tasks.Count) 个任务全部识别失败" }
-        return @{ Status = 'blocked'; Detail = "M9A 有 $($failedTasks.Count) 个任务报『任务失败』($why)。先看模拟器：客户端多半停在更新/下载界面或已退回桌面，不是判定库的问题${updateHint}${connectHint}；失败任务：$(($failedTasks | Select-Object -First 5) -join '、')；日志：$LogName"; Tasks = $tasks; FailedTasks = $failedTasks }
-    }
-    if (($State.chainDone -and $tasks.Count -and (-not $firstTaskFailed) -and (-not $allStartedFailed)) -or ($ProcessGone -and $allQueuedDone -and (-not $State.failed))) {
-        $detail = "实例[$($Instance.Name)] 完成 $($tasks.Count) 个任务"
-        if ($null -ne $State.queueCount) { $detail += "/队列声明 $($State.queueCount) 个" }
-        if (-not $State.chainDone) { $detail += '(M9A 已按 --quit-after-run 退出，未见完成行)' }
-        if ($State.failed) { $detail += "(收尾阶段有告警：$($State.failed))" }
-        if ($failedTasks.Count) { $detail += "(其中 $($failedTasks.Count) 个任务报过『任务失败』：$(($failedTasks | Select-Object -First 3) -join '、'))" }
-        return @{ Status = 'ok'; Detail = $detail; Tasks = $tasks }
-    }
-    if ($State.chainDone -and ($tasks.Count -eq 0)) {
-        <#
-          「队列声明 10 个却一个任务没开始」不能说成"队列为空"——实测 09-25 19:29 那种情况是
-          控制器初始化压根没过(AdbSerial 为空)，M9A 报的 10 个是它勾选的任务数，不是空队列。
-        #>
-        $why = if ($State.connectFail) { "M9A 连模拟器这一步就失败了(声明了 $($State.queueCount) 个任务，一个都没开始)" }
-               elseif ($null -ne $State.queueCount) { "M9A 自己报的任务数量=$($State.queueCount)(声明了却没执行，通常是界面没进游戏)" }
-               elseif ($State.startRequested) { '开始命令下发了但没有任何任务(任务列表可能全被取消勾选)' }
-               else { 'M9A 从未收到"用户操作：启动任务" → 命令行 --autostart 没生效(注意：短参数 -a 实测无效，必须用长参数)' }
-        return @{ Status = 'empty-queue'; Detail = "M9A 连接完成后直接报『任务已全部完成』，但一条『开始任务：』都没有(用时 $([math]::Round($Elapsed / 60, 1)) 分钟) → $why${updateHint}${connectHint}；实例[$($Instance.Name)]"; Tasks = $tasks }
-    }
-    $unknownDetail = "日志里一条认识的标志都没解析出来(实例[$($Instance.Name)] id=$($Instance.Id)，日志：$LogName) → 多半是 M9A 更新后改了日志文案，或实例重新导入后 id 变了(行内 [inst=名字/id] 过滤把整批行排除了)，也可能是 M9A 压根没往这个文件里写(进程卡在启动/日志目录改了)。这轮结果不可信，别按它判定体力是否清完：先跑 tools\probe-m9a-history.ps1 看实例 id、再用 tools\replay-m9a-log.ps1 对着这份日志复现，然后更新 lib\m9a.ps1 的 Read-GdM9ALine"
-    if ($ProcessGone) {
-        if ($seenNothing) {
-            return @{ Status = 'unknown-format'; Detail = "M9A 已退出，但$unknownDetail"; Tasks = $tasks }
-        }
-        if ($State.failed) { return @{ Status = 'error'; Detail = "M9A 已退出，链路失败：$($State.failed)($progress)${updateHint}${connectHint}"; Tasks = $tasks } }
-        if ($tasks.Count -eq 0) {
-            <# 进程都没了却一个任务没跑：多半是 --autostart 没生效 + --quit-after-run 直接退出，等下去也没有 → 快速失败且重试无意义 #>
-            return @{ Status = 'not-started'; Detail = "M9A 连接后就退出了，一个任务都没跑($progress) → 命令行 --autostart 没生效(短参数 -a 实测无效)，或资源/程序有新版本要更新${updateHint}${connectHint}；日志：$LogName"; Tasks = $tasks }
-        }
-        return @{ Status = 'error'; Detail = "M9A 进程提前退出($progress，队列声明 $(if ($null -ne $State.queueCount) { $State.queueCount } else { '未知' }) 个)${updateHint}${connectHint}"; Tasks = $tasks }
-    }
-    if ($seenNothing -and ($Elapsed -gt ([int]$S.runtime.r1999StartTimeoutMinutes * 60))) {
-        <# 进程还在、但超过「该开始了」的时间点却一条标志都没读到：不套 not-started/stalled 的猜测，直接说看不懂日志 #>
-        return @{ Status = 'unknown-format'; Detail = "启动已 $([math]::Round($Elapsed / 60, 1)) 分钟，$unknownDetail"; Tasks = $tasks }
-    }
-    if ($Elapsed -gt ([int]$S.runtime.r1999TimeoutMinutes * 60)) {
-        return @{ Status = 'timeout'; Detail = "超过 $([int]$S.runtime.r1999TimeoutMinutes) 分钟未跑完($progress)"; Tasks = $tasks }
-    }
-    if (-not $State.chainStarted -and ($tasks.Count -eq 0) -and $Elapsed -gt ([int]$S.runtime.r1999StartTimeoutMinutes * 60)) {
-        $hint = if ($State.connectPhase -eq 'done') {
-            'M9A 连上了模拟器却没开始任务队列 → 命令行 --autostart 没生效(短参数 -a 实测无效)，或资源/程序有新版本要更新(日志里有"还请更新"这类提示)，或界面被弹窗挡住'
-        } else { 'M9A 连模拟器这一步都没走完' }
-        return @{ Status = 'not-started'; Detail = "$([int]$S.runtime.r1999StartTimeoutMinutes) 分钟内没跑任何任务($progress)。$hint${updateHint}${connectHint}，日志：$LogName"; Tasks = $tasks }
-    }
-    if (((Get-Date) - $State.lastLog).TotalSeconds -gt ([int]$S.runtime.stallTimeoutMinutes * 60)) {
-        return @{ Status = 'stalled'; Detail = "M9A 日志 $([int](((Get-Date) - $State.lastLog).TotalSeconds / 60)) 分钟无输出($progress)，可能卡在某个界面"; Tasks = $tasks }
-    }
-    return $null
+    $st = @{}
+    foreach ($k in $State.Keys) { if ($k -ne 'lastLog') { $st[$k] = $State[$k] } }
+    $d = Invoke-GdCli -Verb 'resolve-m9a-status' -Body ([pscustomobject]@{
+        state               = $st
+        elapsed             = $Elapsed
+        quietSeconds        = ((Get-Date) - $State.lastLog).TotalSeconds
+        processGone         = [bool]$ProcessGone
+        logName             = $LogName
+        instanceName        = [string]$Instance.Name
+        instanceId          = [string]$Instance.Id
+        startTimeoutMinutes = [int]$S.runtime.r1999StartTimeoutMinutes
+        timeoutMinutes      = [int]$S.runtime.r1999TimeoutMinutes
+        stallTimeoutMinutes = [int]$S.runtime.stallTimeoutMinutes
+    })
+    if (-not $d.Found) { return $null }
+    $r = @{ Status = [string]$d.Status; Detail = [string]$d.Detail; Tasks = @($d.Tasks) }
+    if ($null -ne $d.PSObject.Properties['FailedTasks']) { $r.FailedTasks = @($d.FailedTasks) }
+    return $r
 }
 
 function Invoke-M9ARun {

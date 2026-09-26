@@ -85,7 +85,22 @@ def normalize_endpoint(endpoint):
 
 
 def build_payload(req, image_bytes):
-    """请求文件 + 图片字节 → OpenAI 兼容的 chat/completions 请求体(和 PS 侧原来那份一字不差)。"""
+    """请求文件 + 图片字节 → OpenAI 兼容的 chat/completions 请求体(和 PS 侧原来那份一字不差)。
+
+    两种模式(2026-09-26 加)：
+      * 视觉模式(默认)：image + system_prompt + user_text，兜底问画面走这条，行为与旧版一字不差；
+      * 纯文本多轮：请求文件里直接给 messages 数组([{role,content}...])，图片可以不存在 ——
+        对话式需求管家(lib\\agent.ps1)用它维持上下文。response_format=json_object 两种模式都保留。
+    """
+    msgs = req.get("messages")
+    if isinstance(msgs, list) and msgs:
+        return {
+            "model": req.get("model") or "",
+            "temperature": req.get("temperature", 0),
+            "max_tokens": int(req.get("max_tokens") or DEFAULT_MAX_TOKENS),
+            "response_format": {"type": "json_object"},
+            "messages": msgs,
+        }
     b64 = base64.b64encode(image_bytes).decode("ascii")
     user_content = [
         {"type": "image_url", "image_url": {"url": "data:%s;base64,%s" % (mime_of(req["image"]), b64)}}
@@ -159,13 +174,17 @@ def ask(req):
     if not key:
         raise AskError("没有 %s 环境变量：key 只从环境变量读(不落命令行、不落文件)" % ENV_KEY)
 
-    image_path = req.get("image") or ""
-    if not image_path or not os.path.isfile(image_path):
-        raise AskError("截图文件不在：%s(截图那一步就没成)" % (image_path or "(没给)"))
-    with open(image_path, "rb") as fh:
-        image_bytes = fh.read()
-    if len(image_bytes) < 8:
-        raise AskError("截图文件太小(%d 字节)，不是一张照片" % len(image_bytes))
+    msgs = req.get("messages")
+    if isinstance(msgs, list) and msgs:
+        image_bytes = b""                       # 纯文本多轮模式(agent 用)：不读图，也不要求图存在
+    else:
+        image_path = req.get("image") or ""
+        if not image_path or not os.path.isfile(image_path):
+            raise AskError("截图文件不在：%s(截图那一步就没成)" % (image_path or "(没给)"))
+        with open(image_path, "rb") as fh:
+            image_bytes = fh.read()
+        if len(image_bytes) < 8:
+            raise AskError("截图文件太小(%d 字节)，不是一张照片" % len(image_bytes))
 
     url = normalize_endpoint(req.get("endpoint"))
     payload = build_payload(req, image_bytes)
@@ -225,7 +244,8 @@ def write_audit(path, req, result):
         "attempts": result.get("attempts") or 0,
         "image": os.path.basename(req.get("image") or ""),
         "image_bytes": result.get("image_bytes") or 0,
-        "prompt_chars": len(req.get("system_prompt") or "") + len(req.get("user_text") or ""),
+        "prompt_chars": (len(req.get("system_prompt") or "") + len(req.get("user_text") or "")) or
+                        sum(len(str(m.get("content") or "")) for m in (req.get("messages") or [])),
         "reply_chars": len(result.get("text") or ""),
         "error": (result.get("error") or "")[:200],
     }
@@ -249,8 +269,10 @@ def emit(obj):
 def run_selftest():
     """离线自检：不联网、不读任何本机配置，只验本文件自己的四件事。"""
     fails = []
+    nchk = [0]
 
     def chk(name, cond, extra=""):
+        nchk[0] += 1
         if not cond:
             fails.append("%s%s" % (name, (" —— " + extra) if extra else ""))
 
@@ -275,6 +297,15 @@ def run_selftest():
     chk("追问文字排在图片后面", len(c) == 2 and c[1]["type"] == "text" and c[1]["text"] == "只看一眼")
     chk("没给 user_text 时不塞空文字",
         len(build_payload(dict(req, user_text="  "), TINY_PNG)["messages"][1]["content"]) == 1)
+
+    # 纯文本多轮模式(agent 用)：messages 原样透传，不碰图片
+    mreq = {"messages": [{"role": "system", "content": "s"}, {"role": "user", "content": "u"}],
+            "model": "qwen3.8-flash", "temperature": 0, "max_tokens": 900}
+    mp = build_payload(mreq, b"")
+    chk("文本模式 messages 原样透传", mp["messages"] == mreq["messages"])
+    chk("文本模式仍要 JSON 回复且无图片字段", mp.get("response_format") == {"type": "json_object"}
+        and all("image_url" not in str(m.get("content")) for m in mp["messages"]))
+    chk("文本模式不给 image 也能组体", "image" not in mreq and mp.get("model") == "qwen3.8-flash")
 
     e1, r1 = describe_http_error(401, "", "https://x/v1/chat/completions", 45, 1)
     chk("401 说成 key 的问题", ("key" in e1) and r1 is False)
@@ -312,7 +343,7 @@ def run_selftest():
                 pass
         del os.environ[ENV_KEY]
 
-    emit({"ok": not fails, "selftest": True, "checks": 16, "failures": fails})
+    emit({"ok": not fails, "selftest": True, "checks": nchk[0], "failures": fails})
     return 0 if not fails else 1
 
 

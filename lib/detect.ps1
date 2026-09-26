@@ -6,9 +6,10 @@
 # "探测：候选 N 个…"文案 —— 全部迁到 tools\panel-cs\Detect.cs(verb：detect-installs；
 # 契约见 docs\ps-migration-batch0.md)。本文件留下的壳只转参、拆 {Found,Value,Source}。
 # 所以：改探测规则/文案请改 C# 那份并跑 tools\probe-status-detect-golden.ps1 对拍，不要在这里加规则。
-# 故意留在 PS 侧的两件事：
-#   Get-GdFixedRoot —— 壳把 roots 组装好递给 verb，golden 对拍靠"运行期覆盖这个函数"注入假树；
-#   Get-GdMuMuVmList —— 要起 MuMuManager 外部进程，归批次 3(外部进程层)。
+# 故意留在 PS 侧的一件事：
+#   Get-GdFixedRoot —— 壳把 roots 组装好递给 verb，golden 对拍靠"运行期覆盖这个函数"注入假树。
+# Get-GdMuMuVmList 批次 2 时说"要起外部进程、归批次 3"—— 批次 3 已落地：JSON→VM 列表的解读本体
+# 在 Processes.cs(verb：parse-mumu-vms)，这里只剩"文件在不在 + 起 MuMuManager"的外壳。
 # 原内部函数(Test-GdJunkPath/Format-GdCandidates/Test-GdSkipPath/Get-GdChildDir/Find-GdInstallDir/
 # Get-GdRunningExeDir/Get-GdUninstallHintDir/Get-GdUninstallHint/Add-GdTrimmedDir/Select-GdUniqueDir)
 # 已整函数删除，Detect.cs 是唯一事实源。Candidates 键合体工程里从来没人消费，壳里保留为 $null 撑形状。
@@ -56,15 +57,16 @@ function Resolve-GdCandidate {
 }
 
 function Get-GdMuMuVmList {
-    <# MuMuManager info --vmindex all → @{Index;Name} 列表(装好 MuMu 后靠它填 vmIndex/vmNameHint) #>
+    <#
+      转发壳(批次 3)：MuMuManager info --vmindex all → @{Index;Name} 列表的解析真身在
+      tools\panel-cs\Processes.cs(verb：parse-mumu-vms)。这里只保留两件壳内的事：
+      起外部进程(归编排层，本批不迁)和把 Vms 数组还原成旧调用方吃的 [pscustomobject] 列表。
+      改 JSON→列表的规则请改 C# 那份并跑 tools\probe-process-golden.ps1 对拍。
+    #>
     param([Parameter(Mandatory)][string]$Manager)
     if (-not (Test-Path -LiteralPath $Manager)) { return @() }
     $raw = try { & $Manager 'info' '--vmindex' 'all' 2>$null | Out-String } catch { '' }
     if (-not $raw.Trim()) { return @() }
-    try { $j = $raw | ConvertFrom-Json } catch { return @() }
-    $out = @()
-    foreach ($prop in $j.PSObject.Properties) {
-        $out += [pscustomobject]@{ Index = [string]$prop.Name; Name = [string]$prop.Value.name }
-    }
-    return $out
+    $d = Invoke-GdCli -Verb 'parse-mumu-vms' -Body ([pscustomobject]@{ raw = $raw })
+    return @(foreach ($v in @($d.Vms)) { [pscustomobject]@{ Index = [string]$v.Index; Name = [string]$v.Name } })
 }

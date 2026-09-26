@@ -3,6 +3,9 @@
 // 判定所需的一切**值**组装成 JSON 送 --in，这边只出结论、不读配置不写盘。
 // 批次 2：detect-installs / maa-queue-lines / m9a-instance-lines —— 探测与状态行要读现场(盘/注册表/配置文件)，
 // 读的动作也搬了进来：detect 的 roots 可由壳注入(golden 用假树)，两个 *-lines 只按路径读、不写任何东西。
+// 批次 3：外部进程层(maa/m9a/mumu)的纯解析/纯规划十件(见 Processes.cs 头注的切分口径)——
+// parse-asst-* / plan-maa-queue / m9a-launch-args / parse-m9a-lines / resolve-m9a-status / parse-mumu-* / parse-adb-*。
+// 起进程、监控循环、写文件仍全在 PS 壳；plan-maa-queue 出的 NewConfig 由壳决定写不写。
 //
 // 三通道铁律：
 //   * 机读结果 **只走 --out 文件**(winexe 的 stdout 从控制台启动本来就不可靠，见 Panel.cs 头注)；
@@ -75,7 +78,17 @@ namespace GdPanel
                 else if (verb == "detect-installs") r = Decide(a, Detect.Installs);
                 else if (verb == "maa-queue-lines") r = Decide(a, Detect.MaaQueueLines);
                 else if (verb == "m9a-instance-lines") r = Decide(a, Detect.M9aInstanceLines);
-                else throw new GdUsageException("未知子命令：" + verb + "(现有：echo + 批次 1 判定四件 + 批次 2 的 detect-installs/maa-queue-lines/m9a-instance-lines；后续批次见 docs\\ps-migration-batch0.md)");
+                else if (verb == "parse-asst-state") r = Decide(a, Processes.AsstState);
+                else if (verb == "parse-asst-hint") r = Decide(a, Processes.AsstHint);
+                else if (verb == "plan-maa-queue") r = Decide(a, Processes.PlanMaaQueue);
+                else if (verb == "m9a-launch-args") r = Decide(a, Processes.M9aLaunchArgs);
+                else if (verb == "parse-m9a-lines") r = Decide(a, Processes.M9aLines);
+                else if (verb == "resolve-m9a-status") r = Decide(a, Processes.M9aStatus);
+                else if (verb == "parse-mumu-state") r = Decide(a, Processes.MumuState);
+                else if (verb == "parse-mumu-vms") r = Decide(a, Processes.MumuVms);
+                else if (verb == "parse-adb-devices") r = Decide(a, Processes.AdbDevices);
+                else if (verb == "parse-adb-pidof") r = Decide(a, Processes.AdbPidof);
+                else throw new GdUsageException("未知子命令：" + verb + "(现有：echo + 批次 1 判定四件 + 批次 2 探测/状态行 + 批次 3 的 parse-asst-*/plan-maa-queue/m9a-launch-args/parse-m9a-lines/resolve-m9a-status/parse-mumu-*/parse-adb-*；后续批次见 docs\\ps-migration-batch0.md)");
             }
             catch (GdUsageException ex)
             {

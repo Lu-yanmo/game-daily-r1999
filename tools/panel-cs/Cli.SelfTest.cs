@@ -273,12 +273,14 @@ namespace GdPanel
                     if (code != 0 || !File.Exists(g)) return false;
                     try { GdJson.ReadEnvelope(g); return false; } catch { return true; }
                 });
-                b.Chk("--in 指空：退出码 1 且**仍写出**带 error 的信封", delegate
+                b.Chk("--in 指空：退出码 2(前置缺) 且**仍写出**带 error 的信封", delegate
                 {
+                    // 1→2 是有意的契约归位(Cli.cs 的 FileNotFoundException 分支：文件没在场=前置缺，不是内部炸)；
+                    // 断言同时收紧 error 必须是原话(不带 "FileNotFoundException: " 前缀)。
                     string e2 = Path.Combine(tmp, "err.json");
                     int code = GdCli.Run("echo", new string[] { "--in=" + Path.Combine(tmp, "none.json"), "--out=" + e2 });
                     Dictionary<string, object> env = GdJson.ReadEnvelope(e2);
-                    return code == 1 && !(bool)EnvGet(env, "ok")
+                    return code == 2 && (int)EnvGet(env, "exit") == 2 && !(bool)EnvGet(env, "ok")
                         && ((string)EnvGet(env, "error")).Contains("找不到文件：");
                 });
                 b.Chk("未知子命令 = 退出码 1(127 留给 cmd 层)", delegate

@@ -60,6 +60,10 @@ if ($Verify) {
     & $exe --statetest
     if ($LASTEXITCODE -ne 0) { throw 'panel-cs --statetest 有红项' }
     Write-Host 'panel-cs --statetest OK'
+    # 批次 3 外部进程层：纯函数回环(不起进程/不写文件)，期望串逐字抄自旧实现(同上一条纪律)
+    & $exe --proctest
+    if ($LASTEXITCODE -ne 0) { throw 'panel-cs --proctest 有红项' }
+    Write-Host 'panel-cs --proctest OK'
     # 面板自证：读一次 -DumpSummary 协议 + 渲染 + 逐页布局断言 + 主题切换链
     & $exe --selftest
     if ($LASTEXITCODE -ne 0) { throw 'panel-cs --selftest 有红项' }

@@ -7,7 +7,9 @@
 
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 . (Join-Path $root 'lib\common.ps1')
-foreach ($lib in @('decisions', 'maa', 'm9a', 'vision-rescue')) {
+# 名单要和两份模块清单声明的 Libs 对得上 —— tools\test-modules.ps1 的 [m3] 就是钉这件事的：
+# 清单里新增一个库而这里没跟着加，自检会红，而不是"函数不在、断言整个跳过"那种静默漏检。
+foreach ($lib in @('decisions', 'maa', 'm9a', 'vision-rescue', 'vision-ark', 'vision-mumu')) {
     $libPath = Join-Path $root "lib\$lib.ps1"
     if (Test-Path -LiteralPath $libPath) { . $libPath }
 }

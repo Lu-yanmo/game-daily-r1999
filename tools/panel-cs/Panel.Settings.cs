@@ -18,44 +18,168 @@ namespace GdPanel
     // ---------- 主窗体(这一份装的成员见本文件头) ----------
     sealed partial class PanelForm : Form
     {
-        // ---------- 实验功能：面板唯一直接读写 settings.json 的地方(只碰一个布尔键) ----------
-        // 为什么敢让 C# 直接碰配置：这不是判定 —— 用不用视觉兜底仍由 lib\vision-rescue.ps1 读同一个键决定，
-        // 面板只是替玩家拧开关。写法用"整文件行内替换"：只换 true/false 那几个字节，
+        // ---------- 实验功能：面板唯一直接读写 settings.json 里"布尔开关"的地方 ----------
+        // 为什么敢让 C# 直接碰配置：这不是判定 —— 用不用视觉兜底、准不准它给领取点位，
+        // 仍由 lib\vision-rescue.ps1 读同一批键决定，面板只是替玩家拧开关。
+        // 写法用"整文件行内替换"：只换 true/false 那几个字节，
         // 别的内容(含中文说明、注释性键)一个字节不动，改前照 PS 那边的规矩备份 + 每文件只留 20 份。
-        static readonly Regex ExpKeyRe = new Regex("(\"arkVisionRescue\"\\s*:\\s*)(true|false)");
-        string settingsPathOverride;       // 只有 --consoletest 用它：把读写指到一份临时副本上
+        // 现在管两个键：arkVisionRescue(端游兜底总开关) / visionAllowReward(领奖白名单，默认关)。
+        static readonly string ExpKey = "arkVisionRescue";
+        static readonly string MumuKey = "mumuVisionRescue";
+        static readonly string RewardKey = "visionAllowReward";
+        static Regex BoolKeyRe(string key) { return new Regex("(\"" + Regex.Escape(key) + "\"\\s*:\\s*)(true|false)"); }
+        string settingsPathOverride;       // 只有 --consoletest/--exptest 用它：把读写指到一份临时副本上
         string SettingsPath { get { return string.IsNullOrEmpty(settingsPathOverride) ? Path.Combine(root, @"config\settings.json") : settingsPathOverride; } }
         bool ExpImplemented() { return File.Exists(Path.Combine(root, @"lib\vision-rescue.ps1")); }
 
-        bool? ReadExpFlag()
+        // 这棵树上到底有没有"能拍画面的后端"(lib\vision-<kind>.ps1，端游/模拟器/以后第三个都算)。
+        // 配置页要不要摆视觉模型/视觉 Key 这两行、总开关能不能拧，都问这个 —— 面板不自己记 kind 名单，
+        // 名单只写在各自的清单(lib\*-module.ps1 的 VisionKind)和 lib\vision-ask.ps1 那一路的查表里。
+        bool HasVisionBackend()
+        {
+            if (!ExpImplemented()) return false;
+            try
+            {
+                foreach (string f in Directory.GetFiles(Path.Combine(root, "lib"), "vision-*.ps1"))
+                {
+                    string n = Path.GetFileName(f);
+                    if (n == "vision-rescue.ps1") continue;
+                    if (Regex.IsMatch(n, @"^vision-[a-z][a-z0-9]*\.ps1$")) return true;
+                }
+            }
+            catch { }
+            return false;
+        }
+
+        bool? ReadExpFlag() { return ReadBoolFlag(ExpKey); }
+        string WriteExpFlag(bool on) { return WriteBoolFlag(ExpKey, on, "AI 辅助(视觉兜底)", "已打开", "已关掉"); }
+        bool? ReadAllowReward() { return ReadBoolFlag(RewardKey); }
+        string WriteAllowReward(bool on) { return WriteBoolFlag(RewardKey, on, "允许领日常奖励", "已勾上", "已取消"); }
+
+        // 勾选框点一下之后做的事：写下去 → 再读回来核对 → 才说话。
+        // 为什么要多读这一次：领奖白名单这一档"界面显示勾上了、文件里其实没写进去"比"显示没勾"更糟 ——
+        // 那会让人以为兜底现在准点领取了，实际提示词里还是硬禁(反过来也一样，说了不算最坑)。
+        // 写没成，就当着人的面把勾退回去，别留一个假状态在界面上。
+        void ToggleExpFlag(CheckBox cb, string key, string subject, string onWord, string offWord)
+        {
+            bool want = cb.Checked;
+            string msg = WriteBoolFlag(key, want, subject, onWord, offWord);
+            bool? now = ReadBoolFlag(key);
+            if (!now.HasValue || now.Value != want)
+            {
+                cb.Checked = !want;      // 赋值不会再触发 Click，所以不会绕回来写第二遍
+                AppendLog(subject + "：没改成" + (want ? "勾上" : "取消") + "，勾已退回 —— " + msg);
+                return;
+            }
+            AppendLog(subject + "：" + msg);
+            RefreshCards();
+        }
+
+        bool? ReadBoolFlag(string key)
         {
             try
             {
                 string path = SettingsPath;
                 if (!File.Exists(path)) return null;
-                Match m = ExpKeyRe.Match(File.ReadAllText(path));
+                Match m = BoolKeyRe(key).Match(File.ReadAllText(path));
                 if (!m.Success) return null;
                 return m.Groups[2].Value == "true";
             }
             catch { return null; }
         }
 
-        string WriteExpFlag(bool on)
+        string WriteBoolFlag(string key, bool on, string subject, string onWord, string offWord)
         {
-            string path = SettingsPath;
             if (!ExpImplemented()) return "这一仓没有实验功能的实现库，这个按钮不该出现。";
+            string path = SettingsPath;
             if (!File.Exists(path)) return "还没有 config\\settings.json —— 先跑 setup.ps1 生成配置，再回来开/关。";
             try
             {
                 string text = File.ReadAllText(path);
-                if (!ExpKeyRe.IsMatch(text))
-                    return "settings.json 里没有 arkVisionRescue 这一行(多半是老模板)，面板改不动 —— 重跑 setup.ps1 或手动补一行再试。";
+                string bakNote = "";
+                string next;
+                Match m = BoolKeyRe(key).Match(text);
+                if (m.Success)
+                {
+                    next = BoolKeyRe(key).Replace(text, "$1" + (on ? "true" : "false"));
+                }
+                else
+                {
+                    // 这一行还不存在(老配置里常见：setup.ps1 不带 -Force 时只往现有 settings.json 里补路径，
+                    // 新键不会自己冒出来)。这里在 runtime 段的开头补**一行**，其余字节照原样搬过去。
+                    if (!TryInsertBoolLine(text, key, on, out next))
+                        return "settings.json 里没有 " + key + " 这一行，也补不进去(runtime 段没找到或形状不认识) —— 重跑 setup.ps1 或手动补一行再试。";
+                    // 插行改的是文件**形状**，"读回来是 true"看不出括号有没有被弄坏 —— 落盘前先自己配平核对一次。
+                    if (!JsonShapeOk(next))
+                        return "补出 " + key + " 这一行之后，settings.json 的形状就不配平了(引号/括号对不上) —— 面板不敢写这一笔，" +
+                               "这一项请手动加(改前的 config\\settings.example.json 里有现成的那一行可以抄)。";
+                    bakNote = "，并在 runtime 段补出了这一行";
+                }
                 string bak = BackupSettings(path);
-                File.WriteAllText(path, ExpKeyRe.Replace(text, "$1" + (on ? "true" : "false")), new UTF8Encoding(false));
-                return "AI 辅助(视觉兜底)已" + (on ? "打开" : "关掉") + "(写进 config\\settings.json" +
+                File.WriteAllText(path, next, new UTF8Encoding(false));
+                return subject + (on ? onWord : offWord) + "(写进 config\\settings.json" + bakNote +
                        (bak != null ? "，旧配置已备份到 backups\\" : "，注意：备份没成") + ")。";
             }
             catch (Exception ex) { return "写配置失败：" + ex.Message; }
+        }
+
+        // 够用的 JSON 形状检查：引号配对、大括号/方括号配平、不出现 ", }" 或 ", ]" 这种收尾逗号。
+        // 为什么自己写而不用 JavaScriptSerializer：build.ps1 只引用 WinForms/Drawing，为一处自检给编译链加引用不值当；
+        // 而"补一行"真正会弄坏的就是这三样形状(多余逗号 / 引号没配平)，不是语义。
+        static bool JsonShapeOk(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return false;
+            int depth = 0;
+            bool inStr = false, esc = false;
+            for (int i = 0; i < text.Length; i++)
+            {
+                char ch = text[i];
+                if (inStr)
+                {
+                    if (esc) { esc = false; continue; }
+                    if (ch == '\\') { esc = true; continue; }
+                    if (ch == '"') inStr = false;
+                    continue;
+                }
+                if (ch == '"') { inStr = true; continue; }
+                if (ch == '{' || ch == '[') depth++;
+                else if (ch == '}' || ch == ']') { depth--; if (depth < 0) return false; }
+                else if (ch == ',')
+                {
+                    for (int j = i + 1; j < text.Length; j++)
+                    {
+                        char n = text[j];
+                        if (n == ' ' || n == '\t' || n == '\r' || n == '\n') continue;
+                        if (n == '}' || n == ']') return false;     // 收尾逗号：JSON 不认
+                        break;
+                    }
+                }
+            }
+            return depth == 0 && !inStr;
+        }
+
+        // 在 `"runtime": {` 那一行后面插一行 `"key": true|false,`，缩进抄下一行键的缩进、换行抄这一行原本的换行。
+        // 两处认不出来就回 false 让调用方说人话：① runtime 那一行本身就带了收尾花括号(整段一行写完，插不进去)；
+        // ② 紧跟的第一行是 '}' (那是个空对象，插进去会多出一个逗号，JSON 直接坏)。
+        // 换行必须**连同 head 一起吃掉**：早先按"这一行末尾"切，切出来的是 { 后面那个 \r，
+        // 插完变成 `{` + 裸 \r + 新行 + 原本的 \n —— 文件里凭空多一个空行，而且下一档再想插就找不到 runtime 那行了
+        // (--exptest 的"只有这一行动过"就是这么抓出来的)。
+        static bool TryInsertBoolLine(string text, string key, bool on, out string next)
+        {
+            next = null;
+            Match head = Regex.Match(text, @"(?m)^([ \t]*)(?:""[^""]+""\s*:\s*)?""runtime""\s*:\s*\{([ \t]*\r?\n)");
+            if (!head.Success) return false;
+            int after = head.Index + head.Length;          // 指下一行行首
+            string nl = head.Groups[2].Value;              // 这一行原本怎么换行，新行就怎么换
+            string rest = text.Substring(after);
+            Match nxt = Regex.Match(rest, @"(?m)^([ \t]*)(\S.*)$");
+            if (!nxt.Success) return false;
+            // 紧跟的第一个非空白字符必须是一个键名的引号：'}' 是空对象(插进去多一个逗号)，
+            // 别的形状(整段一行写完、被注释性写法弄脏)一律认不出来 —— 认不出来就不动，比"试试看"好。
+            if (!nxt.Groups[2].Value.TrimStart().StartsWith("\"")) return false;
+            string line = nxt.Groups[1].Value + "\"" + key + "\": " + (on ? "true" : "false") + ",";
+            next = text.Substring(0, after) + line + nl + rest;
+            return true;
         }
 
         string BackupSettings(string path)
@@ -135,11 +259,11 @@ namespace GdPanel
                 f.Add(new CfgField { Key = "mumuDir", Title = "MuMu 管理器目录", Dir = true, SetupArg = "-MuMuDir", Game = "r1999", Help = "下面要有 nx_main\\MuMuManager.exe" });
                 f.Add(new CfgField { Key = "vmIndex", Title = "MuMu 虚拟机序号", Dir = false, NoPick = true, SetupArg = "-VmIndex", Game = "r1999", Help = "只有一台时 setup.ps1 会自动填；多台必须指对" });
             }
-            // 视觉兜底是方舟那一路的东西(lib\vision-rescue.ps1 只被 ark 调)，1999 单仓里连键都没有，
-            // 摆两行填了也存不进 settings.json —— 按这一仓有没有 ark 决定要不要给这两行。
-            if (ark)
+            // 视觉兜底按"这棵树上有没有能拍画面的后端"给这两行，不按 ark 给：
+            // 1999 那一路(adb 拍模拟器屏)用的是同一个模型/同一把 key，只看 HasGame("ark") 会让 1999 单仓没地方填 key。
+            if (HasVisionBackend())
             {
-                f.Add(new CfgField { Key = "visionModel", Title = "视觉模型", Dir = false, Game = "", Help = "只在 MAA 判到卡住时用来认弹窗，正常一轮一个请求都不发" });
+                f.Add(new CfgField { Key = "visionModel", Title = "视觉模型", Dir = false, Game = "", Help = "只在助手判到卡住时用来认弹窗，正常一轮一个请求都不发" });
                 f.Add(new CfgField { Key = "visionApiKey", Title = "视觉 Key", Dir = false, Secret = true, Game = "", Help = "留空 = 这一项不改；面板不把它带上命令行" });
             }
             f.Add(new CfgField { Key = "webhook", Title = "通知 Webhook", Dir = false, Game = "", Help = "留空 = 不发通知" });

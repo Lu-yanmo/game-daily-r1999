@@ -237,7 +237,12 @@ foreach ($f in $files) {
         }
     }
     $raw = [string]([System.IO.File]::ReadAllText($f.FullName))
-    if ($raw -match 'Invoke-RestMethod|Invoke-WebRequest' -and $raw -notmatch 'SecurityProtocol|Enable-GdTls12') {
+    # 只看代码，不看文档：2026-09-26 起"走 HTTP"这件事整个交给 tools\vision\ask.py 了，
+    # PowerShell 侧的注释里点名 Invoke-RestMethod 是在解释"为什么换掉它"，那不会在运行时发一个请求。
+    # 判据要是连注释都算，结果就是逼人在注释里绕着写词 —— 那条规则protect的是运行期行为，别管反。
+    $code = [regex]::Replace($raw, '<\#[\s\S]*?\#>', ' ')
+    $code = ((@($code -split "`n") | ForEach-Object { $_ -replace '#.*$', '' }) -join "`n")
+    if ($code -match 'Invoke-RestMethod|Invoke-WebRequest' -and $raw -notmatch 'SecurityProtocol|Enable-GdTls12') {
         $needsTls += $f.Name
         Write-Host ("SUS  {0,-24} 走 HTTP 但没显式开 TLS 1.2 → 5.1 默认只发 TLS 1.0，握手会失败" -f $f.Name) -ForegroundColor Magenta
     }

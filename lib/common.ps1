@@ -31,6 +31,10 @@ function Get-GdDir  { param([string]$Name) $global:GD.$Name }
 
 # 进程内缓存(StrictMode 下必须先声明再读)
 $global:GdStageTable = $null
+# Python 定位结果：GdPythonExe 存找到的路径(空串=确实没有)，GdPythonProbed 区分"还没查过"和"查过没有"
+# —— 少了后者的话，没装 Python 的机器上每问一次模型就要重跑一遍 `python -c`(还会撞上商店占位程序)
+$global:GdPythonExe = ''
+$global:GdPythonProbed = $false
 
 function Write-GdLog {
     param(
@@ -171,7 +175,7 @@ function Join-GdPath {
 
 # --- 防止系统在跑日常时睡眠/被屏保盖屏 ---
 $global:GdSleepHandle = $false
-$global:GdSaverRestore = $null    # $null=本轮没动屏保；$true/$false=收尾时要复原成的值
+$global:GdDeskTypeDef = $false    # Get-GdInputDesktopName 的 Add-Type 只做一次
 function Add-GdSleepTypeDef {
     if ($global:GdSleepHandle) { return }
     Add-Type -TypeDefinition @'
@@ -198,6 +202,42 @@ public static class GdPower {
     $global:GdSleepHandle = $true
 }
 function Get-GdScreensaverStateFile { Join-Path $global:GD.State 'screensaver.restore' }
+function Get-GdInputDesktopName {
+    <# 输入事件当前落到哪个桌面：正常='Default'；Lock Screen/Screen-saver/Winlogon 时鼠标键盘到不了普通窗口。
+       返回 ''=读不到(按"不知道"处理，不得据此判锁屏)。2026-09-26 加：06:00 两轮方舟全是死在
+       会话被屏保桌面接管上，起跑前一行就能判掉，不该再烧 12 分钟等端游。 #>
+    if (-not $global:GdDeskTypeDef) {
+        # 注意：这里绝不能给 Add-Type 加 -ErrorAction SilentlyContinue —— 实测那样类型会"编译成功但不落地"，
+        # 之后每次 [GdDesk]:: 都静默走 catch 返回 ''(2026-09-26 排查)。用 try/catch，失败就本轮按"读不到"处理。
+        # 形态也必须像 GdPower/GdWin 一样用完整 -TypeDefinition+显式 class：-Name+-MemberDefinition 在函数体内
+        # 同样会"成功但不落地"(实测 2026-09-26)。
+        try {
+            Add-Type -TypeDefinition @'
+using System;
+using System.Text;
+using System.Runtime.InteropServices;
+public static class GdDesk {
+    [DllImport("user32.dll")] public static extern IntPtr OpenInputDesktop(uint flags, bool inherit, uint access);
+    [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern bool GetUserObjectInformationW(IntPtr hObj, int nIndex, StringBuilder pvInfo, uint nLength, out uint lpnLengthNeeded);
+    [DllImport("user32.dll")] public static extern bool CloseDesktop(IntPtr hDesktop);
+}
+'@
+            $global:GdDeskTypeDef = $true
+        } catch { return '' }
+    }
+    try {
+        # 参数照抄 vision-ark 里实测可用的 [GdWin]::InputDesktopName：flags=OPEN_EXISTING(2)，
+        # access=DESKTOP_READOBJECTS(0x0002)，UOI_NAME=2。上一版抄成 GetUserObjectName/0x100 是错的，恒返回空。
+        $h = [GdDesk]::OpenInputDesktop(0x0002, $false, 0x0002)
+        if ($h -eq [IntPtr]::Zero) { return '' }
+        try {
+            $sb = New-Object System.Text.StringBuilder 256
+            $need = [uint32]0
+            if ([GdDesk]::GetUserObjectInformationW($h, 2, $sb, 512, [ref]$need)) { return $sb.ToString() }
+            return ''
+        } finally { [void][GdDesk]::CloseDesktop($h) }
+    } catch { return '' }
+}
 function Get-GdScreensaverActive {
     Add-GdSleepTypeDef
     $v = $false
@@ -220,43 +260,30 @@ function Enter-GdNoSleep {
         [void][GdPower]::SetThreadExecutionState($flags)
         Write-GdLog "已临时禁止系统睡眠(跑完自动恢复)"
         if ($KeepScreenOn) {
+            # 策略(2026-09-26 改)：屏保拉闸后不再合闸。旧行为"起跑关、收尾恢复"有两个实证死穴：
+            # 恢复等于每天给明早 06:00 重新武装一次屏保；而起跑时若已被屏保桌面接管，
+            # SPI 关闭必失败(06:00 日志「关闭屏保失败」)，12 分钟白烧。屏保关闭自此是稳态。
             $sf = Get-GdScreensaverStateFile
-            # 上一轮被硬杀(任务超时/断电)不会走 finally → 先照落盘值复原，
-            # 否则这里会把"已被上轮关掉"误读成本来就关，屏保从此永久停用。
-            if (Test-Path -LiteralPath $sf) {
-                if ((Get-Content -LiteralPath $sf -First 1 -ErrorAction SilentlyContinue) -eq '1') {
-                    [void](Set-GdScreensaverActive -Active $true)
-                    Write-GdLog '上一轮遗留的屏保关闭已复原' -Level WARN
-                }
-                Remove-Item -LiteralPath $sf -Force -ErrorAction SilentlyContinue
-            }
+            if (Test-Path -LiteralPath $sf) { Remove-Item -LiteralPath $sf -Force -ErrorAction SilentlyContinue }   # 旧机制遗留文件，直接清，不再照它合闸
             $cur = Get-GdScreensaverActive
             if ($null -eq $cur) {
                 Write-GdLog '读屏保状态失败，本轮不动屏保' -Level WARN
             } elseif ($cur) {
-                $global:GdSaverRestore = $true
                 if (Set-GdScreensaverActive -Active $false) {
-                    Set-Content -LiteralPath $sf -Value '1' -Encoding ascii -NoNewline -ErrorAction SilentlyContinue
-                    Write-GdLog "跑动期间已关闭屏保(跑完恢复)"
+                    Write-GdLog '屏保已关闭(策略：只关不复，收尾不再恢复)'
                 } else {
-                    $global:GdSaverRestore = $null
-                    Write-GdLog '关闭屏保失败：屏保可能中途盖住游戏窗口' -Level WARN
+                    Write-GdLog '关闭屏保失败：会话可能已被屏保桌面接管(方舟会因此早退)；建议长期解法=在 Wallpaper Engine 里取消「用作 Windows 屏保」' -Level WARN
                 }
             } else {
-                Write-GdLog '屏保本来就是关闭状态，无需改动'
+                Write-GdLog '屏保本来就是关闭状态(稳态)'
             }
         }
     } catch { Write-GdLog "禁止睡眠失败：$($_.Exception.Message)" -Level WARN }
 }
 function Exit-GdNoSleep {
+    # 只撤睡眠屏蔽(线程句柄语义)；屏保按"只关不复"策略不再恢复(见 Enter-GdNoSleep)
     try {
         if ($global:GdSleepHandle) { [void][GdPower]::SetThreadExecutionState([GdPower]::ES_CONTINUOUS) }
-        if ($null -ne $global:GdSaverRestore) {
-            [void](Set-GdScreensaverActive -Active $global:GdSaverRestore)
-            Remove-Item -LiteralPath (Get-GdScreensaverStateFile) -Force -ErrorAction SilentlyContinue
-            Write-GdLog '屏保已恢复'
-            $global:GdSaverRestore = $null
-        }
     } catch { }
 }
 
@@ -304,6 +331,149 @@ function Invoke-GdNative {
         return @{ Code = -1; Out = ''; Err = "timeout after ${TimeoutSeconds}s" }
     }
     return @{ Code = $p.ExitCode; Out = $outTask.Result; Err = $errTask.Result }
+}
+
+function Invoke-GdChild {
+    <# 和 Invoke-GdNative 同一件事，多两点：**能给子进程单独设环境变量** + 带空格的参数自己加引号。
+        为什么不能直接用上面那个：① 它没有环境变量的口子，而视觉兜底的 API key 只允许走环境变量 ——
+        写进命令行等于挂在进程列表和每一行日志上(Invoke-GdNative 的 -join ' ' 还会被工具页原样印出来)；
+        ② 它是 `$Arguments -join ' '`，路径里有空格(用户名带空格太常见了)就会散成两个参数。
+        返回值同 Invoke-GdNative：@{Code;Out;Err}，超时 Code=-1 并把进程杀掉。 #>
+    param(
+        [Parameter(Mandatory)][string]$File,
+        [string[]]$Arguments = @(),
+        [hashtable]$Env = @{},
+        [int]$TimeoutSeconds = 60
+    )
+    if (-not (Test-Path -LiteralPath $File)) { throw "命令不存在：$File" }
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $File
+    $psi.Arguments = (@($Arguments | ForEach-Object {
+        $a = "$_"
+        if ($a -match '[\s"]') { '"' + ($a -replace '"', '\"') + '"' } else { $a }
+    }) -join ' ')
+    $psi.UseShellExecute = $false
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.CreateNoWindow = $true
+    $psi.WorkingDirectory = $global:GD.Root
+    foreach ($k in @($Env.Keys)) { $psi.EnvironmentVariables[[string]$k] = [string]$Env[[string]$k] }
+    $p = [System.Diagnostics.Process]::Start($psi)
+    $outTask = $p.StandardOutput.ReadToEndAsync()
+    $errTask = $p.StandardError.ReadToEndAsync()
+    if (-not $p.WaitForExit($TimeoutSeconds * 1000)) {
+        try { $p.Kill() } catch { }
+        return @{ Code = -1; Out = ''; Err = "timeout after ${TimeoutSeconds}s" }
+    }
+    return @{ Code = $p.ExitCode; Out = $outTask.Result; Err = $errTask.Result }
+}
+
+# --- Python：视觉兜底的模型调用层(tools\vision\ask.py)用它跑，见那个文件的头注 ---
+function Get-GdPythonBundledDir { Join-Path $global:GD.State 'python' }
+function Get-GdPythonBundledExe { Join-Path (Get-GdPythonBundledDir) 'python.exe' }
+
+function Test-GdPythonUsable {
+    <# 光"文件在"不够：Windows 在没装 Python 的机器上会放一个 `python.exe` 商店占位程序，
+        跑起来只会打印一句 "Python was not found" 并回一个非 0，第一次接上时就骗过了路径检查
+        (报错还报在 ask.py 那一层，人看到的是"模型调用失败"，根本不是真因)。
+        所以这里真的起一次进程，并要求它把 ask.py 要用的那几个标准库都 import 成功、且是 Python 3：
+        embeddable 包是精简版，万一哪天缺 ssl 就得在兜底闸门这里说清楚，而不是半夜的日志里。
+        只起一次(调用方缓存)，不联网、不动任何窗口。 #>
+    param([Parameter(Mandatory)][string]$Exe, [int]$TimeoutSeconds = 20)
+    if (-not (Test-Path -LiteralPath $Exe)) { return $false }
+    try {
+        $r = Invoke-GdChild -File $Exe -TimeoutSeconds $TimeoutSeconds -Arguments @('-c', 'import sys,json,base64,ssl,urllib.request;print(sys.version_info[0])')
+    } catch { return $false }
+    return ($r.Code -eq 0 -and ("$($r.Out)").Trim() -eq '3')
+}
+
+function Get-GdPythonExe {
+    <# 找一个能跑 tools\vision\ask.py 的 python.exe，找不到返回空串(调用方负责说人话)。
+        顺序和理由：
+          1) settings.runtime.pythonExe —— 人手工指定的最大，只认"绝对路径 + 文件真在 + 用得住"
+          2) 环境变量 GD_PYTHON —— 不落盘的临时指定，换机器/试另一份解释器时用，也不用改配置
+          3) 本仓库自己下的 embeddable 包(state\python\python.exe) —— setup.ps1 -WithPython 放进去的。
+             排在 PATH 前面：我们自己下的那份行为可预期(版本、stdlib 都定死)，而 PATH 上那份可能是
+             别人装的旧版、或上面说的那个商店占位程序
+          4) PATH 上的 python.exe / py.exe —— 最后兜底；WindowsApps 那个占位程序直接跳过，
+             连试都不试(它一定会失败，试一次白等一次进程)
+        结果缓存到 $global:GdPythonExe + $global:GdPythonProbed：一轮里状态页/兜底/诊断入口会问好几次，
+        而"没找到"也要缓存 —— 不然每次问都白起一遍探测进程。-Refresh 强制重查(刚装完 python 时用)。 #>
+    param($S = $null, [switch]$Refresh)
+    if ($Refresh) { $global:GdPythonProbed = $false }
+    elseif ($global:GdPythonProbed) { return [string]$global:GdPythonExe }
+    $found = ''
+    $candidates = @()
+    $manual = ''
+    if ($S -and $S.runtime -and $S.runtime.pythonExe) { $manual = [string]$S.runtime.pythonExe }
+    if (-not $manual -and $env:GD_PYTHON) { $manual = [string]$env:GD_PYTHON }
+    if ($manual) { $candidates += $manual }
+    $candidates += (Get-GdPythonBundledExe)
+    foreach ($n in @('python', 'py')) {
+        foreach ($c in @(Get-Command $n -ErrorAction SilentlyContinue)) {
+            $src = [string]$c.Source
+            if (-not $src) { continue }
+            if ($src -like '*\WindowsApps\*') { continue }   # 商店占位程序：见 Test-GdPythonUsable
+            $candidates += $src
+        }
+    }
+    $seen = @{}
+    foreach ($c in $candidates) {
+        $key = $c.Trim().Trim('"').ToLowerInvariant()
+        if (-not $key -or $seen.ContainsKey($key)) { continue }
+        $seen[$key] = $true
+        if (Test-GdPythonUsable -Exe $key) { $found = $key; break }
+    }
+    $global:GdPythonExe = $found
+    $global:GdPythonProbed = $true
+    return $found
+}
+
+# embeddable 包：官方"绿色版"解释器，解压即用、不写注册表、不动 PATH，正适合塞在 state\ 下面。
+# 版本必须钉死：换版本要换 URL，别让它悄悄跟着 python.org 的最新走(装完才发现 stdlib 行为不同)。
+$global:GdPythonEmbedVersion = '3.12.10'
+$global:GdPythonEmbedUrlFormat = 'https://www.python.org/ftp/python/{0}/python-{0}-embed-{1}.zip'
+
+function Install-GdPythonEmbeddable {
+    <# setup.ps1 -WithPython 的实现：下一个 embeddable 包到 state\python\，装完立刻用同一把尺子验
+        (Test-GdPythonUsable)，验不过就保留旧的那份 —— 半下载的包比没有包更坏，会把兜底变成"每次都白等"。
+        先解到临时目录再整目录换名，就是为了"要么换成好的，要么什么都不动"。
+        URL 可以用环境变量 GD_PYTHON_EMBED_URL 整体覆盖(公司网络/镜像)，或 GD_PYTHON_EMBED_VERSION 换版本；
+        它不是 settings 键：这纯粹是装东西的事，日常跑起来一个字段都不读。 #>
+    param([switch]$Force)
+    $dir = Get-GdPythonBundledDir
+    if ((Test-Path -LiteralPath $dir) -and (Get-GdPythonExe) -and -not $Force) {
+        return [pscustomobject]@{ Ok = $true; Exe = (Get-GdPythonExe); Detail = '已经有可用的 Python，不重下(-Force 才重装)' }
+    }
+    $ver = if ($env:GD_PYTHON_EMBED_VERSION) { [string]$env:GD_PYTHON_EMBED_VERSION } else { [string]$global:GdPythonEmbedVersion }
+    $arch = if ("$env:PROCESSOR_ARCHITECTURE".ToLowerInvariant() -eq 'arm64') { 'arm64' } else { 'amd64' }
+    $url = if ($env:GD_PYTHON_EMBED_URL) { [string]$env:GD_PYTHON_EMBED_URL } else { ($global:GdPythonEmbedUrlFormat -f $ver, $arch) }
+    Enable-GdTls12
+    $prevProgress = $ProgressPreference
+    $zip = Join-Path ([System.IO.Path]::GetTempPath()) "gd-python-$ver-$arch-embed.zip"
+    $tmp = "$dir.tmp"
+    try {
+        $ProgressPreference = 'SilentlyContinue'      # 5.1 的进度条能把下载拖慢一个数量级
+        Write-GdLog "下载 Python $ver ($arch) embeddable 包 → $dir(约 10MB，只放进 state\，不进仓库)" -Level STEP
+        Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing -TimeoutSec 300
+        if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Recurse -Force }
+        [void](New-Item -ItemType Directory -Path $tmp -Force)
+        Expand-Archive -LiteralPath $zip -DestinationPath $tmp -Force
+        if (-not (Test-GdPythonUsable -Exe (Join-Path $tmp 'python.exe') -TimeoutSeconds 30)) {
+            return [pscustomobject]@{ Ok = $false; Exe = ''; Detail = "包解压了但里面的 python 用不了：$url(换 GD_PYTHON_EMBED_VERSION 或 GD_PYTHON_EMBED_URL 再试)" }
+        }
+        if (Test-Path -LiteralPath $dir) { Remove-Item -LiteralPath $dir -Recurse -Force }
+        Move-Item -LiteralPath $tmp -Destination $dir -Force
+        $exe = Get-GdPythonExe -Refresh
+        if (-not $exe) { return [pscustomobject]@{ Ok = $false; Exe = ''; Detail = '装完了但当场没找到 state\python\python.exe(被杀软删了？)' } }
+        return [pscustomobject]@{ Ok = $true; Exe = $exe; Detail = "已装到 $dir" }
+    } catch {
+        return [pscustomobject]@{ Ok = $false; Exe = ''; Detail = "下载/解压失败：$($_.Exception.Message)(地址 $url；也可自己装一份 Python 3 再填 runtime.pythonExe)" }
+    } finally {
+        $ProgressPreference = $prevProgress
+        if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force -ErrorAction SilentlyContinue }
+        if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue }
+    }
 }
 
 # --- 日常编排通用两件：接管关闭 / 单步包异常(2026-09-23 从 daily-clear.ps1 搬来，两边行为一致) ---
@@ -631,9 +801,12 @@ function Get-GdFileTail {
 }
 
 function Get-GdWindowByTitle {
-    <# 按主窗口标题找进程(MAA 就是靠窗口标题认端游的) #>
-    param([Parameter(Mandatory)][string]$Pattern)
+    <# 按主窗口标题找进程(MAA 就是靠窗口标题认端游的)。
+       -ProcessName 给定时只认该进程名：端游窗口在进程(Arknights)上，浏览器标签页标题
+       带"明日方舟"字样也会撞上标题正则(2026-09-26 msedge 误报，真端游没起却被判"已存在")。 #>
+    param([Parameter(Mandatory)][string]$Pattern, [string]$ProcessName)
     foreach ($p in @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 })) {
+        if ($ProcessName -and $p.ProcessName -ne $ProcessName) { continue }
         try { if ($p.MainWindowTitle -match $Pattern) {
             return [pscustomobject]@{ Name = $p.ProcessName; Id = $p.Id; Title = [string]$p.MainWindowTitle }
         } } catch { }

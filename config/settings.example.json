@@ -14,6 +14,9 @@
     "notify.webhook: 填了就把每轮结果 POST 到这个地址(自己承担密钥泄露风险，仓库不会收录 settings.json)。",
     "schedule.times: install-task.ps1 用它注册计划任务，两个时间点分别对应早/晚一轮清体力；机器常开、只需登录态在即可。",
     "schedule.taskPrefix 与方舟那份仓库默认值不同(GameDailyArk / GameDaily1999)，两个仓库装在同一台机器上也不会互相盖掉计划任务。",
+    "视觉兜底(runtime.mumuVisionRescue / visionModel / visionBaseUrl / visionApiKey / visionMaxRescue / visionTimeoutSeconds)：M9A 判到卡在弹窗或更新界面时，把 MuMu 画面(adb screencap)交给视觉模型，让它指出该点哪里才能关掉挡路的东西，再由 adb input tap 点这一下、并确认画面真的变了。只在异常路径触发，正常一轮一个请求都不发；没配 key / 拿不到 adb 端点 / 截图几乎全黑，一律说明原因后放弃，绝不硬点。key 也可放环境变量 DASHSCOPE_API_KEY(优先)，settings.json 不会被仓库收录。",
+    "问模型这一步由 tools\\vision\\ask.py 跑(Python 3，只用标准库，不需要 pip)：runtime.pythonExe 留空则按「本仓库自己下的那份(state\\python\\)→ PATH 上的 python/py」找，填了优先用填的那份。没有可用的 Python 时兜底会直接说明原因后放弃，日常一轮不受影响(正常路径一个请求都不发)。装法：pwsh -File setup.ps1 -WithPython。截图和点击仍然在 PowerShell 里，Python 只管发请求。",
+    "runtime.visionAllowReward: 默认 false = 提示词里硬禁「领取」这类会推进游戏状态的按钮，兜底只准关弹窗。改成 true 才允许模型给「领取日常奖励/一键领取/邮箱领奖」那类点位(仍然禁「前往参与/开始行动/确定/充值」)。判错一次就是拿账号换一次不确定，所以只建议在面板「实验功能」里勾，别直接改这个文件。",
     "这一路不需要管理员权限：MuMu 和 M9A 都在普通权限下跑，所以没有 UAC，计划任务也只是「登录后运行」。"
   ],
   "paths": {
@@ -57,7 +60,15 @@
     "m9aInstanceArg": "id",
     "m9aForceStart": true,
     "idleConfirmSeconds": 75,
-    "taskWaitMinutes": 200
+    "taskWaitMinutes": 200,
+    "mumuVisionRescue": true,
+    "visionModel": "qwen3.8-flash",
+    "visionBaseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+    "visionApiKey": "",
+    "visionMaxRescue": 2,
+    "visionTimeoutSeconds": 45,
+    "pythonExe": "",
+    "visionAllowReward": false
   },
   "notify": {
     "toast": true,

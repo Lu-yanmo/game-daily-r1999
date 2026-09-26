@@ -338,6 +338,105 @@ Check '状态包缺 failedTasks 键时不会把 $null 数成一个失败' (@($s1
 $r17d = Resolve-M9AStatus -State $s17d -Elapsed 60 -S $S -Instance $instS12 -ProcessGone $true
 Check '零任务+只有失败行 → 不报"开始过的 0 个任务全部失败"这种话' (-not ($r17d.Detail -match '0 个任务全部')) "$($r17d.Status)｜$($r17d.Detail)"
 
+Write-Host "`n[t18] 1999 这一路也接上视觉兜底(2026-09-26 加强 AI 干预；全程不联网、不起 adb、不点任何东西)"
+# 为什么 1999 也要接：M9A 和 MAA 得的是同一种病 —— 模板集里没有的界面它看不见。
+# 2026-09-25 19:24 那一轮，1999 客户端在模拟器里下 1.91G 更新包，10 个任务里 8 个「任务失败」，
+# 我们的日志只会说"进程提前退出"，而画面上一眼就能看出是"停在更新界面"。
+$mumuLib = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\lib\vision-mumu.ps1') -Raw -Encoding utf8
+$m9aLib = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\lib\m9a.ps1') -Raw -Encoding utf8
+$dailyLib = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\lib\r1999-daily.ps1') -Raw -Encoding utf8
+if (Get-Command New-GdVisionTarget-mumu -ErrorAction SilentlyContinue) {
+    # 契约：内核(lib\vision-rescue.ps1)只按字段名调它，少一个字段就是"兜底静默不生效"，所以逐字段点名
+    $tm = New-GdVisionTarget-mumu -S $S
+    $need = @('Kind', 'Name', 'Enabled', 'Why', 'NeedsAdmin', 'AdminWhy', 'Scene', 'UserText', 'Shot', 'Click', 'Alive', 'Grab')
+    $missing = @($need | Where-Object { $tm.PSObject.Properties.Name -notcontains $_ })
+    Check '模拟器靶子把契约要求的 12 个字段都给齐(内核只按名字调它)' ($missing.Count -eq 0) $(
+        if ($missing.Count) { "缺：$($missing -join ',')" } else { '齐' })
+    Check '靶子自称 mumu(内核按 New-GdVisionTarget-<kind> 找它，名字错了就找不到)' ($tm.Kind -eq 'mumu') $tm.Kind
+    Check '模拟器这一路**不要**管理员(点的是虚拟机，宿主机提不提权与它无关)' (
+        -not $tm.NeedsAdmin -and -not $tm.AdminWhy) "NeedsAdmin=$($tm.NeedsAdmin)"
+    Check '没有"抢前台"这一步(点击进的是虚拟机，碰不到用户正在用的窗口，所以 Grab 给空)' ($null -eq $tm.Grab)
+    Check '提示词开头换成 1999/模拟器那套文案(不沿用端游那句，否则模型会去找端游的弹窗)' (
+        $tm.Scene -match '1999' -and $tm.Scene -match 'MuMu|模拟器' -and $tm.Scene -notmatch '端游')
+    Check '靶子自己带 Shot/Click/Alive 三个动作(内核不认识 adb)' (
+        $tm.Shot -is [scriptblock] -and $tm.Click -is [scriptblock] -and $tm.Alive -is [scriptblock])
+
+    # 开关关掉必须"一次都不试"，而且那句原因要带 settings 里的键名 —— 玩家对着日志才知道改哪儿
+    $rtOff = [pscustomobject](Convert-GdMapToHashtable $S.runtime)
+    Set-GdMapValue -Map $rtOff -Key 'mumuVisionRescue' -Value $false | Out-Null
+    $tmOff = New-GdVisionTarget-mumu -S ([pscustomobject]@{ runtime = $rtOff; paths = $S.paths })
+    Check 'mumuVisionRescue=false → 这一路关闭且原因里带键名' (-not $tmOff.Enabled -and $tmOff.Why -match 'mumuVisionRescue') $tmOff.Why
+    $rtArk = [pscustomobject](Convert-GdMapToHashtable $S.runtime)
+    Set-GdMapValue -Map $rtArk -Key 'arkVisionRescue' -Value $false | Out-Null
+    $tmOther = New-GdVisionTarget-mumu -S ([pscustomobject]@{ runtime = $rtArk; paths = $S.paths })
+    Check '端游那个开关管不着模拟器(arkVisionRescue=false 时模拟器靶子照常开着)' $tmOther.Enabled
+
+    # adb 端点三级来源：① 实例配置里的 AdbDevice ② MuMuManager adb -v ③ adb devices 里恰好一台
+    # 为什么不能写死端口：16384/7555 换个 MuMu 版本或实例编号就错，而且本机专属值不许进源码(test-modules 的 m8)。
+    # "注释里写着不该有的东西"和"代码里真的那么干了"是两回事：Get-Command 的 Definition 连着
+# 注释一起给，所以"不许写死端口/不许走 exec-out"这类**否定式**断言必须先把注释剥掉再判 ——
+# 否则文件里多写一句解释就把自检弄红(2026-09-26 第一次跑就是这两条假红)。
+function Get-GdTestCodeOnly {
+    param([string]$Text)
+    return (($Text -replace '(?s)<\#.*?\#>', ' ') -replace '(?m)^\s*#.*$', ' ')
+}
+$fnEp = Get-GdTestCodeOnly (Get-Command Get-GdMuMuAdbEndpoint).Definition
+    Check 'adb 端点第一选择是调用方给的 Conn(那一路真要用的设备)' ($fnEp -match '\$Conn\.Adb' -and $fnEp -match '\$Conn\.Serial')
+    Check '第二选择问 MuMuManager 的 adb -v，且只抠 ip:port 不认字段名(输出形态各家版本不一)' (
+        $fnEp -match "'adb', '-v'" -and $fnEp -match 'd\{1,3\}')
+    Check '第三选择 adb devices，但**恰好一台**才认(挑错设备等于往别人的模拟器里点)' ($fnEp -match '\$ons\.Count -eq 1')
+    Check '源码里不写死 adb 端口(换了 MuMu 版本/实例编号就错)' ($fnEp -notmatch '16384|7555|127\.0\.0\.1:\d')
+    Check '拿不到 adb 时先说"跑 setup.ps1"，不拿相对路径硬跑' ($fnEp -match 'setup\.ps1')
+    Check '问 MuMuManager 之前先探路 Get-Command(这份库单独被拿去用时没有 mumu.ps1 也能跑)' (
+        $fnEp -match 'Get-Command Get-GdMuMu')
+    $fnCap = (Get-Command Save-GdMuMuShot).Definition
+    Check '拍屏走"设备里落一张 + pull"，不走 exec-out 接 stdout(文本管道会把 PNG 编码弄废)' (
+        $fnCap -match 'screencap' -and $fnCap -match "'pull'" -and (Get-GdTestCodeOnly $mumuLib) -notmatch 'exec-out')
+    Check '模拟器后端里一个端游的字眼都没有(两路后端互不认识，导出才能各带一份)' (
+        (Get-GdTestCodeOnly $mumuLib) -notmatch 'arknightsExe|PrintWindow|Send-GdArkClick|Get-GdArkWindow')
+    # 反过来也判：内核既然两路共用，就不许认识任何一端的专有东西(否则 1999 仓库带上它就等于拖着端游的假设跑)
+    $rescueLib = Get-GdTestCodeOnly (Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\lib\vision-rescue.ps1') -Raw -Encoding utf8)
+    Check '兜底内核不认识 adb，也不认识端游窗口(截图/点击一律向靶子要)' (
+        $rescueLib -notmatch 'adb |input tap|screencap|PrintWindow|Send-GdArkClick|arknightsExe')
+    Check '内核按 New-GdVisionTarget-<kind> 的命名约定找后端，找不到就说"这棵树上没有这一路"' (
+        $rescueLib -match 'New-GdVisionTarget-' -and $rescueLib -match '这棵树上没有')
+    Check '模拟器截屏把客户区报成整块屏(通用的千分比换算因此直接给出设备像素)' (
+        $fnCap -match 'ClientLeft = 0' -and $fnCap -match 'ClientW = \$w')
+    $fnTap = (Get-Command Send-GdMuMuTap).Definition
+    Check '点击出口与端游那一路同形状(@{Mode;Sent})，判定层因此不需要认识 adb' (
+        $fnTap -match 'Mode = ' -and $fnTap -match 'Sent = ')
+
+    # 接线：这一路此前**压根没有**兜底调用点(后端是死代码)。现在按"进程还在不在"分两类接上。
+    Check 'm9a.ps1 挂了兜底调用点，且 -Target mumu、带上实例的 adb 通道' (
+        $m9aLib -match "Invoke-GdVisionRescue .*-Target 'mumu'" -and $m9aLib -match '-Conn \$conn')
+    Check '兜底用 Get-Command 探路(这份库单独被拿去用时没这函数也只是不兜)' (
+        $m9aLib -match 'Get-Command Invoke-GdVisionRescue')
+    Check '预算装在哈希表里、只用成员赋值扣(& 调用跑在子作用域，$x-- 扣不动)' (
+        $m9aLib -match '\$rescue\.Left = \[int\]\$rescue\.Left - 1' -and $m9aLib -notmatch '\$rescue\.Left--')
+    Check '次数上限沿用同一个键 runtime.visionMaxRescue(限的是"一轮里跟模型没完没了的次数")' (
+        $m9aLib -match '\[int\]\$S\.runtime\.visionMaxRescue')
+    # (这里用 -like 而不是 -match：双引号里的 `\$res` 会被 PowerShell 当成变量展开，正则反而什么都匹配不上 —— 假红过一次)
+    Check '停滞/超时(进程还在)兜成了就撤回调款、计时从头算继续等' (
+        ($m9aLib -like "*res.Status -in @('stalled', 'timeout')*") -and $m9aLib -match '\$state\.lastLog = Get-Date')
+    Check 'blocked/not-started/empty-queue 也问一次(把猜测换成"画面上确实是 XX")' (
+        $m9aLib -match "blocked', 'not-started', 'empty-queue" -and $m9aLib -match "'判因'")
+    Check '兜清楚的证据是唯一能翻掉"重试没意义"的东西 → 打 $res.Rescued 标记' (
+        $m9aLib -match '\$res\.Rescued = \$true')
+    Check '这一路的救火账由 m9a.ps1 记(-Game r1999 / -Target mumu)' (
+        $m9aLib -match "Add-GdRescueRecord .*-Game 'r1999'")
+    Check '兜底次数与最后一问拼进 Detail(判因链不许丢这条线)' (
+        $m9aLib -match '视觉兜底 \$\(@\(\$rescue\.Notes\)\.Count\) 次')
+    Check '状态名一律没改(收尾与通知按状态名分流，造新名字等于把判因链弄断)' (
+        $m9aLib -notmatch "Status = 'rescued'" -and $m9aLib -notmatch "Status = 'vision")
+    # 外层重试的分流：画面被兜清楚了，本来"重试也没用"的那几种才值得再跑一次
+    Check 'r1999-daily 里 $retryable 认这个标记(not-started/empty-queue/blocked 只有兜清楚才重试)' (
+        $dailyLib -match '\$retryable' -and $dailyLib -match '\$r\.Rescued -and \$r\.Status -in @\(''not-started''')
+    Check '带标记时日志说得清是"兜清楚了才重试"(不是原来那句"关闭游戏后重试一次")' (
+        $dailyLib -match '视觉兜底把挡路的界面点掉了')
+} else {
+    Check 'lib\vision-mumu.ps1 有 New-GdVisionTarget-mumu(1999 仓库少了它兜底就是死代码)' $false '没找到这个函数'
+}
+
 $res = Show-GdTestResult -Tag 'r1999'
 if ($NoExit) { return $res }
 exit $(if ($res.Fail) { 1 } else { 0 })

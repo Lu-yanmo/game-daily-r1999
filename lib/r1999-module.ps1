@@ -22,7 +22,12 @@ Register-GdModule ([pscustomobject]@{
         SettingsBlock    = 're1999'          # $S.re1999 —— 注意 settings 里的块名是 re1999，模块 id 是 r1999
         PathKeys         = @('m9aDir', 'mumuDir')
         # 同 ark-module.ps1：入口在顶层点的业务库，r1999-decisions.ps1 由 lib\decisions.ps1 门面负责点。
-        Libs             = @('m9a.ps1', 'mumu.ps1', 'r1999-daily.ps1')
+        # 兜底那两份：vision-rescue.ps1 是两路共用的内核(ark 清单里也有它，按文件名去重只点一次)，
+        # vision-mumu.ps1 是这一路自己的后端(adb 截屏 + adb input tap，即 New-GdVisionTarget-mumu 的出处)。
+        Libs             = @('m9a.ps1', 'mumu.ps1', 'vision-rescue.ps1', 'vision-mumu.ps1', 'r1999-daily.ps1')
+        # 这一路要管理员吗？清单这里答"No"，兜底那边也一样：NeedsAdmin=$false 写在 New-GdVisionTarget-mumu。
+        # 两处不冲突 —— 前者管"跑这一路要不要提权"，后者管"点这一路的画面要不要提权"，1999 两样都不要。
+        VisionKind       = 'mumu'             # 兜底对象是"模拟器屏幕"，不是"1999 这款游戏"，所以 kind 不叫 r1999
         EntryVerbs       = @{
             Merged = @{ Ack = '-Ack1999'; ShopDone = '-RShopDone'; ShopReset = '-RShopReset' }
         }

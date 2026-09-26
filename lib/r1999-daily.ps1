@@ -74,8 +74,17 @@ function Start-GdR1999Daily {
     $m9aCfg.Changes | ForEach-Object { Write-GdLog "  M9A：$_" }
     $run9 = { Invoke-M9ARun -S $S -Instance $inst }
     $r = Invoke-GdStep -Name '1999' -Body $run9
-    if ($r.Status -notin @('ok', 'not-started', 'empty-queue', 'unknown-format', 'blocked') -and $S.runtime.retryOnce) {
-        Write-GdLog '1999 本轮未成功 → 关闭游戏后重试一次' -Level WARN
+    <#
+      原来这批状态一律"不重试"，理由成立：--autostart 没生效 / 队列没提交 / 第一个任务就失败，
+      原样再跑一遍当然还是同一个结果。唯一能把这条规则翻过来的证据是**画面真的被兜清楚了**
+      ($r.Rescued = 视觉兜底点掉了一个挡路的弹窗/界面)，那时重跑一次才有意义。
+      unknown-format 永远不在其列：日志都读不懂，重试只是再看不懂一遍。
+    #>
+    $retryable = ($r.Status -notin @('ok', 'not-started', 'empty-queue', 'unknown-format', 'blocked')) -or
+                 ($r.Rescued -and $r.Status -in @('not-started', 'empty-queue', 'blocked'))
+    if ($retryable -and $S.runtime.retryOnce) {
+        Write-GdLog $(if ($r.Rescued) { '1999 本轮未成功，但视觉兜底把挡路的界面点掉了 → 关闭 M9A 后重试一次' }
+                      else { '1999 本轮未成功 → 关闭游戏后重试一次' }) -Level WARN
         Stop-M9A -S $S
         Start-Sleep -Seconds 20
         $r = Invoke-GdStep -Name '1999重试' -Body $run9

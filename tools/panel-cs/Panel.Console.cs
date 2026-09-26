@@ -97,7 +97,7 @@ namespace GdPanel
             Button bReload = MakeButton(consoleHost, "重读配置", 504, 344, 116, 30, "chip");
             bReload.Click += delegate { LoadCfgValues(); RefreshNow("重读配置"); RefreshProbeLines(); AppendLog("配置页已按磁盘上的 settings.json 重读。"); };
             Button bClear = MakeButton(consoleHost, "清空视觉 Key", 628, 344, 116, 30, "chip");
-            bClear.Visible = HasGame("ark");           // 这一仓没有 ark 那一路就没有视觉 Key 可清
+            bClear.Visible = HasVisionBackend();         // 这一路连拍画面的后端都没有，就没有"视觉 Key"可清
             bClear.Click += delegate
             {
                 string r = WriteSettingString("visionApiKey", "");
@@ -105,7 +105,7 @@ namespace GdPanel
                 AppendLog(r.Length == 0 ? "视觉 Key 已从 settings.json 清掉(旧配置备份在 backups\\)。" : "清不掉：" + r);
             };
             Label warn = MakeLabel(consoleHost, "Key 不进命令行、不入仓", 752, 348, 156, 26, null, SmallFont(), false);
-            warn.Visible = HasGame("ark");
+            warn.Visible = HasVisionBackend();
             themeTag(warn, "dim");
             LoadCfgValues();
         }

@@ -64,6 +64,24 @@ namespace GdPanel
 
         static void themeTag(Control c, string tag) { c.Tag = tag; }
 
+        // 勾选框：实验功能卡上那三个"各写一个布尔键"的开关用它。
+        // 只借主题里的两个字色(正文色 + 父容器底色)，方框本体交给系统按当前主题画 —— 黑白两档之外不加第三种颜色。
+        // Click 而不是 CheckedChanged：程序回填现状态(RefreshCards 每 45 秒一次)不该被当成"玩家改主意"写进配置。
+        CheckBox MakeCheck(Control parent, string text, int x, int y, int w)
+        {
+            CheckBox cb = new CheckBox();
+            cb.Text = text;
+            cb.Location = new Point(x, y);
+            cb.Size = new Size(w, 18);
+            cb.Font = SmallFont();
+            cb.ForeColor = th == null ? Color.FromKnownColor(KnownColor.ControlText) : th.Text;
+            cb.BackColor = parent.BackColor;
+            cb.TabStop = false;
+            cb.Tag = "expcheck";
+            parent.Controls.Add(cb);
+            return cb;
+        }
+
         void MakeCard(Panel card, int x, int y, int w, int h, string title, AnchorStyles anchor)
         {
             card.Location = new Point(x, y);

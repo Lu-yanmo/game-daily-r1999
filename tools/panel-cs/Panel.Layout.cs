@@ -101,15 +101,36 @@ namespace GdPanel
             // 第二行原来被"两道门"整行占满；让出右半边给「实验功能」(门最多 5 行、600px 宽装得下最长那条)
             MakeCard(cardGates, X0, 226, 600, 132, "两道确认门(新活动要先你手动打过 / 商店领空后不再刷活动)", AnchorStyles.Top | AnchorStyles.Left);
             MakeCard(cardExp, X0 + 612, 226, CW - 612, 132, "实验功能", AnchorStyles.Top | AnchorStyles.Right);
-            // 按钮放卡片右下角：行区到 y=70 为止(RenderRows 最多 2 行)，96 起 26 高，永远不会和行压住
-            expBtn = MakeButton(cardExp, "关掉它", 198, 96, 92, 26, "chip");
-            expBtn.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-            expBtn.Click += delegate
+            // 2026-09-26：这张卡从"一个按钮 + 两行字"变成"一行字 + 三个勾选 + 一个按钮"。
+            // 为什么用勾选而不是原来那个「关掉它/打开它」：现在卡上有两路兜底开关(端游 / 模拟器)
+            // 加一档领奖白名单，一个按钮说不清"它关的是哪一路"；勾选框每个只对应一个布尔键，一眼对得上。
+            // 位置是算死的(卡 304x132，行区 32..50)：勾选 54..92、按钮 96..122，
+            // 版式自检(--selftest)会逐对查叠压，挪一格就要红。
+            expHint = MakeLabel(cardExp, "", 14, 32, 276, 18, null, SmallFont(), false);
+            themeTag(expHint, "line:dim");
+            expArkChk = MakeCheck(cardExp, "端游兜底", 14, 54, 112);
+            expMumuChk = MakeCheck(cardExp, "模拟器兜底", 130, 54, 120);
+            expRewardChk = MakeCheck(cardExp, "允许领日常奖励", 14, 74, 220);
+            rowTip.SetToolTip(expArkChk, "写 runtime.arkVisionRescue。关了之后 MAA 判到卡住就只记账、不再看画面(默认开)");
+            rowTip.SetToolTip(expMumuChk, "写 runtime.mumuVisionRescue。这一路不要管理员：adb 点的是虚拟机里的画面(默认开)");
+            rowTip.SetToolTip(expRewardChk, "写 runtime.visionAllowReward。默认不勾=提示词里硬禁「领取」那类按钮；" +
+                                           "勾了才允许模型给出「领取日常奖励/一键领取/邮箱领奖」的点位(仍然禁充值、前往参与、开始行动、确定)。" +
+                                           "判错一次就是拿账号换一次不确定。");
+            expArkChk.Click += delegate { ToggleExpFlag(expArkChk, ExpKey, "端游那一路的视觉兜底", "已打开", "已关掉"); };
+            expMumuChk.Click += delegate { ToggleExpFlag(expMumuChk, MumuKey, "模拟器那一路的视觉兜底", "已打开", "已关掉"); };
+            expRewardChk.Click += delegate { ToggleExpFlag(expRewardChk, RewardKey, "领奖白名单", "已允许", "已收回"); };
+            // 只问不点(#19)：把当前画面交给模型看一眼，只打印它怎么说，绝不点任何东西。
+            // 参数只带 -Game <模块 id>，问哪一路的兜底对象(ark/mumu)由 tools\vision-ask.ps1 向清单的 VisionKind 要；
+            // 视觉 Key 也永远不进这里 —— 子进程自己读 settings.json。
+            expAskBtn = MakeButton(cardExp, "只问不点", 196, 96, 94, 26, "chip");
+            expAskBtn.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            rowTip.SetToolTip(expAskBtn, "起 tools\\vision-ask.ps1：截一张这一路的画面问视觉模型，把它的话原样打进下面的日志区。只问，不点。");
+            expAskBtn.Click += delegate
             {
-                string to = expBtn.AccessibleName == null ? "" : expBtn.AccessibleName;
-                if (to != "on" && to != "off") { AppendLog("实验状态没读到，这个按钮这次不做事。"); return; }
-                AppendLog("实验功能：" + WriteExpFlag(to == "on"));
-                RefreshCards();
+                List<string> a = VisionAskArgs(AskTargetId());
+                if (a.Count == 0) { AppendLog("这一仓的模块 id 不成一个词，不把它拼进命令行 —— vision-ask 这次不跑。"); return; }
+                StartTask(Path.Combine(root, @"tools\vision-ask.ps1"), a,
+                          "只问不点：把" + PageNameFor(a[1]) + "的现屏交给视觉模型(不会点任何东西)", false);
             };
 
             act.Location = new Point(X0, 366);
@@ -353,25 +374,42 @@ namespace GdPanel
             RenderRows(cardGates, gates, 5);
             RenderRows(cardEnv, env, 6);
 
-            // ---- 实验功能卡：唯一不经 -DumpSummary 的读数(只读那一个布尔键)，分页时不隐藏 ----
-            List<Row> exp = new List<Row>();
-            if (ExpImplemented())
+            // ---- 实验功能卡：唯一不经 -DumpSummary 的读数(只读 settings.json 里那几个布尔键)，分页时不隐藏 ----
+            // 三个勾选的默认态各跟判定层一句原话对齐：
+            //   两路兜底 = "没显式写 false 就是开"(lib\vision-rescue.ps1 / lib\vision-mumu.ps1 都这么判)；
+            //   领奖白名单 = "没显式写 true 就是关"(Get-GdVisionSystemPrompt 的 -AllowReward 默认 $false)。
+            // "要不要露出来"另记在 *Up 四个字段上：窗体没显示时控件的 Visible getter 是**有效可见性**、
+            // 恒为 false，--selftest/--consoletest 那种 Show→Hide 的跑法拿它当依据只会得到一片假红。
+            bool expReady = HasVisionBackend();
+            expArkUp = expReady && HasGame("ark");
+            expMumuUp = expReady && HasGame("r1999");
+            expRewardUp = expReady;
+            expAskUp = expReady && File.Exists(Path.Combine(root, @"tools\vision-ask.ps1"));
+            expArkChk.Visible = expArkUp;
+            expMumuChk.Visible = expMumuUp;
+            expRewardChk.Visible = expRewardUp;
+            expAskBtn.Visible = expAskUp;
+            string expText = "这一仓没有视觉兜底后端，这张卡没东西可拧";
+            string expKind = "dim";
+            if (expReady)
             {
-                bool? v = ReadExpFlag();
-                bool on = !v.HasValue || v.Value;      // 和 vision-rescue 同语义：没显式 false 就是开
-                exp.Add(new Row(on ? "ok" : "dim", "",
-                    "AI 辅助(视觉兜底)：" + (v.HasValue ? (on ? "开着" : "关了") : "开着(默认)")));
-                exp.Add(new Row("dim", "", "卡住时才用 · 正常一轮零请求"));
-                expBtn.Text = on ? "关掉它" : "打开它";
-                expBtn.AccessibleName = on ? "off" : "on";   // 点击要写去的目标值，这里一次算好
-                expBtn.Visible = true;
+                bool? v = ReadExpFlag(), mv = ReadBoolFlag(MumuKey), ar = ReadAllowReward();
+                bool arkOn = !v.HasValue || v.Value, mumuOn = !mv.HasValue || mv.Value;
+                bool rewardOn = ar.HasValue && ar.Value;
+                expArkChk.Checked = arkOn;
+                expMumuChk.Checked = mumuOn;
+                expRewardChk.Checked = rewardOn;
+                List<string> parts = new List<string>();
+                if (expArkUp) parts.Add("端游" + (arkOn ? "开着" : "关了"));
+                if (expMumuUp) parts.Add("模拟器" + (mumuOn ? "开着" : "关了"));
+                expText = "AI 兜底 " + string.Join(" · ", parts.ToArray()) + (rewardOn ? " · 已允许点领取" : " · 只准关弹窗");
+                expKind = rewardOn ? "warn" : "ok";
+                if (parts.Count == 0) { expText = "这一仓没有可拧的兜底开关(两路都没接后端)"; expKind = "dim"; }
             }
-            else
-            {
-                exp.Add(new Row("dim", "", "这一仓没有可配置的实验功能"));
-                expBtn.Visible = false;
-            }
-            RenderRows(cardExp, exp, 2);
+            expHint.Text = expText;
+            expHint.Tag = "line:" + expKind;
+            expHint.ForeColor = KindColor(expKind);
+            expHint.BackColor = th.Card;
             }
             else RefreshConsoleInPlace();   // 自动刷新那一拍到了主控台页：只把"转达"的那几行换新的
 
@@ -396,6 +434,34 @@ namespace GdPanel
         {
             foreach (string[] g in games) if (g[0] == page) return g[1];
             return "总览";
+        }
+
+        // ---------- 「只问不点」要问哪一路：只从协议行解析出来的模块 id 里挑，面板不记 kind 名单 ----------
+        // 当前页正好是某一路就问那一路；在总览/主控台页上就按这一仓解析出来的顺序问第一个。
+        // 真正"这一路对应哪个兜底后端"是 tools\vision-ask.ps1 向清单(VisionKind)要的，面板一个字都不猜。
+        string AskTargetId()
+        {
+            if (HasGame(page)) return page;
+            return games.Count > 0 ? games[0][0] : "";
+        }
+
+        string PageNameFor(string id)
+        {
+            foreach (string[] g in games) if (g[0] == id) return g[1];
+            return id;
+        }
+
+        // 单独拎出来是给 --consoletest 钉用的：这条命令行上除了模块 id 不许有别的东西，
+        // 尤其是那把视觉 Key —— 命令行在别的用户/工具面前是明文。
+        // 模块 id 是 -DumpSummary 的 GAME 行给的，会直接拼进 pwsh 的命令行，所以先按"一个词"验一遍：
+        // 对不上就回空列表，调用方据此不跑(别把来历不明的字符串当参数递出去)。
+        List<string> VisionAskArgs(string id)
+        {
+            List<string> a = new List<string>();
+            if (string.IsNullOrEmpty(id) || !Regex.IsMatch(id, "^[a-z][a-z0-9]*$")) return a;
+            a.Add("-Game");
+            a.Add(id);
+            return a;
         }
 
         string WorstKind(string forPage)

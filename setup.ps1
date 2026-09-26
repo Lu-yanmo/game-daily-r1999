@@ -5,6 +5,7 @@
 #   pwsh -File setup.ps1 -Force               # 完全按模板重建(会丢掉你手改过的其他字段，慎用)
 #   pwsh -File setup.ps1 -MaaDir "D:\Tools\MAA" -M9aDir "D:\M9A" -ArkExe "D:\Arknights\Arknights.exe" -VmIndex 5
 #                                             # 探测不到/探错了，手工指定(相对路径按当前目录解析)
+#   pwsh -File setup.ps1 -WithPython          # 顺手把"问模型"那层要的 Python 装上(下载 embeddable 包到 state\python\)
 #
 # 探测优先级：命令行指定 > 现有 settings.json 里已存在的路径 > 正在运行的进程 > 卸载表 > 各固定磁盘浅层扫描(深度≤3)。
 # 探测完一定要看输出：脚本只保证"路径存在"，不保证那是你想用的那份助手配置。
@@ -16,7 +17,8 @@ param(
     [string]$VmIndex,
     [switch]$Force,
     [switch]$DryRun,
-    [switch]$SkipScan
+    [switch]$SkipScan,
+    [switch]$WithPython
 )
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '.')).Path
@@ -125,6 +127,25 @@ foreach ($k in $results.Keys) {
     Write-Host ("  [{0}] {1,-20} = {2}   ← {3}" -f $mark, $k, $(if ($v.Value) { $v.Value } else { '(待填)' }), $v.Source) -ForegroundColor $color
 }
 if ($vmNote) { Write-Host "  提示：$vmNote" -ForegroundColor Yellow }
+
+# Python：只有带 tools\vision\ask.py 的仓库才需要它(视觉兜底"问模型"那一层，见那个文件的头注)。
+# 它**不进** $missing：兜底是可选能力，没装 Python 的日常照样跑(正常路径一个请求都不发)，
+# 所以这里只报告 + 给一句照抄能用的命令，绝不因为缺它就 exit 2 把首次配置挡在门外。
+$askPy = Join-Path $root 'tools\vision\ask.py'
+if (Test-Path -LiteralPath $askPy) {
+    if ($WithPython -and -not $DryRun) {
+        $inst = Install-GdPythonEmbeddable
+        Write-Host ("Python：{0}{1}" -f $inst.Detail, $(if ($inst.Exe) { " → $($inst.Exe)" } else { '' })) -ForegroundColor $(if ($inst.Ok) { 'Green' } else { 'Yellow' })
+    } elseif ($WithPython) {
+        Write-Host '-DryRun：不下载 Python(要装就别带 -DryRun)' -ForegroundColor Cyan
+    }
+    $pyExe = Get-GdPythonExe -S $(if ($existing) { $existing } else { $cfg })
+    if ($pyExe) {
+        Write-Host ("  [OK  ] {0,-20} = {1}   ← 视觉兜底用它跑 tools\vision\ask.py" -f 'runtime.pythonExe', $pyExe) -ForegroundColor Green
+    } else {
+        Write-Host '  [----] 没找到可用的 Python 3 → 视觉兜底会说明原因后放弃(日常不受影响)。要装：pwsh -File setup.ps1 -WithPython(下载 embeddable 包到 state\python\，不进仓库)；已自己装过的填 runtime.pythonExe' -ForegroundColor Yellow
+    }
+}
 
 $missing = @($results.Keys | Where-Object { -not $results[$_].Value })
 if ($DryRun) { Write-Host "`n-DryRun：没有写入任何文件" -ForegroundColor Cyan; exit $(if ($missing.Count) { 2 } else { 0 }) }

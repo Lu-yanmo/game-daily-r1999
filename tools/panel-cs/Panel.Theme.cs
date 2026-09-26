@@ -175,6 +175,13 @@ namespace GdPanel
                 else b.BackColor = tag == "chip" ? th.Card : th.Card;
                 return;
             }
+            // 勾选框(实验功能卡那三个)：只换字色和底色这两档，方框本体交给系统画 —— 不加第三种颜色
+            if (c is CheckBox)
+            {
+                c.ForeColor = th.Text;
+                c.BackColor = ParentBg(c);
+                return;
+            }
         }
 
         static Color ParentBg(Control c)

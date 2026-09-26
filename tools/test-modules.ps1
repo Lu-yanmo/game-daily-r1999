@@ -117,12 +117,67 @@ foreach ($pat in @('Resolve-GdArk', 'Start-GdArkDaily', 'Stop-MaaAndGame', 'MaaA
 }
 Check 'modules.ps1 不硬编码某一款的提权文案(全走 AdminWhy/AdminHint)' ($fwCode -notmatch '端游要管理员')
 Check 'modules.ps1 里没有出现 ark/r1999 的分支字面量(选路由 -Ids 传进来)' ($fwCode -notmatch "'ark'" -and $fwCode -notmatch "'r1999'")
-# 反过来：清单里也不该出现另一款游戏的库(导出时会把不存在的路径点进来)
+# 反过来：清单里也不该出现另一款游戏的库(导出时会把不存在的路径点进来)。
+# 但"两路都写了的那份"不算对方的业务库，那是**共用的基础设施**(lib\vision-rescue.ps1 就是这样：
+# 兜底的闸门/解析/点位换算两边一模一样，只有截图和点击各写一份后端)。判据用"至少两份清单都有它"，
+# 而不是列一张共享名单 —— 名单会漏更新，漏了就变成"要么放过一份没人点的库，要么把正常写法判成泄漏"。
+$sharedLibs = @{}
+foreach ($m in @(Get-GdModules)) {
+    foreach ($n in @($m.Libs | ForEach-Object { [string]$_ })) {
+        if (-not $sharedLibs.ContainsKey($n)) { $sharedLibs[$n] = @{} }
+        $sharedLibs[$n][[string]$m.Id] = $true
+    }
+}
+$shared = @($sharedLibs.Keys | Where-Object { @($sharedLibs[$_].Keys).Count -ge 2 })
 foreach ($m in @(Get-GdModules)) {
     $txt = [System.IO.File]::ReadAllText((Join-Path $root "lib\$([string]$m.Id)-module.ps1"))
-    $other = @(Get-GdModules | Where-Object { [string]$_.Id -ne [string]$m.Id } | ForEach-Object { @($_.Libs) })
+    $other = @(Get-GdModules | Where-Object { [string]$_.Id -ne [string]$m.Id } | ForEach-Object { @($_.Libs) } |
+        ForEach-Object { [string]$_ } | Where-Object { $_ -notin $shared })
     $leaked = @($other | Where-Object { $txt -match [regex]::Escape($_) })
     Check "[$([string]$m.Id)] 清单没引用别的模块的业务库" ($leaked.Count -eq 0) ($leaked -join ' / ')
+}
+# 这份自检查原样进两个导出仓库 → 涉及"两路共用"的断言按注册表里有几款判，绝不写死 ark / r1999
+if (@(Get-GdModules).Count -ge 2) {
+    Check '两路共用的内核确实出现在两份清单里(vision-rescue.ps1)' (@($shared) -contains 'vision-rescue.ps1') ($shared -join ' / ')
+}
+Check 'Get-GdModuleLibPaths 把共享库去重了(入口点两遍会重复定义一堆函数)' (
+    (@(Get-GdModuleLibPaths).Count -eq @(Get-GdModuleLibPaths | ForEach-Object { [System.IO.Path]::GetFileName($_) } | Sort-Object -Unique).Count)) `
+    ("$(@(Get-GdModuleLibPaths).Count) 个文件 / $(@($shared).Count) 个共享")
+# 后端按命名约定接：内核不许认识任何一路，各路的靶子函数得在自己那一份后端里
+$vrText = [System.IO.File]::ReadAllText((Join-Path $root 'lib\vision-rescue.ps1'))
+Check '兜底内核不认识端游也不认识模拟器(只按 New-GdVisionTarget-<kind> 找)' (
+    (Get-GdCodeOnlyText -Text $vrText) -notmatch 'New-GdVisionTarget-ark|New-GdVisionTarget-mumu' -and
+    $vrText -match 'New-GdVisionTarget-\$\(')
+# 自检脚手架点库的名单是另一份硬编码(tools\test-lib.ps1 第 10 行)：清单加了库而它没跟上，
+# test-ark / test-r1999 里那些 (Get-Command X).Definition 断言会整段跳过 —— 静默少一层保护，最难发现的那种。
+# 只管兜底这三份(test-lib 的名单本来就不含 ark-daily/r1999-daily 这类编排库，别把不该管的也钉上)。
+$tlText = [System.IO.File]::ReadAllText((Join-Path $root 'tools\test-lib.ps1'))
+foreach ($m in @(Get-GdModules)) {
+    $id = [string]$m.Id
+    $libs = @($m.Libs | ForEach-Object { [string]$_ })
+    if ($libs -notcontains 'vision-rescue.ps1') { continue }
+    $mine = @($libs | Where-Object { $_ -like 'vision-*.ps1' -and $_ -ne 'vision-rescue.ps1' })
+    Check "[$id] 用了兜底内核就得自带一份后端(否则 Get-GdVisionTarget 永远找不到靶子)" ($mine.Count -eq 1) ($libs -join ' / ')
+    foreach ($bf in $mine) {
+        $btPath = Join-Path $root "lib\$bf"
+        Check "[$id] 清单声明的后端 $bf 在这棵树上" (Test-Path -LiteralPath $btPath)
+        if (-not (Test-Path -LiteralPath $btPath)) { continue }
+        $bt = [System.IO.File]::ReadAllText($btPath)
+        $kind = [regex]::Match($bt, '(?m)^function New-GdVisionTarget-([a-z0-9]+)').Groups[1].Value
+        Check "[$id] 后端 $bf 交出一个 New-GdVisionTarget-<kind>" ($kind -ne '') "kind=[$kind]"
+        Check "[$id] 靶子带齐契约字段(内核只认这几个名字)" (
+            $bt -match 'Shot\s*=' -and $bt -match 'Click\s*=' -and $bt -match 'Alive\s*=' -and
+            $bt -match 'Enabled\s*=' -and $bt -match 'NeedsAdmin\s*=' -and $bt -match 'Scene\s*=')
+        # 命名约定真接得上：内核按同一个 kind 找得到靶子(建靶子只造闭包，不碰窗口、不碰 adb、不联网)
+        $t = $null
+        try { $t = Get-GdVisionTarget -S $S -Kind $kind } catch { $t = $null }
+        Check "[$id] Get-GdVisionTarget -Kind $kind 拿得到靶子" ($t -and [string]$t.Kind -eq $kind) $(
+            if ($t) { "开关 Enabled=$([bool]$t.Enabled) 要提权=$([bool]$t.NeedsAdmin)" } else { '没拿到' })
+        Check "[$id] 后端 $bf 只写在 $id 一路的清单里(另一路的仓库不会带上它)" (
+            @(Get-GdModules | Where-Object { [string]$_.Id -ne $id -and (@($_.Libs | ForEach-Object { [string]$_ }) -contains $bf) }).Count -eq 0)
+        Check "[$id] 自检脚手架也点了 $bf(那两路自检的结构断言才不会整段跳过)" (
+            $tlText -match ("'" + [regex]::Escape([System.IO.Path]::GetFileNameWithoutExtension($bf)) + "'"))
+    }
 }
 
 Write-Host "`n[m4] 只读钩子真调得动(EnvProbes / Resolve / Preview)"
@@ -218,6 +273,111 @@ $m8Vals = @(Get-GdLocalOnlyValues -LocalSettings (Join-Path $root 'config\settin
 Check "本机专属值取到 $($m8Vals.Count) 项(有的扫)" ($m8Vals.Count -gt 0)
 $m8Hits = @(Test-GdExportLeaks -Dir $root -Values $m8Vals)
 Check '源码 / README / 自检样本里一项本机专属值都没有' ($m8Hits.Count -eq 0) (@($m8Hits | ForEach-Object { $_ }) -join ' ｜ ')
+
+Write-Host "`n[m9] 问模型那一层(tools\vision\ask.py + PowerShell 侧的桥)"
+# 为什么值得单独一段：这一层的规矩是"key 只走环境变量、Python 只发请求、点位判断留在 PowerShell"。
+# 三条都是**改了不会立刻坏**的那种 —— 哪天有人图省事把 key 拼进命令行，日常照样跑通，
+# 直到日志/诊断进程列表里带出 key 才出事。所以规矩在这里钉成断言，不靠人记得住。
+$askPy = Join-Path $root 'tools\vision\ask.py'
+Check 'tools\vision\ask.py 在(它是内核的一部分，两路仓库都要带上)' (Test-Path -LiteralPath $askPy)
+$pySrc = ''
+if (Test-Path -LiteralPath $askPy) {
+    $pyBytes = [System.IO.File]::ReadAllBytes($askPy)
+    Check 'ask.py 不带 BOM(python 会把 BOM 当语法错误)' (
+        $pyBytes.Length -lt 3 -or -not ($pyBytes[0] -eq 0xEF -and $pyBytes[1] -eq 0xBB -and $pyBytes[2] -eq 0xBF))
+    $pySrc = [System.Text.Encoding]::UTF8.GetString($pyBytes)
+    Check 'ask.py 用 LF(和 .gitattributes 给文本定的规矩一致)' (-not ($pySrc -match "`r"))
+    Check 'ask.py 只用标准库(不需要 pip：embeddable 包里就这些)' (
+        $pySrc -match '(?m)^import urllib\.request' -and
+        -not ($pySrc -match '(?m)^\s*(from|import) (requests|httpx|openai|dashscope|PIL|numpy)'))
+    Check 'ask.py 里的 key 只从环境变量读，没有 --api-key 这种命令行口子' (
+        $pySrc -match 'os\.environ' -and -not ($pySrc -match '--api[-_]key'))
+    Check 'ask.py 里没有长得像 key 的字面量' (-not ($pySrc -match 'sk-[A-Za-z0-9]{12,}'))
+    Check 'ask.py 自己带离线自检(--selftest)' ($pySrc -match 'def run_selftest')
+    Check 'ask.py 只有一处真的发请求(urlopen 不被自检绕过)' (([regex]::Matches($pySrc, 'urllib\.request\.urlopen')).Count -eq 1)
+}
+$rawDef = ''
+if (Get-Command Invoke-GdVisionRaw -ErrorAction SilentlyContinue) { $rawDef = (Get-Command Invoke-GdVisionRaw).Definition }
+Check 'PowerShell 侧有 Invoke-GdVisionRaw(问模型的唯一出口，自检能整体替换它)' ($rawDef.Length -gt 0)
+if ($rawDef) {
+    # 注释里点名了 Invoke-RestMethod(解释"为什么换成 Python")，所以判"有没有自己发 HTTP"要先把注释剥掉
+    $rawCode = Get-GdCodeOnlyText -Text $rawDef
+    # 这条判的是"PowerShell 别再自己发 HTTP"。那两个 cmdlet 的名字要拆开拼：
+    # tools\check-ps51.ps1 有一条"文件里出现 Invoke-RestMethod 就得开 TLS 1.2"的启发式，
+    # 连着写会让它把这个自检文件当成要走网络请求的代码(拼起来 = 说清楚"这里不该有它"，又不误报)。
+    $httpVerbs = @('Invoke-Rest' + 'Method', 'Invoke-Web' + 'Request') -join '|'
+    Check '桥起的是 python + ask.py，不是自己发 HTTP' (
+        $rawCode -match 'Get-GdPythonExe' -and $rawCode -match 'ask\.py' -and -not ($rawCode -match $httpVerbs))
+    Check 'key 只进子进程的环境变量' ($rawDef -match '-Env\s+@\{\s*DASHSCOPE_API_KEY')
+    Check 'key 不出现在命令行参数里(进程列表和日志都会把它带出去)' (-not ($rawDef -match '-Arguments[^\r\n]*\$key'))
+    Check '提示词走请求文件不走命令行(长文本带引号换行，塞命令行必然出乱子)' ($rawDef -match "'--request'")
+}
+$gateDef = ''
+if (Get-Command Get-GdPythonExe -ErrorAction SilentlyContinue) { $gateDef = (Get-Command Get-GdPythonExe).Definition }
+Check '找 Python 会跳过 WindowsApps 那个商店占位程序' ($gateDef -match 'WindowsApps')
+Check '找到的解释器要真 import 得动 ask.py 要用的那几个库' ($gateDef -match 'Test-GdPythonUsable')
+Check '兜底闸门里 Python 这一条排在截图之前(问不成就别白拍一张)' $(
+    $r = (Get-Command Invoke-GdVisionRescue).Definition
+    $i = $r.IndexOf('Get-GdPythonExe'); $j = $r.IndexOf('$t.Shot')
+    $i -ge 0 -and $j -ge 0 -and $i -lt $j)
+# 真跑一遍 ask.py 的离线自检。这台机器上没 Python 就如实报"没跑"，不算红 ——
+# 缺不缺解释器是机器现场状态，不该把只读自检弄红(见项目记忆那条"只读自检不许要求机器现场状态")。
+$pyExe = ''
+if (Get-Command Get-GdPythonExe -ErrorAction SilentlyContinue) { $pyExe = Get-GdPythonExe }
+if ($pyExe -and (Test-Path -LiteralPath $askPy)) {
+    $st = Invoke-GdChild -File $pyExe -Arguments @($askPy, '--selftest') -TimeoutSeconds 60
+    $sj = $null
+    try { $sj = ("$($st.Out)").Trim() | ConvertFrom-Json } catch { }
+    Check 'ask.py --selftest 全过(离线：不联网、不碰窗口)' ($st.Code -eq 0 -and $sj -and $sj.ok) $(
+        if ($sj) { ($sj.failures -join ' / ') } else { "退出码 $($st.Code) / $($st.Err)" })
+} else {
+    Check 'ask.py --selftest 全过(这台机器没有可用的 Python → 没跑)' $true '跳过：跑 setup.ps1 -WithPython 之后这一条才会真验'
+}
+
+Write-Host "`n[m10] 兜底后端与清单对账(kind 是清单上的字段，不是外壳里的一张表)"
+# 为什么单独一段：2026-09-26 把兜底后端泛化成两套(端游 ark / 模拟器 mumu)之后，"这一路该找哪个后端"
+# 变成了一条**业务知识** —— 写在外壳里就是框架污染，写错了也不会报错，只会"兜底静默不生效"(从来不问模型)。
+# 所以这条知识只在清单的 VisionKind 上存一份，这里逐路对账。
+foreach ($m in @(Get-GdModules -AvailableOnly)) {
+    $id = [string]$m.Id
+    $kind = if ($m.PSObject.Properties.Name -contains 'VisionKind') { [string]$m.VisionKind } else { '' }
+    Check "[$id] 清单声明了 VisionKind(外壳不许自己记 ark/mumu 对照表)" ($kind.Length -gt 0) "kind=[$kind]"
+    Check "[$id] VisionKind 是小写短名(内核拼的是 New-GdVisionTarget-<kind>，大小写或空格都会让它找不到)" (
+        $kind -match '^[a-z][a-z0-9]*$') $kind
+    # 后端文件名与 kind 绑死：kind 写 mumu 就得有 lib\vision-mumu.ps1；
+    # 后半句更要紧 —— 文件在但没写进这一路的 Libs，等于压根没人点它，还是静默不生效。
+    $beFile = Join-Path $root "lib\vision-$kind.ps1"
+    Check "[$id] 后端文件按约定存在(lib\vision-$kind.ps1)" (Test-Path -LiteralPath $beFile)
+    Check "[$id] 后端文件写进了这一路的 Libs" (@($m.Libs) -contains "vision-$kind.ps1") (@($m.Libs) -join ' ')
+    $builder = "New-GdVisionTarget-$kind"
+    Check "[$id] 顶层点库之后 $builder 真在(命名约定对得上)" ([bool](Get-Command $builder -ErrorAction SilentlyContinue))
+}
+# 框架与工具层不许硬写某一路的 kind：内核只按命名约定拼函数名，外壳只问清单。
+# 判的是"把 kind 当字面量用"的那几种写法(-Target/-Kind/直接调 New-GdVisionTarget-xxx)，
+# 不是"文件里出现过 mumu 这四个字母"—— status.ps1 点 lib\mumu.ps1 那种是库名，另一回事。
+foreach ($f in @('lib\vision-rescue.ps1', 'lib\modules.ps1', 'tools\vision-ask.ps1', 'daily-clear.ps1', 'status.ps1', 'panel.ps1')) {
+    $p = Join-Path $root "tools\$f"
+    if (-not (Test-Path -LiteralPath $p)) { $p = Join-Path $root $f }
+    if (-not (Test-Path -LiteralPath $p)) { continue }
+    $code = Get-GdCodeOnlyText -Text ([System.IO.File]::ReadAllText($p))
+    $hard = $code -match "-Target\s+'(ark|mumu)'" -or $code -match "-Kind\s+'(ark|mumu)'" -or
+            $code -match 'New-GdVisionTarget-(ark|mumu)\b'
+    Check "$(Split-Path -Leaf $p) 没有把兜底 kind 当字面量硬写(-Target/-Kind/New-GdVisionTarget-xxx)" (-not $hard)
+}
+# 三份模板都得有那个领奖白名单键：导出闸门(Test-GdTemplateCoversCode)要等到打发布包才查得到，
+# 而"代码读了 settings 里没有的键"这件事在本地就该红。
+foreach ($tpl in @('config\settings.example.json', 'publish\src\ark\config\settings.example.json', 'publish\src\r1999\config\settings.example.json')) {
+    $p = Join-Path $root $tpl
+    if (-not (Test-Path -LiteralPath $p)) {
+        # publish\src\ 那两份**只有合体工程里有**：导出仓库整个 publish\ 都不发(见 SPLIT-PLAN)，
+        # 拿它判红等于让 publish-split 的验收链永远过不去 —— 不在这棵树就跳过并说一句。
+        # 而这一路自己的 config\settings.example.json 不在仍然是真缺(它是这棵树唯一的模板)，照旧判红。
+        if ($tpl -like 'publish\*') { Write-Host "  (这棵树没有 $tpl —— 导出仓库里不发 publish\，跳过)"; continue }
+        Check "$tpl 在(模板缺了就是安装即崩)" $false; continue
+    }
+    $txt = [System.IO.File]::ReadAllText($p)
+    Check "$tpl 带 visionAllowReward=false(默认硬禁领奖)" ($txt -match '"visionAllowReward"\s*:\s*false')
+}
 
 $res = Show-GdTestResult -Tag 'modules'
 if ($NoExit) { return $res }

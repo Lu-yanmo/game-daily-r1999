@@ -5,9 +5,10 @@
 # 用法： powershell -File tools\panel-cs\build.ps1 [-Verify] [-ConsoleTest] [-Quiet]
 #   -Verify      = 编完顺手跑 --selftest(布局/主题链)
 #   -ConsoleTest = 再跑一遍 --consoletest(主控台四页：取数、写配置的转义与备份、代跑参数、诊断包不含 key)
+#   -ExpTest     = 再跑一遍 --exptest(「实验功能」三个布尔键的读写回环，只打在 %TEMP% 副本上)
 #   -Quiet       = 只留失败信息，给 panel.cmd 自动编译用
 [CmdletBinding()]
-param([switch]$Verify, [switch]$ConsoleTest, [switch]$Quiet)
+param([switch]$Verify, [switch]$ConsoleTest, [switch]$ExpTest, [switch]$Quiet)
 
 $ErrorActionPreference = 'Stop'
 $here = $PSScriptRoot
@@ -52,4 +53,12 @@ if ($ConsoleTest) {
     & $exe --consoletest
     if ($LASTEXITCODE -ne 0) { throw 'panel-cs --consoletest 有红项' }
     Write-Host 'panel-cs --consoletest OK'
+}
+
+if ($ExpTest) {
+    # 「实验功能」三个布尔键的读写回环：翻一次读得回来 / 只有那一行动过 / 补出来的那行过得了 ConvertFrom-Json /
+    # runtime 形状认不出时必须拒着不写。全程打在 %TEMP% 副本上，收尾逐字节比对确认那份真 settings.json 没动。
+    & $exe --exptest
+    if ($LASTEXITCODE -ne 0) { throw 'panel-cs --exptest 有红项' }
+    Write-Host 'panel-cs --exptest OK'
 }

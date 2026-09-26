@@ -7,8 +7,10 @@
 //      而不是让某个格子静默变空 —— 面板只会转达，读不懂必须说出来。
 //   2. 把行画成卡片/导航/日志，并把按钮动作转调现成脚本(daily-clear / status / run-via-task)；
 //   3. 黑/白双主题切换(唯一的"外观判定"，存在 state\panel-theme.txt)；
-//   4. 「实验功能」卡：只碰一个布尔键(runtime.arkVisionRescue) —— 写之前先备份到 backups\，
-//      用整文件行内替换、别的一个字节不动；用不用视觉兜底仍由 lib\vision-rescue.ps1 看那个键决定。
+//   4. 「实验功能」卡：只碰 runtime 里的三个布尔键(arkVisionRescue / mumuVisionRescue / visionAllowReward) ——
+//      写之前先备份到 backups\，用整文件行内替换、别的一个字节不动(键本来没有时在 runtime 段补一行)；
+//      用不用视觉兜底、准不准它点"领取"，仍由 lib\vision-rescue.ps1 读同一批键决定。
+//      卡上那颗「只问不点」只是代跑 tools\vision-ask.ps1(只截屏问模型、不点任何东西)，面板自己不加任何判定。
 //   5. 主控台四页(配置/定时/历史/诊断)：把原来只能敲命令行的日常操作搬进界面。
 //      读 = 行内读 settings.json 的那几个键 + 转达 -DumpSummary 已有的 PROBE/TIME 行 + 直读 history.csv；
 //      写 = 路径改动代跑 setup.ps1、装卸任务代跑 install-task.ps1、换时间点代跑 reschedule-daily.ps1，
@@ -99,7 +101,12 @@ namespace GdPanel
         readonly Panel act = new Panel();
         readonly Panel logCard = new Panel();
         readonly RichTextBox logBox = new RichTextBox();
-        Button runBtn, btnDry, btnStatus, btnRefresh, ackBtn, btnShop, btnLog, btnHelp, btnTheme, expBtn;
+        Button runBtn, btnDry, btnStatus, btnRefresh, ackBtn, btnShop, btnLog, btnHelp, btnTheme, expAskBtn;
+        // 实验功能卡上的三只勾选(各写一个布尔键) + 那行随状态变色的说明
+        CheckBox expArkChk, expMumuChk, expRewardChk;
+        Label expHint;
+        // "我们要求显示"的那四颗把手 —— 自检只能认这四个字段，认控件的 Visible 会在没显示窗体时全假(见 RefreshCards)
+        bool expArkUp, expMumuUp, expRewardUp, expAskUp;
         Button btnOnly;             // 只跑当前页那一路(单游戏仓会自动藏起来)
         DateTime onlyAt = DateTime.MinValue;
         Button btnMin, btnMax, btnClose;   // 无边框后的自绘"标题栏"三键

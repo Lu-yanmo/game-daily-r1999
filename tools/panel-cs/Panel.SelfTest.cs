@@ -26,8 +26,12 @@ namespace GdPanel
             DumpRows("LAST", rowsLast);
             DumpRows("GATE", rowsGates);
             bool? expFlag = ReadExpFlag();
-            Console.WriteLine("EXP implemented=" + ExpImplemented() + " flag=" + (expFlag.HasValue ? expFlag.Value.ToString() : "-") +
-                              " 按钮=" + expBtn.Text + "/" + expBtn.AccessibleName);
+            bool? mumuFlag = ReadBoolFlag(MumuKey), rewardFlag = ReadAllowReward();
+            Console.WriteLine("EXP backend=" + HasVisionBackend() + " 端游=" + (expFlag.HasValue ? expFlag.Value.ToString() : "-") +
+                              " 模拟器=" + (mumuFlag.HasValue ? mumuFlag.Value.ToString() : "-") +
+                              " 领奖=" + (rewardFlag.HasValue ? rewardFlag.Value.ToString() : "-") +
+                              " 该露=" + expArkUp + "/" + expMumuUp + "/" + expRewardUp +
+                              " 只问不点=" + expAskUp + " 首行=" + expHint.Text);
             List<Row> tt;
             if (timesByPage.TryGetValue("all", out tt)) DumpRows("TIME", tt);
             Console.WriteLine("---- 开机日志区最后几行(真数据，验提示/播报有没有真说出来) ----");
@@ -369,6 +373,37 @@ namespace GdPanel
                 Chk("判定层比面板旧(但报了 v0)：说的是「比这个面板认的还旧」", ProtoMismatch().IndexOf("还旧") >= 0, ProtoMismatch());
                 protoVer = keepProto;
                 Chk("对得上时一个字都不说(别每 45 秒刷一条横幅盖住真读数)", ProtoMismatch().Length == 0, ProtoMismatch());
+
+                // ---- 9) 实验功能卡 + 「只问不点」：三颗勾各自对应一个键，命令行上只有模块 id ----
+                // 这一页的控件清单会被 RebuildConsole 清掉重建，所以问配置页之前必须先把配置页换上来
+                // (上面第 6 段停在历史页，那会儿 boxByKey 里只有历史页那一两个框)。
+                bool vb = HasVisionBackend();
+                SelectPage("cfg");
+                Chk("配置页那两行视觉配置按「有没有后端」给，不再按 ark 给(1999 单仓也要能填 key)",
+                    boxByKey.ContainsKey("visionModel") == vb && boxByKey.ContainsKey("visionApiKey") == vb,
+                    "后端=" + vb + " 模型框=" + boxByKey.ContainsKey("visionModel") + " Key框=" + boxByKey.ContainsKey("visionApiKey"));
+                SelectPage("all");
+                int checks = 0;
+                foreach (Control c in cardExp.Controls) if (c is CheckBox) checks++;
+                Chk("实验功能卡上有三颗勾(端游兜底 / 模拟器兜底 / 领奖白名单)", checks == 3, "数到 " + checks);
+                Chk("两路兜底各自只在有这一路时露出来",
+                    expArkUp == (vb && HasGame("ark")) && expMumuUp == (vb && HasGame("r1999")),
+                    "端游勾=" + expArkUp + " 模拟器勾=" + expMumuUp + " 这一仓=" + string.Join("+", GameIds()));
+                Chk("「只问不点」那颗只在 tools\\vision-ask.ps1 在的时候露出来",
+                    expAskUp == (vb && File.Exists(Path.Combine(root, @"tools\vision-ask.ps1"))), "要求显示=" + expAskUp);
+                Chk("领奖白名单默认不勾(配置里没写这一行 = 硬禁，和 Get-GdVisionSystemPrompt 的默认一致)",
+                    !expRewardUp || !expRewardChk.Checked,
+                    "该露=" + expRewardUp + " 勾了=" + expRewardChk.Checked + " 键读到=" + Mid(ReadAllowReward()));
+                List<string> va = VisionAskArgs("ark");
+                Chk("「只问不点」的命令行上只有 -Game 和模块 id", va.Count == 2 && va[0] == "-Game" && va[1] == "ark", string.Join(" ", va.ToArray()));
+                Chk("不成一个词的模块 id 不往命令行上拼(宁可这次不跑)",
+                    VisionAskArgs("ark; Remove-Item x").Count == 0 && VisionAskArgs("").Count == 0 && VisionAskArgs("R1999").Count == 0, "");
+                if (key != null && key.Length > 0)
+                    Chk("那把视觉 Key 不会出现在要带上命令行的任何参数里", string.Join(" ", va.ToArray()).IndexOf(key) < 0, "");
+                Chk("在总览上点「只问不点」问的是这一仓解析出来的第一路", AskTargetId() == (games.Count > 0 ? games[0][0] : ""), AskTargetId());
+                SelectPage(games.Count > 0 ? games[0][0] : "all");
+                Chk("切到某一路那一页，问的就是那一路", AskTargetId() == (games.Count > 0 ? games[0][0] : page), AskTargetId());
+                SelectPage("all");
             }
             catch (Exception ex)
             {
@@ -437,28 +472,207 @@ namespace GdPanel
             return -1;
         }
 
-        // --exptest：实验功能读写回环自测(会真动 settings.json，只在测试树上跑，测完自己翻回去)。
+        // --exptest：实验功能三个布尔键的读写回环自测。
+        // 2026-09-26：这张卡管的不再是一个键(端游兜底)，还有模拟器兜底和"领奖白名单"，
+        // 而后两个在单游戏仓的老 settings.json 里常常**根本没有这一行** —— 那正是最容易写坏的那种情况，
+        // 所以三档都要过，并且过完必须能说出"除这一行以外，副本和真配置逐字节一样"。
+        // 写全部打在 %TEMP% 的一份副本上：真 config\settings.json 一个字节都不动(它是玩家自己的配置)。
         public int ExpTest()
         {
-            Console.WriteLine("---- panel-cs 实验功能读写自测 ----");
+            Console.WriteLine("---- panel-cs 实验功能读写自测(打在临时副本上，真配置只读不写) ----");
             if (!ExpImplemented()) { Console.WriteLine("这一仓没有实现库(lib\\vision-rescue.ps1 不在)，卡片就该是空的 —— 没得测。"); return 0; }
-            string path = SettingsPath;
-            if (!File.Exists(path)) { Console.WriteLine("没有 " + path + " —— 把 config\\settings.example.json 复制成 settings.json 再跑。"); return 1; }
-            bool? before = ReadExpFlag();
-            if (!before.HasValue) { Console.WriteLine("settings.json 里没有 arkVisionRescue 键，写路径测不了。"); return 1; }
-            bool target = !before.Value;
-            string m1 = WriteExpFlag(target);
-            bool? mid = ReadExpFlag();
-            string m2 = WriteExpFlag(before.Value);
-            bool? after = ReadExpFlag();
-            int baks = 0;
-            try { baks = Directory.GetFiles(Path.Combine(root, "backups"), "settings.json.*.bak").Length; } catch { }
-            Console.WriteLine("初始 " + before.Value + " → 写 " + target + " 读到 " + mid + "；写回 " + before.Value + " 读到 " + after + "；备份份数 " + baks);
-            Console.WriteLine("  " + m1);
-            Console.WriteLine("  " + m2);
-            bool ok = mid.HasValue && mid.Value == target && after.HasValue && after.Value == before.Value && baks > 0;
-            Console.WriteLine("结论: " + (ok ? "PASS(读写一致，settings.json 已还原)" : "FAIL —— 检查 config\\settings.json 的 arkVisionRescue 是否停在 " + after));
-            return ok ? 0 : 1;
+            string real = Path.Combine(root, @"config\settings.json");
+            if (!File.Exists(real)) { Console.WriteLine("没有 " + real + " —— 把 config\\settings.example.json 复制成 settings.json 再跑。"); return 1; }
+            string tmp = Path.Combine(Path.GetTempPath(), "gd-exptest-" + Process.GetCurrentProcess().Id + ".json");
+            string keep = settingsPathOverride;
+            int bad = 0;
+            try
+            {
+                byte[] real0 = File.ReadAllBytes(real);
+                File.Copy(real, tmp, true);
+                settingsPathOverride = tmp;
+                bad += RoundTripBool(ExpKey, "端游那一路的视觉兜底", true);
+                bad += RoundTripBool(MumuKey, "模拟器那一路的视觉兜底", true);
+                bad += RoundTripBool(RewardKey, "领奖白名单", false);
+                // 补不了的时候必须一个字都不动：空 runtime、整段一行写完这两种形状都要当面拒掉
+                bad += RefuseInsert("{\n  \"runtime\": {\n  }\n}\n", 1, "runtime 是个空对象");
+                bad += RefuseInsert("{\n  \"runtime\": { \"arkVisionRescue\": true }\n}\n", 2, "runtime 整段一行写完");
+                byte[] real1 = File.ReadAllBytes(real);
+                Tell("绕完这三档，真 config\\settings.json 逐字节没动", SameBytes(real0, real1),
+                     real0.Length + " vs " + real1.Length + " 字节");
+                if (!SameBytes(real0, real1)) bad++;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("  FAIL 自测自己炸了：" + ex.Message);
+                bad++;
+            }
+            finally
+            {
+                settingsPathOverride = keep;
+                foreach (string f in new[] {
+                    Path.Combine(Path.GetTempPath(), "gd-exptest-" + Process.GetCurrentProcess().Id + ".json"),
+                    Path.Combine(Path.GetTempPath(), "gd-exptest-" + Process.GetCurrentProcess().Id + "-1.json"),
+                    Path.Combine(Path.GetTempPath(), "gd-exptest-" + Process.GetCurrentProcess().Id + "-2.json") })
+                { try { if (File.Exists(f)) File.Delete(f); } catch { } }
+            }
+            Console.WriteLine("结论: " + (bad == 0 ? "PASS(三个键都读写一致，真配置没被动过)" : "FAIL —— 红 " + bad + " 项"));
+            return bad == 0 ? 0 : 1;
+        }
+
+        // 一个键的回环：读现值 → 写反 → 读回 → 写回 → 读回 → 断言"只有这一行变过"。
+        // defaultOn = 这一档"配置里没写这一行时"判定层的默认态(两路兜底=开，领奖白名单=关)，
+        // 面板显示的必须和它一致，否则界面说开着、实际兜底不生效(见 RefreshCards 同一处注释)。
+        int RoundTripBool(string key, string label, bool defaultOn)
+        {
+            bool? before = ReadBoolFlag(key);
+            bool shown = before.HasValue ? before.Value : defaultOn;
+            string text0 = File.ReadAllText(SettingsPath);
+            string m1 = WriteBoolFlag(key, !shown, label, "已打开", "已关掉");
+            bool? mid = ReadBoolFlag(key);
+            string m2 = WriteBoolFlag(key, shown, label, "已打开", "已关掉");
+            bool? after = ReadBoolFlag(key);
+            string text1 = File.ReadAllText(SettingsPath);
+            int bad = 0;
+            bool okMid = mid.HasValue && mid.Value == !shown;
+            bool okBack = after.HasValue && after.Value == shown;
+            // 原来没这一行时走的是"补一行"那条路：行数该 +1；原来就有则是原地替换，行数不变。
+            int n0 = CountLines(text0), n1 = CountLines(text1);
+            int wantLines = n0 + (before.HasValue ? 0 : 1);
+            bool only = StripBoolLine(text0, key) == StripBoolLine(text1, key);
+            Console.WriteLine("  " + key + "(" + label + ")：" +
+                              (before.HasValue ? "现值 " + before.Value : "配置里本来没这一行，按默认当 " + defaultOn) +
+                              " → 写 " + !shown + " 读到 " + Mid(mid) + " → 写回 " + shown + " 读到 " + Mid(after));
+            Console.WriteLine("      " + m1);
+            Console.WriteLine("      " + m2);
+            Tell(key + "：翻一次读得回来", okMid, Mid(mid) + " 期望 " + !shown); if (!okMid) bad++;
+            Tell(key + "：再翻回去也读得回来", okBack, Mid(after) + " 期望 " + shown); if (!okBack) bad++;
+            Tell(key + "：只有这一行动过(别的一个字节不动)", only, ""); if (!only) bad++;
+            bool shape = JsonShapeOk(text1);
+            Tell(key + "：写完这份还过得了引号/括号配平(补行最怕留下多余逗号)", shape, ""); if (!shape) bad++;
+            // 只有"原来没这一行、这次真补了一行"的那一路才请 PowerShell 复述：原地替换那条路的形状本来就是文件里现成的，多问一次白等两秒。
+            if (!before.HasValue)
+            {
+                string note;
+                bool parsed = RunJsonProbe(SettingsPath, key, shown, out note);
+                Tell(key + "：补出来的这一行 ConvertFrom-Json 读得回来(判定层用的就是它)", parsed, note);
+                if (!parsed) bad++;
+            }
+            Tell(key + "：整份文件只多出这一行(原来没有才补，补一次不补第二次)", n1 == wantLines, n0 + " → " + n1 + "，期望 " + wantLines);
+            if (n1 != wantLines) bad++;
+            return bad;
+        }
+
+        // 认不出来的形状必须"拒 + 一个字都不动"，不能"试着写一下看看"。
+        // 这两份是手写的合成配置(不是本机那份)：空 runtime、整段一行写完，都是补行会留下坏 JSON 的形状。
+        int RefuseInsert(string shape, int which, string what)
+        {
+            string keep = settingsPathOverride;
+            string tmp = Path.Combine(Path.GetTempPath(), "gd-exptest-" + Process.GetCurrentProcess().Id + "-" + which + ".json");
+            try
+            {
+                File.WriteAllText(tmp, shape, new UTF8Encoding(false));
+                settingsPathOverride = tmp;
+                byte[] before = File.ReadAllBytes(tmp);
+                string msg = WriteBoolFlag(RewardKey, true, "领奖白名单", "已勾上", "已取消");
+                bool refused = msg.IndexOf("补不进去") >= 0;
+                bool untouched = SameBytes(before, File.ReadAllBytes(tmp));
+                Tell(what + "：拒着不写，而且文件一个字没动", refused && untouched, refused ? "" : "它却说：" + msg);
+                return refused && untouched ? 0 : 1;
+            }
+            finally
+            {
+                settingsPathOverride = keep;
+                try { if (File.Exists(tmp)) File.Delete(tmp); } catch { }
+            }
+        }
+
+        // RunJsonProbe = 请 PowerShell 自己的 JSON 解析器把这份文件读一遍，并回述 runtime.<key> 的值。
+        // 为什么不能只信 JsonShapeOk：那是自家写的"引号配对 + 括号配平"近似判断，而判定层(lib\common.ps1 的 Read-GdJson)
+        // 是 $text | ConvertFrom-Json。面板补出来的这一行只要让它报错，结果就是"界面上说写好了、整份配置其实已经读不出来"，
+        // 那是最坏的一种假成功 —— 所以这一步必须由**真正的读方**开口，而不是自家再猜一遍形状。
+        // 用 5.1(powershell.exe)而不是 pwsh 7：这台机器出厂就有它，而且它对编码更挑。
+        // 读文件那一行必须照抄 lib\common.ps1 的 Read-GdJson([IO.File]::ReadAllText + 剥 BOM)，
+        // **不能用 Get-Content -Raw**：那份 settings.json 是无 BOM 的 UTF-8(Write-GdJson 明确用 UTF8Encoding($false) 写的)，
+        // 5.1 的 Get-Content 没有 BOM 就按机器 ANSI 码页猜，中文注释里的字节能猜出 0x5C(反斜杠)，
+        // 于是 JSON 字符串的转义被弄乱、ConvertFrom-Json 报"传入的数组无效" —— 探针就红了，但文件其实没坏(2026-09-26 实测踩过)。
+        // 探针脚本内容全 ASCII：5.1 读无 BOM 的非 ASCII .ps1 同样会按码页猜中文。
+        bool RunJsonProbe(string file, string key, bool want, out string note)
+        {
+            note = "";
+            string ps1 = Path.Combine(Path.GetTempPath(), "gd-exptest-probe-" + Process.GetCurrentProcess().Id + ".ps1");
+            try
+            {
+                File.WriteAllText(ps1, ProbeScript, new UTF8Encoding(false));
+                string exe = Path.Combine(Environment.SystemDirectory, @"WindowsPowerShell\v1.0\powershell.exe");
+                if (!File.Exists(exe)) { note = "这台机器没有 " + exe; return false; }
+                ProcessStartInfo psi = new ProcessStartInfo(exe);
+                psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -File \"" + ps1 + "\" -Path \"" + file +
+                                "\" -Key " + key + " -Want " + (want ? "True" : "False");
+                psi.UseShellExecute = false;
+                psi.RedirectStandardOutput = true;
+                psi.RedirectStandardError = true;
+                psi.CreateNoWindow = true;
+                string so, se; int code;
+                using (Process p = Process.Start(psi))
+                {
+                    so = p.StandardOutput.ReadToEnd();
+                    se = p.StandardError.ReadToEnd();
+                    p.WaitForExit();
+                    code = p.ExitCode;
+                }
+                string first = so.Replace("\r", "").Trim();
+                if (first.Length == 0) first = se.Replace("\r", "").Trim();
+                // ConvertFrom-Json 报错会把**整份文件**抄进消息里(还会带着按错码页猜出来的乱码字)，
+                // 这里只留开头那句：够定位"是没解析出来"还是"解析出来了但值不对"，不至于把自检刷成一屏垃圾。
+                first = first.Replace("\n", " ");
+                if (first.Length > 96) first = first.Substring(0, 96) + "…";
+                note = key + "=" + (want ? "True" : "False") + " → " +
+                       (first.Length > 0 ? first : "探针一个字都没说(退出码 " + code + ")");
+                return first == "JSONOK";
+            }
+            catch (Exception ex)
+            {
+                note = "探针自己炸了：" + ex.Message;
+                return false;
+            }
+            finally
+            {
+                try { if (File.Exists(ps1)) File.Delete(ps1); } catch { }
+            }
+        }
+
+        static readonly string ProbeScript =
+            "param([string]$Path,[string]$Key,[string]$Want)\n" +
+            "$ErrorActionPreference='Stop'\n" +
+            "try{\n" +
+            "  $t=[System.IO.File]::ReadAllText($Path)\n" +
+            "  if($t.Length -gt 0 -and $t[0] -eq [char]0xFEFF){$t=$t.Substring(1)}\n" +
+            "  $j=$t | ConvertFrom-Json\n" +
+            "  $v=$j.runtime.$Key\n" +
+            "  if($null -eq $v){'MISSING';exit 0}\n" +
+            "  if([string]$v -eq $Want){'JSONOK'}else{'JSONDIFF '+[string]$v}\n" +
+            "}catch{'JSONERR '+$_.Exception.Message}\n";
+
+        static string Mid(bool? v) { return v.HasValue ? v.Value.ToString() : "(没读到)"; }
+
+        static int CountLines(string text)
+        {
+            return text.Replace("\r\n", "\n").Split('\n').Length;
+        }
+
+        // 把目标键那一行摘掉再比：这样"只有这一行变过"就成一个能算的等式，而不是靠人眼看 diff。
+        static string StripBoolLine(string text, string key)
+        {
+            StringBuilder sb = new StringBuilder();
+            foreach (string l in text.Replace("\r\n", "\n").Split('\n'))
+                if (!Regex.IsMatch(l, "^[^\"]*\"" + Regex.Escape(key) + "\"\\s*:")) sb.Append(l).Append('\n');
+            return sb.ToString();
+        }
+
+        void Tell(string name, bool ok, string extra)
+        {
+            Console.WriteLine("  " + (ok ? "PASS  " : "FAIL  ") + name + (!ok && extra.Length > 0 ? "　[" + extra + "]" : ""));
         }
 
         // --whytest：「上一轮为什么」这条读数链路的离线自测。

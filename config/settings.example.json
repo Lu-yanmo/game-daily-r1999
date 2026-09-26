@@ -17,7 +17,8 @@
     "视觉兜底(runtime.mumuVisionRescue / visionModel / visionBaseUrl / visionApiKey / visionMaxRescue / visionTimeoutSeconds)：M9A 判到卡在弹窗或更新界面时，把 MuMu 画面(adb screencap)交给视觉模型，让它指出该点哪里才能关掉挡路的东西，再由 adb input tap 点这一下、并确认画面真的变了。只在异常路径触发，正常一轮一个请求都不发；没配 key / 拿不到 adb 端点 / 截图几乎全黑，一律说明原因后放弃，绝不硬点。key 也可放环境变量 DASHSCOPE_API_KEY(优先)，settings.json 不会被仓库收录。",
     "问模型这一步由 tools\\vision\\ask.py 跑(Python 3，只用标准库，不需要 pip)：runtime.pythonExe 留空则按「本仓库自己下的那份(state\\python\\)→ PATH 上的 python/py」找，填了优先用填的那份。没有可用的 Python 时兜底会直接说明原因后放弃，日常一轮不受影响(正常路径一个请求都不发)。装法：pwsh -File setup.ps1 -WithPython。截图和点击仍然在 PowerShell 里，Python 只管发请求。",
     "runtime.visionAllowReward: 默认 false = 提示词里硬禁「领取」这类会推进游戏状态的按钮，兜底只准关弹窗。改成 true 才允许模型给「领取日常奖励/一键领取/邮箱领奖」那类点位(仍然禁「前往参与/开始行动/确定/充值」)。判错一次就是拿账号换一次不确定，所以只建议在面板「实验功能」里勾，别直接改这个文件。",
-    "这一路不需要管理员权限：MuMu 和 M9A 都在普通权限下跑，所以没有 UAC，计划任务也只是「登录后运行」。"
+    "这一路不需要管理员权限：MuMu 和 M9A 都在普通权限下跑，所以没有 UAC，计划任务也只是「登录后运行」。",
+    "监督 agent(runtime.supervisor / supervisorIntervalSeconds / supervisorQuietMinutes)：真跑一轮时另起一个隐藏子进程全程旁观，每 supervisorIntervalSeconds 秒拍一次现场证据(M9A 日志新鲜度/进程存活/完成信号)，规则先判，连续两拍判到静止才拍一张模拟器画面问视觉模型复核(平时零 token)。这一路的监督**只发通知、不自动干预** —— MuMu 冷启动要好几分钟，误判一次的代价远超多跑一轮。supervisorQuietMinutes 是「两本日志都安静多久算静止」，故意比主流程自己的停滞判据宽。读数在 state\\supervision.json，面板会转达；supervisor 显式写 false 才关掉。"
   ],
   "paths": {
     "m9aDir": "",
@@ -68,7 +69,11 @@
     "visionMaxRescue": 2,
     "visionTimeoutSeconds": 45,
     "pythonExe": "",
-    "visionAllowReward": false
+    "visionAllowReward": false,
+    "supervisor": true,
+    "supervisorIntervalSeconds": 60,
+    "supervisorQuietMinutes": 30,
+    "supervisorMaxInterventions": 1
   },
   "notify": {
     "toast": true,

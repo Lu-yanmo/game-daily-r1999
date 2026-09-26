@@ -53,6 +53,13 @@ if (Test-Path -LiteralPath (Join-Path $root 'lib\modules.ps1')) {
     . (Join-Path $root 'lib\modules.ps1')
     $haveModules = $true
 }
+# 监督 agent(lib\supervisor.ps1)：面板点它只为读 state\supervision.json 的现成读数(Read-GdSupervisorSummary)，
+# 不起不停、不判任何新东西 —— 和"只转达 · 不判定"这条副标题是同一个纪律。文件不在(裁过的仓库)就整段沉默。
+$haveSupervisor = $false
+if (Test-Path -LiteralPath (Join-Path $root 'lib\supervisor.ps1')) {
+    . (Join-Path $root 'lib\supervisor.ps1')
+    $haveSupervisor = $true
+}
 
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
@@ -265,6 +272,43 @@ function Get-PanelSummaryParts {
         $envRows += @{ Text = ('配置还差：' + ($show -join ' , ') + $tail + ' → 跑 setup.ps1'); Kind = 'err' }
     }
     elseif ($keys.Count) { $envRows += @{ Text = ('助手路径 ' + $keys.Count + ' 项全部就绪'); Kind = 'ok' } }
+    <# 监督 agent 在岗状态：只把 supervision.json 里算好的读数念出来，三种口径 ——
+       在岗(PID 还活着) / 已收工(它自己写了 stopped) / 没了但没说收工(崩了或被硬杀，标红让人去看 jsonl)。
+       从没监督过(文件不在)就不占一行。各路 busy/done 是常态不上行(上一轮卡里已有每路读数)，
+       只有异常态(quiet/dead/unknown)和"介入过 N 次"才缀在后面 —— 环境卡 264px，把宽度留给该看的话。 #>
+    if ($haveSupervisor) {
+        $sv = $null
+        try { $sv = Read-GdSupervisorSummary } catch { }
+        if ($sv) {
+            $svParts = @()
+            $svOdd = $false
+            $beats = @($sv.beats)
+            if ($beats.Count) {
+                $lastBeat = $beats[$beats.Count - 1]
+                foreach ($b in @($lastBeat.games)) {
+                    $st = [string]$b.state
+                    if (@('busy', 'done') -notcontains $st) { $svParts += ([string]$b.game + '=' + $st); $svOdd = $true }
+                }
+            }
+            $svTxt = ($svParts -join ' ')
+            $ivN = @($sv.actions).Count
+            if ($ivN) { $svTxt += (' · 介入 ' + $ivN + ' 次') }
+            if ($svTxt -and $svTxt.StartsWith(' · ')) { $svTxt = $svTxt.Substring(3) }
+            $svAlive = $false
+            try { if ($sv.pid) { $procSv = Get-Process -Id ([int]$sv.pid) -ErrorAction Stop; $procSv.Dispose(); $svAlive = $true } } catch { }
+            if ($sv.stopped) {
+                $when = [string]$sv.stopped
+                if ($when.Length -ge 19 -and $when.Substring(0, 10) -eq (Get-Date -Format 'yyyy-MM-dd')) { $when = $when.Substring(11, 8) }
+                $envRows += @{ Text = ('监督：已收工 ' + $when + $(if ($svTxt) { ' · ' + $svTxt } else { '' })); Kind = $(if ($svOdd) { 'warn' } else { 'dim' }) }
+            }
+            elseif ($svAlive) {
+                $envRows += @{ Text = ('监督：在岗' + $(if ($svTxt) { ' · ' + $svTxt } else { '' })); Kind = $(if ($svOdd) { 'warn' } else { 'ok' }) }
+            }
+            else {
+                $envRows += @{ Text = ('监督：进程没了但没说收工(最后心跳 ' + [string]$sv.updated + ') → 看 supervision.jsonl'); Kind = 'err' }
+            }
+        }
+    }
     $envRows += @{ Text = ('这一仓：' + ($script:games -join ' + ')); Kind = 'dim' }
     $envRows += @{ Text = ('入口：' + $entryName); Kind = 'dim' }
     <# 版本号只取 Major.Minor：5.1 的完整版本是 5.1.26100.94281，写全会把这一行顶出卡片宽度 #>

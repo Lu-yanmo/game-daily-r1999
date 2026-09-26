@@ -62,6 +62,19 @@ Register-GdModule ([pscustomobject]@{
             Ack       = { param($S) Set-GdR1999Ack -S $S }
             ShopState = { param($S, $Done) Set-GdR1999ShopState -S $S -Done:([bool]$Done) }
 
+            # ---- 监督 agent(lib\supervisor.ps1)的可选钩子。这一路刻意**不给 SupervisorRestart**：
+            #      MuMu 冷启动要好几分钟，误判一次的代价远超"多跑一轮"，所以 1999 出了状况只发通知。----
+            SupervisorEvidence = {
+                param($S)
+                $P = Get-M9APaths -S $S
+                return @{
+                    AssistantProc   = $P.Name
+                    AssistantLog    = (Get-M9ADailyLog -P $P)     # M9A 每天一本 log-yyyyMMdd.log
+                    DonePattern     = '启动任务完成|任务已全部完成'
+                    ProgressPattern = '开始任务：|队列任务开始|用户操作：启动任务'   # 「启动任务完成」单独出现只等于连上了模拟器，要先见过进度线
+                }
+            }
+
             # ---- status.ps1 那套只读体检的可选钩子，形状和 ark-module.ps1 里那组完全一致 ----
             StatusRows      = { param($S) Get-GdR1999EnvRows -S $S }
             StatusVersion   = { param($S) Show-GdR1999StatusVersion -S $S }

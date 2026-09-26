@@ -91,7 +91,7 @@ foreach ($m in @(Get-GdModules)) {
     foreach ($h in @('EnvProbes', 'Resolve', 'Preview', 'Run', 'Stop', 'Ack', 'ShopState')) {
         Check "[$id] 必备钩子 $h 是 scriptblock" ($m.Hooks.$h -is [scriptblock])
     }
-    foreach ($h in @('StatusRows', 'StatusVersion', 'StatusProcs', 'StatusProcExtra', 'StatusPlan', 'StatusSection')) {
+    foreach ($h in @('StatusRows', 'StatusVersion', 'StatusProcs', 'StatusProcExtra', 'StatusPlan', 'StatusSection', 'SupervisorEvidence', 'SupervisorRestart')) {
         $v = $m.Hooks.$h
         Check "[$id] 可选钩子 $h 要么没写、要么是 scriptblock" ($null -eq $v -or $v -is [scriptblock])
     }
@@ -377,6 +377,122 @@ foreach ($tpl in @('config\settings.example.json', 'publish\src\ark\config\setti
     }
     $txt = [System.IO.File]::ReadAllText($p)
     Check "$tpl 带 visionAllowReward=false(默认硬禁领奖)" ($txt -match '"visionAllowReward"\s*:\s*false')
+}
+
+Write-Host "`n[sv] 监督 agent(lib\supervisor.ps1 + tools\supervise.ps1)"
+# 全部离线：三段纯函数喂字典判决策表，采集用临时文件真演(首拍不扫旧内容/追加才算新增/跨天换路径)，
+# 记录写进临时目录后原样归还 $global:GD —— 不要求机器现场状态，也不碰任何进程。
+$supLib = Join-Path $root 'lib\supervisor.ps1'
+$supLoop = Join-Path $root 'tools\supervise.ps1'
+Check 'lib\supervisor.ps1 在(它是内核文件，两仓都要有)' (Test-Path -LiteralPath $supLib)
+Check 'tools\supervise.ps1 在(心跳子进程本体)' (Test-Path -LiteralPath $supLoop)
+if ((Test-Path -LiteralPath $supLib) -and (Test-Path -LiteralPath $supLoop)) {
+    . $supLib
+    $svEntry = ''
+    try { $svEntry = [System.IO.File]::ReadAllText((Join-Path $root 'daily-clear.ps1')) } catch { }
+    Check '入口点 lib\supervisor.ps1(不然 Invoke-GdDailyRound 的守卫等于没接)' ($svEntry -match [regex]::Escape('lib\supervisor.ps1'))
+
+    # ---- 配置语义(和 arkVisionRescue 同口径：没显式 false 就是开) ----
+    function New-GdSvS { param($V) [pscustomobject]@{ runtime = [pscustomobject]$V } }
+    Check 'supervisor 缺省=开'        (Get-GdSupervisorEnabled -S (New-GdSvS @{}))
+    Check 'supervisor=false 才关'     (-not (Get-GdSupervisorEnabled -S (New-GdSvS @{ supervisor = $false })))
+    Check 'supervisor=true 是开'      (Get-GdSupervisorEnabled -S (New-GdSvS @{ supervisor = $true }))
+    Check '间隔缺省 60s'              ((Get-GdSupervisorIntervalSec -S (New-GdSvS @{})) -eq 60)
+    Check '间隔<15s 归 60(拍太快没意义)' ((Get-GdSupervisorIntervalSec -S (New-GdSvS @{ supervisorIntervalSeconds = 5 })) -eq 60)
+    Check '间隔 90s 原样'             ((Get-GdSupervisorIntervalSec -S (New-GdSvS @{ supervisorIntervalSeconds = 90 })) -eq 90)
+    Check '静止阈值缺省 30 分钟'      ((Get-GdSupervisorQuietSec -S (New-GdSvS @{})) -eq 1800)
+    Check '静止阈值下限 5 分钟'       ((Get-GdSupervisorQuietSec -S (New-GdSvS @{ supervisorQuietMinutes = 1 })) -eq 300)
+    Check '干预额度缺省 1'            ((Get-GdSupervisorMaxInterventions -S (New-GdSvS @{})) -eq 1)
+    Check '干预额度可为 0(纯报告模式)' ((Get-GdSupervisorMaxInterventions -S (New-GdSvS @{ supervisorMaxInterventions = 0 })) -eq 0)
+
+    # ---- 状态判定表 ----
+    function SvEv { param($D = $false, $A = $true, $AA = 10, $DA = 10)
+        [pscustomobject]@{ Done = $D; AssistantAlive = $A; AsstAgeSec = $AA; DailyAgeSec = $DA } }
+    Check '完成线压死一切：进程没了也判 done' ((Get-GdSupervisorState -Evidence (SvEv $true $false) -EverAlive $true) -eq 'done')
+    Check '曾活着+现在没了+没完成 = dead'      ((Get-GdSupervisorState -Evidence (SvEv $false $false) -EverAlive $true) -eq 'dead')
+    Check '助手从没活着过 ≠ dead(开轮太早)'    ((Get-GdSupervisorState -Evidence (SvEv $false $false 9999 10) -EverAlive $false) -eq 'busy')
+    Check '两本日志都超阈值才 quiet'          ((Get-GdSupervisorState -Evidence (SvEv $false $true 9999 9999) -QuietSec 1800) -eq 'quiet')
+    Check '只有助手日志老 = 不算静止'          ((Get-GdSupervisorState -Evidence (SvEv $false $true 9999 10) -QuietSec 1800) -eq 'busy')
+    Check '只有主日志老 = 不算静止'            ((Get-GdSupervisorState -Evidence (SvEv $false $true 10 9999) -QuietSec 1800) -eq 'busy')
+    Check '刚好踩在阈值上不算静止(严格大于)'    ((Get-GdSupervisorState -Evidence (SvEv $false $true 1800 1800) -QuietSec 1800) -eq 'busy')
+
+    # ---- 动作决策表 ----
+    $scrBlocking = [pscustomobject]@{ Ok = $true; Blocking = $true; What = '活动公告' }
+    $scrClear    = [pscustomobject]@{ Ok = $true; Blocking = $false; What = '主界面' }
+    $scrFailed   = [pscustomobject]@{ Ok = $false; Why = '截图没成功' }
+    Check 'busy 不动'      ((Get-GdSupervisorAction -State 'busy').Kind -eq 'none')
+    Check 'done 不动'      ((Get-GdSupervisorAction -State 'done').Kind -eq 'none')
+    Check 'dead 通知一次'  ((Get-GdSupervisorAction -State 'dead').Kind -eq 'notify')
+    Check 'dead 通知过就闭嘴' ((Get-GdSupervisorAction -State 'dead' -AlreadyNotified $true).Kind -eq 'none')
+    Check '静止一拍不动手(可能是抖动)' ((Get-GdSupervisorAction -State 'quiet' -QuietStreak 1 -Screen $scrClear -CanRestart $true).Kind -eq 'none')
+    Check 'blocking 交给主流程兜底，不干预' ((Get-GdSupervisorAction -State 'quiet' -QuietStreak 2 -Screen $scrBlocking -CanRestart $true).Kind -eq 'none')
+    Check '静止+画面干净+许重启 = restart_assistant' ((Get-GdSupervisorAction -State 'quiet' -QuietStreak 2 -Screen $scrClear -CanRestart $true -Interventions 0 -MaxInterventions 1).Kind -eq 'restart_assistant')
+    Check '额度用完退回 notify' ((Get-GdSupervisorAction -State 'quiet' -QuietStreak 2 -Screen $scrClear -CanRestart $true -Interventions 1 -MaxInterventions 1).Kind -eq 'notify')
+    Check '这一路不许重启 → 只 notify' ((Get-GdSupervisorAction -State 'quiet' -QuietStreak 2 -Screen $scrClear -CanRestart $false).Kind -eq 'notify')
+    Check '看不清画面只 notify(绝不瞎重启)' ((Get-GdSupervisorAction -State 'quiet' -QuietStreak 2 -Screen $scrFailed -CanRestart $true).Kind -eq 'notify')
+    Check 'notify 说过不再重复轰炸' ((Get-GdSupervisorAction -State 'quiet' -QuietStreak 3 -Screen $scrFailed -AlreadyNotified $true).Kind -eq 'none')
+
+    # ---- 采集：临时文件真演(首拍对齐 / 追加才算 / 带上下文的完成线 / 跨天换路径) ----
+    $svTmp = Join-Path $env:TEMP ('gd-sv-' + $PID)
+    [void](New-Item -ItemType Directory -Path $svTmp -Force)
+    try {
+        $logA = Join-Path $svTmp 'a.log'
+        '上一轮留下的 任务已全部完成 旧行' | Set-Content -LiteralPath $logA -Encoding utf8
+        function Test-GdProcessRunning { param([string]$Name) return $true }   # 钉桩：进程表一律按"助手活着"答
+        $ctx = @{ asst_offset = @{}; task_seen = @{} }
+        $spec = @{ AssistantProc = '假助手'; AssistantLog = $logA; DonePattern = '任务已全部完成' }
+        $ev1 = Collect-GdSupervisorEvidence -S $S -Spec $spec -Ctx $ctx -Game 't1'
+        Check '首拍只对末尾，不把旧完成线当这一轮的' (-not $ev1.Done)
+        '这一轮 任务已全部完成' | Add-Content -LiteralPath $logA -Encoding utf8
+        $ev2 = Collect-GdSupervisorEvidence -S $S -Spec $spec -Ctx $ctx -Game 't1'
+        Check '拍与拍之间新增的行才算数' ([bool]$ev2.Done)
+        $logB = Join-Path $svTmp 'b.log'
+        'x' | Set-Content -LiteralPath $logB -Encoding utf8
+        $specB = @{ AssistantProc = '假助手'; AssistantLog = $logB
+                    DonePattern = '启动任务完成'; ProgressPattern = '开始任务：' }
+        [void](Collect-GdSupervisorEvidence -S $S -Spec $specB -Ctx $ctx -Game 't2')
+        '启动任务完成' | Add-Content -LiteralPath $logB -Encoding utf8
+        Check '没见过进度线，「启动任务完成」单独出现不算完成' (-not (Collect-GdSupervisorEvidence -S $S -Spec $specB -Ctx $ctx -Game 't2').Done)
+        ('开始任务：日常', '启动任务完成') -join "`r`n" | Add-Content -LiteralPath $logB -Encoding utf8
+        Check '进度线补上后，完成线算数' ([bool](Collect-GdSupervisorEvidence -S $S -Spec $specB -Ctx $ctx -Game 't2').Done)
+        '任务已全部完成' | Set-Content -LiteralPath (Join-Path $svTmp 'c.log') -Encoding utf8
+        $specC = @{ AssistantProc = '假助手'; AssistantLog = (Join-Path $svTmp 'c.log'); DonePattern = '任务已全部完成' }
+        Check '日志换路径(跨天)后首拍同样不扫旧内容' (-not (Collect-GdSupervisorEvidence -S $S -Spec $specC -Ctx $ctx -Game 't2').Done)
+
+        # ---- 记录：写进临时目录再归还，读方(FileShare)拿到的必须是同一份 ----
+        $oldState = $global:GD.State; $oldLogs = $global:GD.Logs
+        try {
+            $global:GD.State = Join-Path $svTmp 'state'
+            $global:GD.Logs = Join-Path $svTmp 'logs'
+            [void](New-Item -ItemType Directory -Path $global:GD.State -Force)
+            [void](New-Item -ItemType Directory -Path $global:GD.Logs -Force)
+            $meta = @{ pid = 4242; owner = 1; started = '2026-09-26 00:00:00'; games = 'all' }
+            $row = @([pscustomobject]@{ game = 't1'; state = 'busy'; alive = $true; asst_age = 5; done = $false; screen = ''; action = 'none'; why = '' })
+            Write-GdSupervisorBeat -Meta $meta -PerGame $row -Actions @()
+            $doc = Read-GdSupervisorSummary
+            Check '一拍落两个文件(jsonl 流水 + json 现值)' ((Test-Path -LiteralPath (Get-GdSupervisorBeatPath)) -and ($null -ne $doc) -and ([int]$doc.pid -eq 4242))
+            Check 'beat 内容原样读回' ((@(@($doc.beats)[0].games)[0].game) -eq 't1')
+            for ($i = 0; $i -lt 32; $i++) { Write-GdSupervisorBeat -Meta $meta -PerGame $row -Actions @() }
+            Check 'json 里只留最近 30 拍(它是"此刻"，流水在 jsonl)' ((@((Read-GdSupervisorSummary).beats).Count) -le 30)
+            $jl = @(Get-Content -LiteralPath (Get-GdSupervisorBeatPath)).Count
+            Check 'jsonl 一行一拍、不截断(33 拍)' ($jl -eq 33) "实际 $jl"
+        } finally { $global:GD.State = $oldState; $global:GD.Logs = $oldLogs }
+    } finally { Remove-Item -LiteralPath $svTmp -Recurse -Force -ErrorAction SilentlyContinue }
+
+    # ---- 纯洁性：监督层也不许认识具体游戏(和 m3 同一把尺) ----
+    foreach ($f in @('lib\supervisor.ps1', 'tools\supervise.ps1')) {
+        $code = Get-GdCodeOnlyText -Text ([System.IO.File]::ReadAllText((Join-Path $root $f)))
+        Check "$f 的代码里没有游戏名/助手名字面量" ($code -notmatch "'ark'" -and $code -notmatch "'r1999'" -and $code -notmatch 'Maa' -and $code -notmatch 'MuMu' -and $code -notmatch '端游')
+    }
+    # settings 模板覆盖：supervisor 四键在每份 example 里都要有(publish-split 的键覆盖检查兜运行时引用，这里先钉静态)
+    foreach ($tpl in @('config\settings.example.json', 'publish\src\ark\config\settings.example.json', 'publish\src\r1999\config\settings.example.json')) {
+        $tp = Join-Path $root $tpl
+        if (-not (Test-Path -LiteralPath $tp)) { continue }
+        $tt = [System.IO.File]::ReadAllText($tp)
+        $miss = @('supervisor', 'supervisorIntervalSeconds', 'supervisorQuietMinutes', 'supervisorMaxInterventions') |
+                Where-Object { $tt -notmatch ('"' + [regex]::Escape($_) + '"') }
+        Check "$tpl 覆盖监督的 4 个 runtime 键" ($miss.Count -eq 0) ($miss -join ' ')
+    }
 }
 
 $res = Show-GdTestResult -Tag 'modules'

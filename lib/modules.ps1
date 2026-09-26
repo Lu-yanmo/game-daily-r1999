@@ -322,6 +322,13 @@ function Invoke-GdDailyRound {
     # 登记活体标记：从这一行起，别的进程(面板/另一个终端)才认得出"有人正在跑"。
     # 放在 dry-run 返回之后是刻意的 —— 预演不占助手、不占端游，登记了反而会把面板挡在门外。
     Start-GdRunLock -Games $(if ($Ids) { $Ids -join '+' } else { 'all' }) -Tag $Tag
+    # 监督 agent：独立隐藏子进程当旁观者(lib\supervisor.ps1，本体在 tools\supervise.ps1)。
+    # 用 Get-Command 守卫是因为入口点不点 supervisor.ps1 由它自己决定(自检假环境就不点)，
+    # 起不来也只少一份旁观、绝不该影响主流程 —— 监督永远是被保护的对象之外那层。
+    if (Get-Command Start-GdSupervisor -ErrorAction SilentlyContinue) {
+        try { [void](Start-GdSupervisor -S $S -Games $(if ($Ids) { $Ids -join '+' } else { 'all' })) }
+        catch { Write-GdLog "监督 agent 没起来：$($_.Exception.Message)(这一轮没人监督，主流程不受影响)" -Level WARN }
+    }
     if ($S.runtime.blockSleep) { Enter-GdNoSleep -KeepScreenOn ([bool]$S.runtime.keepScreenOn) }
     $results = [ordered]@{}
     $fatal = $null
@@ -334,6 +341,11 @@ function Invoke-GdDailyRound {
         Write-GdLog "本轮异常中断：$fatal" -Level ERROR
     } finally {
         # ---------- 收尾(无论成败都要做) ----------
+        # 监督要先停、停在各路 Stop 钩子之前：收尾会 Stop-GdProcessTree 杀掉助手，那是我们自己动手，
+        # 监督若还在岗会把"助手进程不见了"当真出事发一条假警报(它读 running.json，也得在标记撤掉前收工)。
+        if (Get-Command Stop-GdSupervisor -ErrorAction SilentlyContinue) {
+            try { [void](Stop-GdSupervisor) } catch { Write-GdLog "监督 agent 没停干净：$($_.Exception.Message)" -Level WARN }
+        }
         if (-not $SkipCleanup) {
             Write-GdLog '--- 收尾 ---' -Level STEP
             foreach ($id in $plan.Keys) {

@@ -193,7 +193,7 @@ function Register-M9AEvents {
         $lvl = [string]$l.Level
         if ($lvl -and ($lvl -ne 'INFO')) { Write-GdLog ([string]$l.Text) -Level $lvl } else { Write-GdLog ([string]$l.Text) }
     }
-    foreach ($p in $d.State.PSObject.Properties) { $State[[string]$p.Name] = $p.Value }
+    foreach ($sp in $d.State.PSObject.Properties) { $State[[string]$sp.Name] = $sp.Value }
     if ($d.Directives.TouchLastLog) { $State.lastLog = Get-Date }
 }
 

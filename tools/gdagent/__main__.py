@@ -1,13 +1,15 @@
-"""python -m gdagent <verb> ... —— KB 命令行入口。stdout 只出 JSON 信封，日志走 stderr。
+"""python -m gdagent <verb> ... —— KB/agent 命令行入口。KB 动词 stdout 只出 JSON 信封，日志走 stderr。
 
-动词：import / search / stats / drop / compact / rebuild / reindex / rollback / probe
-（M2 会在此加对话回路 `chat`，并把 set-config/preview/run-verb 白名单从 PS 迁来。）
+KB 动词：import / search / stats / drop / compact / rebuild / reindex / rollback / probe
+agent 动词(M2)：agent = 和需求管家对话(人用终端，输出是人话)；agent-eval = 对拍批处理口
+(cases JSONL → 投影结果 JSONL，tools\\probe-agent-golden.ps1 的双跑 Python 侧)。
 """
 import argparse
 import sys
 
 from . import config as CFG
 from . import envelope as ENV
+from . import engine as EN
 from .kb import chunk as CK
 from .kb import manager as M
 from .kb import store as ST
@@ -40,11 +42,34 @@ def build_parser():
     sub.add_parser("reindex")
     sub.add_parser("rollback")
     sub.add_parser("probe")
+
+    s = sub.add_parser("agent", help="和需求管家对话(人用终端：输出是人话，不是信封 JSON)")
+    s.add_argument("--ask", default="", help="单发一句需求，办完就退")
+    s.add_argument("--rollback", action="store_true", help="按 journal 逆序恢复(不经过模型)")
+    s.add_argument("--rollback-dry", dest="rollback_dry", action="store_true", help="只看攒了几项变更")
+
+    s = sub.add_parser("agent-eval", help="对拍批处理口：cases JSONL → 投影结果 JSONL")
+    s.add_argument("--cases", required=True)
+    s.add_argument("--out", required=True)
+    s.add_argument("--fake-farm-spec", dest="fake_farm_spec", action="store_true",
+                   help="farmTargets 用假解析器(与 PS 探针同名件逐字一致；真规则归 probe-orch-golden)")
     return p
 
 
 def main(argv=None):
     args = build_parser().parse_args(argv)
+
+    # agent 两动词不走 KB 的 store/信封通道：对话要的是人话，对拍要的是文件进文件出。
+    if args.verb == "agent":
+        from . import live
+        return live.run_agent(CFG.ROOT, ask=args.ask, rollback=args.rollback,
+                              rollback_dry=args.rollback_dry)
+    if args.verb == "agent-eval":
+        sp = EN.fake_spec_parser if args.fake_farm_spec else None
+        n = EN.run_eval_cases(args.cases, args.out, sp)
+        ENV.emit(ENV.ok(cases=n, out=str(args.out)))
+        return 0
+
     cfg = CFG.load()
     store = ST.Store(CFG.ROOT / "state" / "kb")
     store.sweep_partial()

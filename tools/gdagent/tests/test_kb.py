@@ -3,6 +3,7 @@
 跑法（tools 目录下）： python -m unittest discover -s gdagent/tests -t . 2>&1
 或：                  python gdagent/tests/test_kb.py
 """
+import json
 import os
 import sys
 import tempfile
@@ -348,6 +349,71 @@ class TestManager(unittest.TestCase):
         self.assertTrue(r["ok"])
         self.assertEqual(r["embedded"], 0)
         self.assertEqual(self.fake.calls, calls)  # 模型未换 + 全命中 → 不 embed
+
+
+# ---------------- 真实 API 响应 golden 重放(2026-09-27 专属 MaaS 端点实测钉版) ----------------
+
+_GOLDEN_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "golden", "api-responses.jsonl")
+
+
+def _load_api_golden():
+    rows = {}
+    with open(_GOLDEN_PATH, "rb") as fh:
+        for ln in fh.read().decode("utf-8").splitlines():
+            if ln.strip():
+                row = json.loads(ln)
+                rows[row["sample"]] = row
+    return rows
+
+
+class TestApiGoldenReplay(unittest.TestCase):
+    """离线：把 golden 里的真实响应喂回 embed/rerank 解析路径，形状一漂移就红。"""
+
+    @classmethod
+    def setUpClass(cls):
+        if not os.path.isfile(_GOLDEN_PATH):
+            raise unittest.SkipTest("golden/api-responses.jsonl 不在(本地钉版文件)")
+        cls.rows = _load_api_golden()
+
+    def _cfg(self):
+        return CFG.Config({"runtime": {"kbEmbedModel": "text-embedding-v4",
+                                       "kbRerankModel": "gte-rerank-v2",
+                                       "kbBaseUrl": "https://example.invalid/compatible-mode/v1"}},
+                          environ={"KB_API_KEY": "testkey"})
+
+    def test_embed_golden_parses(self):
+        row = self.rows["embeddings"]
+        body = json.dumps(row["response"])
+
+        def transport(url, payload, key, timeout):
+            self.assertTrue(url.endswith("/embeddings"))
+            self.assertEqual(payload["model"], "text-embedding-v4")
+            self.assertEqual(payload["input"], row["request"]["input"])
+            return 200, body
+
+        vecs = E.embed_texts(row["request"]["input"], self._cfg(), transport=transport)
+        self.assertEqual(len(vecs), 2)
+        self.assertEqual(row["response"]["data"][0]["dim_total"], 1024)  # 钉版事实：v4 默认 1024 维
+        for got, want in zip(vecs, row["response"]["data"]):
+            # golden 只截了前 6 维，解析路径吃的就是这 6 个：逐维对得上即证明形状没漂
+            self.assertEqual(len(got), len(want["embedding"]))
+            self.assertEqual([round(v, 9) for v in got], [round(float(x), 9) for x in want["embedding"]])
+
+    def test_rerank_golden_parses(self):
+        row = self.rows["rerank"]
+        body = json.dumps(row["response"])
+        docs = [{"text": t} for t in row["request"]["input"]["documents"]]
+
+        def transport(url, payload, key, timeout):
+            self.assertIn("/api/v1/services/rerank/text-rerank/text-rerank", url)
+            self.assertEqual(payload["model"], "gte-rerank-v2")
+            return 200, body
+
+        out = S.rerank(row["request"]["input"]["query"], docs, self._cfg(), transport=transport)
+        want = [(r["index"], r["relevance_score"]) for r in row["response"]["output"]["results"]]
+        self.assertEqual([i for i, _ in out], [i for i, _ in want])
+        self.assertEqual(out, want)
+        self.assertEqual(out, sorted(out, key=lambda t: -t[1]))  # 降序口径
 
 
 if __name__ == "__main__":

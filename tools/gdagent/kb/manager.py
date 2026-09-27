@@ -160,7 +160,11 @@ def do_search(store, cfg, query, game=None, top=6, rerank_on=True, embed_fn=None
         try:
             order = S.rerank(query, docs, cfg, transport=transport)
             ranked = [(hits[i][0], hits[i][1], s) for i, s in order if 0 <= i < len(hits)]
-            hits = [(c, s) for c, s, _ in ranked]
+            floor = getattr(cfg, "rerank_min", 0.30)
+            kept = [(c, s) for c, s, rs in ranked if rs >= floor]
+            if len(kept) < len(ranked):
+                scope_note += "｜rerank 相关性<%g 裁掉 %d 条" % (floor, len(ranked) - len(kept))
+            hits = kept
             rerank_applied = True
         except S.RerankError as e:
             # 降级：回落向量序，不报错，仅在 why 里注明

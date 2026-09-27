@@ -28,6 +28,13 @@ class Config:
         self.base_url = self._resolve_base(rt)
         self.embed_batch = int(rt.get("kbEmbedBatch") or 10)
         self.timeout_seconds = float(rt.get("kbTimeoutSeconds") or 60)
+        # rerank 相关性下限：低于它的命中不算"有依据"（M4 决策题实测：无裁时
+        # 库里不存在的系统也会返回最相似块当资料）。阈值按 2026-09-28 实测标定：
+        # 正确命中最低 0.1395、库外问题 top1 最高 0.1327 —— 绝对分只能当"垃圾线"
+        # 用(0.12)，语义错配的防线在教材("资料不相关等同 no_hits")，别指望拉高数值。
+        # 显式配 0 = 关裁剪。
+        raw_floor = rt.get("kbRerankMinScore")
+        self.rerank_min = float(raw_floor) if raw_floor not in (None, "") else 0.12
 
     def _resolve_base(self, rt):
         base = (rt.get("kbBaseUrl") or "").strip()

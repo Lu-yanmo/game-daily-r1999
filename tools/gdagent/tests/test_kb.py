@@ -314,6 +314,39 @@ class TestManager(unittest.TestCase):
         self.assertFalse(hit["rerank"])
         self.assertIn("rerank", hit["why"])
 
+    def _ranked_transport(self, first_score, rest_score):
+        def transport(url, payload, key, timeout):
+            docs = payload["input"]["documents"]
+            results = [{"index": i, "relevance_score": first_score if i == 0 else rest_score}
+                       for i in range(len(docs))]
+            return 200, json.dumps({"output": {"results": results}})
+        return transport
+
+    def test_rerank_floor_drops_weak_hits(self):
+        # M4 决策题实测坑钉桩：库里没有的机制也会返回"最相似"块 —— rerank 生效时
+        # 相关性低于 cfg.rerank_min(默认 0.30) 的命中必须裁掉，不能当资料喂给模型。
+        M.import_paths(self.st, self.cfg, self.root, self.md_dir, game="general", embed_fn=self.fake)
+        cfg = make_cfg(kbEmbedModel="fake-model", kbRerankModel="some-rerank")
+        hit = M.do_search(self.st, cfg, "理智", game="ark", embed_fn=self.fake,
+                          transport=self._ranked_transport(0.91, 0.05))
+        self.assertTrue(hit["ok"])
+        self.assertTrue(hit["rerank"])
+        self.assertEqual(len(hit["hits"]), 1)
+        self.assertIn("裁掉", hit["why"])
+
+    def test_rerank_floor_all_weak_means_no_hits(self):
+        M.import_paths(self.st, self.cfg, self.root, self.md_dir, game="general", embed_fn=self.fake)
+        cfg = make_cfg(kbEmbedModel="fake-model", kbRerankModel="some-rerank")
+        hit = M.do_search(self.st, cfg, "理智", game="ark", embed_fn=self.fake,
+                          transport=self._ranked_transport(0.02, 0.05))
+        self.assertTrue(hit["ok"])
+        self.assertEqual(hit["hits"], [])
+        # 显式配 0 = 关裁剪（回退旧行为的后路）
+        cfg0 = make_cfg(kbEmbedModel="fake-model", kbRerankModel="some-rerank", kbRerankMinScore="0")
+        hit0 = M.do_search(self.st, cfg0, "理智", game="ark", embed_fn=self.fake,
+                           transport=self._ranked_transport(0.02, 0.05))
+        self.assertTrue(hit0["hits"])
+
     def test_drop_needs_yes(self):
         M.import_paths(self.st, self.cfg, self.root, self.md_dir, game="general", embed_fn=self.fake)
         r = M.drop_game(self.st, self.cfg, "ark")

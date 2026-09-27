@@ -411,7 +411,173 @@ namespace GdPanel
                     && NotesN(r) == 2 && RL(r) == 0 && Ph(r) == "";
             });
 
+            // ==================== 批次 8：decide-m9a-run-tick(m9a 一路反应段) ====================
+            // 期望串逐字抄自 lib\m9a.ps1 Invoke-M9ARun 行 350-388 + $askScreen 闭包 325-337(基线 c498da0)。
+
+            // ---------- 首拍档位 ----------
+            b.Chk("m9a ok → OK 结论句(Round 同 PS ToEven：675 秒→11.2) + Duration + 直接 return", () =>
+            {
+                object r = MTick(675, true, true, "ok", "链路跑完", 8, null, null);
+                return Act(r) == "return" && Stat(r) == "ok" && Det(r) == "链路跑完"
+                    && Lgs(r).Length == 1 && LLv(r, 0) == "OK"
+                    && LTx(r, 0) == "M9A 链路完成，共 8 个任务，用时 11.2 分钟"
+                    && Math.Abs(Dur(r) - 675.0) < 1e-9 && Effs(r).Length == 0;
+            });
+            b.Chk("m9a ok 整分钟打整数形(660→『11 分钟』，PS double→串口径)", () =>
+            {
+                object r = MTick(660, true, true, "ok", "", 0, null, null);
+                return LTx(r, 0) == "M9A 链路完成，共 0 个任务，用时 11 分钟";
+            });
+            b.Chk("m9a empty-queue → ERROR 日志是原句(不拼进程后缀)、Detail 也不拼", () =>
+            {
+                object r = MTick(30, true, false, "empty-queue", "队列一个任务都没有", 0, null, null);
+                return Act(r) == "return" && Stat(r) == "empty-queue" && Det(r) == "队列一个任务都没有"
+                    && LLv(r, 0) == "ERROR" && LTx(r, 0) == "队列一个任务都没有" && Effs(r).Length == 0;
+            });
+            b.Chk("m9a 非 ok 非 empty-queue → 进程后缀先拼再问画面(Context 里就能看到)", () =>
+            {
+                object r = MTick(30, true, true, "stalled", "M9A 十分钟没动静", 0, null, null);
+                return EK(r, 0) == "ask-screen" && ETag(r, 0) == "m9a1" && EWhy(r, 0) == "停滞"
+                    && ECtx(r, 0) == "M9A 十分钟没动静(游戏进程出现过)" && Ph(r) == "ask-rescue" && RL(r) == 1;
+            });
+            b.Chk("m9a unknown-format 不在问画面集合 → 拼后缀直接 return(状态名一律不改)", () =>
+            {
+                object r = MTick(30, false, true, "unknown-format", "标志一条没认出来", 0, null, null);
+                return Act(r) == "return" && Stat(r) == "unknown-format"
+                    && Det(r) == "标志一条没认出来(游戏进程从未出现)" && Effs(r).Length == 0;
+            });
+            b.Chk("m9a 预算初始化 0→2、[int] 银行家舍入 2.5→2", () =>
+            {
+                return RL(MTickRescueMax(0)) == 2 && RL(MTickRescueMax(2.5)) == 2 && RL(MTickRescueMax(3.5)) == 4;
+            });
+            b.Chk("m9a 没预算/树上没函数 → 不问画面，兜底账为空也照样 return", () =>
+            {
+                object r1 = MTick(30, true, true, "blocked", "任务全失败", 0,
+                    Inp("phase", "", "rescueLeft", 0, "rescueNotes", new object[0], "askDetail", ""), null);
+                object r2 = MTick(30, true, false, "blocked", "任务全失败", 0, null, null);
+                return Act(r1) == "return" && Effs(r1).Length == 0 && Det(r1) == "任务全失败(游戏进程出现过)"
+                    && Act(r2) == "return" && Effs(r2).Length == 0;
+            });
+
+            // ---------- 三拍链：ask → record → 日志+去留 ----------
+            b.Chk("m9a stalled 兜成：record Tag 与调用 Tag 同数(m9a1，没有 ark 的错位) → 本拍无日志", () =>
+            {
+                object r1 = MTick(30, true, true, "stalled", "十分钟没动静", 0, null, null);
+                object r2 = MTickR(30, true, "stalled", "十分钟没动静", 0, St(r1), new object[] { AskRc(true, true, "更新弹窗被点掉了") });
+                return EK(r2, 0) == "record" && ETag(r2, 0) == "m9a1"
+                    && NoteAt(r2, 0) == "[停滞] 更新弹窗被点掉了" && Lgs(r2).Length == 0 && Ph(r2) == "ask-record";
+            });
+            b.Chk("m9a 记账回执回来 → 『视觉兜底(停滞)：…』OK 日志 + 撤回本轮结论(ResetLastLog+继续等待入账)", () =>
+            {
+                object r1 = MTick(30, true, true, "stalled", "十分钟没动静", 0, null, null);
+                object r2 = MTickR(30, true, "stalled", "十分钟没动静", 0, St(r1), new object[] { AskRc(true, true, "更新弹窗被点掉了") });
+                object r3 = MTickR(30, true, "stalled", "十分钟没动静", 0, St(r2),
+                    new object[] { AskRc(true, true, "更新弹窗被点掉了"), RecRc() });
+                return Act(r3) == "loop" && LLv(r3, 0) == "OK" && LTx(r3, 0) == "视觉兜底(停滞)：更新弹窗被点掉了"
+                    && Dir(r3, "ResetLastLog") && NoteAt(r3, 1) == "[停滞已解除，继续等待]" && Ph(r3) == "" && RL(r3) == 1;
+            });
+            b.Chk("m9a blocked 兜成 → Rescued=true、状态名不改、Detail 带进程后缀+兜底账(给 r1999-daily 分流看)", () =>
+            {
+                object r1 = MTick(30, true, true, "blocked", "第一个任务就失败", 0, null, null);
+                if (EWhy(r1, 0) != "判因") return false;
+                object r2 = MTickR(30, true, "blocked", "第一个任务就失败", 0, St(r1), new object[] { AskRc(true, true, "资源更新界面被点掉了") });
+                object r3 = MTickR(30, true, "blocked", "第一个任务就失败", 0, St(r2),
+                    new object[] { AskRc(true, true, "资源更新界面被点掉了"), RecRc() });
+                return Act(r3) == "return" && Stat(r3) == "blocked" && Resc(r3) && !Dir(r3, "ResetLastLog")
+                    && LTx(r3, 0) == "视觉兜底(判因)：资源更新界面被点掉了" && LLv(r3, 0) == "OK"
+                    && Det(r3) == "第一个任务就失败(游戏进程出现过)；视觉兜底 1 次，最后一次：[判因] 资源更新界面被点掉了";
+            });
+            b.Chk("m9a stalled 没兜成 → WARN + return(Rescued=false)，WARN 句与 ark 的『视觉兜底结果：』不是一套词", () =>
+            {
+                object r1 = MTick(30, false, true, "timeout", "跑过头了", 0, null, null);
+                object r2 = MTickR(30, false, "timeout", "跑过头了", 0, St(r1), new object[] { AskRc(true, false, "画面没动") });
+                object r3 = MTickR(30, false, "timeout", "跑过头了", 0, St(r2),
+                    new object[] { AskRc(true, false, "画面没动"), RecRc() });
+                return Act(r3) == "return" && Stat(r3) == "timeout" && !Resc(r3)
+                    && LLv(r3, 0) == "WARN" && LTx(r3, 0) == "视觉兜底(停滞)：画面没动"
+                    && Det(r3) == "跑过头了(游戏进程从未出现)；视觉兜底 1 次，最后一次：[停滞] 画面没动";
+            });
+            b.Chk("m9a 兜底抛异常 → rc 三字段按闭包 catch 合成 + 账目 [判因] 兜底抛异常：…", () =>
+            {
+                object r1 = MTick(30, true, true, "not-started", "一直没进游戏", 0, null, null);
+                object r2 = MTickR(30, true, "not-started", "一直没进游戏", 0, St(r1), new object[] { AskX("视觉接口 500") });
+                return EK(r2, 0) == "record" && !Gd.Truthy(Gd.Get(E(r2, 0), "Tried")) && !Gd.Truthy(Gd.Get(E(r2, 0), "Done"))
+                    && Gd.Str(Gd.Get(E(r2, 0), "Detail")) == "兜底抛异常：视觉接口 500"
+                    && NoteAt(r2, 0) == "[判因] 兜底抛异常：视觉接口 500";
+            });
+            b.Chk("m9a 续判拍 res.detail 回原串也不丢进程后缀(askDetail 随 state 中继，tick3 冒烟红回归钉)", () =>
+            {
+                object r1 = MTick(30, false, true, "blocked", "任务失败", 0, null, null);
+                object r2 = MTickR(30, false, "blocked", "任务失败", 0, St(r1), new object[] { AskRc(true, false, "没东西可点") });
+                object r3 = MTickR(30, false, "blocked", "任务失败", 0, St(r2),
+                    new object[] { AskRc(true, false, "没东西可点"), RecRc() });
+                return Det(r3) == "任务失败(游戏进程从未出现)；视觉兜底 1 次，最后一次：[判因] 没东西可点";
+            });
+            b.Chk("m9a 手写 state 没 askDetail 键 → 退回当拍 res.detail(真壳永远带，防御口径)", () =>
+            {
+                object s = Inp("phase", "ask-rescue", "rescueLeft", 1, "rescueNotes", new object[0]);
+                object r = MTickR(30, true, "blocked", "原串", 0, s, new object[] { AskRc(true, false, "没动") });
+                return ETag(r, 0) == "m9a1" && NoteAt(r, 0) == "[判因] 没动";
+            });
+            b.Chk("m9a 新一拍 phase 归零：旧 askDetail 不许串门，用当拍 res.detail + 历史账照样拼", () =>
+            {
+                object s = Inp("phase", "", "rescueLeft", 1,
+                    "rescueNotes", new object[] { "[停滞] 上一轮的东西" }, "askDetail", "旧串(游戏进程出现过)");
+                object r = MTickR2(30, false, false, "empty-queue", "又空了", 0, s, null, 2);   // 树上没函数 → 不问直接收
+                return Det(r) == "又空了；视觉兜底 1 次，最后一次：[停滞] 上一轮的东西"
+                    && LTx(r, 0) == "又空了"   // ERROR 原句(空队列分支在拼账之前)
+                    && Det(r).Contains("旧串") == false;   // 旧 askDetail 不许串门
+            });
+            b.Chk("m9a ok 带历史兜底账 → 结论句不改、Detail 拼账(上一轮兜过这一轮成)", () =>
+            {
+                object s = Inp("phase", "", "rescueLeft", 0,
+                    "rescueNotes", new object[] { "[停滞] 点掉了弹窗", "[停滞已解除，继续等待]" }, "askDetail", "");
+                object r = MTickR(725, true, "ok", "链路跑完", 8, s, null);
+                return Act(r) == "return" && Det(r) == "链路跑完；视觉兜底 2 次，最后一次：[停滞已解除，继续等待]"
+                    && LTx(r, 0) == "M9A 链路完成，共 8 个任务，用时 12.1 分钟";
+            });
+
             return b.Result("looptest");
+        }
+
+        // ---------- m9a 一路的输入构造器(键面与壳的迷你循环一字不差) ----------
+        static object MTick(double el, bool seen, bool rescue, string status, string detail, int tasks, object st, object[] rx)
+        {
+            return MTickR2(el, seen, rescue, status, detail, tasks, st, rx, 2);
+        }
+        static object MTickR(double el, bool seen, string status, string detail, int tasks, object st, object[] rx)
+        {
+            return MTickR2(el, seen, true, status, detail, tasks, st, rx, 2);
+        }
+        static object MTickR2(double el, bool seen, bool rescue, string status, string detail, int tasks, object st, object[] rx, int maxRaw)
+        {
+            return RunLoops.M9aTick(Inp(
+                "now", Inp("elapsedSec", el),
+                "live", Inp("seenGame", seen, "rescueAvailable", rescue),
+                "res", Inp("status", status, "detail", detail, "tasksCount", tasks),
+                "cfg", Inp("rescueMaxRaw", maxRaw),
+                "state", st, "effectsResolved", rx ?? new object[0]));
+        }
+        static object MTickRescueMax(object maxRaw)
+        {
+            return RunLoops.M9aTick(Inp(
+                "now", Inp("elapsedSec", 100.0),
+                "live", Inp("seenGame", true, "rescueAvailable", true),
+                "res", Inp("status", "unknown-format", "detail", "", "tasksCount", 0),
+                "cfg", Inp("rescueMaxRaw", maxRaw),
+                "state", null, "effectsResolved", new object[0]));
+        }
+        static Dictionary AskRc(bool tried, bool done, string detail)
+        {
+            return Inp("kind", "ask-screen", "exception", false, "tried", tried, "done", done, "detail", detail);
+        }
+        static Dictionary AskX(string msg) { return Inp("kind", "ask-screen", "exception", true, "message", msg); }
+        static string EWhy(object r, int i) { return Gd.Str(Gd.Get(E(r, i), "Why")); }
+        static bool Resc(object r) { return Gd.Truthy(Gd.Get(D(r), "Rescued")); }
+        static double Dur(object r)
+        {
+            object v = Gd.Get(D(r), "Duration");
+            return v == null ? -1.0 : Convert.ToDouble(v, System.Globalization.CultureInfo.InvariantCulture);
         }
 
         static object[] Add(object[] head, object tailItem)

@@ -14,6 +14,14 @@
 # Set-Gd*Ack/ShopState 与 Start-GdR1999Daily 整函数留壳(起进程/切实例归后续批次)。
 # 改规则请改 C# 并跑 tools\probe-orch-golden.ps1 对拍，不要在这里加规则。
 # ──────────────────────────────────────────────────────────────────────────────
+#
+# ── 追加冻结(2026-09-27，PS→C# 批次 8)─────────────────────────────────────────
+# Start-GdR1999Daily 的 $retryable 分流(五状态跳过清单 + "画面被兜清楚才翻案"的 or 支、
+#  retryOnce 合取、if/elseif 链的落穿语义与四句文案)已迁到 tools\panel-cs\Orchestration.cs
+#  (verb：decide-daily-retry，-Game r1999)。壳里留的正是"活"：Stop-M9A、sleep 20、重跑 $run9、
+#  日志回放。旧判据段在分流处逐行 # 前缀冻结(test-r1999 钉 $retryable 表达式与话术字面锚)。
+#  改分流规则/话术请改 Orchestration.cs 并复拍 tools\probe-live-golden.ps1，不要在这里加 if。
+# ──────────────────────────────────────────────────────────────────────────────
 
 function Set-GdR1999Ack {
     <# -Ack1999：确认"这一版的主线活动我已经手动打过" → 之后日常才允许跑活动方案 #>
@@ -82,28 +90,46 @@ function Start-GdR1999Daily {
     $run9 = { Invoke-M9ARun -S $S -Instance $inst }
     $r = Invoke-GdStep -Name '1999' -Body $run9
     <#
-      原来这批状态一律"不重试"，理由成立：--autostart 没生效 / 队列没提交 / 第一个任务就失败，
-      原样再跑一遍当然还是同一个结果。唯一能把这条规则翻过来的证据是**画面真的被兜清楚了**
-      ($r.Rescued = 视觉兜底点掉了一个挡路的弹窗/界面)，那时重跑一次才有意义。
-      unknown-format 永远不在其列：日志都读不懂，重试只是再看不懂一遍。
+      ===== 批次 8：$retryable 分流改问 decide-daily-retry(Orchestration.cs) =====
+      判据(not-started/empty-queue/blocked 只有 Rescued 才翻案)、if/elseif 链的落穿语义
+      (retryOnce 关着不重试也照样落告警句)与全部话术都在 C#；本壳只回放日志 + 落地"活"
+      (Stop-M9A / sleep 20 / 重跑)。旧的 $retryable 表达式逐行 # 前缀冻结在下方 —— test-r1999
+      按那些字面钉锚(块注释不可嵌套，只能这么保)。
     #>
-    $retryable = ($r.Status -notin @('ok', 'not-started', 'empty-queue', 'unknown-format', 'blocked')) -or
-                 ($r.Rescued -and $r.Status -in @('not-started', 'empty-queue', 'blocked'))
-    if ($retryable -and $S.runtime.retryOnce) {
-        Write-GdLog $(if ($r.Rescued) { '1999 本轮未成功，但视觉兜底把挡路的界面点掉了 → 关闭 M9A 后重试一次' }
-                      else { '1999 本轮未成功 → 关闭游戏后重试一次' }) -Level WARN
+    #     $retryable = ($r.Status -notin @('ok', 'not-started', 'empty-queue', 'unknown-format', 'blocked')) -or
+    #                  ($r.Rescued -and $r.Status -in @('not-started', 'empty-queue', 'blocked'))
+    $d = Invoke-GdCli -Verb 'decide-daily-retry' -Body ([pscustomobject]@{
+        game      = 'r1999'
+        status    = [string]$r.Status
+        rescued   = [bool]$r.Rescued
+        retryOnce = [bool]$S.runtime.retryOnce
+    })
+    foreach ($l in @($d.Logs)) {
+        $lvl = [string]$l.Level
+        if ($lvl -and ($lvl -ne 'INFO')) { Write-GdLog ([string]$l.Text) -Level $lvl } else { Write-GdLog ([string]$l.Text) }
+    }
+    $retryable = [bool]$d.Retryable
+    if ($retryable) {
         Stop-M9A -S $S
         Start-Sleep -Seconds 20
         $r = Invoke-GdStep -Name '1999重试' -Body $run9
-    } elseif ($r.Status -eq 'unknown-format') {
-        Write-GdLog '1999 日志标志一条都没认出来 → 重试同样看不懂，直接记入本轮告警(见下面的处理建议)' -Level ERROR
-    } elseif ($r.Status -eq 'blocked') {
-        <# 实测 09-25 19:24：客户端在模拟器里下 1.91G 更新包，10 个任务里 8 个「任务失败」，
-           重试只是再空转 5 分钟。这种"游戏没在界面上"的形态重试无用，要人去处理。 #>
-        Write-GdLog '1999 从头一个任务起就没进游戏 → 是客户端/资源要更新或模拟器状态不对，重试没有意义，直接记入本轮告警' -Level ERROR
-    } elseif ($r.Status -in @('not-started', 'empty-queue')) {
-        Write-GdLog '1999 队列没开始/空跑完成 → 重试没有意义，直接记入本轮告警' -Level WARN
     }
+    <# 批次 8 冻结段：旧 if/elseif 的两句 WARN/ERROR 兜底话术(原文语义见 Orchestration.cs r1999 支)。
+       实测 09-25 19:24：客户端在模拟器里下 1.91G 更新包，10 个任务里 8 个「任务失败」，
+       重试只是再空转 5 分钟 —— "游戏没在界面上"的形态重试无用，要人去处理。 #>
+    #     if ($retryable -and $S.runtime.retryOnce) {
+    #         Write-GdLog $(if ($r.Rescued) { '1999 本轮未成功，但视觉兜底把挡路的界面点掉了 → 关闭 M9A 后重试一次' }
+    #                       else { '1999 本轮未成功 → 关闭游戏后重试一次' }) -Level WARN
+    #         Stop-M9A -S $S
+    #         Start-Sleep -Seconds 20
+    #         $r = Invoke-GdStep -Name '1999重试' -Body $run9
+    #     } elseif ($r.Status -eq 'unknown-format') {
+    #         Write-GdLog '1999 日志标志一条都没认出来 → 重试同样看不懂，直接记入本轮告警(见下面的处理建议)' -Level ERROR
+    #     } elseif ($r.Status -eq 'blocked') {
+    #         Write-GdLog '1999 从头一个任务起就没进游戏 → 是客户端/资源要更新或模拟器状态不对，重试没有意义，直接记入本轮告警' -Level ERROR
+    #     } elseif ($r.Status -in @('not-started', 'empty-queue')) {
+    #         Write-GdLog '1999 队列没开始/空跑完成 → 重试没有意义，直接记入本轮告警' -Level WARN
+    #     }
     Stop-M9A -S $S
     return $r
 }

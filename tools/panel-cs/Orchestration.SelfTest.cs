@@ -64,6 +64,7 @@ namespace GdPanel
             R1999Group(b);
             MaaGuiGroup(b);
             TaskArgsGroup(b);
+            RetryGroup(b);
             return b.Result("--orchtest");
         }
 
@@ -389,5 +390,68 @@ namespace GdPanel
             Dictionary<string, object> r3 = D(Orchestration.TaskArgs(Inp("text", "-File x")));
             b.Chk("没有可剥的就原样切(Count 守卫归壳管)", () => Gd.List(r3["Pieces"]).Length == 2);
         }
+
+        // ---------- 批次 8：decide-daily-retry(两路 daily 的重试分流) ----------
+        // 期望串逐字抄自 lib\ark-daily.ps1:141-148 与 lib\r1999-daily.ps1:90-106(基线 c498da0)。
+        static void RetryGroup(Box b)
+        {
+            object arkStalled = Retry("ark", "stalled", false, true);
+            object arkUfNoRetry = Retry("ark", "unknown-format", false, false);
+            object arkUfRetry = Retry("ark", "unknown-format", false, true);
+            object arkOk = Retry("ark", "ok", false, true);
+            object arkNs = Retry("ark", "not-started", false, true);
+            object n99Stalled = Retry("r1999", "stalled", false, true);
+            object n99BlockedRescued = Retry("r1999", "blocked", true, true);
+            object n99BlockedPlain = Retry("r1999", "blocked", false, true);
+            object n99NsRescued = Retry("r1999", "not-started", true, true);
+            object n99NsPlain = Retry("r1999", "not-started", false, false);
+            object n99Uf = Retry("r1999", "unknown-format", false, true);
+            object n99Empty = Retry("r1999", "empty-queue", false, true);
+            object n99Timeout = Retry("r1999", "timeout", false, true);
+
+            b.Chk("ark stalled+retryOnce → 重试一次(WARN『收尾后重试一次』)", () =>
+                Rry(arkStalled) && Rlg(arkStalled).Length == 1 && Rlv(arkStalled, 0) == "WARN"
+                    && Rtx(arkStalled, 0) == "方舟本轮未成功 → 收尾后重试一次");
+            b.Chk("ark unknown-format 就算 retryOnce 也不重试；不重试也照样落 elseif 打 ERROR(链逐字，不化简)", () =>
+                !Rry(arkUfNoRetry) && !Rry(arkUfRetry)
+                    && Rtx(arkUfNoRetry, 0) == "方舟日志标志一条都没认出来 → 重试同样看不懂，直接记入本轮告警(见下面的处理建议)"
+                    && Rlv(arkUfNoRetry, 0) == "ERROR" && Rtx(arkUfRetry, 0) == Rtx(arkUfNoRetry, 0));
+            b.Chk("ark ok/not-started → 既不重试也不吭声", () =>
+                !Rry(arkOk) && !Rry(arkNs) && Rlg(arkOk).Length == 0 && Rlg(arkNs).Length == 0);
+            b.Chk("r1999 stalled → 兜没兜都 WARN『关闭游戏后重试一次』", () =>
+                Rry(n99Stalled) && Rtx(n99Stalled, 0) == "1999 本轮未成功 → 关闭游戏后重试一次");
+            b.Chk("r1999 blocked+Rescued → 翻案重试，话术换『视觉兜底把挡路的界面点掉了』那句", () =>
+                Rry(n99BlockedRescued) && Rlv(n99BlockedRescued, 0) == "WARN"
+                    && Rtx(n99BlockedRescued, 0) == "1999 本轮未成功，但视觉兜底把挡路的界面点掉了 → 关闭 M9A 后重试一次");
+            b.Chk("r1999 blocked 没兜清 → 不重试但落 elseif blocked → ERROR『从头一个任务起就没进游戏』", () =>
+                !Rry(n99BlockedPlain) && Rlv(n99BlockedPlain, 0) == "ERROR"
+                    && Rtx(n99BlockedPlain, 0) == "1999 从头一个任务起就没进游戏 → 是客户端/资源要更新或模拟器状态不对，重试没有意义，直接记入本轮告警");
+            b.Chk("r1999 not-started+Rescued 也翻案；不带 Rescued → WARN『队列没开始/空跑完成』(retryOnce=false 同落)", () =>
+                Rry(n99NsRescued) && !Rry(n99NsPlain)
+                    && Rtx(n99NsPlain, 0) == "1999 队列没开始/空跑完成 → 重试没有意义，直接记入本轮告警" && Rlv(n99NsPlain, 0) == "WARN");
+            b.Chk("r1999 unknown-format 永远不重试(Rescued 也不行——不在翻案清单)且 ERROR 整句", () =>
+            {
+                object ufRescued = Retry("r1999", "unknown-format", true, true);
+                return !Rry(n99Uf) && !Rry(ufRescued) && Rlv(n99Uf, 0) == "ERROR"
+                    && Rtx(n99Uf, 0) == "1999 日志标志一条都没认出来 → 重试同样看不懂，直接记入本轮告警(见下面的处理建议)";
+            });
+            b.Chk("r1999 empty-queue 无 Rescued → 落 WARN 队列句；timeout 无 Rescued 也走重试", () =>
+                !Rry(n99Empty) && Rtx(n99Empty, 0) == "1999 队列没开始/空跑完成 → 重试没有意义，直接记入本轮告警"
+                    && Rry(n99Timeout) && Rtx(n99Timeout, 0) == "1999 本轮未成功 → 关闭游戏后重试一次");
+            b.Chk("game 不认识 → GdRuleException 原话(退出码 2 归壳，规则说不干)", () =>
+            {
+                try { Retry("mumu", "stalled", false, true); return false; }
+                catch (GdRuleException ex) { return ex.Message == "decide-daily-retry：game 只认 ark/r1999，收到「mumu」"; }
+            });
+        }
+
+        static object Retry(string game, string status, bool rescued, bool retryOnce)
+        {
+            return Orchestration.DailyRetry(Inp("game", game, "status", status, "rescued", rescued, "retryOnce", retryOnce));
+        }
+        static bool Rry(object r) { return Gd.Truthy(Gd.Get(D(r), "Retryable")); }
+        static object[] Rlg(object r) { return Gd.List(Gd.Get(D(r), "Logs")); }
+        static string Rlv(object r, int i) { return Gd.Str(Gd.Get(D(Rlg(r)[i]), "Level")); }
+        static string Rtx(object r, int i) { return Gd.Str(Gd.Get(D(Rlg(r)[i]), "Text")); }
     }
 }

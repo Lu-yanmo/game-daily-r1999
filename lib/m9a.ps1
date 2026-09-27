@@ -12,6 +12,21 @@
 # Get-M9AConnection(读实例 JSON)、Get-M9ADailyLog/Register-M9AEvent(状态累计+日志染色)、
 # Invoke-M9ARun(起进程与轮询，归批次 5 编排层)。
 # ──────────────────────────────────────────────────────────────────────────────
+#
+# ── 追加冻结(2026-09-27，PS→C# 批次 8 —— 活段第二刀)────────────────────────────
+# Invoke-M9ARun 出结论那一拍的**反应段判据梯**(ok 完成整句+挂钟时长 / empty-queue 原句 ERROR /
+#     其余档拼进程后缀 → "五档问一次画面"门槛 → 兜底闭包(预算扣数、调用/记账 Tag 同数、
+#     兜-账-志次序) → 兜成分流(停滞撤回结论续等 / 判因立 Rescued 标记) → 收尾拼串)
+#     已迁到 tools\panel-cs\RunLoops.cs(verb：decide-m9a-run-tick)。口径见 docs\ps-migration-live-caliber.md，
+#     剧本对拍 = tools\probe-live-golden.ps1(基线钉 c498da0)。
+# 本壳留下的正是口径文档划给"活"的部分：while+sleep、tail 轮询、adb 探活、Resolve-M9AStatus 出结论(批 3)、
+#     真兜底/真记账、回执喂回+同 tick 重入的迷你循环、把结论回写 $res。
+# 旧的 $rescue/$askScreen 与反应段在下方逐行冻结 —— test-r1999 按那些字面钉锚(预算扣数写法、
+#     '判因'、$state.lastLog、Rescued、收尾拼串)，别"顺手搬走"也别改字。
+# 改判据/话术请改 RunLoops.cs 并复拍对拍门，不要在这里加 if。
+# (批 3 头注"Invoke-M9ARun(起进程与轮询，归批次 5 编排层)"到本批作废一半：轮询里的判据已走，骨架还在；
+#  预算与 rescueNotes 的跨拍寿命 = 旧 $rescue，由 C# 的 state 经壳 opaque 中继($stM9a)。)
+# ──────────────────────────────────────────────────────────────────────────────
 
 function Get-M9APaths {
     param([Parameter(Mandatory)]$S)
@@ -312,30 +327,29 @@ function Invoke-M9ARun {
     $seenGame = $false
     $gone = 0               # 进程连续消失几轮才算真退出(自更新重启会闪一下)
     <#
-      视觉兜底的预算与"这一轮已经问过几次"。次数和端游那一路共用同一个键(runtime.visionMaxRescue)，
-      因为限的是"一轮里跟模型没完没了的次数"，跟哪一路无关。
-      状态装在一个 hashtable 里、只用点号改它的成员：$askScreen 用 & 调用时跑在**子作用域**，
-      在里面写 `$left--` 只会造出一个子作用域的局部变量，预算根本扣不动；
-      而 `$rescue.Left = ...` 改的是同一个哈希对象的成员，外面看得到 —— 所以预算和账都放这儿，
-      不必为这点事上 GetNewClosure(它会把闭包里的变量绑成另一套 session state，读起来更费劲)。
-      $rescue.Notes 记每一次的结论，最后拼进 Detail —— 判因层不许丢这条线。
+      ===== 批次 8 冻结段(原判据事实源已搬进 RunLoops.cs，下面逐行保 test-r1999 的锚) =====
+      旧 L314-337：$rescue 预算哈希 + $askScreen 闭包。三道门槛(Get-Command / Left<=0 / 扣数)、
+      兜-账-志次序与"问完怎么办"的分流全在 RunLoops.cs 的 Ladder/ResumeAsk/ResumeRecord；
+      预算与 Notes 的跨拍寿命由 C# 的 state 经下面 $stM9a 中继(与旧 $rescue 同寿命：一次调用一份)。
+      PS 块注释不可嵌套，所以这一整段只能逐行 # 前缀冻结，锚点子串原样保留。
     #>
-    $rescue = @{ Left = [int]$S.runtime.visionMaxRescue; Notes = @() }
-    if ([int]$rescue.Left -le 0) { $rescue.Left = 2 }
-    $askScreen = {
-        param([string]$Why, [string]$Ctx = '')
-        if (-not (Get-Command Invoke-GdVisionRescue -ErrorAction SilentlyContinue)) { return $null }
-        if ([int]$rescue.Left -le 0) { return $null }
-        $rescue.Left = [int]$rescue.Left - 1
-        $rc = $null
-        try { $rc = Invoke-GdVisionRescue -S $S -Tag "m9a$($rescue.Notes.Count + 1)" -Target 'mumu' -Context $Ctx -Conn $conn }
-        catch { $rc = [pscustomobject]@{ Tried = $false; Done = $false; Detail = "兜底抛异常：$($_.Exception.Message)" } }
-        $rescue.Notes = @($rescue.Notes) + "[$Why] $($rc.Detail)"
-        Add-GdRescueRecord -S $S -Game 'r1999' -Result $rc -Tag "m9a$($rescue.Notes.Count)" -Target 'mumu'
-        Write-GdLog "视觉兜底($Why)：$($rc.Detail)" $(if ($rc.Done) { 'OK' } else { 'WARN' })
-        return [pscustomobject]@{ Tried = [bool]$rc.Tried; Done = [bool]$rc.Done }
-    }
+    #     $rescue = @{ Left = [int]$S.runtime.visionMaxRescue; Notes = @() }
+    #     if ([int]$rescue.Left -le 0) { $rescue.Left = 2 }
+    #     $askScreen = {
+    #         param([string]$Why, [string]$Ctx = '')
+    #         if (-not (Get-Command Invoke-GdVisionRescue -ErrorAction SilentlyContinue)) { return $null }
+    #         if ([int]$rescue.Left -le 0) { return $null }
+    #         $rescue.Left = [int]$rescue.Left - 1
+    #         $rc = $null
+    #         try { $rc = Invoke-GdVisionRescue -S $S -Tag "m9a$($rescue.Notes.Count + 1)" -Target 'mumu' -Context $Ctx -Conn $conn }
+    #         catch { $rc = [pscustomobject]@{ Tried = $false; Done = $false; Detail = "兜底抛异常：$($_.Exception.Message)" } }
+    #         $rescue.Notes = @($rescue.Notes) + "[$Why] $($rc.Detail)"
+    #         Add-GdRescueRecord -S $S -Game 'r1999' -Result $rc -Tag "m9a$($rescue.Notes.Count)" -Target 'mumu'
+    #         Write-GdLog "视觉兜底($Why)：$($rc.Detail)" $(if ($rc.Done) { 'OK' } else { 'WARN' })
+    #         return [pscustomobject]@{ Tried = [bool]$rc.Tried; Done = [bool]$rc.Done }
+    #     }
 
+    $stM9a = $null          # C# 的小状态(opaque)：跨拍中继预算/rescueNotes/相位 —— 见上面批次 8 冻结头
     while ($true) {
         Start-Sleep -Seconds 10
         $read = Read-M9ALogEvents -P $P -Instance $Instance -Offsets $offsets -PreOffsets $preOffsets
@@ -347,46 +361,121 @@ function Invoke-M9ARun {
         if (-not (Test-GdProcessRunning -Name $P.Name)) { $gone++ } else { $gone = 0 }
         $res = Resolve-M9AStatus -State $state -Elapsed $elapsed -S $S -Instance $Instance `
                 -ProcessGone ($gone -ge 2) -LogName (Split-Path -Leaf $logPath)
-        if ($res) {
-            if ($res.Status -eq 'ok') {
-                Write-GdLog "M9A 链路完成，共 $(@($res.Tasks).Count) 个任务，用时 $([math]::Round($elapsed / 60, 1)) 分钟" -Level OK
-                $res.Duration = $elapsed
-            } elseif ($res.Status -eq 'empty-queue') {
-                Write-GdLog $res.Detail -Level ERROR
-            } else {
-                $res.Detail += $(if ($seenGame) { '(游戏进程出现过)' } else { '(游戏进程从未出现)' })
-            }
-            <#
-              卡住的四种形态都值得一问画面，但"问完怎么办"分两类，差别就在进程还在不在：
-                stalled / timeout(还在跑)  → 兜成了就把这一轮的结论撤回去继续等，M9A 自己会往下走;
-                blocked / not-started / empty-queue(进程已经没了或在空转) → 点掉弹窗救不了已经退出的进程，
-                  但**这一问仍然有价值**：它把"多半停在更新/下载界面"这种猜测换成"画面上确实是 XX 弹窗"，
-                  而且点掉之后外层那一次重试才可能真的跑进去。所以只问一次、只把结果写进 Detail。
-              状态名一律不改：daily-clear 的收尾与通知按状态名分流，改成新名字等于把判因链弄断。
-            #>
-            $alive = ($res.Status -in @('stalled', 'timeout'))
-            if ($res.Status -in @('stalled', 'timeout', 'blocked', 'not-started', 'empty-queue')) {
-                $whyKind = if ($alive) { '停滞' } else { '判因' }
-                $r = & $askScreen $whyKind ([string]$res.Detail)
-                if ($r -and $r.Done) {
-                    if ($alive) {
-                        # 挡路的东西拿掉了：停滞计时从头算，给 M9A 机会自己往下走(与 lib\maa.ps1 同一处理)
-                        $state.lastLog = Get-Date
-                        $rescue.Notes = @($rescue.Notes) + '[停滞已解除，继续等待]'
-                        continue
-                    }
-                    <# 进程都没了，点掉弹窗救不了这一轮，但**外层那一次重试就有了意义**：
-                       blocked/not-started 本来是"重试也没用，直接记告警"，画面被兜清楚之后重试一次是划算的。
-                       这个标记就是给 r1999-daily 的那道分流看的(见 Start-GdR1999Daily 里的 $retryable)。 #>
-                    $res.Rescued = $true
+        if (-not $res) { continue }
+
+        <#
+          ===== M9A tick 迷你循环(与 lib\maa.ps1 批 7 同款口径) =====
+          把壳采好的读数(elapsed/seenGame/res)喂 verb → verb 挂回的 effect 当场执行、
+          回执小写键追加进 $effx 后**同一拍**重入续判(旧闭包就是"问完当场定去留"，隔一轮再判不是逐字不变) →
+          出结论(Action=return)时把 Detail/Rescued/Duration 回写 $res 后返回；
+          Action=loop 且无待办 effect = "兜底成功、停滞计时从头算、结论撤回继续等"(旧代码那记原地 continue)。
+        #>
+        $effx = @()         # 本 tick 已执行 effect 的回执(小写键：kind/detail/message/tried/done/exception)
+        while ($true) {
+            $d = Invoke-GdCli -Verb 'decide-m9a-run-tick' -Body ([pscustomobject]@{
+                now   = [pscustomobject]@{ elapsedSec = $elapsed }
+                live  = [pscustomobject]@{
+                    seenGame        = [bool]$seenGame
+                    rescueAvailable = [bool](Get-Command Invoke-GdVisionRescue -ErrorAction SilentlyContinue)
                 }
+                res   = [pscustomobject]@{ status = [string]$res.Status; detail = [string]$res.Detail; tasksCount = @($res.Tasks).Count }
+                cfg   = [pscustomobject]@{ rescueMaxRaw = [int]$S.runtime.visionMaxRescue }
+                state = $stM9a
+                effectsResolved = @($effx)
+            })
+            $stM9a = $d.State
+            <# Directives：停滞解除那一拍把停滞计时归零 —— 旧代码 $state.lastLog = Get-Date 的落地处。 #>
+            if ($d.Directives -and [bool]$d.Directives.ResetLastLog) { $state.lastLog = Get-Date }
+            foreach ($l in @($d.Logs)) {
+                $lvl = [string]$l.Level
+                if ($lvl -and ($lvl -ne 'INFO')) { Write-GdLog ([string]$l.Text) -Level $lvl } else { Write-GdLog ([string]$l.Text) }
             }
-            if (@($rescue.Notes).Count) {
-                $res.Detail += "；视觉兜底 $(@($rescue.Notes).Count) 次，最后一次：$(@($rescue.Notes)[-1])"
+
+            $ef = @($d.Effects)
+            if ($ef.Count -eq 0) {
+                if ($d.Action -eq 'return') {
+                    <# 完成整句/进程后缀/兜底拼串的全集已由 C# 拼好(上面 Logs 已回放)；
+                       Rescued 只在真兜成时有意义(旧代码只在 Done 且非 alive 那一支赋值)，Duration 只有 ok 档带。 #>
+                    $res.Detail = [string]$d.Detail
+                    if ([bool]$d.Rescued) { $res.Rescued = $true }
+                    if ($null -ne $d.PSObject.Properties['Duration']) { $res.Duration = [double]$d.Duration }
+                    return $res
+                }
+                break   # loop 且无待办：兜成了，结论撤回，出迷你循环继续等(外层 sleep 10 下一拍)
             }
-            return $res
+
+            $e = $ef[0]
+            $kind = [string]$e.Kind
+            $did = $false
+            if ($kind -eq 'ask-screen') {
+                <# 真兜底：调用 Tag/Context 由 C# 挂回来(预算在挂 effect 那拍已扣)；异常回执走
+                   exception 键，C# 续判时合成旧闭包同款"兜底抛异常：…"结论。 #>
+                $rc = $null
+                try { $rc = Invoke-GdVisionRescue -S $S -Tag ([string]$e.Tag) -Target 'mumu' -Context ([string]$e.Context) -Conn $conn }
+                catch { $effx += @{ kind = 'ask-screen'; exception = $true; message = $_.Exception.Message }; $did = $true }
+                if ($null -ne $rc) { $effx += @{ kind = 'ask-screen'; tried = [bool]$rc.Tried; done = [bool]$rc.Done; detail = [string]$rc.Detail }; $did = $true }
+            }
+            if (-not $did -and $kind -eq 'record') {
+                <# 记账：rc 由 C# 挂回的效果字段重建(旧闭包把原始 $rc 直接递给 Add-GdRescueRecord，
+                   用到只有 Tried/Done/Detail 三件)；Tag 与调用 Tag 同数 —— m9a 没有 ark 那个错位一格。 #>
+                $rc = [pscustomobject]@{ Tried = [bool]$e.Tried; Done = [bool]$e.Done; Detail = [string]$e.Detail }
+                Add-GdRescueRecord -S $S -Game 'r1999' -Result $rc -Tag ([string]$e.Tag) -Target 'mumu'
+                $effx += @{ kind = 'record' }
+                $did = $true
+            }
+            if (-not $did) {
+                <# 判据挂了 effect 可哪个执行块都没接手(读数本 tick 冻结，理论上到不了这里)：
+                   宁可作废这一拍，也不能拿着没回执的挂起点空转 —— 下一拍的新读数会重新定档。 #>
+                Write-GdLog "M9A tick：effect(kind=$kind，tag=$([string]$e.Tag))没有落到执行块，本 tick 作废(下一轮按新读数重判)" -Level WARN
+                break
+            }
         }
     }
+    <#
+      ===== 批次 8 冻结段之二：旧反应段(L350-388) =====
+      三档分流(ok 完成句 / empty-queue ERROR / 其余拼进程后缀)、"五档问一次画面"门槛、
+      兜成分流(停滞续等 / 判因立标)与收尾拼串 —— 判据与话术的全集在 RunLoops.cs，
+      下面逐行 # 前缀只是锚点(块注释不可嵌套)，别当真读。
+    #>
+    #         if ($res.Status -eq 'ok') {
+    #             Write-GdLog "M9A 链路完成，共 $(@($res.Tasks).Count) 个任务，用时 $([math]::Round($elapsed / 60, 1)) 分钟" -Level OK
+    #             $res.Duration = $elapsed
+    #         } elseif ($res.Status -eq 'empty-queue') {
+    #             Write-GdLog $res.Detail -Level ERROR
+    #         } else {
+    #             $res.Detail += $(if ($seenGame) { '(游戏进程出现过)' } else { '(游戏进程从未出现)' })
+    #         }
+    #         <#
+    #           卡住的四种形态都值得一问画面，但"问完怎么办"分两类，差别就在进程还在不在：
+    #             stalled / timeout(还在跑)  → 兜成了就把这一轮的结论撤回去继续等，M9A 自己会往下走;
+    #             blocked / not-started / empty-queue(进程已经没了或在空转) → 点掉弹窗救不了已经退出的进程，
+    #               但**这一问仍然有价值**：它把"多半停在更新/下载界面"这种猜测换成"画面上确实是 XX 弹窗"，
+    #               而且点掉之后外层那一次重试才可能真的跑进去。所以只问一次、只把结果写进 Detail。
+    #           状态名一律不改：daily-clear 的收尾与通知按状态名分流，改成新名字等于把判因链弄断。
+    #         #>
+    #         $alive = ($res.Status -in @('stalled', 'timeout'))
+    #         if ($res.Status -in @('stalled', 'timeout', 'blocked', 'not-started', 'empty-queue')) {
+    #             $whyKind = if ($alive) { '停滞' } else { '判因' }
+    #             $r = & $askScreen $whyKind ([string]$res.Detail)
+    #             if ($r -and $r.Done) {
+    #                 if ($alive) {
+    #                     # 挡路的东西拿掉了：停滞计时从头算，给 M9A 机会自己往下走(与 lib\maa.ps1 同一处理)
+    #                     $state.lastLog = Get-Date
+    #                     $rescue.Notes = @($rescue.Notes) + '[停滞已解除，继续等待]'
+    #                     continue
+    #                 }
+    #                 <# 进程都没了，点掉弹窗救不了这一轮，但**外层那一次重试就有了意义**：
+    #                    blocked/not-started 本来是"重试也没用，直接记告警"，画面被兜清楚之后重试一次是划算的。
+    #                    这个标记就是给 r1999-daily 的那道分流看的(见 Start-GdR1999Daily 里的 $retryable)。 #>
+    #                 $res.Rescued = $true
+    #             }
+    #         }
+    #         if (@($rescue.Notes).Count) {
+    #             $res.Detail += "；视觉兜底 $(@($rescue.Notes).Count) 次，最后一次：$(@($rescue.Notes)[-1])"
+    #         }
+    #         return $res
+    #     }
+    # }
 }
 
 function Stop-M9A {

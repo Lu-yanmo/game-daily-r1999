@@ -1,4 +1,4 @@
-// tools/panel-cs/RunLoops.cs —— 批次 7：活段监控循环的"判据段"本体(ark 一路，verb：decide-maa-run-tick)。
+// tools/panel-cs/RunLoops.cs —— 批次 7/8：活段监控循环的"判据段"本体(ark 一路 decide-maa-run-tick + m9a 一路 decide-m9a-run-tick)。
 // 口径全文见 docs\ps-migration-live-caliber.md(剧本注入回放 + 同 tick effect 迷你循环)。
 // 基线真身 = lib\maa.ps1 Invoke-MaaRun 行 296-433 的判据链(钉 commit c498da0)。
 // 文案必须与 PS 原话逐字符一致：tools\probe-live-golden.ps1 拿基线做全字面对拍，
@@ -478,6 +478,240 @@ namespace GdPanel
 
             static string IntStr(long l) { return l.ToString(CultureInfo.InvariantCulture); }
             static string IntStr(double d) { return ((long)d).ToString(CultureInfo.InvariantCulture); }
+        }
+
+        // ==================== verb: decide-m9a-run-tick(批次 8，m9a 一路) ====================
+        // 基线真身 = lib\m9a.ps1 Invoke-M9ARun 行 350-388 的反应段(含 $askScreen 闭包 L325-337 的纯判定部分，
+        // 钉 commit c498da0)。Resolve-M9AStatus 出结论的那一拍才调；while/sleep、读日志、adb 查进程、
+        // 真 Invoke-GdVisionRescue + Add-GdRescueRecord 记账全留壳。口径与 ark 一路同一份剧本
+        // (docs\ps-migration-live-caliber.md)，对拍门 tools\probe-live-golden.ps1。
+        // 与 ark 一路的三处话术差别(都是旧代码原样，不许"顺手统一")：
+        //   * 记账 Tag 与调用 Tag **同数**(m9a 的记账取 += 之后的 Notes.Count，没有 ark 那个错位一格)；
+        //   * 兜底日志是 "视觉兜底(停滞|判因)：<detail>"，不是 ark 的 "视觉兜底结果："；
+        //   * Notes 条目带 "[Why] " 前缀，收尾拼串 "；视觉兜底 N 次，最后一次：…"(ark 是 "试过 N 次")。
+        // 状态名一律不改(daily-clear 的收尾与通知按状态名分流)；Rescued 只给 r1999-daily 的重试分流看。
+        // 挂起点 state.phase："" / ask-rescue(等回执) / ask-record(等记账回执后落日志+定去留)。
+        internal static object M9aTick(Dictionary<string, object> inp)
+        {
+            return new M9aTickRun(inp).Execute();
+        }
+
+        sealed class M9aTickRun
+        {
+            // —— 读数(壳采好的标量；C# 不碰挂钟/进程/模型) ——
+            double elapsed;
+            bool seenGame, rescueAvail;
+            string status, detail;
+            int tasksCount;
+            object rescueMaxRaw;
+
+            // —— C# 持有的小状态(壳 opaque 中继) ——
+            string phase;
+            int rescueLeft;
+            List<string> notes;
+            // 注意：首拍拼好的 "(游戏进程出现过)" 后缀要随 state.askDetail 中继续命 —— 旧代码 $res.Detail 是
+            // 同一对象跨步在改，而续判拍壳喂回的 res.detail 是原串，不中继收尾拼串就会丢这一截(tick3 冒烟抓出)。
+            // 取用只发生在 phase=ask-* 的挂起续判期；phase 归零后的新结论拍照用当拍 res.detail。见构造函数。
+
+            // —— 本 tick 已执行 effect 的回执(旧→新追加) ——
+            List<object> resolved;
+
+            // —— 输出累加 ——
+            List<object> effects = new List<object>();
+            List<object> logs = new List<object>();
+            bool resetLastLog;
+            string action = "loop";
+            bool ret; string retStatus, retDetail;
+            bool rescued;
+            bool hasDuration; double duration;
+
+            // 兜底回执合成出的 rc(与旧代码闭包 catch 分支同款三字段)
+            sealed class Rc { public bool Tried; public bool Done; public string Detail; }
+
+            internal M9aTickRun(Dictionary<string, object> inp)
+            {
+                Dictionary<string, object> now = As(Gd.Get(inp, "now"));
+                Dictionary<string, object> live = As(Gd.Get(inp, "live"));
+                Dictionary<string, object> res = As(Gd.Get(inp, "res"));
+                Dictionary<string, object> cfg = As(Gd.Get(inp, "cfg"));
+
+                elapsed = Dbl(Gd.Get(now, "elapsedSec"));
+                seenGame = Gd.Truthy(Gd.Get(live, "seenGame"));
+                rescueAvail = Gd.Truthy(Gd.Get(live, "rescueAvailable"));
+                status = Gd.Str(Gd.Get(res, "status"));
+                detail = Gd.Str(Gd.Get(res, "detail"));
+                tasksCount = Gd.Int(Gd.Get(res, "tasksCount"), 0);
+                rescueMaxRaw = Gd.Get(cfg, "rescueMaxRaw");
+
+                resolved = new List<object>(Gd.List(Gd.Get(inp, "effectsResolved")));
+
+                Dictionary<string, object> st = Gd.Map(Gd.Get(inp, "state"));
+                if (st == null)
+                {
+                    // $rescue = @{Left=[int]$S.runtime.visionMaxRescue;…}; if ($Left -le 0) { 2 } —— 首轮初始化留到这。
+                    phase = ""; notes = new List<string>();
+                    rescueLeft = Gd.Int(rescueMaxRaw, 0);
+                    if (rescueLeft <= 0) rescueLeft = 2;
+                }
+                else
+                {
+                    phase = Gd.Str(Gd.Get(st, "phase"));
+                    rescueLeft = Gd.Int(Gd.Get(st, "rescueLeft"), 0);
+                    notes = new List<string>();
+                    foreach (object n in Gd.List(Gd.Get(st, "rescueNotes"))) notes.Add(Gd.Str(n));
+                    // 挂起续判期：工作 Detail 用 state 中继的那份(含首拍拼好的进程后缀)；键不在(手写 state)则退回当拍值。
+                    if ((phase == "ask-rescue" || phase == "ask-record") && Gd.Get(st, "askDetail") != null)
+                        detail = Gd.Str(Gd.Get(st, "askDetail"));
+                }
+            }
+
+            internal object Execute()
+            {
+                if (phase == "ask-rescue") ResumeAsk();
+                else if (phase == "ask-record") ResumeRecord();
+                else Ladder();
+                return Emit();
+            }
+
+            // ---------- 反应段首判(基线 350-368 + 闭包门槛 327-329) ----------
+            void Ladder()
+            {
+                if (Eq(status, "ok"))
+                {
+                    // 挂钟量 elapsed 由壳喂进来；Round(x,1) 与 PS [math]::Round 同为 ToEven(批 8① rprobe 实测)。
+                    logs.Add(Gd.Out("Level", "OK", "Text",
+                        "M9A 链路完成，共 " + tasksCount + " 个任务，用时 " + MinStr(Math.Round(elapsed / 60.0, 1)) + " 分钟"));
+                    hasDuration = true; duration = elapsed;
+                    Finish();
+                    return;
+                }
+                if (Eq(status, "empty-queue")) logs.Add(Gd.Out("Level", "ERROR", "Text", detail));
+                else detail += seenGame ? "(游戏进程出现过)" : "(游戏进程从未出现)";
+                if (InAskSet() && rescueLeft > 0 && rescueAvail)
+                {
+                    // 闭包门槛：Get-Command 没有 → $null；Left<=0 → $null；都等价于"不问、直接收尾"。
+                    rescueLeft--;
+                    effects.Add(Gd.Out("Kind", "ask-screen", "Tag", "m9a" + (notes.Count + 1),
+                        "Why", WhyKind(), "Context", detail));
+                    phase = "ask-rescue";
+                    return;   // Action=loop：等回执同 tick 重入续判
+                }
+                Finish();
+            }
+
+            // ---------- 挂起点续判(壳执行完 effect 带着回执当拍重入) ----------
+            void ResumeAsk()
+            {
+                Rc rc = TakeAsk();
+                notes.Add("[" + WhyKind() + "] " + rc.Detail);
+                // 记账 Tag 取 += 之后的 Count —— 与调用 Tag(notes.Count+1)数值相同：m9a 旧代码本就没有 ark 那个错位。
+                effects.Add(Gd.Out("Kind", "record", "Tag", "m9a" + notes.Count,
+                    "Tried", rc.Tried, "Done", rc.Done, "Detail", rc.Detail, "Context", ""));
+                phase = "ask-record";
+            }
+
+            void ResumeRecord()
+            {
+                Rc rc = TakeAsk();
+                logs.Add(Gd.Out("Level", rc.Done ? "OK" : "WARN", "Text", "视觉兜底(" + WhyKind() + ")：" + rc.Detail));
+                phase = "";
+                if (rc.Done)
+                {
+                    if (Alive())
+                    {
+                        // 挡路的东西拿掉了：停滞计时从头算，给 M9A 机会自己往下走 —— 本轮结论撤回(旧代码 continue)。
+                        resetLastLog = true;
+                        notes.Add("[停滞已解除，继续等待]");
+                        return;   // Action=loop
+                    }
+                    // 进程都没了，点掉弹窗救不了这一轮，但外层那一次重试有了意义 —— 标记给 r1999-daily 的分流看。
+                    rescued = true;
+                }
+                Finish();
+            }
+
+            // ---------- 收尾(基线 384-387：Notes 非空则拼进 Detail，状态一律不改) ----------
+            void Finish()
+            {
+                if (notes.Count > 0)
+                    detail += "；视觉兜底 " + notes.Count + " 次，最后一次：" + notes[notes.Count - 1];
+                action = "return"; ret = true; retStatus = status; retDetail = detail;
+            }
+
+            // ---------- 状态集合与话术(PS -eq/-in 大小写不敏感 → OrdinalIgnoreCase) ----------
+            static bool Eq(string a, string b) { return string.Equals(a, b, StringComparison.OrdinalIgnoreCase); }
+            bool Alive() { return Eq(status, "stalled") || Eq(status, "timeout"); }
+            string WhyKind() { return Alive() ? "停滞" : "判因"; }
+            bool InAskSet()
+            {
+                return Alive() || Eq(status, "blocked") || Eq(status, "not-started") || Eq(status, "empty-queue");
+            }
+
+            // ---------- 回执工具(与 ark 一路同款：链每步只追加一条，按 kind 从尾找) ----------
+            Rc TakeAsk()
+            {
+                Rc rc = new Rc();
+                Dictionary<string, object> r = Last("ask-screen");
+                if (r != null && Gd.Truthy(Gd.Get(r, "exception")))
+                {
+                    // 旧代码闭包 catch：Tried/Done 都给 $false(哪怕确实动过手)—— 照抄。
+                    rc.Tried = false; rc.Done = false;
+                    rc.Detail = "兜底抛异常：" + Gd.Str(Gd.Get(r, "message"));
+                }
+                else if (r != null)
+                {
+                    rc.Tried = Gd.Truthy(Gd.Get(r, "tried"));
+                    rc.Done = Gd.Truthy(Gd.Get(r, "done"));
+                    rc.Detail = Gd.Str(Gd.Get(r, "detail"));
+                }
+                return rc;
+            }
+
+            Dictionary<string, object> Last(string kind)
+            {
+                for (int i = resolved.Count - 1; i >= 0; i--)
+                {
+                    Dictionary<string, object> r = Gd.Map(resolved[i]);
+                    if (r != null && Gd.Str(Gd.Get(r, "kind")) == kind) return r;
+                }
+                return null;
+            }
+
+            // ---------- 出参 ----------
+            object Emit()
+            {
+                Dictionary<string, object> d = Gd.Out(
+                    "Action", action,
+                    "Effects", effects.ToArray(),
+                    "Directives", Gd.Out("ResetLastLog", resetLastLog),
+                    "Logs", logs.ToArray(),
+                    "State", Gd.Out("phase", phase, "rescueLeft", rescueLeft,
+                        "rescueNotes", notes.ToArray(), "askDetail", detail));
+                if (ret)
+                {
+                    d["Status"] = retStatus;
+                    d["Detail"] = retDetail;
+                    d["Rescued"] = rescued;
+                    if (hasDuration) d["Duration"] = duration;
+                }
+                return d;
+            }
+
+            // ---------- 输入小工具(与 MaaTickRun 同款口径，各管各的) ----------
+            static Dictionary<string, object> As(object v)
+            {
+                Dictionary<string, object> d = Gd.Map(v);
+                return d ?? new Dictionary<string, object>();
+            }
+
+            static double Dbl(object v)
+            {
+                if (v == null) return 0.0;
+                try { return Convert.ToDouble(v, CultureInfo.InvariantCulture); } catch { return 0.0; }
+            }
+
+            // PS "$([math]::Round($elapsed/60,1))"：double→串走 G15 最简形(2.0 打成 "2"、1.9 打成 "1.9")。
+            static string MinStr(double d) { return d.ToString(CultureInfo.InvariantCulture); }
         }
     }
 }

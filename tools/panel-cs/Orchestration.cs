@@ -1,5 +1,6 @@
 // tools/panel-cs/Orchestration.cs —— 批次 5：编排/排程层的"纯规则段"本体，
 // 从 lib\ark-farm.ps1 / lib\ark-daily.ps1 / lib\r1999-daily.ps1 / lib\maa.ps1 / run-via-task.ps1 搬来。
+// 批次 8 追加：两路 daily 的重试分流纯判定段 decide-daily-retry(见文件尾)。
 //
 // 单一事实源纪律：自本批起 PS 侧的 Parse-GdArkFarmTargetSpec / Parse-GdArkDropText / Resolve-ArkFarmPlan、
 // Resolve-GdArkDecision 的意图构造段(-Stage/-Force/farm 合算)、Resolve-GdR1999Decision 的 -Plan/-Force 构造段、
@@ -530,6 +531,74 @@ namespace GdPanel
             foreach (Match m in Regex.Matches(text, @"""([^""]*)""|(\S+)", RegexOptions.None, TimeSpan.FromSeconds(5)))
                 pieces.Add(m.Groups[1].Success ? m.Groups[1].Value : m.Groups[2].Value);
             return Gd.Out("Pieces", pieces.ToArray());
+        }
+
+        // ==================== verb: decide-daily-retry(批次 8：两路 daily 的重试分流纯判定段) ====================
+        // 基线真身 = lib\ark-daily.ps1 行 141-148 与 lib\r1999-daily.ps1 行 90-106 的 if/elseif 分流
+        // (钉 commit c498da0)。壳拿 {Retryable, Logs:[{Level,Text}]}：Retryable 为真才 Stop/Sleep/重跑(全留壳)，
+        // Logs 逐条原样 Write-GdLog。文案必须与 PS 原话逐字符一致(probe-live-golden 对拍面)：
+        // 有差异回修这里，禁止改期望、禁止放宽比对(docs\ps-migration-batch0.md §7)。
+        // 分流链逐字复刻 if/elseif 次序，不做"逻辑化简"：retryOnce=$false 时首支不成立会**落到**后面的
+        // elseif —— 不重试也照样打错误日志，就是这个行为。ark 那句 not-started∧非管理员的独立 if 提示不在本 verb。
+        // PS 的 -eq/-notin/-in 对串大小写不敏感 → 一律 OrdinalIgnoreCase。
+
+        static bool EqS(string a, string b) { return string.Equals(a, b, StringComparison.OrdinalIgnoreCase); }
+
+        internal static object DailyRetry(Dictionary<string, object> inp)
+        {
+            string game = Gd.Str(Gd.Get(inp, "game"));
+            string status = Gd.Str(Gd.Get(inp, "status"));
+            bool rescued = Gd.Truthy(Gd.Get(inp, "rescued"));
+            bool retryOnce = Gd.Truthy(Gd.Get(inp, "retryOnce"));
+            List<object> logs = new List<object>();
+            bool retryable = false;
+
+            if (EqS(game, "ark"))
+            {
+                // ark：不在跳过清单 {ok, not-started, unknown-format} 且允许重试 → 重试一次；否则只有 unknown-format 落 ERROR。
+                bool inSkip = EqS(status, "ok") || EqS(status, "not-started") || EqS(status, "unknown-format");
+                if (!inSkip && retryOnce)
+                {
+                    retryable = true;
+                    logs.Add(Gd.Out("Level", "WARN", "Text", "方舟本轮未成功 → 收尾后重试一次"));
+                }
+                else if (EqS(status, "unknown-format"))
+                {
+                    logs.Add(Gd.Out("Level", "ERROR", "Text", "方舟日志标志一条都没认出来 → 重试同样看不懂，直接记入本轮告警(见下面的处理建议)"));
+                }
+            }
+            else if (EqS(game, "r1999"))
+            {
+                // r1999：$retryable 表达式 = 不在 {ok,not-started,empty-queue,unknown-format,blocked} —— 或
+                // 画面确实被兜清楚(Rescued)且状态在 {not-started,empty-queue,blocked}。
+                bool baseRetry = !(EqS(status, "ok") || EqS(status, "not-started") || EqS(status, "empty-queue")
+                                   || EqS(status, "unknown-format") || EqS(status, "blocked"));
+                bool rv = baseRetry || (rescued && (EqS(status, "not-started") || EqS(status, "empty-queue") || EqS(status, "blocked")));
+                if (rv && retryOnce)
+                {
+                    retryable = true;
+                    logs.Add(Gd.Out("Level", "WARN", "Text", rescued
+                        ? "1999 本轮未成功，但视觉兜底把挡路的界面点掉了 → 关闭 M9A 后重试一次"
+                        : "1999 本轮未成功 → 关闭游戏后重试一次"));
+                }
+                else if (EqS(status, "unknown-format"))
+                {
+                    logs.Add(Gd.Out("Level", "ERROR", "Text", "1999 日志标志一条都没认出来 → 重试同样看不懂，直接记入本轮告警(见下面的处理建议)"));
+                }
+                else if (EqS(status, "blocked"))
+                {
+                    logs.Add(Gd.Out("Level", "ERROR", "Text", "1999 从头一个任务起就没进游戏 → 是客户端/资源要更新或模拟器状态不对，重试没有意义，直接记入本轮告警"));
+                }
+                else if (EqS(status, "not-started") || EqS(status, "empty-queue"))
+                {
+                    logs.Add(Gd.Out("Level", "WARN", "Text", "1999 队列没开始/空跑完成 → 重试没有意义，直接记入本轮告警"));
+                }
+            }
+            else
+            {
+                throw new GdRuleException("decide-daily-retry：game 只认 ark/r1999，收到「" + game + "」");
+            }
+            return Gd.Out("Retryable", retryable, "Logs", logs.ToArray());
         }
     }
 }

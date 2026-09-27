@@ -76,6 +76,10 @@ if ($Verify) {
     & $exe --svtest
     if ($LASTEXITCODE -ne 0) { throw 'panel-cs --svtest 有红项' }
     Write-Host 'panel-cs --svtest OK'
+    # 批次 7 活段判据：tick 剧本回环(读数/回执场景直喂，不碰挂钟/盘/进程)，期望串逐字抄自旧实现(同上一条纪律)
+    & $exe --looptest
+    if ($LASTEXITCODE -ne 0) { throw 'panel-cs --looptest 有红项' }
+    Write-Host 'panel-cs --looptest OK'
     # 面板自证：读一次 -DumpSummary 协议 + 渲染 + 逐页布局断言 + 主题切换链
     & $exe --selftest
     if ($LASTEXITCODE -ne 0) { throw 'panel-cs --selftest 有红项' }

@@ -110,7 +110,11 @@ function Get-GdCliExe {
     $exe = Join-Path $global:GD.Root 'tools\panel-cs\panel-cs.exe'
     if (-not (Test-Path -LiteralPath $exe)) {
         Write-GdLog 'C# 判定层未编译，现场编一次(之后复用)' -Level WARN
-        & (Join-Path $global:GD.Root 'tools\panel-cs\build.ps1') -Quiet
+        # 必须掐掉这条调用的成功流：csc 的一句 warning(如 CS0219)会原样流进 build.ps1 的输出，
+        # 而这个 & 写在函数体内 —— 返回值会被污染成 Object[]，首元素是"…\tools\panel-cs\x.cs(行,列): warning…"。
+        # 之后 `& $exe` 拿到相对路径形态的串会被 PowerShell 按"模块\命令"解析，炸出
+        # CouldNotAutoLoadModule"无法加载模块 'tools'"(2026-09-27 导出验收链两树各红一步的根因)。
+        & (Join-Path $global:GD.Root 'tools\panel-cs\build.ps1') -Quiet | Out-Null
         if (-not (Test-Path -LiteralPath $exe)) { throw "C# 判定层编译失败：跑 tools\panel-cs\build.ps1 看具体报错(产物 $exe 仍不存在)" }
     }
     return $exe

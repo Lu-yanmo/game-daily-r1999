@@ -1,0 +1,425 @@
+// tools/panel-cs/RunLoops.SelfTest.cs —— --looptest：批次 7(RunLoops.cs)的无头自检。
+// 期望串逐字抄自 lib\maa.ps1 Invoke-MaaRun 判据段(基线 c498da0 真身) —— 这里红了就是移植走样，
+// 改 RunLoops.cs，不改这里的期望(§7 同一条纪律)。
+// 批次纪律：不起进程、不读盘、不耗挂钟 —— 读数与 effect 回执全由场景直喂；
+// 链步靠"上一步输出的 State 原样中继 + effectsResolved 追加回执"模拟壳的同 tick 迷你循环，
+// 与 docs\ps-migration-live-caliber.md §4 的壳骨架一字不差。
+
+using System;
+using System.Collections.Generic;
+using Dictionary = System.Collections.Generic.Dictionary<string, object>;
+
+namespace GdPanel
+{
+    static class GdLoopSelfTest
+    {
+        sealed class Box
+        {
+            public int Total = 0;
+            public int Fails = 0;
+            public void Chk(string name, Func<bool> test)
+            {
+                Total++;
+                bool ok = false;
+                string detail = null;
+                try { ok = test(); }
+                catch (Exception ex) { ok = false; detail = ex.GetType().Name + ": " + ex.Message; }
+                if (!ok)
+                {
+                    Fails++;
+                    GdLog.Line("FAIL " + name + (detail != null ? "：" + detail : ""), "ERROR");
+                }
+            }
+            public int Result(string tag)
+            {
+                if (Fails == 0) GdLog.Line(tag + " 全绿：" + Total + "/" + Total + " 项", "OK");
+                else GdLog.Line(tag + " 有红项：" + Fails + "/" + Total, "ERROR");
+                return Fails == 0 ? 0 : 1;
+            }
+        }
+
+        static Dictionary<string, object> D(object v) { return v as Dictionary<string, object>; }
+
+        static Dictionary<string, object> Inp(params object[] kv)
+        {
+            Dictionary<string, object> d = new Dictionary<string, object>();
+            for (int i = 0; i + 1 < kv.Length; i += 2) d[(string)kv[i]] = kv[i + 1];
+            return d;
+        }
+
+        // ---------- 读数构造器：默认值 = "一切正常、哪档都不该触发"，各用例只覆写自己要的键 ----------
+        static Dictionary Now(double el, double q, object ago)
+        {
+            return Inp("elapsedSec", el, "quietSec", q, "grabAgoSec", ago);
+        }
+
+        static Dictionary Live(object[] kv)
+        {
+            Dictionary<string, object> d = Inp("maaRunning", true, "rescueAvailable", true, "grabAvailable", true);
+            Merge(d, kv);
+            return d;
+        }
+
+        static Dictionary Flags(object[] kv)
+        {
+            Dictionary<string, object> d = Inp(
+                "seenGame", true, "markers", 3, "logChars", 812, "finished", false, "drained", false,
+                "stallWarn", "", "completed", new Dictionary<string, object>(), "errors", new object[] { "e1" },
+                "expectedChains", new object[] { "Fight", "Shop" }, "asstHint", "", "stuckTask", "",
+                "stuckExec", 0, "chanClicks", 0);
+            Merge(d, kv);
+            return d;
+        }
+
+        static Dictionary Cfg(object[] kv)
+        {
+            Dictionary<string, object> d = Inp(
+                "startTimeoutSec", 420, "timeoutSec", 1500, "stallSec", 120, "idleConfirmSec", 40,
+                "startTimeoutMin", 7, "timeoutMin", 25, "abortOnMaaStallWarning", true,
+                "guiLogPath", @"C:\maa\gui.log", "rescueMaxRaw", 2);
+            Merge(d, kv);
+            return d;
+        }
+
+        static void Merge(Dictionary<string, object> d, object[] kv)
+        {
+            if (kv == null) return;
+            for (int i = 0; i + 1 < kv.Length; i += 2) d[(string)kv[i]] = kv[i + 1];
+        }
+
+        static object Tick(Dictionary now, Dictionary live, Dictionary flags, Dictionary cfg, object st, object[] res)
+        {
+            return RunLoops.MaaTick(Inp("now", now, "live", live, "flags", flags, "cfg", cfg,
+                "state", st, "effectsResolved", res ?? new object[0]));
+        }
+
+        // ---------- 出参取数 ----------
+        static string Act(object r) { return Gd.Str(Gd.Get(D(r), "Action")); }
+        static string Stat(object r) { return Gd.Str(Gd.Get(D(r), "Status")); }
+        static string Det(object r) { return Gd.Str(Gd.Get(D(r), "Detail")); }
+        static object[] Errs(object r) { return Gd.List(Gd.Get(D(r), "Errors")); }
+        static Dictionary St(object r) { return D(Gd.Get(D(r), "State")); }
+        static string Ph(object r) { return Gd.Str(Gd.Get(St(r), "phase")); }
+        static int RL(object r) { return Gd.Int(Gd.Get(St(r), "rescueLeft"), -1); }
+        static int NotesN(object r) { return Gd.List(Gd.Get(St(r), "rescueNotes")).Length; }
+        static string NoteAt(object r, int i) { return Gd.Str(Gd.List(Gd.Get(St(r), "rescueNotes"))[i]); }
+        static string GrabN(object r) { return Gd.Str(Gd.Get(St(r), "grabNote")); }
+        static object[] Effs(object r) { return Gd.List(Gd.Get(D(r), "Effects")); }
+        static Dictionary E(object r, int i) { return D(Effs(r)[i]); }
+        static string EK(object r, int i) { return Gd.Str(Gd.Get(E(r, i), "Kind")); }
+        static string ETag(object r, int i) { return Gd.Str(Gd.Get(E(r, i), "Tag")); }
+        static string ECtx(object r, int i) { return Gd.Str(Gd.Get(E(r, i), "Context")); }
+        static object[] Lgs(object r) { return Gd.List(Gd.Get(D(r), "Logs")); }
+        static string LLv(object r, int i) { return Gd.Str(Gd.Get(D(Lgs(r)[i]), "Level")); }
+        static string LTx(object r, int i) { return Gd.Str(Gd.Get(D(Lgs(r)[i]), "Text")); }
+        static bool Dir(object r, string k) { return Gd.Truthy(Gd.Get(D(Gd.Get(D(r), "Directives")), k)); }
+
+        // ---------- 回执构造器(= 壳执行 effect 后追加进 effectsResolved 的形状) ----------
+        static Dictionary GrabRc(string detail) { return Inp("kind", "grab", "exception", false, "detail", detail); }
+        static Dictionary GrabX(string msg) { return Inp("kind", "grab", "exception", true, "message", msg); }
+        static Dictionary RescRc(bool tried, bool done, string detail)
+        {
+            return Inp("kind", "rescue", "exception", false, "tried", tried, "done", done, "detail", detail);
+        }
+        static Dictionary RescX(string msg) { return Inp("kind", "rescue", "exception", true, "message", msg); }
+        static Dictionary RecRc() { return Inp("kind", "record"); }
+
+        static readonly string StuckWarnFull =
+            "端游没把点击吃进去(StartUp@GameStart 已重复 61 次、整轮 240 次点击)：输入桌面=Default(未锁屏)";
+        static readonly string WhyStuck =
+            "自动化在同一个子任务[StartUp@GameStart]上重复点了 61 次，一条链路都没完成";
+
+        internal static int LoopTest()
+        {
+            Box b = new Box();
+
+            // ---------- 首轮初始化与静默续判 ----------
+            b.Chk("首 tick 空读数 → loop，无副作用", () =>
+            {
+                object r = Tick(Now(100, 10, null), Live(null), Flags(null), Cfg(null), null, null);
+                return Act(r) == "loop" && Effs(r).Length == 0 && Lgs(r).Length == 0 && Ph(r) == "";
+            });
+            b.Chk("rescueMaxRaw 0→2 的初始化在 C#(旧代码循环外那句，效果同一)", () =>
+            {
+                object r = Tick(Now(100, 10, null), Live(null), Flags(null), Cfg(new object[] { "rescueMaxRaw", 0 }), null, null);
+                return RL(r) == 2;
+            });
+            b.Chk("[int] 是银行家舍入：2.5→2 / 3.5→4 / 2.6→3", () =>
+            {
+                return RL(Tick(Now(100, 10, null), Live(null), Flags(null), Cfg(new object[] { "rescueMaxRaw", 2.5 }), null, null)) == 2
+                    && RL(Tick(Now(100, 10, null), Live(null), Flags(null), Cfg(new object[] { "rescueMaxRaw", 3.5 }), null, null)) == 4
+                    && RL(Tick(Now(100, 10, null), Live(null), Flags(null), Cfg(new object[] { "rescueMaxRaw", 2.6 }), null, null)) == 3;
+            });
+
+            // ---------- 档 1-3：finished / unknown-format / not-started ----------
+            b.Chk("finished → tail(优先级第一，哪怕 markers=0 也该先收尾)", () =>
+            {
+                object r = Tick(Now(500, 10, null), Live(null), Flags(new object[] { "finished", true, "markers", 0 }), Cfg(null), null, null);
+                return Act(r) == "tail";
+            });
+            b.Chk("unknown-format(日志在涨)整句与 Errors 回显", () =>
+            {
+                object r = Tick(Now(500, 10, null), Live(null), Flags(new object[] { "markers", 0 }), Cfg(null), null, null);
+                return Act(r) == "return" && Stat(r) == "unknown-format"
+                    && Det(r) == "MAA 日志在涨(新增 812 字符)但一条认识的标志都没有(可能 MAA 改了文案) → 这轮结果不可信，"
+                        + "不要按它判定理智是否清完。先看 status.ps1 的 MAA 段，再对着 C:\\maa\\gui.log 更新 lib\\maa.ps1 的判定正则"
+                    && Errs(r).Length == 1 && Gd.Str(Errs(r)[0]) == "e1";
+            });
+            b.Chk("unknown-format(没读到新增内容)走静默线也算", () =>
+            {
+                object r = Tick(Now(100, 130, null), Live(null), Flags(new object[] { "markers", 0, "logChars", 0 }), Cfg(null), null, null);
+                return Stat(r) == "unknown-format"
+                    && Det(r).StartsWith("MAA 本轮没有读到任何新增日志内容(可能 MAA 换了日志路径或文件名) →");
+            });
+            b.Chk("not-started：markers>0 挡住 unknown，整句带分钟数", () =>
+            {
+                object r = Tick(Now(500, 10, null), Live(null), Flags(new object[] { "seenGame", false }), Cfg(null), null, null);
+                return Stat(r) == "not-started"
+                    && Det(r) == "7 分钟内端游没被拉起、也没有任何链路完成 → 大概率是权限/自动登录/客户端路径问题(MAA 连端游需要管理员)";
+            });
+
+            // ---------- 档 4：stuck 抢前台 → 兜底 → 落穿续判 ----------
+            Dictionary stuckF = Flags(new object[] { "stuckTask", "StartUp@GameStart", "stuckExec", 61, "chanClicks", 240 });
+            b.Chk("stuck 首次 → GrabNow 指令 + grab effect，挂起在 stuck-grab", () =>
+            {
+                object r = Tick(Now(120, 10, null), Live(null), stuckF, Cfg(null), null, null);
+                return Act(r) == "loop" && Dir(r, "GrabNow") && Effs(r).Length == 1 && EK(r, 0) == "grab"
+                    && Ph(r) == "stuck-grab" && RL(r) == 2;
+            });
+            b.Chk("grab 回执回来 → WARN 整句(带抢到的现场) + rescue stuck1，预算 2→1", () =>
+            {
+                object r1 = Tick(Now(120, 10, null), Live(null), stuckF, Cfg(null), null, null);
+                object r2 = Tick(Now(120, 10, null), Live(null), stuckF, Cfg(null), Gd.Get(D(r1), "State"),
+                    new object[] { GrabRc("输入桌面=Default(未锁屏)") });
+                return Lgs(r2).Length == 1 && LLv(r2, 0) == "WARN" && LTx(r2, 0) == StuckWarnFull
+                    && EK(r2, 0) == "rescue" && ETag(r2, 0) == "stuck1" && ECtx(r2, 0) == WhyStuck
+                    && RL(r2) == 1 && Ph(r2) == "stuck-rescue";
+            });
+            b.Chk("没有抢前台函数时也照样记起点：grabNote 定稿话术 + 同 tick 直接挂 rescue", () =>
+            {
+                object r = Tick(Now(120, 10, null), Live(new object[] { "grabAvailable", false }), stuckF, Cfg(null), null, null);
+                return Dir(r, "GrabNow") && GrabN(r) == "这棵树上没有抢前台的函数，只能等停滞判定"
+                    && LTx(r, 0) == "端游没把点击吃进去(StartUp@GameStart 已重复 61 次、整轮 240 次点击)：这棵树上没有抢前台的函数，只能等停滞判定"
+                    && EK(r, 0) == "rescue" && Ph(r) == "stuck-rescue";
+            });
+            b.Chk("rescue 抛异常 → rc 三字段按旧 catch 原样 + record 的 Tag 错位到 stuck2", () =>
+            {
+                object r = Tick(Now(120, 10, null), Live(null), stuckF, Cfg(null),
+                    Inp("phase", "stuck-rescue", "rescueLeft", 1, "rescueNotes", new object[0], "grabNote", "输入桌面=Default(未锁屏)"),
+                    new object[] { GrabRc("输入桌面=Default(未锁屏)"), RescX("模型超时") });
+                return EK(r, 0) == "record" && ETag(r, 0) == "stuck2"
+                    && Gd.Str(Gd.Get(E(r, 0), "Detail")) == "兜底抛异常：模型超时"
+                    && !Gd.Truthy(Gd.Get(E(r, 0), "Tried")) && !Gd.Truthy(Gd.Get(E(r, 0), "Done"))
+                    && Ph(r) == "stuck-record" && NotesN(r) == 1;
+            });
+            b.Chk("record 回执回来 → 兜底结果 WARN + 落穿续判(后面没档了 → loop)", () =>
+            {
+                object s = Inp("phase", "stuck-record", "rescueLeft", 1, "rescueNotes", new object[] { "兜底抛异常：模型超时" }, "grabNote", "输入桌面=Default(未锁屏)");
+                object[] res = new object[] { GrabRc("输入桌面=Default(未锁屏)"), RescX("模型超时"), RecRc() };
+                object r = Tick(Now(120, 10, null), Live(null), stuckF, Cfg(null), s, res);
+                return Act(r) == "loop" && Lgs(r).Length == 1 && LLv(r, 0) == "WARN"
+                    && LTx(r, 0) == "视觉兜底结果：兜底抛异常：模型超时" && Ph(r) == "";
+            });
+            b.Chk("stuck 首轮兜完当 tick 落穿到 drained 档：tag 计数接着往下排(drain2)", () =>
+            {
+                object s = Inp("phase", "stuck-record", "rescueLeft", 1, "rescueNotes", new object[] { "画面都没动" }, "grabNote", "输入桌面=Default(未锁屏)");
+                object[] res = new object[] { GrabRc("输入桌面=Default(未锁屏)"), RescRc(true, false, "画面都没动"), RecRc() };
+                object r = Tick(Now(120, 10, null), Live(null),
+                    Flags(new object[] { "stuckTask", "StartUp@GameStart", "stuckExec", 61, "chanClicks", 240, "drained", true }),
+                    Cfg(null), s, res);
+                return EK(r, 0) == "rescue" && ETag(r, 0) == "drain2" && Ph(r) == "drain-rescue" && RL(r) == 0
+                    && LTx(r, 0) == "视觉兜底结果：画面都没动" && Lgs(r).Length == 1;
+            });
+            b.Chk("抢过 61 秒还在原地 → stalled 整句(grabNote 与兜底账都在)", () =>
+            {
+                object s = Inp("phase", "", "rescueLeft", 1, "rescueNotes", new object[] { "画面都没动" }, "grabNote", "输入桌面=Default(未锁屏)");
+                object r = Tick(Now(120, 10, 61.0), Live(null), stuckF, Cfg(null), s, null);
+                return Stat(r) == "stalled"
+                    && Det(r) == "点击没被端游吃进去：StartUp@GameStart 已重复 61 次(整轮 240 次点击)且一条链路都没完成，"
+                        + "抢前台后 60 秒仍在原地。抢前台时看到的点击环境：输入桌面=Default(未锁屏)。"
+                        + "完成链路 0/2；视觉兜底试过 1 次，最后一次：画面都没动";
+            });
+            b.Chk("抢过 59 秒 → 还在观察窗内，本档不拦，后面没档 → loop", () =>
+            {
+                object s = Inp("phase", "", "rescueLeft", 1, "rescueNotes", new object[0], "grabNote", "x");
+                object r = Tick(Now(120, 10, 59.0), Live(null), stuckF, Cfg(null), s, null);
+                return Act(r) == "loop";
+            });
+
+            // ---------- 档 5：drained 当场兜一次 → 无条件早退 ----------
+            Dictionary drainedF = Flags(new object[] { "drained", true });
+            b.Chk("drained → rescue drain1(Context 说清只完成几条)，预算扣一次", () =>
+            {
+                object r = Tick(Now(100, 10, null), Live(null), drainedF, Cfg(null), null, null);
+                return EK(r, 0) == "rescue" && ETag(r, 0) == "drain1"
+                    && ECtx(r, 0) == "MAA 自己说这一轮跑完了但报错，只完成 0/2 条链路，它不会再自己动"
+                    && Ph(r) == "drain-rescue" && RL(r) == 1;
+            });
+            b.Chk("drain 兜完(没兜成也算) → 记完账就 stalled，整句带『外层会重试一次』", () =>
+            {
+                object s1 = Inp("phase", "drain-rescue", "rescueLeft", 1, "rescueNotes", new object[0], "grabNote", "");
+                object r1 = Tick(Now(100, 10, null), Live(null), drainedF, Cfg(null), s1, new object[] { RescRc(true, false, "点了 3 个候选点位，画面都没动") });
+                if (EK(r1, 0) != "record" || ETag(r1, 0) != "drain2") return false;
+                object s2 = Gd.Get(D(r1), "State");
+                object r2 = Tick(Now(100, 10, null), Live(null), drainedF, Cfg(null), s2,
+                    new object[] { RescRc(true, false, "点了 3 个候选点位，画面都没动"), RecRc() });
+                return Act(r2) == "return" && Stat(r2) == "stalled"
+                    && LTx(r2, 0) == "视觉兜底结果：点了 3 个候选点位，画面都没动" && LLv(r2, 0) == "WARN"
+                    && Det(r2) == "MAA 队列已跑空但只完成 0/2 条链路，它不会再自己动 → 不等静默判定，当场兜底过一次就直接早退(外层会重试一次)。"
+                        + "完成链路 0/2";   // 基线口径：$detail 是 tick 开头快照，本 tick 刚落的这条兜底不进结论句(probe-live-golden drain-first 钉)
+            });
+            b.Chk("drained 但预算没了 → 不兜了也照样早退(detail 用历史账)", () =>
+            {
+                object s = Inp("phase", "", "rescueLeft", 0, "rescueNotes", new object[] { "上一次的结果" }, "grabNote", "");
+                object r = Tick(Now(100, 10, null), Live(null), drainedF, Cfg(null), s, null);
+                return Act(r) == "return" && Effs(r).Length == 0 && Stat(r) == "stalled"
+                    && Det(r).Contains("当场兜底过一次就直接早退(外层会重试一次)。完成链路 0/2；视觉兜底试过 1 次，最后一次：上一次的结果");
+            });
+            b.Chk("drained 但链路已跑齐(allDone) → 这一档整个跳过，安静续等到确认线", () =>
+            {
+                Dictionary f = Flags(new object[] { "drained", true, "completed", Inp("Fight", 1, "Shop", 1) });
+                object r = Tick(Now(100, 10, null), Live(null), f, Cfg(null), null, null);
+                return Act(r) == "loop" && Effs(r).Length == 0;   // 静默还没过 idleConfirm，什么都不该发生
+            });
+
+            // ---------- 档 6-7：stallWarn 中止 / timeout ----------
+            b.Chk("stallWarn+中止开关 → stalled，告警原文排在 Errors 最前", () =>
+            {
+                object r = Tick(Now(100, 10, null), Live(null), Flags(new object[] { "stallWarn", "MAA 自己报了停滞" }), Cfg(null), null, null);
+                return Stat(r) == "stalled" && Det(r) == "MAA 自身停滞告警(已触发)。完成链路 0/2"
+                    && Errs(r).Length == 2 && Gd.Str(Errs(r)[0]) == "MAA 自己报了停滞" && Gd.Str(Errs(r)[1]) == "e1";
+            });
+            b.Chk("stallWarn 但不中止 → 继续等各档", () =>
+            {
+                object r = Tick(Now(100, 10, null), Live(null), Flags(new object[] { "stallWarn", "w" }),
+                    Cfg(new object[] { "abortOnMaaStallWarning", false }), null, null);
+                return Act(r) == "loop";
+            });
+            b.Chk("timeout 整句用分钟原值", () =>
+            {
+                object r = Tick(Now(1600, 10, null), Live(null), Flags(null), Cfg(null), null, null);
+                return Stat(r) == "timeout" && Det(r) == "超过 25 分钟未完成。完成链路 0/2";
+            });
+
+            // ---------- 档 8：静默 → 先兜一次，兜成就续命 ----------
+            Dictionary quietF = Flags(null);
+            b.Chk("静默超限有预算 → rescue stall1(tag 前缀就叫 stall，照抄)", () =>
+            {
+                object r = Tick(Now(100, 130, null), Live(null), quietF, Cfg(null), null, null);
+                return EK(r, 0) == "rescue" && ETag(r, 0) == "stall1" && ECtx(r, 0) == "" && Ph(r) == "quiet-rescue";
+            });
+            b.Chk("兜成 → OK 日志 + 重置计时/清告警指令，本 tick 到为止(loop)", () =>
+            {
+                object s1 = Inp("phase", "quiet-rescue", "rescueLeft", 1, "rescueNotes", new object[0], "grabNote", "");
+                object r1 = Tick(Now(100, 130, null), Live(null), quietF, Cfg(null), s1, new object[] { RescRc(true, true, "已按模型判断关掉活动弹窗") });
+                if (ETag(r1, 0) != "stall2") return false;
+                object r2 = Tick(Now(100, 130, null), Live(null), quietF, Cfg(null), Gd.Get(D(r1), "State"),
+                    new object[] { RescRc(true, true, "已按模型判断关掉活动弹窗"), RecRc() });
+                return Act(r2) == "loop" && LLv(r2, 0) == "OK"
+                    && LTx(r2, 0) == "视觉兜底结果：已按模型判断关掉活动弹窗"
+                    && Dir(r2, "ResetLastGrowth") && Dir(r2, "ClearStallWarn") && !Dir(r2, "GrabNow");
+            });
+            b.Chk("没兜成 → stalled，分钟数走 [int] 银行家舍入(150→2 / 210→4)", () =>
+            {
+                object r150 = Tick(Now(100, 150, null), Live(new object[] { "rescueAvailable", false }), quietF, Cfg(null), null, null);
+                object r210 = Tick(Now(100, 210, null), Live(new object[] { "rescueAvailable", false }), quietF, Cfg(null), null, null);
+                return Stat(r150) == "stalled" && Det(r150).StartsWith("MAA 日志 2 分钟无输出，判定卡住。")
+                    && Det(r210).StartsWith("MAA 日志 4 分钟无输出，判定卡住。");
+            });
+
+            // ---------- 档 9-10：进程没了 / 跑齐静默 ----------
+            b.Chk("MAA 进程提前退出且没跑齐 → error", () =>
+            {
+                object r = Tick(Now(100, 10, null), Live(new object[] { "maaRunning", false }), Flags(null), Cfg(null), null, null);
+                return Stat(r) == "error" && Det(r) == "MAA 进程提前退出。完成链路 0/2";
+            });
+            b.Chk("进程没了但已宣布完成/跑齐 → tail", () =>
+            {
+                object r1 = Tick(Now(100, 10, null), Live(new object[] { "maaRunning", false }),
+                    Flags(new object[] { "finished", true }), Cfg(null), null, null);
+                object r2 = Tick(Now(100, 10, null), Live(new object[] { "maaRunning", false }),
+                    Flags(new object[] { "completed", Inp("Fight", 1, "Shop", 1) }), Cfg(null), null, null);
+                return Act(r1) == "tail" && Act(r2) == "tail";
+            });
+            b.Chk("跑齐 + 静默过确认线 → tail；差一点 → loop", () =>
+            {
+                Dictionary f = Flags(new object[] { "completed", Inp("Fight", 1, "Shop", 1) });
+                return Act(Tick(Now(100, 41, null), Live(null), f, Cfg(null), null, null)) == "tail"
+                    && Act(Tick(Now(100, 39, null), Live(null), f, Cfg(null), null, null)) == "loop";
+            });
+
+            // ---------- $doneCount/$allDone/$detail 的 PS 等值 ----------
+            b.Chk("同一条链路完成 2 次只按 1 计([Math]::Min) → allDone 仍成立", () =>
+            {
+                Dictionary f = Flags(new object[] { "completed", Inp("Fight", 2, "Shop", 1) });
+                object r = Tick(Now(100, 10, null), Live(new object[] { "maaRunning", false }), f, Cfg(null), null, null);
+                return Act(r) == "tail" && Det(r) == "";   // tail 无 Detail
+            });
+            b.Chk("hashtable 大小写不敏感：fIGHT/SHOP 也算跑齐", () =>
+            {
+                Dictionary f = Flags(new object[] { "completed", Inp("fIGHT", 1, "sHOP", 1) });
+                object r = Tick(Now(100, 10, null), Live(new object[] { "maaRunning", false }), f, Cfg(null), null, null);
+                return Act(r) == "tail";
+            });
+            b.Chk("detail 四段拼串：完成 X/Y：链表明(排序+逗号)；asst 线索；兜底账", () =>
+            {
+                Dictionary f = Flags(new object[] {
+                    "completed", Inp("Shop", 1, "Recruit", 1),
+                    "expectedChains", new object[] { "Fight", "Shop", "Recruit" },
+                    "asstHint", "子任务 StartUp 重试 50/50", "stuckExec", 3 });
+                object s = Inp("phase", "", "rescueLeft", 1, "rescueNotes", new object[] { "第1次\n第2次(换行原样留在账里)" }, "grabNote", "");
+                object r = Tick(Now(100, 10, null), Live(new object[] { "maaRunning", false }), f, Cfg(null), s, null);
+                return Stat(r) == "error"
+                    && Det(r) == "MAA 进程提前退出。完成链路 2/3：Recruit, Shop；子任务 StartUp 重试 50/50；视觉兜底试过 1 次，最后一次：第1次\n第2次(换行原样留在账里)";
+            });
+            b.Chk("expectedChains 重复按大小写不敏感去重($expectedCount 的 hashtable 口径)", () =>
+            {
+                Dictionary f = Flags(new object[] { "expectedChains", new object[] { "Fight", "fight", "Shop" } });
+                object r = Tick(Now(100, 10, null), Live(null), f, Cfg(null), null, null);
+                return Det(r).EndsWith("(MAA 连端游需要管理员)") == false
+                    && Act(Tick(Now(100, 10, null), Live(new object[] { "maaRunning", false }),
+                        Flags(new object[] { "expectedChains", new object[] { "Fight", "fight", "Shop" }, "completed", Inp("Fight", 1, "Shop", 1) }),
+                        Cfg(null), null, null)) == "tail";   // distinct=2 → 跑齐
+            });
+            b.Chk("errors 空也照样回显成空数组(信封键永远在)", () =>
+            {
+                object r = Tick(Now(1600, 10, null), Live(null), Flags(new object[] { "errors", new object[0] }), Cfg(null), null, null);
+                return Stat(r) == "timeout" && Errs(r).Length == 0;
+            });
+
+            // ---------- 全链彩排：stuck 首次四步 + 落穿 quiet 三步(同 tick 七次重入) ----------
+            b.Chk("一个 tick 里连跑两条兜底链：stuck1/stuck2 → drain2/drain3(计数一路接排)", () =>
+            {
+                Dictionary f = Flags(new object[] { "stuckTask", "StartUp@GameStart", "stuckExec", 61, "chanClicks", 240, "drained", true });
+                Dictionary now = Now(120, 10, null);
+                object r = Tick(now, Live(null), f, Cfg(null), null, null);
+                object[] res = new object[0];
+                // stuck: grab → rescue → record → (落穿)drain rescue
+                res = Add(res, GrabRc("现场正常")); r = Tick(now, Live(null), f, Cfg(null), Gd.Get(D(r), "State"), res);
+                if (ETag(r, 0) != "stuck1") return false;
+                res = Add(res, RescRc(true, false, "弹窗没关掉")); r = Tick(now, Live(null), f, Cfg(null), Gd.Get(D(r), "State"), res);
+                if (ETag(r, 0) != "stuck2") return false;
+                res = Add(res, RecRc()); r = Tick(now, Live(null), f, Cfg(null), Gd.Get(D(r), "State"), res);
+                if (ETag(r, 0) != "drain2" || Lgs(r).Length != 1) return false;   // 落穿：接着排 drain
+                res = Add(res, RescRc(true, true, "活动页被点掉了")); r = Tick(now, Live(null), f, Cfg(null), Gd.Get(D(r), "State"), res);
+                if (ETag(r, 0) != "drain3") return false;
+                res = Add(res, RecRc()); r = Tick(now, Live(null), f, Cfg(null), Gd.Get(D(r), "State"), res);
+                // drain 档兜成也照样早退(旧代码无条件)：LLv=OK。Detail 是 tick 开头快照 ——
+                // 基线 305 定稿 $detail 串后 386 才 +=，本 tick 连落的两笔都不进当 tick 结论句(账在 Notes，下一 tick 才见)。
+                return Act(r) == "return" && Stat(r) == "stalled" && LLv(r, 0) == "OK"
+                    && Det(r) == "MAA 队列已跑空但只完成 0/2 条链路，它不会再自己动 → 不等静默判定，当场兜底过一次就直接早退(外层会重试一次)。完成链路 0/2"
+                    && NotesN(r) == 2 && RL(r) == 0 && Ph(r) == "";
+            });
+
+            return b.Result("looptest");
+        }
+
+        static object[] Add(object[] head, object tailItem)
+        {
+            object[] outA = new object[head.Length + 1];
+            Array.Copy(head, outA, head.Length);
+            outA[head.Length] = tailItem;
+            return outA;
+        }
+    }
+}

@@ -37,6 +37,7 @@
 //   panel-cs.exe --visiontest    不显示窗口：批次 4 视觉兜底层(Vision.cs)纯规则段回环 —— 同上，不联网不碰窗口
 //   panel-cs.exe --orchtest      不显示窗口：批次 5 编排/排程层(Orchestration.cs)纯规则段回环 —— 同上，不起进程不读盘
 //   panel-cs.exe --svtest        不显示窗口：批次 6 监督 agent(Supervisor.cs)纯判定段回环 —— 同上，不读盘不起进程
+//   panel-cs.exe --looptest      不显示窗口：批次 7 活段判据(RunLoops.cs)tick 剧本回环 —— 同上，读数/回执全由场景直喂
 //
 // 编译：powershell -File tools\panel-cs\build.ps1   (用 C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe)
 
@@ -267,7 +268,7 @@ namespace GdPanel
                 Environment.Exit(GdCli.Run(argv[0], tail));
             }
             bool selftest = false, headless = false, dump = false, exptest = false, exttest = false, whytest = false, consoletest = false;
-            bool coretest = false, echotest = false, dectest = false, statetest = false, proctest = false, visiontest = false, orchtest = false, svtest = false;
+            bool coretest = false, echotest = false, dectest = false, statetest = false, proctest = false, visiontest = false, orchtest = false, svtest = false, looptest = false;
             foreach (string a in argv)
             {
                 string l = a.ToLowerInvariant();
@@ -286,6 +287,7 @@ namespace GdPanel
                 if (l == "--visiontest") visiontest = true;
                 if (l == "--orchtest") orchtest = true;
                 if (l == "--svtest") svtest = true;
+                if (l == "--looptest") looptest = true;
                 if (l == "--no-beat") PanelForm.AutoBeatDefault = false;
             }
             // Core/契约自检同理走无头早退：它们只喂临时树，不需要(也不该)把面板整副构造起来。
@@ -297,6 +299,7 @@ namespace GdPanel
             if (visiontest) Environment.Exit(VisionSelfTest.VisionTest());
             if (orchtest) Environment.Exit(GdOrchSelfTest.OrchTest());
             if (svtest) Environment.Exit(GdSvSelfTest.SvTest());
+            if (looptest) Environment.Exit(GdLoopSelfTest.LoopTest());
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             PanelForm f = new PanelForm(headless);

@@ -16,9 +16,15 @@
 // 批次 7：活段监控循环的 tick 判据(见 RunLoops.cs 头注，口径 docs\ps-migration-live-caliber.md)——
 // decide-maa-run-tick 一个 verb：壳每 tick 采读数(now/live/flags/cfg)喂进来，拿回"继续/早退/收尾"+
 // 同 tick 挂起的副作用指令(grab/rescue/record)。while+sleep、挂钟、读盘、真兜底真抢前台、记账、收尾时长全留 PS 壳。
+// 批次 8：活段第二批(见 RunLoops.cs / Orchestration.cs 头注)——decide-m9a-run-tick 一个 verb：m9a 监控循环的
+// 反应段判据搬进 RunLoops.cs；ark/r1999 两份 $retryable 分流搬进 Orchestration.cs(decide-daily-retry)。
 // 批次 9：两路监控循环的"事件→状态"回灌段(见 RunLoops.cs 对应段头注)——apply-maa-gui-events /
 // finish-maa-run / apply-m9a-events 三个 verb：事件列表+旧状态进来，新状态+日志出去；
 // Get-Date/Sort-Object/hashtable 重建这些现场量仍由壳做，Register-M9AEvent 与回灌 switch 只剩转发壳。
+// 批次 10(收官)：common.ps1 三段从未搬过的小纯规则——resolve-screensaver-who / resolve-screensaver-verdict
+// 两个 verb(见 Decisions.cs 屏保段：注册表读数由壳注入，屏保根因文案在这边拼)与 build-relaunch-args
+// (见 Processes.cs 提权段：-Force/-Omit/$Bound 分类全部由壳组装成值进来，只出参数数组)。
+// Get-GdScreensaverConfig(真读注册表)与 Get-GdElevateBatchLine(四行小拼接)留壳。
 //
 // 三通道铁律：
 //   * 机读结果 **只走 --out 文件**(winexe 的 stdout 从控制台启动本来就不可靠，见 Panel.cs 头注)；
@@ -88,6 +94,9 @@ namespace GdPanel
                 else if (verb == "decide-r1999") r = Decide(a, Decisions.R1999);
                 else if (verb == "check-stages") r = Decide(a, Decisions.CheckStages);
                 else if (verb == "r1999-instance") r = Decide(a, Decisions.R1999Instance);
+                else if (verb == "resolve-screensaver-who") r = Decide(a, Decisions.ScreensaverWhoV);
+                else if (verb == "resolve-screensaver-verdict") r = Decide(a, Decisions.ScreensaverVerdict);
+                else if (verb == "build-relaunch-args") r = Decide(a, Processes.RelaunchArgs);
                 else if (verb == "detect-installs") r = Decide(a, Detect.Installs);
                 else if (verb == "maa-queue-lines") r = Decide(a, Detect.MaaQueueLines);
                 else if (verb == "m9a-instance-lines") r = Decide(a, Detect.M9aInstanceLines);

@@ -631,5 +631,40 @@ namespace GdPanel
             // 调用方本来就是"没 pid = 游戏没在跑"的语义)，golden 不铺这种场景。
             return Gd.Out("Found", false);
         }
+
+        // ==================== verb: build-relaunch-args(批次 10，原 lib\common.ps1 Get-GdRelaunchArgList) ====================
+        // 基线真身 = common.ps1 Get-GdRelaunchArgList(钉 e269d13)：把已绑定参数还原成提权重启的命令行表。
+        // "哪些参数被绑了、是什么类型"是 PS 运行时的事留壳 —— 壳把 $Bound 逐项分类成 {K,T,V} 列表喂进来：
+        //   T=flag(开关/布尔，V 存真假) / T=str(其余一律 [string] 强转后的 V，数组值壳侧空格拼串=PS 的 [string]@() 语义) /
+        //   T=null(旧代码 -$null 那条 continue 分支)。
+        // 口径三条(test-ark [t8]/[t9] 钉着)：skip 判 -in 是大小写不敏感；DryRun 永远不进重启命令(提权只为真跑)；
+        // 串值里的 " 按 -replace '"','\"' 逐字复刻成 \"。Get-GdElevateBatchLine 那四行留壳(它吃本 verb 的输出，纯拼串不值得一趟进程)。
+        public static object RelaunchArgs(Dictionary<string, object> inp)
+        {
+            string script = Gd.Str(Gd.Get(inp, "script"));
+            List<string> skip = new List<string>();
+            foreach (object o in Gd.List(Gd.Get(inp, "omit"))) skip.Add(Gd.Str(o));
+            skip.Add("DryRun");
+
+            List<object> args = new List<object> {
+                "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "\"" + script + "\"" };
+            foreach (object o in Gd.List(Gd.Get(inp, "force"))) args.Add(Gd.Str(o));
+
+            foreach (object o in Gd.List(Gd.Get(inp, "entries")))
+            {
+                Dictionary<string, object> e = Gd.Ci(o);
+                string k = Gd.Str(Gd.Get(e, "K"));
+                bool isSkip = false;
+                foreach (string s in skip)
+                    if (string.Equals(s, k, StringComparison.OrdinalIgnoreCase)) { isSkip = true; break; }
+                if (isSkip) continue;
+                string t = Gd.Str(Gd.Get(e, "T"));
+                if (t == "null") continue;
+                if (t == "flag") { if (Gd.Truthy(Gd.Get(e, "V"))) args.Add("-" + k); continue; }
+                args.Add("-" + k);
+                args.Add("\"" + Gd.Str(Gd.Get(e, "V")).Replace("\"", "\\\"") + "\"");
+            }
+            return Gd.Out("Args", args.ToArray());
+        }
     }
 }

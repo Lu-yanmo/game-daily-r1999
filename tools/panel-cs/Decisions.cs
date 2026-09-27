@@ -55,6 +55,17 @@ namespace GdPanel
             return d.TryGetValue(key, out v) ? v : null;
         }
 
+        // 批次 10：PS 的属性访问($Cfg.Saver)本来自带大小写宽容，信封字典却是大小写敏感的(Gd.Map 原样透传) ——
+        // 吃"调用方手构对象"的 verb 先过这道视图，别让旧代码里合法的写法在新壳判红(键冲突时保首个，与 PS Hashtable 同向)。
+        public static Dictionary<string, object> Ci(object v)
+        {
+            Dictionary<string, object> d = Map(v);
+            if (d == null) return null;
+            Dictionary<string, object> ci = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+            foreach (KeyValuePair<string, object> kv in d) ci[kv.Key] = kv.Value;
+            return ci;
+        }
+
         public static object[] List(object v)
         {
             if (v == null) return new object[0];
@@ -396,6 +407,69 @@ namespace GdPanel
                     "Tasks", tasks.ToArray());
             }
             throw new GdRuleException("M9A 中找不到名为[" + want + "]的实例(计划 " + planKey + ")");
+        }
+
+        // ==================== resolve-screensaver-who / resolve-screensaver-verdict(批次 10，原 lib\common.ps1 屏保两档) ====================
+        // 基线真身 = common.ps1 Get-GdScreensaverWho / Get-GdScreensaverVerdict(钉 commit e269d13，从未搬过的一次性结论 verb)。
+        // 注册表读数(Get-GdScreensaverConfig，HKCU\Control Panel\Desktop)是"活"留壳；这里只吃喂进来的 $Cfg 字典。
+        // 四档判据顺序是认真的(test-lib [t1g] 逐档钉着)：unknown(读不到→不吓唬人也不说没事) → none(没挂 .scr) →
+        // armed(挂且武装，唯一 Risk=true) → off(挂但解除 —— 不是终态，长话要把"会被重新武装"说明白)。
+        // 文案与 test-lib 的三条硬约束：短话不带箭头且 ≤30 字装得进卡片；armed 长话必须点名 unarm-screensaver；
+        // off 长话必须带"不是终态"。C# 侧一改这些串，test-lib/golden 双红，改期望是禁手。
+
+        // Who 的 C# 真身：两档 verb 共用(旧 verdict 第一行就是调它)。$Cfg 用 Gd.Ci 宽容键大小写(旧代码是 PS 属性访问)。
+        static string ScreensaverWho(object cfgRaw)
+        {
+            Dictionary<string, object> cfg = Gd.Ci(cfgRaw);
+            if (cfg == null) return "";                       // -not $Cfg：$null/非对象都算"没有"
+            string saver = Gd.Str(Gd.Get(cfg, "Saver"));
+            if (saver.Length == 0) return "";                 // -not $Cfg.Saver
+            string prod = Gd.Str(Gd.Get(cfg, "Product"));
+            if (System.Text.RegularExpressions.Regex.IsMatch(prod, @"wallpaper\s*engine",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase)) return "Wallpaper Engine";
+            if (prod.Length > 0) return prod;
+            try { return Path.GetFileNameWithoutExtension(saver); }   // 面板那行要给人名，不印 8.3 短名
+            catch { return saver; }
+        }
+
+        public static object ScreensaverWhoV(Dictionary<string, object> inp)
+        {
+            return Gd.Out("Text", ScreensaverWho(Gd.Get(inp, "cfg")));
+        }
+
+        public static object ScreensaverVerdict(Dictionary<string, object> inp)
+        {
+            object cfgRaw = Gd.Get(inp, "cfg");
+            string who = ScreensaverWho(cfgRaw);   // 旧代码第一行就调它(unknown 档也算)，顺序照旧
+            Dictionary<string, object> cfg = Gd.Ci(cfgRaw);
+            if (cfg == null)
+                return Gd.Out(
+                    "Kind", "unknown", "Risk", false,
+                    "Text", "屏保：注册表读不到，判断不了",
+                    "Detail", "屏保：读不到 HKCU\\Control Panel\\Desktop，判断不了武装没有(不代表没事)");
+            string saver = Gd.Str(Gd.Get(cfg, "Saver"));
+            if (saver.Length == 0)
+                return Gd.Out(
+                    "Kind", "none", "Risk", false,
+                    "Text", "屏保：没挂 .scr(不会接管会话)",
+                    "Detail", "屏保：系统里没有指定屏幕保护程序 → 到点不会有任何东西盖住端游窗口，06:00 那一路安全");
+            int secs = Gd.Int(Gd.Get(cfg, "TimeoutSec"), 0);
+            int floorSec = Gd.Int(Gd.Get(inp, "floorSec"), 0);
+            if (floorSec > 0 && secs < floorSec) secs = floorSec;   // [int] 强转后才是数值语义，字符串值走 Gd.Int 同旧
+            string whoSecs = (who.Length > 0 ? who : "某个 .scr") + "/" + secs + "秒";
+            string shortT = "屏保：" + whoSecs;
+            if (Gd.Str(Gd.Get(cfg, "Active")) == "1")
+                return Gd.Out(
+                    "Kind", "armed", "Risk", true,
+                    "Text", shortT + " 仍武装",
+                    "Detail", "屏保：" + whoSecs + " 仍武装 → 到点会接管输入桌面，方舟那一路起跑前置判定会直接早退 not-started；" +
+                              "解法：tools\\unarm-screensaver.ps1 -Apply(或 设置→个性化→锁屏界面→屏幕保护程序→选「(无)」)");
+            return Gd.Out(
+                "Kind", "off", "Risk", false,
+                "Text", shortT + " 已解除",
+                "Detail", "屏保：" + whoSecs + "，武装位是 0 → 到点不触发(日常\"只关不复\"就停在这档)。" +
+                          "注意它不是终态：" + (who.Length > 0 ? who : "挂屏保的那个程序") +
+                          " 的设置里仍勾着屏保时，改一次设置就可能被重新武装，体检看到这行变成\"仍武装\"就是这个原因");
         }
     }
 }

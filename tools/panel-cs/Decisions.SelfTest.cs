@@ -369,6 +369,49 @@ namespace GdPanel
                     return ok && msg == "M9A 中找不到名为[没有这个]的实例(计划 idle)";
                 });
 
+                // ---------- 屏保两档(批次 10) ----------
+                b.Chk("屏保 who：Wallpaper Engine 代理名 → 统一归因；产品名优先；空产品回退 .scr 文件名；null → 空串", delegate
+                {
+                    string w1 = Gd.Str(Gd.Get(Gd.Map(Decisions.ScreensaverWhoV(Gd.Out("cfg", Gd.Out(
+                        "Saver", @"C:\Windows\System32\wallpaper64.exe_proxy.scr", "Product", "WallpaperEngine loldark")))), "Text"));
+                    string w2 = Gd.Str(Gd.Get(Gd.Map(Decisions.ScreensaverWhoV(Gd.Out("cfg", Gd.Out(
+                        "Saver", @"C:\a\b.scr", "Product", "别的家")))), "Text"));
+                    string w3 = Gd.Str(Gd.Get(Gd.Map(Decisions.ScreensaverWhoV(Gd.Out("cfg", Gd.Out(
+                        "Saver", @"C:\Windows\System32\mystars.scr", "Product", "")))), "Text"));
+                    string w4 = Gd.Str(Gd.Get(Gd.Map(Decisions.ScreensaverWhoV(Gd.Out("cfg", (object)null))), "Text"));
+                    return w1 == "Wallpaper Engine" && w2 == "别的家" && w3 == "mystars" && w4 == "";
+                });
+                b.Chk("屏保 verdict：四档顺序 unknown→none→armed→off，只有 armed 报 Risk", delegate
+                {
+                    Dictionary<string, object> u = Gd.Map(Decisions.ScreensaverVerdict(Gd.Out("cfg", (object)null)));
+                    Dictionary<string, object> n = Gd.Map(Decisions.ScreensaverVerdict(Gd.Out("cfg", Gd.Out(
+                        "Saver", "", "Product", "", "Active", "1", "TimeoutSec", 0))));
+                    Dictionary<string, object> a = Gd.Map(Decisions.ScreensaverVerdict(Gd.Out("cfg", Gd.Out(
+                        "Saver", @"C:\Windows\System32\mystars.scr", "Product", "", "Active", "1", "TimeoutSec", 600))));
+                    Dictionary<string, object> o = Gd.Map(Decisions.ScreensaverVerdict(Gd.Out("cfg", Gd.Out(
+                        "Saver", @"C:\Windows\System32\mystars.scr", "Product", "", "Active", "0", "TimeoutSec", 600))));
+                    // test-lib [t1g] 同款硬约束：短话不带箭头；armed 长话点名 unarm 脚本；off 长话说"不是终态"。
+                    string at = (string)a["Text"], ot = (string)o["Text"];
+                    return (string)u["Kind"] == "unknown" && !(bool)u["Risk"]
+                        && (string)n["Kind"] == "none" && !(bool)n["Risk"]
+                        && (string)a["Kind"] == "armed" && (bool)a["Risk"]
+                        && (string)o["Kind"] == "off" && !(bool)o["Risk"]
+                        && at.IndexOf('→') < 0 && ot.IndexOf('→') < 0 && at.Length <= 30 && ot.Length <= 30
+                        && ((string)a["Detail"]).Contains("unarm-screensaver")
+                        && ((string)o["Detail"]).Contains("不是终态");
+                });
+                b.Chk("屏保 verdict：floorSec 钳位、字符串读数走 [int] 语义、键大小写宽容(Ci)", delegate
+                {
+                    // TimeoutSec=60 但 floor=300 → 展示 300 秒；600>300 不钳。小写键+字符串值=壳 JSON 回来的真实形状。
+                    Dictionary<string, object> c1 = Gd.Map(Decisions.ScreensaverVerdict(Gd.Out(
+                        "cfg", Gd.Out("saver", @"D:\x\y.scr", "product", "", "active", "1", "timeoutsec", "60"),
+                        "floorSec", 300)));
+                    Dictionary<string, object> c2 = Gd.Map(Decisions.ScreensaverVerdict(Gd.Out(
+                        "cfg", Gd.Out("saver", @"D:\x\y.scr", "product", "", "active", "1", "timeoutsec", "600"),
+                        "floorSec", 300)));
+                    return (string)c1["Text"] == "屏保：y/300秒 仍武装" && (string)c2["Text"] == "屏保：y/600秒 仍武装";
+                });
+
                 // ---------- verb 接线(信封/退出码) ----------
                 b.Chk("verb decide-ark：--in/--out 回环，data 即判定对象", delegate
                 {

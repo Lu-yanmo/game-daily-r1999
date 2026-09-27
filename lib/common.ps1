@@ -293,49 +293,56 @@ function Get-GdScreensaverConfig {
 }
 
 function Get-GdScreensaverWho {
-    <# 纯函数：这个 .scr 是谁。优先用它自己的 ProductName(实测 wpxscreensaver64.scr →
-       "Wallpaper Engine Screensaver")，读不到才退回文件名 —— 面板那行要给人名，不给 8.3 短名。 #>
+    <# 转发壳(批次 10)：归因规则(WE 代理名归一/产品名优先/回退 .scr 文件名)在 C# Decisions.cs，
+       verb resolve-screensaver-who。注册表读数仍是活：$Cfg 由 Get-GdScreensaverConfig(或 test-lib 假读数)喂进来。
+       改规则请改 C# 并跑 tools\probe-decisions-golden.ps1 对拍，不要在这里加规则。 #>
     param($Cfg)
-    if (-not $Cfg -or -not $Cfg.Saver) { return '' }
-    $prod = [string]$Cfg.Product
-    if ($prod -match '(?i)wallpaper\s*engine') { return 'Wallpaper Engine' }
-    if ($prod) { return $prod }
-    try { return [System.IO.Path]::GetFileNameWithoutExtension([string]$Cfg.Saver) } catch { return [string]$Cfg.Saver }
+    $d = Invoke-GdCli -Verb 'resolve-screensaver-who' -Body ([pscustomobject]@{ cfg = $Cfg })
+    return [string]$d.Text
+    # ===== 批次 10 冻结段：旧判定本体(e269d13 原位备查；旧段里嵌过 <# #>，逐行 # 才保险) =====
+    # if (-not $Cfg -or -not $Cfg.Saver) { return '' }
+    # $prod = [string]$Cfg.Product
+    # if ($prod -match '(?i)wallpaper\s*engine') { return 'Wallpaper Engine' }
+    # if ($prod) { return $prod }
+    # try { return [System.IO.Path]::GetFileNameWithoutExtension([string]$Cfg.Saver) } catch { return [string]$Cfg.Saver }
 }
 
 function Get-GdScreensaverVerdict {
-    <# 纯函数：读数 → 一句面板短文 + 一句体检长话 + 要不要管。
-       喂字典不喂现场(只读自检不许要求机器现场状态，见 project memory)：$Cfg 给假的就能全表覆盖。
-       四档，判据顺序是认真的：
-         unknown —— 注册表读不到，只能报"不知道"(Risk=$false：不知道就别吓唬人，但也别说没事)
-         none    —— 没挂 .scr，这条路断根了，到点没人接管输入桌面
-         armed   —— 挂了 .scr 且武装位=1 → 到点必接管会话，方舟那一路起跑前置判定会直接早退
-         off     —— 挂了 .scr 但武装位=0 → 暂不触发；日常"只关不复"就是落到这一档，
-                    所以它不是终态：任何程序重新拉闸(或用户在屏保设置里点一下)就回到 armed #>
+    <# 转发壳(批次 10)：四档判据顺序(unknown→none→armed→off)与全部面板/体检话术在 C# Decisions.cs，
+       verb resolve-screensaver-verdict。参数名/默认值不许动(test-lib [t1g]、status.ps1、tools\panel.ps1、
+       tools\unarm-screensaver.ps1、lib\ark-daily.ps1 都按老签名调)；回 hashtable @{Kind;Risk;Text;Detail}
+       与旧形状逐字对齐。改文案请改 C# 并对拍 —— test-lib 三条硬约束(短话无箭头≤30、armed 点名
+       unarm-screensaver、off 说"不是终态")钉的就是这些串，改期望是禁手。 #>
     param($Cfg, [int]$TimeoutFloorSec = 0)
-    $who = Get-GdScreensaverWho -Cfg $Cfg
-    if ($null -eq $Cfg) {
-        return @{ Kind = 'unknown'; Risk = $false; Text = '屏保：注册表读不到，判断不了';
-                  Detail = '屏保：读不到 HKCU\Control Panel\Desktop，判断不了武装没有(不代表没事)' }
-    }
-    if (-not $Cfg.Saver) {
-        return @{ Kind = 'none'; Risk = $false; Text = '屏保：没挂 .scr(不会接管会话)';
-                  Detail = '屏保：系统里没有指定屏幕保护程序 → 到点不会有任何东西盖住端游窗口，06:00 那一路安全' }
-    }
-    $secs = [int]$Cfg.TimeoutSec
-    if ($TimeoutFloorSec -gt 0 -and $secs -lt $TimeoutFloorSec) { $secs = $TimeoutFloorSec }
-    # 卡片上那一行用的是 $short，体检长话用的是 $whoSecs —— 长话自己再缀一遍"屏保："会念成
-    # 「屏保：仍武装着(屏保：Wallpaper Engine/300秒)」那种套娃(2026-09-26 首次实跑 status.ps1 就是这样)，所以这里把前缀拆干净。
-    $whoSecs = $(if ($who) { $who } else { '某个 .scr' }) + '/' + $secs + '秒'
-    $short = '屏保：' + $whoSecs
-    if ($Cfg.Active -eq '1') {
-        return @{ Kind = 'armed'; Risk = $true; Text = ($short + ' 仍武装');
-                  Detail = ('屏保：' + $whoSecs + ' 仍武装 → 到点会接管输入桌面，方舟那一路起跑前置判定会直接早退 not-started；' +
-                            '解法：tools\unarm-screensaver.ps1 -Apply(或 设置→个性化→锁屏界面→屏幕保护程序→选「(无)」)') }
-    }
-    return @{ Kind = 'off'; Risk = $false; Text = ($short + ' 已解除');
-              Detail = ('屏保：' + $whoSecs + '，武装位是 0 → 到点不触发(日常"只关不复"就停在这档)。' +
-                        '注意它不是终态：' + $(if ($who) { $who } else { '挂屏保的那个程序' }) + ' 的设置里仍勾着屏保时，改一次设置就可能被重新武装，体检看到这行变成"仍武装"就是这个原因') }
+    $d = Invoke-GdCli -Verb 'resolve-screensaver-verdict' -Body ([pscustomobject]@{
+        cfg      = $Cfg
+        floorSec = $TimeoutFloorSec
+    })
+    return @{ Kind = [string]$d.Kind; Risk = [bool]$d.Risk; Text = [string]$d.Text; Detail = [string]$d.Detail }
+    # ===== 批次 10 冻结段：旧四档本体(e269d13 原位备查) =====
+    # $who = Get-GdScreensaverWho -Cfg $Cfg
+    # if ($null -eq $Cfg) {
+    #     return @{ Kind = 'unknown'; Risk = $false; Text = '屏保：注册表读不到，判断不了';
+    #               Detail = '屏保：读不到 HKCU\Control Panel\Desktop，判断不了武装没有(不代表没事)' }
+    # }
+    # if (-not $Cfg.Saver) {
+    #     return @{ Kind = 'none'; Risk = $false; Text = '屏保：没挂 .scr(不会接管会话)';
+    #               Detail = '屏保：系统里没有指定屏幕保护程序 → 到点不会有任何东西盖住端游窗口，06:00 那一路安全' }
+    # }
+    # $secs = [int]$Cfg.TimeoutSec
+    # if ($TimeoutFloorSec -gt 0 -and $secs -lt $TimeoutFloorSec) { $secs = $TimeoutFloorSec }
+    # # 卡片上那一行用的是 $short，体检长话用的是 $whoSecs —— 长话自己再缀一遍"屏保："会念成
+    # # 「屏保：仍武装着(屏保：Wallpaper Engine/300秒)」那种套娃(2026-09-26 首次实跑 status.ps1 就是这样)，所以这里把前缀拆干净。
+    # $whoSecs = $(if ($who) { $who } else { '某个 .scr' }) + '/' + $secs + '秒'
+    # $short = '屏保：' + $whoSecs
+    # if ($Cfg.Active -eq '1') {
+    #     return @{ Kind = 'armed'; Risk = $true; Text = ($short + ' 仍武装');
+    #               Detail = ('屏保：' + $whoSecs + ' 仍武装 → 到点会接管输入桌面，方舟那一路起跑前置判定会直接早退 not-started；' +
+    #                         '解法：tools\unarm-screensaver.ps1 -Apply(或 设置→个性化→锁屏界面→屏幕保护程序→选「(无)」)') }
+    # }
+    # return @{ Kind = 'off'; Risk = $false; Text = ($short + ' 已解除');
+    #           Detail = ('屏保：' + $whoSecs + '，武装位是 0 → 到点不触发(日常"只关不复"就停在这档)。' +
+    #                     '注意它不是终态：' + $(if ($who) { $who } else { '挂屏保的那个程序' }) + ' 的设置里仍勾着屏保时，改一次设置就可能被重新武装，体检看到这行变成"仍武装"就是这个原因') }
 }
 
 function Get-GdScreensaverStateFile { Join-Path $global:GD.State 'screensaver.restore' }
@@ -669,24 +676,41 @@ function Test-GdAdmin {
 }
 
 function Get-GdRelaunchArgList {
-    <# 把已绑定的参数还原成命令行，用于 -Verb RunAs 重启自己(纯函数，便于自检) #>
+    <# 转发壳(批次 10)：skip 判据(-in 不分大小写)、DryRun 永远不带、flag 真值才加、串值 " → \" 转义
+       全在 C# Processes.cs，verb build-relaunch-args。"哪些参数被绑了、是什么类型"是 PS 运行时的事，
+       留在这里逐项分类成 {K,T,V} 喂进去(K=名 / T=flag|null|str / V=值)，$Bound.Keys 枚举序原样保持；
+       数组值走 [string] 空格拼串就是 PS 的 [string]@() 语义。返回仍是字符串数组(test-ark [t8]/[t9] 钉着)。 #>
     param(
         [Parameter(Mandatory)][string]$Script,
         [hashtable]$Bound = @{},
         [string[]]$Force = @(),
         [string[]]$Omit = @()
     )
-    $skip = @($Omit) + @('DryRun')   # DryRun 默认不带：提权重启只为真实运行
-    $out = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"{0}"' -f $Script))
-    foreach ($k in $Force) { $out += $k }
-    foreach ($k in $Bound.Keys) {
-        if ($k -in $skip) { continue }
+    $entries = @(foreach ($k in $Bound.Keys) {
         $v = $Bound[$k]
-        if ($v -is [switch] -or $v -is [bool]) { if ($v) { $out += "-$k" }; continue }
-        if ($null -eq $v) { continue }
-        $out += "-$k"; $out += '"' + ([string]$v -replace '"', '\"') + '"'
-    }
-    return , $out
+        if ($null -eq $v) { [pscustomobject]@{ K = $k; T = 'null'; V = $null } }
+        elseif ($v -is [switch] -or $v -is [bool]) { [pscustomobject]@{ K = $k; T = 'flag'; V = [bool]$v } }
+        else { [pscustomobject]@{ K = $k; T = 'str'; V = [string]$v } }
+    })
+    $d = Invoke-GdCli -Verb 'build-relaunch-args' -Body ([pscustomobject]@{
+        script  = $Script
+        omit    = @($Omit)
+        force   = @($Force)
+        entries = $entries
+    })
+    return , @([string[]]$d.Args)
+    # ===== 批次 10 冻结段：旧拼参本体(e269d13 原位备查) =====
+    # $skip = @($Omit) + @('DryRun')   # DryRun 默认不带：提权重启只为真实运行
+    # $out = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"{0}"' -f $Script))
+    # foreach ($k in $Force) { $out += $k }
+    # foreach ($k in $Bound.Keys) {
+    #     if ($k -in $skip) { continue }
+    #     $v = $Bound[$k]
+    #     if ($v -is [switch] -or $v -is [bool]) { if ($v) { $out += "-$k" }; continue }
+    #     if ($null -eq $v) { continue }
+    #     $out += "-$k"; $out += '"' + ([string]$v -replace '"', '\"') + '"'
+    # }
+    # return , $out
 }
 
 function Get-GdLocalPwsh {

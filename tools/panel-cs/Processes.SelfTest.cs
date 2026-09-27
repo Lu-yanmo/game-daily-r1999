@@ -60,6 +60,7 @@ namespace GdPanel
             ResGroup(b);
             MuMuGroup(b);
             AdbGroup(b);
+            RelaunchGroup(b);
             return b.Result("--proctest");
         }
 
@@ -541,6 +542,65 @@ namespace GdPanel
             {
                 Dictionary<string, object> d = D(Processes.AdbPidof(Gd.Map(Gd.Out("out", "99999999999999"))));
                 return Gd.Str(Gd.Get(d, "Found")) == "False";
+            });
+        }
+
+        // ---------- 提权重启拼参(批次 10，镜像 test-ark [t8]/[t9] 的六条形状) ----------
+        static string RelaunchStr(Dictionary<string, object> inp)
+        {
+            List<string> parts = new List<string>();
+            foreach (object o in Gd.List(Gd.Get(D(Processes.RelaunchArgs(inp)), "Args"))) parts.Add(Gd.Str(o));
+            return string.Join(" ", parts.ToArray());
+        }
+
+        static Dictionary<string, object> Entry(string k, string t, object v)
+        {
+            return Gd.Out("K", k, "T", t, "V", v);
+        }
+
+        static void RelaunchGroup(Box b)
+        {
+            b.Chk("relaunch/骨架+force 原样+串值带引号", delegate
+            {
+                string s = RelaunchStr(Gd.Out(
+                    "script", @"C:\games\ark-daily.ps1",
+                    "omit", new object[] { "NoElevate" },
+                    "force", new object[] { "-NoElevate" },
+                    "entries", new object[] { Entry("Games", "str", "ark") }));
+                return s == @"-NoProfile -ExecutionPolicy Bypass -File ""C:\games\ark-daily.ps1"" -NoElevate -Games ""ark""";
+            });
+            b.Chk("relaunch/omit 不分大小写、DryRun 永远不进、T=null 跳过", delegate
+            {
+                string s = RelaunchStr(Gd.Out(
+                    "script", "x.ps1",
+                    "omit", new object[] { "gAmEs" },              // -in 语义：大小写不敏感地跳掉 -Games
+                    "force", new object[0],
+                    "entries", new object[] {
+                        Entry("Games", "str", "ark"),              // 被 omit 跳
+                        Entry("DryRun", "flag", true),             // 保底永远跳
+                        Entry("Mode", "null", null),               // 旧代码 -$null 分支
+                        Entry("Tag", "str", "ok") }));
+                return s == @"-NoProfile -ExecutionPolicy Bypass -File ""x.ps1"" -Tag ""ok""";
+            });
+            b.Chk("relaunch/flag 真值才加、假值整个不留", delegate
+            {
+                string on = RelaunchStr(Gd.Out("script", "x.ps1", "omit", new object[0], "force", new object[0],
+                    "entries", new object[] { Entry("SkipCleanup", "flag", true) }));
+                string off = RelaunchStr(Gd.Out("script", "x.ps1", "omit", new object[0], "force", new object[0],
+                    "entries", new object[] { Entry("SkipCleanup", "flag", false) }));
+                return on.EndsWith("-SkipCleanup") && off == @"-NoProfile -ExecutionPolicy Bypass -File ""x.ps1""";
+            });
+            b.Chk("relaunch/串值里的 \" 逐字复刻 -replace 成 \\\"", delegate
+            {
+                string s = RelaunchStr(Gd.Out("script", "x.ps1", "omit", new object[0], "force", new object[0],
+                    "entries", new object[] { Entry("Note", "str", "a\"b") }));
+                return s.EndsWith(@"-Note ""a\""b""");
+            });
+            b.Chk("relaunch/条目顺序=壳喂进来的 $Bound 枚举序", delegate
+            {
+                string s = RelaunchStr(Gd.Out("script", "x.ps1", "omit", new object[0], "force", new object[0],
+                    "entries", new object[] { Entry("B", "str", "1"), Entry("A", "str", "2"), Entry("C", "str", "3") }));
+                return s == @"-NoProfile -ExecutionPolicy Bypass -File ""x.ps1"" -B ""1"" -A ""2"" -C ""3""";
             });
         }
     }

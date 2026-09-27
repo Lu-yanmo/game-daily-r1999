@@ -16,6 +16,9 @@
 // 批次 7：活段监控循环的 tick 判据(见 RunLoops.cs 头注，口径 docs\ps-migration-live-caliber.md)——
 // decide-maa-run-tick 一个 verb：壳每 tick 采读数(now/live/flags/cfg)喂进来，拿回"继续/早退/收尾"+
 // 同 tick 挂起的副作用指令(grab/rescue/record)。while+sleep、挂钟、读盘、真兜底真抢前台、记账、收尾时长全留 PS 壳。
+// 批次 9：两路监控循环的"事件→状态"回灌段(见 RunLoops.cs 对应段头注)——apply-maa-gui-events /
+// finish-maa-run / apply-m9a-events 三个 verb：事件列表+旧状态进来，新状态+日志出去；
+// Get-Date/Sort-Object/hashtable 重建这些现场量仍由壳做，Register-M9AEvent 与回灌 switch 只剩转发壳。
 //
 // 三通道铁律：
 //   * 机读结果 **只走 --out 文件**(winexe 的 stdout 从控制台启动本来就不可靠，见 Panel.cs 头注)；
@@ -120,7 +123,10 @@ namespace GdPanel
                 else if (verb == "decide-maa-run-tick") r = Decide(a, RunLoops.MaaTick);
                 else if (verb == "decide-m9a-run-tick") r = Decide(a, RunLoops.M9aTick);
                 else if (verb == "decide-daily-retry") r = Decide(a, Orchestration.DailyRetry);
-                else throw new GdUsageException("未知子命令：" + verb + "(现有：echo + 批次 1 判定四件 + 批次 2 探测/状态行 + 批次 3 的 parse-asst-*/plan-maa-queue/m9a-launch-args/parse-m9a-lines/resolve-m9a-status/parse-mumu-*/parse-adb-* + 批次 4 的 build-vision-prompt/parse-vision-verdict/vision-click-point/resolve-vision-endpoint/shot-changed/parse-vision-reply/rescue-entry/compose-ark-desktop-state + 批次 5 的 parse-farm-target-spec/parse-ark-drop-text/resolve-ark-farm-plan/apply-ark-daily-intent/apply-r1999-daily-intent/parse-maa-gui-lines/split-task-args + 批次 6 的 eval-supervisor-settings/parse-supervisor-state/resolve-supervisor-action/compose-supervisor-detail + 批次 7 的 decide-maa-run-tick + 批次 8 的 decide-m9a-run-tick/decide-daily-retry；后续批次见 docs\\ps-migration-batch0.md 与 docs\\ps-migration-live-caliber.md)");
+                else if (verb == "apply-maa-gui-events") r = Decide(a, RunLoops.MaaGuiEvents);
+                else if (verb == "finish-maa-run") r = Decide(a, RunLoops.MaaFinish);
+                else if (verb == "apply-m9a-events") r = Decide(a, RunLoops.M9aEvents);
+                else throw new GdUsageException("未知子命令：" + verb + "(现有：echo + 批次 1 判定四件 + 批次 2 探测/状态行 + 批次 3 的 parse-asst-*/plan-maa-queue/m9a-launch-args/parse-m9a-lines/resolve-m9a-status/parse-mumu-*/parse-adb-* + 批次 4 的 build-vision-prompt/parse-vision-verdict/vision-click-point/resolve-vision-endpoint/shot-changed/parse-vision-reply/rescue-entry/compose-ark-desktop-state + 批次 5 的 parse-farm-target-spec/parse-ark-drop-text/resolve-ark-farm-plan/apply-ark-daily-intent/apply-r1999-daily-intent/parse-maa-gui-lines/split-task-args + 批次 6 的 eval-supervisor-settings/parse-supervisor-state/resolve-supervisor-action/compose-supervisor-detail + 批次 7 的 decide-maa-run-tick + 批次 8 的 decide-m9a-run-tick/decide-daily-retry + 批次 9 的 apply-maa-gui-events/finish-maa-run/apply-m9a-events；后续批次见 docs\\ps-migration-batch0.md 与 docs\\ps-migration-live-caliber.md)");
             }
             catch (GdUsageException ex)
             {

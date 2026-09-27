@@ -1,5 +1,5 @@
-// tools/panel-cs/RunLoops.SelfTest.cs —— --looptest：批次 7(RunLoops.cs)的无头自检。
-// 期望串逐字抄自 lib\maa.ps1 Invoke-MaaRun 判据段(基线 c498da0 真身) —— 这里红了就是移植走样，
+// tools/panel-cs/RunLoops.SelfTest.cs —— --looptest：批次 7/8/9(RunLoops.cs)的无头自检。
+// 期望串逐字抄自 lib\maa.ps1 / lib\m9a.ps1 的判据段与回灌段(基线 c498da0 真身) —— 这里红了就是移植走样，
 // 改 RunLoops.cs，不改这里的期望(§7 同一条纪律)。
 // 批次纪律：不起进程、不读盘、不耗挂钟 —— 读数与 effect 回执全由场景直喂；
 // 链步靠"上一步输出的 State 原样中继 + effectsResolved 追加回执"模拟壳的同 tick 迷你循环，
@@ -537,6 +537,189 @@ namespace GdPanel
                     && LTx(r, 0) == "M9A 链路完成，共 8 个任务，用时 12.1 分钟";
             });
 
+            // ==================== 批次 9：apply-maa-gui-events(ark 一路回灌段) ====================
+            // 期望串逐字抄自 lib\maa.ps1 Invoke-MaaRun 行 236-278 的回灌 switch(基线 c498da0)。
+            b.Chk("六档一批全走：日志序/级别/State 六键逐项对", () =>
+            {
+                object r = MGE(new object[] {
+                    GEv(new object[] { "Kind", "finished", "Used", "00:07:32" }),
+                    GEv(new object[] { "Kind", "chain", "Chain", "Fight" }),
+                    GEv(new object[] { "Kind", "stall", "Msg", "任务处理似乎出现了停滞" }),
+                    GEv(new object[] { "Kind", "drained" }),
+                    GEv(new object[] { "Kind", "error", "Msg", "ERR something" }),
+                    GEv(new object[] { "Kind", "benign", "Pattern", "Idle", "Msg", "idle err" }),
+                }, GEState(new object[] { "errors", new object[] { "e1" } }));
+                if (Lgs(r).Length != 6) return false;
+                return LLv(r, 0) == "OK" && LTx(r, 0) == "MAA 宣布任务全部完成(内部计时 00:07:32)"
+                    && LLv(r, 1) == "INFO" && LTx(r, 1) == "MAA 完成链路：Fight"
+                    && LLv(r, 2) == "WARN" && LTx(r, 2) == "MAA 停滞告警：任务处理似乎出现了停滞"
+                    && LLv(r, 3) == "WARN" && LTx(r, 3) == "MAA 宣布本轮已跑完但有错误(队列已空，它不会再自己动)"
+                    && LLv(r, 4) == "WARN" && LTx(r, 4) == "MAA 异常线索：ERR something"
+                    && LLv(r, 5) == "INFO" && LTx(r, 5) == "MAA 噪音(已按 benignMaaErrors 忽略)：idle err"
+                    && Gd.Truthy(Gd.Get(GState(r), "finished")) && Gd.Truthy(Gd.Get(GState(r), "drained"))
+                    && Gd.Str(Gd.Get(GState(r), "stallWarn")) == "任务处理似乎出现了停滞"
+                    && Gd.List(Gd.Get(GState(r), "errors")).Length == 2
+                    && Gd.Int(Gd.Get(D(Gd.Get(GState(r), "completed")), "Fight"), 0) == 1
+                    && Gd.Str(Gd.List(Gd.Get(GState(r), "benignPatterns"))[0]) == "Idle";
+            });
+            b.Chk("finished 无内部计时 → 不拼括号；Used 有值才拼", () =>
+            {
+                object r = MGE(new object[] { GEv(new object[] { "Kind", "finished" }) }, GEState(null));
+                return LTx(r, 0) == "MAA 宣布任务全部完成" && Gd.Truthy(Gd.Get(GState(r), "finished"));
+            });
+            b.Chk("chain 大小写不敏感累计：fIGHT 加到 Fight 头上，键保首写法、日志用当拍写法", () =>
+            {
+                object r = MGE(new object[] { GEv(new object[] { "Kind", "chain", "Chain", "fIGHT" }) },
+                    GEState(new object[] { "completed", Inp("Fight", 2) }));
+                Dictionary cm = D(Gd.Get(GState(r), "completed"));
+                return LTx(r, 0) == "MAA 完成链路：fIGHT" && cm != null && cm.Count == 1
+                    && Gd.Int(Gd.Get(cm, "Fight"), 0) == 3;
+            });
+            b.Chk("error 满 40 封顶：39 条时收进来，40 条时**无声**丢弃(不打日志)", () =>
+            {
+                object[] e39 = MakeErrors(39);
+                object[] e40 = MakeErrors(40);
+                object rA = MGE(new object[] { GEv(new object[] { "Kind", "error", "Msg", "m" }) }, GEState(new object[] { "errors", e39 }));
+                object rB = MGE(new object[] { GEv(new object[] { "Kind", "error", "Msg", "m" }) }, GEState(new object[] { "errors", e40 }));
+                return Gd.List(Gd.Get(GState(rA), "errors")).Length == 40 && Lgs(rA).Length == 1
+                    && Gd.List(Gd.Get(GState(rB), "errors")).Length == 40 && Lgs(rB).Length == 0;
+            });
+            b.Chk("benign 同 Pattern 第二条不再打日志(HashSet 首见口径)", () =>
+            {
+                object r = MGE(new object[] {
+                    GEv(new object[] { "Kind", "benign", "Pattern", "Idle", "Msg", "a" }),
+                    GEv(new object[] { "Kind", "benign", "Pattern", "iDLE", "Msg", "b" }),
+                }, GEState(null));
+                return Lgs(r).Length == 1 && LTx(r, 0) == "MAA 噪音(已按 benignMaaErrors 忽略)：a"
+                    && Gd.List(Gd.Get(GState(r), "benignPatterns")).Length == 1;
+            });
+            b.Chk("空事件批 → 状态原样带回、零日志", () =>
+            {
+                object r = MGE(new object[0], GEState(new object[] { "finished", true, "stallWarn", "w" }));
+                return Lgs(r).Length == 0 && Gd.Truthy(Gd.Get(GState(r), "finished"))
+                    && Gd.Str(Gd.Get(GState(r), "stallWarn")) == "w";
+            });
+
+            // ==================== 批次 9：finish-maa-run(ark 一路挂钟收尾) ====================
+            // 期望串逐字抄自 lib\maa.ps1 行 510-512(基线 c498da0)；durSec/chainText 由壳喂现场量。
+            b.Chk("收尾整句：675 秒→11.2(ToEven)、Detail 拼排序好的链表、Duration 原样透传", () =>
+            {
+                object r = RunLoops.MaaFinish(Inp("durSec", 675.0, "chainText", "Fight, Recruit"));
+                return Lgs(r).Length == 1 && LLv(r, 0) == "OK"
+                    && LTx(r, 0) == "MAA 日常链路完成，用时 11.2 分钟"
+                    && Stat(r) == "ok" && Det(r) == "完成链路：Fight, Recruit" && Math.Abs(Dur(r) - 675.0) < 1e-9;
+            });
+            b.Chk("整分钟打整数形(660→『11 分钟』)；链表空也不冒充有链路", () =>
+            {
+                object r = RunLoops.MaaFinish(Inp("durSec", 660.0, "chainText", ""));
+                return LTx(r, 0) == "MAA 日常链路完成，用时 11 分钟" && Det(r) == "完成链路：";
+            });
+
+            // ==================== 批次 9：apply-m9a-events(m9a 一路状态机段) ====================
+            // 期望串逐字抄自 lib\m9a.ps1 Register-M9AEvent 十三档(基线 c498da0)。
+            b.Chk("task 首跳：进行中[N] 用 append 后的计数、chainStarted 落定、touch 生效", () =>
+            {
+                object r = M9E(new object[] { M9Ev("task", "启动游戏") }, M9State(null));
+                return Lgs(r).Length == 1 && LLv(r, 0) == "INFO" && LTx(r, 0) == "M9A 进行中[1] 启动游戏"
+                    && Gd.List(SV(r, "tasks")).Length == 1 && Gd.Truthy(SV(r, "chainStarted"))
+                    && Gd.Int(SV(r, "eventCount"), -1) == 1 && Dir(r, "TouchLastLog");
+            });
+            b.Chk("tasks 键为 $null → @($null)+t 的 **[null,t]** 占位元素照落(计数从 2 起，旧行为)", () =>
+            {
+                object r = M9E(new object[] { M9Ev("task", "收取荒原") }, M9State(new object[] { "tasks", null }));
+                return LTx(r, 0) == "M9A 进行中[2] 收取荒原" && Gd.List(SV(r, "tasks")).Length == 2;
+            });
+            b.Chk("queue-prepared：queueCount 落数、>0 才算开跑、日志吃原文 Text；0 不开 chainStarted", () =>
+            {
+                object a = M9E(new object[] { M9Ev("queue-prepared", "10") }, M9State(null));
+                object z = M9E(new object[] { M9Ev("queue-prepared", "0") }, M9State(null));
+                return LTx(a, 0) == "M9A 已提交任务队列：任务数量=10" && Gd.Int(SV(a, "queueCount"), -1) == 10
+                    && Gd.Truthy(SV(a, "chainStarted"))
+                    && Gd.Int(SV(z, "queueCount"), -1) == 0 && !Gd.Truthy(SV(z, "chainStarted"));
+            });
+            b.Chk("finish 分流三态：空账→connectPhase=done；有任务→chainDone；tasks=$null(@($null).Count=1)→也算 chainDone", () =>
+            {
+                object a = M9E(new object[] { M9Ev("finish", "") }, M9State(null));
+                object b1 = M9E(new object[] { M9Ev("finish", "") }, M9State(new object[] { "tasks", new object[] { "启动游戏" } }));
+                object c1 = M9E(new object[] { M9Ev("finish", "") }, M9State(new object[] { "tasks", null }));
+                return Gd.Str(SV(a, "connectPhase")) == "done" && !Gd.Truthy(SV(a, "chainDone"))
+                    && Gd.Truthy(SV(b1, "chainDone")) && Gd.Str(SV(b1, "connectPhase")) == "none"
+                    && Gd.Truthy(SV(c1, "chainDone"));
+            });
+            b.Chk("task-fail 累计：failedTasks 一条一报、failed 只认第一条、WARN 带累计数", () =>
+            {
+                object r1 = M9E(new object[] { M9Ev("task-fail", "启动游戏") }, M9State(null));
+                if (LLv(r1, 0) != "WARN" || LTx(r1, 0) != "M9A 任务失败：启动游戏(累计 1 个)") return false;
+                if (Gd.Str(SV(r1, "failed")) != "任务失败：启动游戏") return false;
+                // 上一拍的 State 原样中继回壳再喂回来(与批 7/8 同款链路)
+                object r2 = M9E(new object[] { M9Ev("task-fail", "收取荒原") }, GState(r1));
+                return LTx(r2, 0) == "M9A 任务失败：收取荒原(累计 2 个)"
+                    && Gd.List(SV(r2, "failedTasks")).Length == 2
+                    && Gd.Str(SV(r2, "failed")) == "任务失败：启动游戏";
+            });
+            b.Chk("failedTasks 空数组按 $null -eq @() 塌缩 → 第一条直接成 [@t] 而不是 [..,t](累计 1 个)", () =>
+            {
+                object r = M9E(new object[] { M9Ev("task-fail", "使用兑换码") },
+                    M9State(new object[] { "failedTasks", new object[0] }));
+                return Gd.List(SV(r, "failedTasks")).Length == 1 && LTx(r, 0) == "M9A 任务失败：使用兑换码(累计 1 个)";
+            });
+            b.Chk("res-latest 三态：有差 WARN 整句 / -ne 不分大小写(V4.7.1=v4.7.1 不 WARN) / 无 current 不 WARN 但照记", () =>
+            {
+                object a = M9E(new object[] { M9Ev("res-latest", "v4.10.0") }, M9State(new object[] { "resCurrent", "v4.7.1" }));
+                object b1 = M9E(new object[] { M9Ev("res-latest", "v4.7.1") }, M9State(new object[] { "resCurrent", "V4.7.1" }));
+                object c1 = M9E(new object[] { M9Ev("res-latest", "v4.10.0") }, M9State(null));
+                return Lgs(a).Length == 1 && LLv(a, 0) == "WARN"
+                    && LTx(a, 0) == "M9A 资源/程序有新版：当前 v4.7.1 → 最新 v4.10.0(整包更新，命令行没有更新入口，需在 M9A 界面点『更新』)"
+                    && Lgs(b1).Length == 0 && Lgs(c1).Length == 0 && Gd.Str(SV(c1, "resLatest")) == "v4.10.0";
+            });
+            b.Chk("connect-fail 只留第一条：第二拍再喂不改值、不再打 WARN", () =>
+            {
+                object r1 = M9E(new object[] { M9Ev("connect-fail", "初始化控制器失败：AdbSerial 为空") }, M9State(null));
+                if (Lgs(r1).Length != 1 || LLv(r1, 0) != "WARN"
+                    || LTx(r1, 0) != "M9A 连不上模拟器：初始化控制器失败：AdbSerial 为空") return false;
+                object r2 = M9E(new object[] { M9Ev("connect-fail", "第二条") }, GState(r1));
+                return Lgs(r2).Length == 0 && Gd.Str(SV(r2, "connectFail")) == "初始化控制器失败：AdbSerial 为空";
+            });
+            b.Chk("不认识的 Kind：只加 eventCount、**不** touch lastLog；noise 反过来只 touch 不加账", () =>
+            {
+                object a = M9E(new object[] { M9Ev("weird", "x") }, M9State(null));
+                object n = M9E(new object[] { M9Ev("noise", "") }, M9State(null));
+                return Gd.Int(SV(a, "eventCount"), -1) == 1 && !Dir(a, "TouchLastLog") && Lgs(a).Length == 0
+                    && Dir(n, "TouchLastLog") && Lgs(n).Length == 0;
+            });
+            b.Chk("纯状态六档(chain-start/done/ui-start/connect-start/res-current/fail)：改对键、touch 全亮、零日志", () =>
+            {
+                object r = M9E(new object[] {
+                    M9Ev("chain-start", ""), M9Ev("chain-done", ""), M9Ev("ui-start", ""),
+                    M9Ev("connect-start", ""), M9Ev("res-current", "v4.7.1"), M9Ev("fail", "任务运行失败"),
+                }, M9State(null));
+                return Lgs(r).Length == 0 && Dir(r, "TouchLastLog")
+                    && Gd.Truthy(SV(r, "chainStarted")) && Gd.Truthy(SV(r, "chainDone"))
+                    && Gd.Truthy(SV(r, "startRequested")) && Gd.Str(SV(r, "connectPhase")) == "started"
+                    && Gd.Str(SV(r, "resCurrent")) == "v4.7.1" && Gd.Str(SV(r, "failed")) == "任务运行失败"
+                    && Gd.Int(SV(r, "eventCount"), -1) == 6;
+            });
+            b.Chk("fail 档不覆盖已有 failed(-not $State.failed 口径)", () =>
+            {
+                object r = M9E(new object[] { M9Ev("fail", "后来的") }, M9State(new object[] { "failed", "先到的" }));
+                return Gd.Str(SV(r, "failed")) == "先到的";
+            });
+            b.Chk("eventCount 跨批累加：上拍 State 原样中继回来再 +2", () =>
+            {
+                object r1 = M9E(new object[] { M9Ev("task", "启动游戏") }, M9State(null));
+                object r2 = M9E(new object[] { M9Ev("noise", ""), M9Ev("chain-done", "") }, GState(r1));
+                return Gd.Int(SV(r2, "eventCount"), -1) == 3
+                    && Gd.List(SV(r2, "tasks")).Length == 1 && Gd.Truthy(SV(r2, "chainDone"));
+            });
+            b.Chk("未变化的可空键原样回填(failed/queueCount/resCurrent 没喂就是 null，不被并成空串)", () =>
+            {
+                object r = M9E(new object[] { M9Ev("noise", "") }, M9State(null));
+                Dictionary s = GState(r);
+                return s.ContainsKey("failed") && s["failed"] == null
+                    && s["queueCount"] == null && s["resCurrent"] == null && s["connectFail"] == null
+                    && s["failedTasks"] == null && Gd.Str(s["connectPhase"]) == "none";
+            });
+
             return b.Result("looptest");
         }
 
@@ -587,5 +770,48 @@ namespace GdPanel
             outA[head.Length] = tailItem;
             return outA;
         }
+
+        // ---------- 批次 9 的输入构造器(键面与 maa.ps1/m9a.ps1 转发壳喂的一字不差) ----------
+        static Dictionary GEState(object[] kv)
+        {
+            Dictionary<string, object> d = Inp(
+                "completed", new Dictionary<string, object>(), "errors", new object[0],
+                "benignPatterns", new object[0], "finished", false, "drained", false, "stallWarn", "");
+            Merge(d, kv);
+            return d;
+        }
+        static Dictionary GEv(object[] kv)
+        {
+            Dictionary<string, object> d = Inp("Kind", "", "Chain", "", "Msg", "", "Used", "", "Pattern", "");
+            Merge(d, kv);
+            return d;
+        }
+        static object MGE(object[] evs, Dictionary st)
+        {
+            return RunLoops.MaaGuiEvents(Inp("events", evs, "state", st));
+        }
+        static Dictionary GState(object r) { return D(Gd.Get(D(r), "State")); }
+        static object[] MakeErrors(int n)
+        {
+            object[] a = new object[n];
+            for (int i = 0; i < n; i++) a[i] = "e" + i;
+            return a;
+        }
+
+        static Dictionary M9State(object[] kv)
+        {
+            Dictionary<string, object> d = Inp(
+                "tasks", new object[0], "chainStarted", false, "chainDone", false, "connectPhase", "none",
+                "failed", null, "queueCount", null, "startRequested", false, "eventCount", 0,
+                "failedTasks", null, "resCurrent", null, "resLatest", null, "connectFail", null);
+            Merge(d, kv);
+            return d;
+        }
+        static Dictionary M9Ev(string kind, string text) { return Inp("Kind", kind, "Text", text); }
+        static object M9E(object[] evs, Dictionary st)
+        {
+            return RunLoops.M9aEvents(Inp("events", evs, "state", st));
+        }
+        static object SV(object r, string k) { return Gd.Get(GState(r), k); }
     }
 }

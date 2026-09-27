@@ -1,4 +1,5 @@
-// tools/panel-cs/RunLoops.cs —— 批次 7/8：活段监控循环的"判据段"本体(ark 一路 decide-maa-run-tick + m9a 一路 decide-m9a-run-tick)。
+// tools/panel-cs/RunLoops.cs —— 批次 7/8/9：活段监控循环的"判据段+回灌段"本体
+// (ark 一路 decide-maa-run-tick + m9a 一路 decide-m9a-run-tick + 批次 9 的事件回灌三件)。
 // 口径全文见 docs\ps-migration-live-caliber.md(剧本注入回放 + 同 tick effect 迷你循环)。
 // 基线真身 = lib\maa.ps1 Invoke-MaaRun 行 296-433 的判据链(钉 commit c498da0)。
 // 文案必须与 PS 原话逐字符一致：tools\probe-live-golden.ps1 拿基线做全字面对拍，
@@ -713,5 +714,242 @@ namespace GdPanel
             // PS "$([math]::Round($elapsed/60,1))"：double→串走 G15 最简形(2.0 打成 "2"、1.9 打成 "1.9")。
             static string MinStr(double d) { return d.ToString(CultureInfo.InvariantCulture); }
         }
+
+        // ==================== verb: apply-maa-gui-events(批次 9，ark 一路回灌段) ====================
+        // 基线真身 = lib\maa.ps1 Invoke-MaaRun 行 236-278 的 foreach($ev) 回灌 switch(钉 commit c498da0)。
+        // 六档语义与旧代码逐字一致；$markers/$logChars 的 += 是纯数字透传，留在壳。
+        // 状态中继：壳把 completed/benignSeen 摊平成 {completed:映射, benignPatterns:列表} 喂进来，
+        // 回执后按同款形状重建(hashtable 大小写不敏感 → 这里一律 OrdinalIgnoreCase，键保首个写法)。
+        // 话术细节：drained 档的 WARN 句里"任务已完成，但出现错误"这句匹配规则在 parse-maa-gui-lines
+        // (批 5 已搬)，这里只负责认下 $drained；error 档满 40 条后**无声丢弃**(不打日志)。
+        internal static object MaaGuiEvents(Dictionary<string, object> inp)
+        {
+            Dictionary<string, object> st = Obj(Gd.Get(inp, "state"));
+            object[] evs = Gd.List(Gd.Get(inp, "events"));
+
+            Dictionary<string, object> completed = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+            Dictionary<string, object> cm = Gd.Map(Gd.Get(st, "completed"));
+            if (cm != null) foreach (KeyValuePair<string, object> kv in cm) completed[kv.Key] = kv.Value;
+            List<object> errors = new List<object>(Gd.List(Gd.Get(st, "errors")));
+            HashSet<string> benign = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            List<string> benignList = new List<string>();
+            foreach (object p in Gd.List(Gd.Get(st, "benignPatterns")))
+                if (benign.Add(Gd.Str(p))) benignList.Add(Gd.Str(p));
+            bool finished = Gd.Truthy(Gd.Get(st, "finished"));
+            bool drained = Gd.Truthy(Gd.Get(st, "drained"));
+            string stallWarn = Gd.Str(Gd.Get(st, "stallWarn"));
+            List<object> logs = new List<object>();
+
+            foreach (object o in evs)
+            {
+                Dictionary<string, object> ev = Obj(o);
+                string kind = Gd.Str(Gd.Get(ev, "Kind"));
+                if (Same(kind, "finished"))
+                {
+                    finished = true;
+                    object used = Gd.Get(ev, "Used");
+                    string text = "MAA 宣布任务全部完成";
+                    if (Gd.Truthy(used)) text += "(内部计时 " + Gd.Str(used) + ")";
+                    logs.Add(Gd.Out("Level", "OK", "Text", text));
+                }
+                else if (Same(kind, "chain"))
+                {
+                    // $completed[$chain]++：缺键从 $null 起跳得 1；键已存在(不同大小写)时 .NET 字典保首写法，与 PS 同形。
+                    string chain = Gd.Str(Gd.Get(ev, "Chain"));
+                    object old; completed.TryGetValue(chain, out old);
+                    completed[chain] = Gd.Int(old, 0) + 1;
+                    logs.Add(Gd.Out("Level", "INFO", "Text", "MAA 完成链路：" + chain));
+                }
+                else if (Same(kind, "stall"))
+                {
+                    stallWarn = Gd.Str(Gd.Get(ev, "Msg"));
+                    logs.Add(Gd.Out("Level", "WARN", "Text", "MAA 停滞告警：" + stallWarn));
+                }
+                else if (Same(kind, "drained"))
+                {
+                    drained = true;
+                    logs.Add(Gd.Out("Level", "WARN", "Text", "MAA 宣布本轮已跑完但有错误(队列已空，它不会再自己动)"));
+                }
+                else if (Same(kind, "error"))
+                {
+                    if (errors.Count < 40)
+                    {
+                        string msg = Gd.Str(Gd.Get(ev, "Msg"));
+                        errors.Add(msg);
+                        logs.Add(Gd.Out("Level", "WARN", "Text", "MAA 异常线索：" + msg));
+                    }
+                }
+                else if (Same(kind, "benign"))
+                {
+                    // 去重看 Pattern、打日志用 Msg —— 旧代码就是这么分开的。
+                    string pat = Gd.Str(Gd.Get(ev, "Pattern"));
+                    if (benign.Add(pat))
+                    {
+                        benignList.Add(pat);
+                        logs.Add(Gd.Out("Level", "INFO", "Text", "MAA 噪音(已按 benignMaaErrors 忽略)：" + Gd.Str(Gd.Get(ev, "Msg"))));
+                    }
+                }
+            }
+
+            Dictionary<string, object> outer = new Dictionary<string, object>();
+            foreach (KeyValuePair<string, object> kv in completed) outer[kv.Key] = kv.Value;
+            return Gd.Out(
+                "State", Gd.Out(
+                    "completed", outer,
+                    "errors", errors.ToArray(),
+                    "benignPatterns", benignList.ToArray(),
+                    "finished", finished, "drained", drained, "stallWarn", stallWarn),
+                "Logs", logs.ToArray());
+        }
+
+        // ==================== verb: finish-maa-run(批次 9，ark 一路挂钟收尾) ====================
+        // 基线真身 = lib\maa.ps1 Invoke-MaaRun 行 510-512(钉 c498da0)：$dur 与 $(($completed.Keys | Sort-Object) -join ', ')
+        // 都是挂钟/排序量，由壳算好喂进来(durSec=TotalSeconds，chainText=已排序拼接串)；
+        // 这里只复刻纯拼串：Round(dur/60,1) 与 [math]::Round 同为 ToEven，double→串走 G15 最简形(12.0→"12")。
+        internal static object MaaFinish(Dictionary<string, object> inp)
+        {
+            double dur = Num(Gd.Get(inp, "durSec"));
+            string chainText = Gd.Str(Gd.Get(inp, "chainText"));
+            string min = Math.Round(dur / 60.0, 1).ToString(CultureInfo.InvariantCulture);
+            return Gd.Out(
+                "Logs", new object[] { Gd.Out("Level", "OK", "Text", "MAA 日常链路完成，用时 " + min + " 分钟") },
+                "Status", "ok",
+                "Detail", "完成链路：" + chainText,
+                "Duration", dur);
+        }
+
+        // ==================== verb: apply-m9a-events(批次 9，m9a 一路状态机段) ====================
+        // 基线真身 = lib\m9a.ps1 Register-M9AEvent 行 162-231 的十三档 switch(钉 commit c498da0)。
+        // $State.lastLog = Get-Date 是挂钟量：C# 只出 Directives.TouchLastLog，置时刻留在壳。
+        // eventCount++ 在 switch 之前 —— 不认识的 Kind 也计数(但**不** touch lastLog)，unknown-format 判据吃它。
+        // 三个在案语义坑(逐条按 PS 行为复刻，不许"顺手修")：
+        //   1) tasks 键为 $null 时 @($State.tasks)+Text 得到 **[null,Text]**(Count=2) —— 占位 null 照落；
+        //   2) failedTasks 走的是 $null -eq 比较：空数组与 $null 同真 → 两条分支都直接给 [@t](user 记忆 powershell-empty-array-collapse)；
+        //   3) res-latest 的 -ne 是字符串**不区分大小写**比较 → OrdinalIgnoreCase。
+        // 未变化的状态值一律原样回填(保 $null 与键写法)，别让壳把缺键读成空串。
+        internal static object M9aEvents(Dictionary<string, object> inp)
+        {
+            Dictionary<string, object> st = Obj(Gd.Get(inp, "state"));
+            object[] evs = Gd.List(Gd.Get(inp, "events"));
+
+            int eventCount = (int)Gd.Int(Gd.Get(st, "eventCount"), 0);
+            object chainStarted = Gd.Get(st, "chainStarted");
+            object chainDone = Gd.Get(st, "chainDone");
+            object connectPhase = Gd.Get(st, "connectPhase");
+            object failed = Gd.Get(st, "failed");
+            object queueCount = Gd.Get(st, "queueCount");
+            object startRequested = Gd.Get(st, "startRequested");
+            object resCurrentRaw = Gd.Get(st, "resCurrent");
+            object resLatestRaw = Gd.Get(st, "resLatest");
+            object connectFailRaw = Gd.Get(st, "connectFail");
+
+            List<object> tasks = new List<object>();
+            object tasksRaw = Gd.Get(st, "tasks");
+            bool tasksNull = tasksRaw == null;
+            if (!tasksNull) tasks.AddRange(Gd.List(tasksRaw));
+            List<object> failedTasks = new List<object>();
+            object ftRaw = Gd.Get(st, "failedTasks");
+            bool ftNull = ftRaw == null;
+            if (!ftNull) failedTasks.AddRange(Gd.List(ftRaw));
+
+            bool touch = false;
+            List<object> logs = new List<object>();
+
+            foreach (object o in evs)
+            {
+                Dictionary<string, object> ev = Obj(o);
+                eventCount++;   // 旧代码：先加计数，再进 switch(不认识的 Kind 也算"读进来了")
+                string kind = Gd.Str(Gd.Get(ev, "Kind"));
+                string text = Gd.Str(Gd.Get(ev, "Text"));
+                if (Same(kind, "task"))
+                {
+                    chainStarted = true;
+                    if (tasksNull) { tasks.Add(null); tasksNull = false; }   // @($null)+t 的占位元素，照落
+                    tasks.Add(text);
+                    logs.Add(Gd.Out("Level", "INFO", "Text", "M9A 进行中[" + tasks.Count + "] " + text));
+                }
+                else if (Same(kind, "chain-start")) chainStarted = true;
+                else if (Same(kind, "chain-done")) chainDone = true;
+                else if (Same(kind, "queue-prepared"))
+                {
+                    // [int]$Event.Text：坏值当场抛(旧行为)；日志吃的是原文 Text 不是转出来的数。
+                    int q = Convert.ToInt32(text, CultureInfo.InvariantCulture);
+                    queueCount = q;
+                    if (q > 0) chainStarted = true;
+                    logs.Add(Gd.Out("Level", "INFO", "Text", "M9A 已提交任务队列：任务数量=" + text));
+                }
+                else if (Same(kind, "ui-start")) startRequested = true;
+                else if (Same(kind, "connect-start")) connectPhase = "started";
+                else if (Same(kind, "finish"))
+                {
+                    // tasks 键为 $null 时 @($null).Count 是 1 —— 老代码真把这当成"看到过任务"，照抄。
+                    int tc = tasksNull ? 1 : tasks.Count;
+                    if (Gd.Truthy(chainStarted) || tc > 0) chainDone = true;
+                    else connectPhase = "done";
+                }
+                else if (Same(kind, "fail")) { if (!Gd.Truthy(failed)) failed = text; }
+                else if (Same(kind, "task-fail"))
+                {
+                    if (ftNull || failedTasks.Count == 0) { failedTasks.Clear(); failedTasks.Add(text); ftNull = false; }
+                    else failedTasks.Add(text);
+                    logs.Add(Gd.Out("Level", "WARN", "Text", "M9A 任务失败：" + text + "(累计 " + failedTasks.Count + " 个)"));
+                    if (!Gd.Truthy(failed)) failed = "任务失败：" + text;
+                }
+                else if (Same(kind, "res-current")) resCurrentRaw = text;
+                else if (Same(kind, "res-latest"))
+                {
+                    resLatestRaw = text;
+                    string cur = Gd.Str(resCurrentRaw), latest = text;
+                    if (Gd.Truthy(resCurrentRaw) && !Same(latest, cur))
+                        logs.Add(Gd.Out("Level", "WARN", "Text",
+                            "M9A 资源/程序有新版：当前 " + cur + " → 最新 " + latest + "(整包更新，命令行没有更新入口，需在 M9A 界面点『更新』)"));
+                }
+                else if (Same(kind, "connect-fail"))
+                {
+                    if (!Gd.Truthy(connectFailRaw))
+                    {
+                        connectFailRaw = text;
+                        logs.Add(Gd.Out("Level", "WARN", "Text", "M9A 连不上模拟器：" + text));
+                    }
+                }
+                else if (Same(kind, "noise")) { /* 只 touch lastLog，下面统一 */ }
+                else continue;   // 不认识的 Kind：eventCount 已加，其余一概不碰
+                touch = true;
+            }
+
+            return Gd.Out(
+                "Directives", Gd.Out("TouchLastLog", touch),
+                "Logs", logs.ToArray(),
+                "State", Gd.Out(
+                    // tasks/failedTasks 没被本批碰过且原值是 null → 回填 null 而不是 []：
+                    // 旧代码 @($null).Count=1 的语义要靠"键仍是 $null"跨批中继才丢不干净(finish 档吃它)。
+                    "tasks", tasksNull ? (object)null : tasks.ToArray(),
+                    "chainStarted", chainStarted ?? (object)false,
+                    "chainDone", chainDone ?? (object)false,
+                    "connectPhase", connectPhase ?? (object)"none",
+                    "failed", failed,
+                    "queueCount", queueCount,
+                    "startRequested", startRequested ?? (object)false,
+                    "eventCount", eventCount,
+                    "failedTasks", ftNull ? (object)null : failedTasks.ToArray(),
+                    "resCurrent", resCurrentRaw,
+                    "resLatest", resLatestRaw,
+                    "connectFail", connectFailRaw));
+        }
+
+        // ---------- 批次 9 公共小件(与批 7/8 各类内私货同口径，函数级 verbs 共用这一份) ----------
+        static Dictionary<string, object> Obj(object v)
+        {
+            Dictionary<string, object> d = Gd.Map(v);
+            return d ?? new Dictionary<string, object>();
+        }
+
+        static double Num(object v)
+        {
+            if (v == null) return 0.0;
+            try { return Convert.ToDouble(v, CultureInfo.InvariantCulture); } catch { return 0.0; }
+        }
+
+        static bool Same(string a, string b) { return string.Equals(a, b, StringComparison.OrdinalIgnoreCase); }
     }
 }

@@ -27,6 +27,18 @@
 # (批 3 头注"Invoke-M9ARun(起进程与轮询，归批次 5 编排层)"到本批作废一半：轮询里的判据已走，骨架还在；
 #  预算与 rescueNotes 的跨拍寿命 = 旧 $rescue，由 C# 的 state 经壳 opaque 中继($stM9a)。)
 # ──────────────────────────────────────────────────────────────────────────────
+#
+# ── 追加冻结(2026-09-27，PS→C# 批次 9 —— 活段第三批：事件状态机回灌)────────────
+# Register-M9AEvent 十三档状态机的本体(tasks 的 @($null) 占位累计、queue-prepared 转数+原文话术、
+#     task-fail 累计计数、res 版本差 WARN、connect-fail 只留首条、finish 分流、unknown 只加
+#     eventCount 不 touch lastLog)已搬进 tools\panel-cs\RunLoops.cs(verb：apply-m9a-events)。
+# 壳留三件事：摘 state 十二键(lastLog 是挂钟量不进信封) → 一次转发 → 回写 State + 按
+#     Directives.TouchLastLog 置 $State.lastLog = Get-Date。Invoke-M9ARun 轮询改用批量入口
+#     Register-M9AEvents(批 3 省钱点延伸：一轮一个进程，绝不每事件一个)。
+# (批 3 头注里"故意留在 PS 侧的 Register-M9AEvent(状态累计+日志染色)"到本批作废：状态累计本体已走，
+#  壳只剩转发与染色。旧十三档逐行 # 冻在原位 —— test-r1999 的 `$state.lastLog = Get-Date`、
+#  各档话术字面锚在冻结行里 substring 照命中，别删别改字。)
+# ──────────────────────────────────────────────────────────────────────────────
 
 function Get-M9APaths {
     param([Parameter(Mandatory)]$S)
@@ -159,76 +171,113 @@ function Read-M9ALogEvents {
     return @{ LogPath = $logPath; Events = $events }
 }
 
-function Register-M9AEvent {
-    <# 把一个事件累计进状态包(纯状态更新，方便进程退出后再补读一次) #>
-    param([Parameter(Mandatory)][hashtable]$State, [Parameter(Mandatory)][hashtable]$Event)
-    # 只要读进来一个"认识"的事件就计数：eventCount 一直是 0 = 日志压根看不懂了(见 Resolve-M9AStatus 的 unknown-format)
-    $State.eventCount = [int]$State.eventCount + 1
-    switch ($Event.Kind) {
-        'task' {
-            $State.chainStarted = $true
-            $State.tasks = @($State.tasks) + $Event.Text
-            Write-GdLog "M9A 进行中[$(@($State.tasks).Count)] $($Event.Text)"
-            $State.lastLog = Get-Date
-        }
-        'chain-start' { $State.chainStarted = $true; $State.lastLog = Get-Date }
-        'chain-done'  { $State.chainDone = $true; $State.lastLog = Get-Date }
-        'queue-prepared' {
-            $State.queueCount = [int]$Event.Text
-            if ([int]$Event.Text -gt 0) { $State.chainStarted = $true }
-            Write-GdLog "M9A 已提交任务队列：任务数量=$($Event.Text)"
-            $State.lastLog = Get-Date
-        }
-        'ui-start' { $State.startRequested = $true; $State.lastLog = Get-Date }
-        'connect-start' { $State.connectPhase = 'started'; $State.lastLog = Get-Date }
-        'finish' {
-            <#
-              「启动任务完成」有两种含义，靠上下文区分：
-                已经看到过任务/队列 → 这就是整条链路跑完(--quit-after-run 模式下唯一的完成信号)
-                什么都没看到        → 只完成了连接，M9A 自己也没开始任务队列
-            #>
-            if ($State.chainStarted -or (@($State.tasks).Count -gt 0)) { $State.chainDone = $true }
-            else { $State.connectPhase = 'done' }
-            $State.lastLog = Get-Date
-        }
-        'fail' { if (-not $State.failed) { $State.failed = $Event.Text }; $State.lastLog = Get-Date }
-        'task-fail' {
-            <#
-              「任务失败：<中文名>」是 M9A 对单个任务的判失败，一轮里可能连着打好几条。
-              只把第一条塞进 $State.failed 是不够的：真正决定这轮可信度的是
-              「第一个任务(启动游戏)有没有失败」——它失败说明后面全是空转，见 Resolve-M9AStatus 的 blocked。
-            #>
-            <#
-              两个坑叠在这段上，写成 "$ft = if(...){@()}else{...}; $State.x = $ft + $t" 会静默退化成字符串拼接：
-                1) 空数组经 if/管道赋给变量会塌成 $null，而 $null + 'a' 是**字符串** 'a'(它的 Count 永远是 1)；
-                2) @($null) 的长度又是 1，键没初始化时不能直接 @(...) 包。
-              两条分支都用"直接赋值 + 数组字面量"，不经过管道。
-            #>
-            $t = [string]$Event.Text
-            if ($null -eq $State.failedTasks) { $State.failedTasks = @($t) }
-            else { $State.failedTasks = @($State.failedTasks) + $t }
-            Write-GdLog "M9A 任务失败：$($Event.Text)(累计 $($State.failedTasks.Count) 个)" -Level WARN
-            if (-not $State.failed) { $State.failed = "任务失败：$($Event.Text)" }
-            $State.lastLog = Get-Date
-        }
-        'res-current' { $State.resCurrent = $Event.Text; $State.lastLog = Get-Date }
-        'res-latest' {
-            $State.resLatest = $Event.Text
-            if ($State.resCurrent -and ($State.resLatest -ne $State.resCurrent)) {
-                Write-GdLog "M9A 资源/程序有新版：当前 $($State.resCurrent) → 最新 $($State.resLatest)(整包更新，命令行没有更新入口，需在 M9A 界面点『更新』)" -Level WARN
-            }
-            $State.lastLog = Get-Date
-        }
-        'connect-fail' {
-            if (-not $State.connectFail) {
-                $State.connectFail = $Event.Text
-                Write-GdLog "M9A 连不上模拟器：$($Event.Text)" -Level WARN
-            }
-            $State.lastLog = Get-Date
-        }
-        'noise' { $State.lastLog = Get-Date }
+function Register-M9AEvents {
+    <#
+      批次 9：十三档状态机本体在 tools\panel-cs\RunLoops.cs(verb：apply-m9a-events)。
+      壳只干三件事：摘 state 十二键(lastLog 是挂钟量，不进信封) → 整批一次转发 →
+      回写 State + 按 Directives.TouchLastLog 置 $State.lastLog = Get-Date。
+      批量入口给 Invoke-M9ARun 轮询用(一轮一个进程，绝不每事件一个 —— 批 3 省钱点延伸)。
+      三个 PS 语义坑(tasks 的 @($null) 占位 / failedTasks 的 $null -eq @() 塌缩 /
+      res-latest 的 -ne 不分大小写 / 不认识的 Kind 只加 eventCount 不 touch)全在 C# 逐字复刻。
+    #>
+    param([Parameter(Mandatory)][hashtable]$State, $Events)
+    $evs = @($Events)
+    if ($evs.Count -eq 0) { return }
+    $st = @{}
+    foreach ($k in @('tasks', 'chainStarted', 'chainDone', 'connectPhase', 'failed', 'queueCount',
+                     'startRequested', 'eventCount', 'failedTasks', 'resCurrent', 'resLatest', 'connectFail')) {
+        if ($State.ContainsKey($k)) { $st[$k] = $State[$k] }
     }
+    $d = Invoke-GdCli -Verb 'apply-m9a-events' -Body ([pscustomobject]@{ events = $evs; state = $st })
+    foreach ($l in @($d.Logs)) {
+        $lvl = [string]$l.Level
+        if ($lvl -and ($lvl -ne 'INFO')) { Write-GdLog ([string]$l.Text) -Level $lvl } else { Write-GdLog ([string]$l.Text) }
+    }
+    foreach ($p in $d.State.PSObject.Properties) { $State[[string]$p.Name] = $p.Value }
+    if ($d.Directives.TouchLastLog) { $State.lastLog = Get-Date }
 }
+
+function Register-M9AEvent {
+    <#
+      单事件转发壳(test-r1999 钉着签名：$State hashtable 原地更新、无返回值)。
+      旧十三档本体在下方逐行 # 冻结(PS 块注释不可嵌套)——
+      test 锚 `$state.lastLog = Get-Date` 与各档话术字面在冻结行里 substring 照命中，别删别改字。
+    #>
+    param([Parameter(Mandatory)][hashtable]$State, [Parameter(Mandatory)][hashtable]$Event)
+    Register-M9AEvents -State $State -Events $Event
+}
+
+    # ===== 批次 9 冻结段：旧 Register-M9AEvent 十三档(c498da0 原位备查) =====
+# function Register-M9AEvent {
+#     <# 把一个事件累计进状态包(纯状态更新，方便进程退出后再补读一次) #>
+#     param([Parameter(Mandatory)][hashtable]$State, [Parameter(Mandatory)][hashtable]$Event)
+#     # 只要读进来一个"认识"的事件就计数：eventCount 一直是 0 = 日志压根看不懂了(见 Resolve-M9AStatus 的 unknown-format)
+#     $State.eventCount = [int]$State.eventCount + 1
+#     switch ($Event.Kind) {
+#         'task' {
+#             $State.chainStarted = $true
+#             $State.tasks = @($State.tasks) + $Event.Text
+#             Write-GdLog "M9A 进行中[$(@($State.tasks).Count)] $($Event.Text)"
+#             $State.lastLog = Get-Date
+#         }
+#         'chain-start' { $State.chainStarted = $true; $State.lastLog = Get-Date }
+#         'chain-done'  { $State.chainDone = $true; $State.lastLog = Get-Date }
+#         'queue-prepared' {
+#             $State.queueCount = [int]$Event.Text
+#             if ([int]$Event.Text -gt 0) { $State.chainStarted = $true }
+#             Write-GdLog "M9A 已提交任务队列：任务数量=$($Event.Text)"
+#             $State.lastLog = Get-Date
+#         }
+#         'ui-start' { $State.startRequested = $true; $State.lastLog = Get-Date }
+#         'connect-start' { $State.connectPhase = 'started'; $State.lastLog = Get-Date }
+#         'finish' {
+#             <#
+#               「启动任务完成」有两种含义，靠上下文区分：
+#                 已经看到过任务/队列 → 这就是整条链路跑完(--quit-after-run 模式下唯一的完成信号)
+#                 什么都没看到        → 只完成了连接，M9A 自己也没开始任务队列
+#             #>
+#             if ($State.chainStarted -or (@($State.tasks).Count -gt 0)) { $State.chainDone = $true }
+#             else { $State.connectPhase = 'done' }
+#             $State.lastLog = Get-Date
+#         }
+#         'fail' { if (-not $State.failed) { $State.failed = $Event.Text }; $State.lastLog = Get-Date }
+#         'task-fail' {
+#             <#
+#               「任务失败：<中文名>」是 M9A 对单个任务的判失败，一轮里可能连着打好几条。
+#               只把第一条塞进 $State.failed 是不够的：真正决定这轮可信度的是
+#               「第一个任务(启动游戏)有没有失败」——它失败说明后面全是空转，见 Resolve-M9AStatus 的 blocked。
+#             #>
+#             <#
+#               两个坑叠在这段上，写成 "$ft = if(...){@()}else{...}; $State.x = $ft + $t" 会静默退化成字符串拼接：
+#                 1) 空数组经 if/管道赋给变量会塌成 $null，而 $null + 'a' 是**字符串** 'a'(它的 Count 永远是 1)；
+#                 2) @($null) 的长度又是 1，键没初始化时不能直接 @(...) 包。
+#               两条分支都用"直接赋值 + 数组字面量"，不经过管道。
+#             #>
+#             $t = [string]$Event.Text
+#             if ($null -eq $State.failedTasks) { $State.failedTasks = @($t) }
+#             else { $State.failedTasks = @($State.failedTasks) + $t }
+#             Write-GdLog "M9A 任务失败：$($Event.Text)(累计 $($State.failedTasks.Count) 个)" -Level WARN
+#             if (-not $State.failed) { $State.failed = "任务失败：$($Event.Text)" }
+#             $State.lastLog = Get-Date
+#         }
+#         'res-current' { $State.resCurrent = $Event.Text; $State.lastLog = Get-Date }
+#         'res-latest' {
+#             $State.resLatest = $Event.Text
+#             if ($State.resCurrent -and ($State.resLatest -ne $State.resCurrent)) {
+#                 Write-GdLog "M9A 资源/程序有新版：当前 $($State.resCurrent) → 最新 $($State.resLatest)(整包更新，命令行没有更新入口，需在 M9A 界面点『更新』)" -Level WARN
+#             }
+#             $State.lastLog = Get-Date
+#         }
+#         'connect-fail' {
+#             if (-not $State.connectFail) {
+#                 $State.connectFail = $Event.Text
+#                 Write-GdLog "M9A 连不上模拟器：$($Event.Text)" -Level WARN
+#             }
+#             $State.lastLog = Get-Date
+#         }
+#         'noise' { $State.lastLog = Get-Date }
+#     }
+# }
 
 function Resolve-M9AStatus {
     <#
@@ -354,7 +403,7 @@ function Invoke-M9ARun {
         Start-Sleep -Seconds 10
         $read = Read-M9ALogEvents -P $P -Instance $Instance -Offsets $offsets -PreOffsets $preOffsets
         $logPath = $read.LogPath
-        foreach ($ev in @($read.Events)) { Register-M9AEvent -State $state -Event $ev }
+        Register-M9AEvents -State $state -Events @($read.Events)   # 批次 9：整批一次起进程(旧：逐事件 Register-M9AEvent 转发循环)
         if (Get-Gd1999Pid -AdbPath $conn.Adb -Serial $conn.Serial -Package $pkg) { $seenGame = $true }
 
         $elapsed = ((Get-Date) - $started).TotalSeconds

@@ -11,6 +11,8 @@
 // 批次 5：编排/排程层的纯规则段七件(见 Orchestration.cs 头注)——parse-farm-target-spec / parse-ark-drop-text /
 // resolve-ark-farm-plan / apply-ark-daily-intent / apply-r1999-daily-intent / parse-maa-gui-lines / split-task-args。
 // 起进程、监控循环、写文件仍全在 PS 壳；plan-maa-queue 出的 NewConfig 由壳决定写不写。
+// 批次 6：监督 agent 纯判定段四件(见 Supervisor.cs 头注)——eval-supervisor-settings / parse-supervisor-state /
+// resolve-supervisor-action / compose-supervisor-detail。采集/问画面/重启三个副作用函数与读写盘、起停进程留 PS。
 //
 // 三通道铁律：
 //   * 机读结果 **只走 --out 文件**(winexe 的 stdout 从控制台启动本来就不可靠，见 Panel.cs 头注)；
@@ -108,7 +110,11 @@ namespace GdPanel
                 else if (verb == "apply-r1999-daily-intent") r = Decide(a, Orchestration.R1999Intent);
                 else if (verb == "parse-maa-gui-lines") r = Decide(a, Orchestration.MaaGuiLines);
                 else if (verb == "split-task-args") r = Decide(a, Orchestration.TaskArgs);
-                else throw new GdUsageException("未知子命令：" + verb + "(现有：echo + 批次 1 判定四件 + 批次 2 探测/状态行 + 批次 3 的 parse-asst-*/plan-maa-queue/m9a-launch-args/parse-m9a-lines/resolve-m9a-status/parse-mumu-*/parse-adb-* + 批次 4 的 build-vision-prompt/parse-vision-verdict/vision-click-point/resolve-vision-endpoint/shot-changed/parse-vision-reply/rescue-entry/compose-ark-desktop-state + 批次 5 的 parse-farm-target-spec/parse-ark-drop-text/resolve-ark-farm-plan/apply-ark-daily-intent/apply-r1999-daily-intent/parse-maa-gui-lines/split-task-args；后续批次见 docs\\ps-migration-batch0.md)");
+                else if (verb == "eval-supervisor-settings") r = Decide(a, Supervisor.Settings);
+                else if (verb == "parse-supervisor-state") r = Decide(a, Supervisor.State);
+                else if (verb == "resolve-supervisor-action") r = Decide(a, Supervisor.Action);
+                else if (verb == "compose-supervisor-detail") r = Decide(a, Supervisor.Detail);
+                else throw new GdUsageException("未知子命令：" + verb + "(现有：echo + 批次 1 判定四件 + 批次 2 探测/状态行 + 批次 3 的 parse-asst-*/plan-maa-queue/m9a-launch-args/parse-m9a-lines/resolve-m9a-status/parse-mumu-*/parse-adb-* + 批次 4 的 build-vision-prompt/parse-vision-verdict/vision-click-point/resolve-vision-endpoint/shot-changed/parse-vision-reply/rescue-entry/compose-ark-desktop-state + 批次 5 的 parse-farm-target-spec/parse-ark-drop-text/resolve-ark-farm-plan/apply-ark-daily-intent/apply-r1999-daily-intent/parse-maa-gui-lines/split-task-args + 批次 6 的 eval-supervisor-settings/parse-supervisor-state/resolve-supervisor-action/compose-supervisor-detail；后续批次见 docs\\ps-migration-batch0.md)");
             }
             catch (GdUsageException ex)
             {

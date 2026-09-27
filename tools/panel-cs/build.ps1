@@ -72,6 +72,10 @@ if ($Verify) {
     & $exe --orchtest
     if ($LASTEXITCODE -ne 0) { throw 'panel-cs --orchtest 有红项' }
     Write-Host 'panel-cs --orchtest OK'
+    # 批次 6 监督层纯判定段：四 verb 回环(不读盘/不起进程)，期望串逐字抄自旧实现(同上一条纪律)
+    & $exe --svtest
+    if ($LASTEXITCODE -ne 0) { throw 'panel-cs --svtest 有红项' }
+    Write-Host 'panel-cs --svtest OK'
     # 面板自证：读一次 -DumpSummary 协议 + 渲染 + 逐页布局断言 + 主题切换链
     & $exe --selftest
     if ($LASTEXITCODE -ne 0) { throw 'panel-cs --selftest 有红项' }

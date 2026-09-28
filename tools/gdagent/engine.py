@@ -357,6 +357,60 @@ def format_prog_receipt(res):
     return '\n'.join(lines)
 
 
+# ---------- 纯函数：farm-lookup 闸与回执(第六动词；刷本效率走结构化表、推荐现算不进向量库) ----------
+FARM_MATERIAL_MAX = 30
+FARM_MODE_MAX = 12
+FARM_RANK_SHOW = 6
+
+
+def check_farm_lookup(action):
+    m = ps_str(_map_get(action, 'material')).strip()
+    if not m:
+        return {'Ok': False, 'Why': '没给 material(材料名是必填，问的是"刷这个材料去哪/划不划算")'}
+    if len(m) > FARM_MATERIAL_MAX:
+        return {'Ok': False, 'Why': 'material 太长(最多 %d 字，收到 %d)' % (FARM_MATERIAL_MAX, len(m))}
+    mode = ps_str(_map_get(action, 'mode')).strip().lower()
+    if len(mode) > FARM_MODE_MAX:
+        return {'Ok': False, 'Why': 'mode 太长(最多 %d 字)' % FARM_MODE_MAX}
+    if mode and mode not in ('best', 'cheapest', 'all'):
+        return {'Ok': False, 'Why': 'mode 只认 best/cheapest/all(收到「%s」)' % mode}
+    # game 由引擎按会话上下文注入(与 progression-lookup 同一原则)，模型填了也只会被忽略
+    return {'Ok': True, 'Material': m, 'Mode': mode}
+
+
+def _farm_line(e):
+    cost = e.get('cost')
+    cost_txt = ('%s理智' % cost) if cost is not None else '理智?'
+    return '%s(%s·%s)' % (e.get('name') or e.get('stage') or '?', cost_txt, e.get('kind') or '关')
+
+
+def format_farm_receipt(res):
+    """lookup() 信封 dict → 回执串。查无表/查无材料都如实一句拒，绝不编数、不编概率。"""
+    if not isinstance(res, dict) or not res.get('ok'):
+        why = ps_str((res or {}).get('why') if isinstance(res, dict) else None) or '没给原因'
+        return '刷本表没查到：%s' % why
+    meta = res.get('meta') if isinstance(res.get('meta'), dict) else {}
+    mat = res.get('material') or '?'
+    lines = ['刷本实查(%s · 材料「%s」· 数据采集 %s)：' % (
+        res.get('game') or '?', mat, meta.get('updated') or '?')]
+    best = res.get('best')
+    if isinstance(best, dict) and best:
+        lines.append('最划算：%s' % _farm_line(best))
+    note = res.get('note')
+    if note:
+        lines.append('(口径：%s)' % note)
+    ranked = res.get('ranked') or []
+    if ranked:
+        show = ranked[:FARM_RANK_SHOW]
+        lines.append('可刷关卡(共 %d 处，按口径排序)：' % res.get('total_sources', len(ranked)))
+        for e in show:
+            lines.append('  · ' + _farm_line(e))
+        if len(ranked) > len(show):
+            lines.append('  …另有 %d 处' % (len(ranked) - len(show)))
+    lines.append('(表只含理智单价与掉落归属，不含每场数量/掉率；"划不划算"按材料本取最高档、无本取理智最低现算)')
+    return '\n'.join(lines)
+
+
 def test_action(action, known_stages=None, spec_parser=None):
     known_stages = known_stages or {}
     atype = ps_str(_map_get(action, 'type'))
@@ -400,6 +454,13 @@ def test_action(action, known_stages=None, spec_parser=None):
             return {'Ok': False, 'Why': 'progression-lookup：%s' % chk['Why']}
         return {'Ok': True, 'Type': atype, 'Char': chk['Char'],
                 'Line': chk['Line'], 'Stage': chk['Stage']}
+    if atype.lower() == 'farm-lookup':
+        # 第六动词(DROP 轮)：只读查 state/drops 结构化表算刷本效率、自动放行、不算 Mutating。
+        # 同为 Python-only 增量 —— lib\agent.ps1 冻结基准不认它，golden 永不含此用例。
+        chk = check_farm_lookup(action)
+        if not chk['Ok']:
+            return {'Ok': False, 'Why': 'farm-lookup：%s' % chk['Why']}
+        return {'Ok': True, 'Type': atype, 'Material': chk['Material'], 'Mode': chk['Mode']}
     return {'Ok': False, 'Why': '不认识的动作类型「%s」(只有 set-config/preview/run-verb)' % atype}
 
 
@@ -629,14 +690,17 @@ def rollback_settings(paths, dry=False):
 # ---------- 引擎的一轮(纯流程；模型/verb/快照/确认全部注入) ----------
 def send_exchange(paths, user_text, history, model_fn, verb_fn, known_stages=None,
                   spec_parser=None, confirm_fn=None, snapshot_fn=None, apply_fn=None,
-                  printer=None, max_rounds=4, kb_fn=None, kb_state=None, prog_fn=None):
+                  printer=None, max_rounds=4, kb_fn=None, kb_state=None, prog_fn=None,
+                  farm_fn=None):
     """引擎的一轮：用户话 → 模型(≤max_rounds 次工具往返) → 人读结论。
     所有动作逐条过 test_action。history 是调用方持有的 list[{'role','text'}]，本函数负责追加。
     confirm_fn(desc)->bool 是真跑前的问人钩子；返回模型最后一轮的 Reply。
     kb_fn(query, top)->do_search 形状 是知识库检索钩子(进程内注入)；
     kb_state 是会话级 {'seen': set()} 跨轮持有 —— 每轮(本函数一次调用)kb-search 封顶 2 次。
     prog_fn(char, line, stage)->lookup 信封形状 是第五动词的养成表钩子(进程内注入)；
-    本地确定性查询，不设预算不设封顶。"""
+    本地确定性查询，不设预算不设封顶。
+    farm_fn(material, mode)->drops.lookup 信封形状 是第六动词的刷本效率表钩子(进程内注入)；
+    同为本地确定性查询，推荐在数据层现算。"""
     known_stages = known_stages or {}
     if kb_state is None:
         kb_state = {'seen': set()}
@@ -722,6 +786,15 @@ def send_exchange(paths, user_text, history, model_fn, verb_fn, known_stages=Non
                     except Exception as exc:                      # noqa: BLE001 - 查表炸不许拖崩对话
                         res = {'ok': False, 'why': '查表出了意外：%s' % exc}
                     receipts.append(format_prog_receipt(res))
+            elif n['Type'].lower() == 'farm-lookup':
+                if farm_fn is None:
+                    receipts.append('刷本表没查到：这台引擎没接 farm_fn(这棵树上没有掉落表通道，按查不到处理)')
+                else:
+                    try:
+                        res = farm_fn(n['Material'], n['Mode'])
+                    except Exception as exc:                      # noqa: BLE001 - 查表炸不许拖崩对话
+                        res = {'ok': False, 'why': '查表出了意外：%s' % exc}
+                    receipts.append(format_farm_receipt(res))
             else:
                 if n['DryRun']:
                     v = verb_fn(n['Args'])

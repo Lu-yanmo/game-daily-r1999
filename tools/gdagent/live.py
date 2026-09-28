@@ -268,6 +268,23 @@ def make_prog_fn(root):
     return prog_fn
 
 
+def make_farm_fn(root):
+    """第六动词 farm-lookup 的进程内查表钩子(DROP 轮：刷本效率走结构化表 state/drops，推荐现算)。
+    game 与 progression-lookup 同一个会话上下文键(runtime.kbAgentGame，env GDAGENT_KB_GAME 优先)，
+    模型只能给 material/mode。"""
+    from . import drops as DP
+
+    def farm_fn(material, mode=''):
+        rt = (MD.read_settings(root) or {}).get('runtime') or {}
+        ov = kb_game_override(os.environ)
+        game = ov[0] if ov else str(rt.get('kbAgentGame') or '').strip()
+        if not game:
+            return {'ok': False, 'why': '没配 runtime.kbAgentGame，不知道查哪款游戏的掉落表'}
+        return DP.lookup(root, game, material, mode)
+
+    return farm_fn
+
+
 def build_context(root, settings, paths):
     """把 engine.send_exchange 需要的六个缝一次配齐；PS 探针只在开头打一次，
     开头就没通(入口不带 -Snapshot / 没 pwsh)就不再每轮白等 180 秒。"""
@@ -293,6 +310,7 @@ def build_context(root, settings, paths):
         'verb_fn': make_verb_fn(root, known, spec_parser),
         'kb_fn': make_kb_fn(root),
         'prog_fn': make_prog_fn(root),
+        'farm_fn': make_farm_fn(root),
         'known_stages': known,
         'spec_parser': spec_parser,
     }
@@ -336,7 +354,7 @@ def run_agent(root, ask='', rollback=False, rollback_dry=False):
         EN.send_exchange(paths, ask, history, ctx['model_fn'], ctx['verb_fn'],
                          known_stages=ctx['known_stages'], spec_parser=ctx['spec_parser'],
                          snapshot_fn=ctx['snapshot_fn'], kb_fn=ctx['kb_fn'], kb_state=kb_state,
-                         prog_fn=ctx['prog_fn'])
+                         prog_fn=ctx['prog_fn'], farm_fn=ctx['farm_fn'])
         return 0
     print('说需求即可(例：明天开始刷特种芯片组，刷到 8 个就停)。exit / quit 退出。', file=sys.stderr)
     while True:
@@ -352,5 +370,5 @@ def run_agent(root, ask='', rollback=False, rollback_dry=False):
         EN.send_exchange(paths, t, history, ctx['model_fn'], ctx['verb_fn'],
                          known_stages=ctx['known_stages'], spec_parser=ctx['spec_parser'],
                          snapshot_fn=ctx['snapshot_fn'], kb_fn=ctx['kb_fn'], kb_state=kb_state,
-                         prog_fn=ctx['prog_fn'])
+                         prog_fn=ctx['prog_fn'], farm_fn=ctx['farm_fn'])
     return 0

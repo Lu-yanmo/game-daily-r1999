@@ -17,6 +17,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 from gdagent import engine as EN                       # noqa: E402
 from gdagent import live as LV                         # noqa: E402
 from gdagent import progression as PG                  # noqa: E402
+from gdagent import drops as DR                        # noqa: E402
 
 fake_spec_parser = EN.fake_spec_parser                  # 对拍/自检同一件：家只有一个（engine.py 顶部）
 
@@ -645,6 +646,195 @@ class TestProgExchange(unittest.TestCase):
                          printer=lambda t: None)          # 旧装配(对拍/训练)不接 prog_fn：动作过闸、回执如实说没接
         joined = '\n'.join(h['text'] for h in history)
         self.assertIn('没接 prog_fn', joined)
+
+
+# ---------- 第六动词 farm-lookup(刷本效率走结构化表；推荐在数据层现算，golden 不含) ----------
+
+class TestFarmGate(unittest.TestCase):
+    def test_basic_and_case_insensitive(self):
+        n = EN.test_action({'type': 'FARM-LOOKUP', 'material': ' 龙门币 '})
+        self.assertTrue(n['Ok'])
+        self.assertEqual(n['Material'], '龙门币')            # trim 进规整值
+        self.assertEqual(n['Mode'], '')
+
+    def test_missing_material_rejected(self):
+        self.assertFalse(EN.test_action({'type': 'farm-lookup'})['Ok'])
+        self.assertFalse(EN.check_farm_lookup({'material': '   '})['Ok'])
+
+    def test_mode_whitelist(self):
+        self.assertTrue(EN.check_farm_lookup({'material': 'x', 'mode': 'cheapest'})['Ok'])
+        self.assertTrue(EN.check_farm_lookup({'material': 'x', 'mode': 'ALL'})['Ok'])  # 大小写归一
+        self.assertFalse(EN.check_farm_lookup({'material': 'x', 'mode': 'bestest'})['Ok'])
+
+    def test_length_limit(self):
+        self.assertFalse(EN.check_farm_lookup({'material': '字' * (EN.FARM_MATERIAL_MAX + 1)})['Ok'])
+
+    def test_game_is_not_taken_from_model(self):
+        n = EN.test_action({'type': 'farm-lookup', 'material': '碳', 'game': 'ark'})
+        self.assertTrue(n['Ok'])
+        self.assertNotIn('Game', n)                          # game 由引擎按会话注入
+
+
+class TestFarmLookupData(unittest.TestCase):
+    """数据层用临时沙盒表钉死推荐口径，不依赖本机 state/drops(那是本地件)。"""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp(prefix='gd-farm-')
+        # 龙门币：只有 CE 材料本(理智 10/20/36)→ 推荐应取最高档 36
+        # 轻锰矿：只有主线概率掉落关(理智 15/18)→ 推荐应取理智最低 15
+        # 芯片组：材料本(36)+剿灭(60)混在→ 材料本优先，取 36
+        tab = {"_meta": {"updated": "2026-05-05"}, "by_material": {
+            "龙门币": [
+                {"stage": "CE-1_a", "name": "CE-1", "cost": 10, "kind": "材料本", "slot": "common"},
+                {"stage": "CE-3_b", "name": "CE-3", "cost": 20, "kind": "材料本", "slot": "common"},
+                {"stage": "CE-6_c", "name": "CE-6", "cost": 36, "kind": "材料本", "slot": "common"}],
+            "轻锰矿": [
+                {"stage": "3-2_x", "name": "3-2", "cost": 15, "kind": "关卡", "slot": "common"},
+                {"stage": "4-7_y", "name": "4-7", "cost": 18, "kind": "关卡", "slot": "common"}],
+            "近卫芯片组": [
+                {"stage": "PR-D-2_z", "name": "PR-D-2", "cost": 36, "kind": "材料本", "slot": "common"},
+                {"stage": "炎国 市区", "name": "市区", "cost": 60, "kind": "剿灭", "slot": "first"}],
+            "技巧概要·卷1": [
+                {"stage": "CA-1_k", "name": "CA-1", "cost": 10, "kind": "材料本", "slot": "common"},
+                {"stage": "CA-5_m", "name": "CA-5", "cost": 30, "kind": "材料本", "slot": "common"}],
+            "碳": [{"stage": "SK-1_c", "name": "SK-1", "cost": None, "kind": "材料本", "slot": "common"}],
+        }}
+        dd = os.path.join(self.dir, 'state', 'drops')
+        os.makedirs(dd)
+        with open(os.path.join(dd, 'ark.json'), 'w', encoding='utf-8') as f:
+            f.write(json.dumps(tab, ensure_ascii=False))
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def test_material_ben_recommends_top_tier(self):
+        r = DR.lookup(self.dir, 'ark', '龙门币')
+        self.assertTrue(r['ok'])
+        self.assertEqual(r['best']['stage'], 'CE-6_c')       # 材料本取理智最高档
+        self.assertEqual(r['ranked'][0]['stage'], 'CE-6_c')  # 降序展示
+
+    def test_no_ben_recommends_cheapest(self):
+        r = DR.lookup(self.dir, 'ark', '轻锰矿')
+        self.assertEqual(r['best']['stage'], '3-2_x')        # 无专用本→理智最低
+
+    def test_ben_beats_exterminatus(self):
+        r = DR.lookup(self.dir, 'ark', '近卫芯片组')
+        self.assertEqual(r['best']['stage'], 'PR-D-2_z')     # 材料本优先于剿灭
+        self.assertEqual(r['series'], 'PR')
+
+    def test_cheapest_mode_forces_low(self):
+        r = DR.lookup(self.dir, 'ark', '龙门币', 'cheapest')
+        self.assertEqual(r['best']['stage'], 'CE-1_a')       # cheapest 强制最低
+
+    def test_all_mode_lists_everyone_no_best(self):
+        r = DR.lookup(self.dir, 'ark', '近卫芯片组', 'all')
+        self.assertIsNone(r['best'])
+        self.assertEqual(r['total_sources'], 2)
+
+    def test_unique_substring_resolves(self):
+        r = DR.lookup(self.dir, 'ark', '近卫芯片')            # 是"近卫芯片组"的…不，反过来
+        # "近卫芯片" 不是任何键的子串命中多个? 近卫芯片组 含 近卫芯片 → 唯一命中
+        self.assertTrue(r['ok'])
+        self.assertEqual(r['material'], '近卫芯片组')
+
+    def test_none_cost_stage_still_recommended_as_ben(self):
+        r = DR.lookup(self.dir, 'ark', '碳')                  # 材料本但 cost=None
+        self.assertTrue(r['ok'])
+        self.assertEqual(r['best']['stage'], 'SK-1_c')
+
+    def test_misses_are_honest(self):
+        self.assertFalse(DR.lookup(self.dir, 'r1999', 'x')['ok'])           # 没这游戏的表
+        self.assertFalse(DR.lookup(self.dir, 'ark', '不存在的材料')['ok'])
+        r = DR.lookup(self.dir, 'ark', '')
+        self.assertFalse(r['ok'])
+        self.assertIn('没给材料名', r['why'])
+
+
+class TestFarmReceipt(unittest.TestCase):
+    def test_ok_receipt_has_best_and_note(self):
+        r = EN.format_farm_receipt({'ok': True, 'why': '', 'game': 'ark', 'material': '龙门币',
+                                    'meta': {'updated': '2026-09-28'}, 'series': 'CE',
+                                    'note': '材料本取最高档', 'total_sources': 6,
+                                    'best': {'stage': 'CE-6_c', 'name': 'CE-6', 'cost': 36, 'kind': '材料本'},
+                                    'ranked': [{'stage': 'CE-6_c', 'name': 'CE-6', 'cost': 36, 'kind': '材料本'}]})
+        self.assertIn('刷本实查(ark · 材料「龙门币」· 数据采集 2026-09-28)', r)
+        self.assertIn('最划算：CE-6', r)
+        self.assertIn('36理智', r)
+
+    def test_miss_and_none(self):
+        self.assertIn('刷本表没查到：表内无材料',
+                      EN.format_farm_receipt({'ok': False, 'why': '表内无材料「x」'}))
+        self.assertIn('没给原因', EN.format_farm_receipt(None))
+
+    def test_unknown_cost_shows_question(self):
+        r = EN.format_farm_receipt({'ok': True, 'why': '', 'game': 'ark', 'material': '碳',
+                                    'meta': {}, 'note': 'x', 'total_sources': 1,
+                                    'best': {'stage': 'SK-1_c', 'name': 'SK-1', 'cost': None, 'kind': '材料本'},
+                                    'ranked': []})
+        self.assertIn('理智?', r)
+
+
+class TestFarmExchange(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.mkdtemp(prefix='gd-farm-x-')
+        self.paths = EN.Paths(self.dir)
+        self.paths.settings.parent.mkdir(parents=True, exist_ok=True)
+        self.paths.settings.write_text('{}', encoding='utf-8')
+        self.calls = []
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def _farm(self, material, mode=''):
+        self.calls.append((material, mode))
+        return {'ok': True, 'why': '', 'game': 'ark', 'material': material,
+                'meta': {'updated': '2026-09-28'}, 'note': 'n', 'series': 'CE', 'total_sources': 1,
+                'best': {'stage': 'CE-6_c', 'name': 'CE-6', 'cost': 36, 'kind': '材料本'},
+                'ranked': [{'stage': 'CE-6_c', 'name': 'CE-6', 'cost': 36, 'kind': '材料本'}]}
+
+    @staticmethod
+    def _acts(material):
+        return '{"reply":"查刷本表","actions":[{"type":"farm-lookup","material":"%s"}]}' % material
+
+    def _run(self, queue, farm_fn):
+        holder = {'i': 0}
+
+        def model(msgs):
+            txt = queue[holder['i']] if holder['i'] < len(queue) else '{"reply":"完","actions":[]}'
+            holder['i'] += 1
+            return {'Ok': True, 'Text': txt}
+
+        history = []
+        EN.send_exchange(self.paths, '刷龙门币去哪划算', history, model,
+                         lambda a, allowed=False: None, snapshot_fn=lambda: '',
+                         printer=lambda t: None, farm_fn=farm_fn)
+        return history
+
+    def test_receipt_into_next_round(self):
+        history = self._run([self._acts('龙门币'), '{"reply":"按表作答","actions":[]}'], self._farm)
+        joined = '\n'.join(h['text'] for h in history)
+        self.assertIn('刷本实查', joined)
+        self.assertIn('最划算：CE-6', joined)
+        self.assertEqual(self.calls, [('龙门币', '')])
+
+    def test_farm_fn_exception_becomes_receipt_not_crash(self):
+        def bad(material, mode=''):
+            raise RuntimeError('掉落表炸了')
+        history = self._run([self._acts('碳'), '{"reply":"收到","actions":[]}'], bad)
+        joined = '\n'.join(h['text'] for h in history)
+        self.assertIn('查表出了意外', joined)
+        self.assertIn('掉落表炸了', joined)
+
+    def test_no_farm_fn_engine_says_not_connected(self):
+        history = []
+        EN.send_exchange(self.paths, '查', history,
+                         lambda m: {'Ok': True, 'Text': self._acts('碳')},
+                         lambda a, allowed=False: None, snapshot_fn=lambda: '',
+                         printer=lambda t: None)      # 旧装配不接 farm_fn：动作过闸、回执如实说没接
+        joined = '\n'.join(h['text'] for h in history)
+        self.assertIn('没接 farm_fn', joined)
 
 
 class TestPickKbGames(unittest.TestCase):

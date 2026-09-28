@@ -614,6 +614,14 @@ class TestPickKbGames(unittest.TestCase):
     def test_empty_means_no_domain(self):
         self.assertEqual(LV.pick_kb_games({}), [])
 
+    def test_env_override_pure(self):
+        """P5 补刀：GDAGENT_KB_GAME 设了就优先(域=[X])；未设/空白=None(照走 settings)。"""
+        self.assertEqual(LV.kb_game_override({'GDAGENT_KB_GAME': 'ark'}), ['ark'])
+        self.assertEqual(LV.kb_game_override({'GDAGENT_KB_GAME': ' ark '}), ['ark'])
+        self.assertIsNone(LV.kb_game_override({}))
+        self.assertIsNone(LV.kb_game_override({'GDAGENT_KB_GAME': '  '}))
+        self.assertIsNone(LV.kb_game_override(None))
+
 
 # ---------- 活层里可离线钉的两件：降级快照 / 假件装配 ----------
 

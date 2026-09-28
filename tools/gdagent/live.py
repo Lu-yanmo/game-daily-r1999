@@ -215,17 +215,30 @@ def pick_kb_games(rt):
     return [one] if one else []
 
 
+def kb_game_override(env):
+    """P5 补刀：跑批的单游戏域隔离改走环境变量 GDAGENT_KB_GAME —— 设了就**优先于 settings 两键**
+    (kb-search 域=[X]、progression 也查 X)。决策题跑批曾用字节级 regex 切 settings 的 kbAgentGame，
+    P5 起列表键优先会静默盖掉单值(混合域跑分判据漂移)，且写 settings 本身有并行会话覆写竞态(在案)；
+    env 注入零写盘、进程死了自然失效。未设/空白 → None(照走 settings，日常对话行为不变)。"""
+    raw = (env or {}).get('GDAGENT_KB_GAME')
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    return [s] if s else None
+
+
 def make_kb_fn(root):
     """M3(kb-plan §4)：kb-search 的进程内检索钩子。
-    game 由配置注入(runtime.kbAgentGames/kbAgentGame)，模型只能给 query/top —— KB 是外部数据，
-    检索域这种越权面一个字都不交给模型。每次现读 settings：embed 模型/端点改了立刻生效。"""
+    game 由配置注入(runtime.kbAgentGames/kbAgentGame，env 的 GDAGENT_KB_GAME 优先——跑批隔离用)，
+    模型只能给 query/top —— KB 是外部数据，检索域这种越权面一个字都不交给模型。
+    每次现读 settings：embed 模型/端点改了立刻生效。"""
     from . import config as CFG
     from .kb import manager as MK
     from .kb import store as ST
 
     def kb_fn(query, top):
         rt = (MD.read_settings(root) or {}).get('runtime') or {}
-        games = pick_kb_games(rt)
+        games = kb_game_override(os.environ) or pick_kb_games(rt)
         if not games:
             return {'ok': False, 'hits': [],
                     'why': '没配 runtime.kbAgentGame，知识库检索跳过(需要游戏上下文才能查)'}
@@ -240,12 +253,14 @@ def make_kb_fn(root):
 
 def make_prog_fn(root):
     """第五动词 progression-lookup 的进程内查表钩子(M4 立项口径：数值走结构化表，不进向量库)。
-    game 与 kb-search 同一个会话上下文键(runtime.kbAgentGame)，模型只能给 char/line/stage。"""
+    game 与 kb-search 同一个会话上下文键(runtime.kbAgentGame，env 的 GDAGENT_KB_GAME 优先)，
+    模型只能给 char/line/stage。"""
     from . import progression as PG
 
     def prog_fn(char, line, stage):
         rt = (MD.read_settings(root) or {}).get('runtime') or {}
-        game = str(rt.get('kbAgentGame') or '').strip()
+        ov = kb_game_override(os.environ)
+        game = ov[0] if ov else str(rt.get('kbAgentGame') or '').strip()
         if not game:
             return {'ok': False, 'why': '没配 runtime.kbAgentGame，不知道查哪款游戏的养成表'}
         return PG.lookup(root, game, char, line, stage)

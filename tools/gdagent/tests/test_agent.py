@@ -350,6 +350,17 @@ class TestKbReceipt(unittest.TestCase):
         self.assertIn('[1]', r)
         self.assertNotIn('[5]', r)
 
+    def test_game_attribution_label(self):
+        # P5 联合检索：回执每条钉【归属】——跨游戏引用对模型可见，unknown 域保留原值
+        r = EN.format_kb_receipt({'ok': True, 'hits': [self._hit(1),
+                                                        dict(self._hit(2), game='ark')], 'why': ''})
+        self.assertIn('【逆向1999】条目1', r)
+        self.assertIn('【明日方舟】条目2', r)
+        r2 = EN.format_kb_receipt({'ok': True, 'hits': [{'game': 'zz', 'title': 'T', 'text': 'x'}], 'why': ''})
+        self.assertIn('【zz】T', r2)
+        r3 = EN.format_kb_receipt({'ok': True, 'hits': [{'game': 'general', 'title': 'G', 'text': 'x'}], 'why': ''})
+        self.assertIn('【通用】G', r3)
+
 
 class TestKbExchange(unittest.TestCase):
     """回路：模型提 kb-search → 引擎进程内检索 → 包装回执进下一轮 → 频控/去重话术。"""
@@ -583,6 +594,25 @@ class TestProgExchange(unittest.TestCase):
                          printer=lambda t: None)          # 旧装配(对拍/训练)不接 prog_fn：动作过闸、回执如实说没接
         joined = '\n'.join(h['text'] for h in history)
         self.assertIn('没接 prog_fn', joined)
+
+
+class TestPickKbGames(unittest.TestCase):
+    """P5 live 装配纯函数：kbAgentGames 列表优先，没配回落单值 kbAgentGame(旧行为逐字不变)。"""
+
+    def test_games_list_wins(self):
+        self.assertEqual(LV.pick_kb_games({'kbAgentGames': ['r1999', 'ark'], 'kbAgentGame': 'r1999'}),
+                         ['r1999', 'ark'])
+
+    def test_strip_dedupe_keep_order(self):
+        self.assertEqual(LV.pick_kb_games({'kbAgentGames': [' ark ', 'ark', 'r1999']}), ['ark', 'r1999'])
+
+    def test_fallback_single(self):
+        self.assertEqual(LV.pick_kb_games({'kbAgentGame': 'ark'}), ['ark'])
+        self.assertEqual(LV.pick_kb_games({'kbAgentGames': [], 'kbAgentGame': 'ark'}), ['ark'])
+        self.assertEqual(LV.pick_kb_games({'kbAgentGames': [' ', ''], 'kbAgentGame': 'x'}), ['x'])
+
+    def test_empty_means_no_domain(self):
+        self.assertEqual(LV.pick_kb_games({}), [])
 
 
 # ---------- 活层里可离线钉的两件：降级快照 / 假件装配 ----------

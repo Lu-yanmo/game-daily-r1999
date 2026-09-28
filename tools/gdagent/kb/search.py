@@ -19,7 +19,16 @@ except Exception:  # numpy 缺失也能跑，纯 Python 兜底
 
 
 def filter_scope(game):
-    """给定检索 game，返回允许进入候选的 game 集合（含 general），或 None 表示不过滤由调用方定。"""
+    """给定检索 game，返回允许进入候选的 game 集合（含 general），或 None 表示不过滤由调用方定。
+
+    game 可以是单个字符串，或字符串列表（P5 联合检索：合体上下文一次搜全域，
+    如 ["r1999","ark"] → {r1999, ark, general}）。域永远由引擎注入，模型无从指定。
+    """
+    if isinstance(game, (list, tuple, set, frozenset)):
+        named = {str(g).strip() for g in game if str(g).strip()}
+        if not named:
+            return {"general"}
+        return named | {"general"}
     if game:
         return {game, "general"}
     return {"general"}

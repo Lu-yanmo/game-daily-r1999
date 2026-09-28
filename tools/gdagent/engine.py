@@ -267,6 +267,16 @@ def kb_receipt_key(query):
     return re.sub(r'\s+', '', str(query)).lower()
 
 
+# P5 联合检索：命中可来自多个游戏域，回执每条钉【归属】标签 —— 域由引擎注入、模型无从指定，
+# 标签是给模型的最后一道跨游戏错配防线(教材 §KB「引用要对得上游戏」)。
+KB_GAME_LABELS = {'r1999': '逆向1999', 'ark': '明日方舟', 'general': '通用'}
+
+
+def kb_game_label(game):
+    g = ps_str(game).strip()
+    return KB_GAME_LABELS.get(g) or g or '?'
+
+
 def format_kb_receipt(res, budget=KB_BUDGET, per_block=KB_PER_BLOCK):
     """do_search 形状 {'ok','hits','why'} → 防注入回执串。空结果/失败各有固定话术。"""
     if not isinstance(res, dict) or not res.get('ok'):
@@ -284,8 +294,9 @@ def format_kb_receipt(res, budget=KB_BUDGET, per_block=KB_PER_BLOCK):
         body = ps_str(h.get('text'))
         if len(body) > per_block:
             body = body[:per_block] + '……(块已截断)'
-        seg = '[%d] %s(出处：%s · 知识截至 %s · 相似度 %s)\n%s' % (
-            i, h.get('title') or '(无题)', h.get('source') or '?', h.get('updated') or '?',
+        seg = '[%d]【%s】%s(出处：%s · 知识截至 %s · 相似度 %s)\n%s' % (
+            i, kb_game_label(h.get('game')), h.get('title') or '(无题)',
+            h.get('source') or '?', h.get('updated') or '?',
             h.get('score'), body)
         if used + len(seg) > budget:
             dropped = len(hits) - i + 1

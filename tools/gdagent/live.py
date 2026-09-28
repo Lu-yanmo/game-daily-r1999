@@ -197,9 +197,27 @@ def make_verb_fn(root, known_stages, spec_parser):
 
 
 # ---------- 装配一台能聊的 agent ----------
+def pick_kb_games(rt):
+    """P5 联合检索的域集合(纯函数，测试可钉)：优先 runtime.kbAgentGames(列表)，
+    没配或全空回落单值 runtime.kbAgentGame —— 旧配置行为逐字不变。
+    域永远由引擎注入(模型只能给 query/top)：合体上下文配 ["r1999","ark"] 后，
+    r1999 语境问方舟机制也能命中(回执逐条标归属，教材 §KB 防线配套)。"""
+    raw = rt.get('kbAgentGames')
+    if isinstance(raw, (list, tuple)):
+        named = []
+        for g in raw:
+            s = str(g).strip()
+            if s and s not in named:
+                named.append(s)
+        if named:
+            return named
+    one = str(rt.get('kbAgentGame') or '').strip()
+    return [one] if one else []
+
+
 def make_kb_fn(root):
     """M3(kb-plan §4)：kb-search 的进程内检索钩子。
-    game 由配置注入(runtime.kbAgentGame)，模型只能给 query/top —— KB 是外部数据，
+    game 由配置注入(runtime.kbAgentGames/kbAgentGame)，模型只能给 query/top —— KB 是外部数据，
     检索域这种越权面一个字都不交给模型。每次现读 settings：embed 模型/端点改了立刻生效。"""
     from . import config as CFG
     from .kb import manager as MK
@@ -207,14 +225,15 @@ def make_kb_fn(root):
 
     def kb_fn(query, top):
         rt = (MD.read_settings(root) or {}).get('runtime') or {}
-        game = str(rt.get('kbAgentGame') or '').strip()
-        if not game:
+        games = pick_kb_games(rt)
+        if not games:
             return {'ok': False, 'hits': [],
                     'why': '没配 runtime.kbAgentGame，知识库检索跳过(需要游戏上下文才能查)'}
         cfg = CFG.Config({'runtime': rt})
         store = ST.Store(Path(root) / 'state' / 'kb')
         store.sweep_partial()
-        return MK.do_search(store, cfg, query, game=game, top=top)
+        return MK.do_search(store, cfg, query,
+                            game=(games[0] if len(games) == 1 else games), top=top)
 
     return kb_fn
 

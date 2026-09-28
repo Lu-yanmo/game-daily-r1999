@@ -162,6 +162,25 @@ class TestSearch(unittest.TestCase):
         self.assertEqual(S.filter_scope("ark"), {"ark", "general"})
         self.assertEqual(S.filter_scope(None), {"general"})
 
+    def test_scope_accepts_game_list(self):
+        # P5 联合检索：域集合给列表 → 全域并 general；空列表回落 general(与 None 同义)
+        self.assertEqual(S.filter_scope(["r1999", "ark"]), {"r1999", "ark", "general"})
+        self.assertEqual(S.filter_scope(("ark",)), {"ark", "general"})
+        self.assertEqual(S.filter_scope([]), {"general"})
+        self.assertEqual(S.filter_scope(["", " ark "]), {"ark", "general"})
+
+    def test_topk_multi_game_union(self):
+        chunks = [
+            {"game": "ark", "tombstone": False, "text": "a"},
+            {"game": "general", "tombstone": False, "text": "g"},
+            {"game": "r1999", "tombstone": False, "text": "r"},
+            {"game": "other", "tombstone": False, "text": "o"},
+        ]
+        vecs = [[1.0, 0.0], [1.0, 0.0], [1.0, 0.0], [1.0, 0.0]]
+        hits = S.topk(chunks, vecs, [1.0, 0.0], game=["ark", "r1999"], k=5, use_numpy=False)
+        texts = sorted(c["text"] for c, _ in hits)
+        self.assertEqual(texts, ["a", "g", "r"])  # 两域+general 并进，域外 other 挡住
+
     def test_topk_game_filter_and_order(self):
         chunks = [
             {"game": "ark", "tombstone": False, "text": "a"},

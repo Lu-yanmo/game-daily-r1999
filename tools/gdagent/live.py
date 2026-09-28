@@ -219,6 +219,21 @@ def make_kb_fn(root):
     return kb_fn
 
 
+def make_prog_fn(root):
+    """第五动词 progression-lookup 的进程内查表钩子(M4 立项口径：数值走结构化表，不进向量库)。
+    game 与 kb-search 同一个会话上下文键(runtime.kbAgentGame)，模型只能给 char/line/stage。"""
+    from . import progression as PG
+
+    def prog_fn(char, line, stage):
+        rt = (MD.read_settings(root) or {}).get('runtime') or {}
+        game = str(rt.get('kbAgentGame') or '').strip()
+        if not game:
+            return {'ok': False, 'why': '没配 runtime.kbAgentGame，不知道查哪款游戏的养成表'}
+        return PG.lookup(root, game, char, line, stage)
+
+    return prog_fn
+
+
 def build_context(root, settings, paths):
     """把 engine.send_exchange 需要的六个缝一次配齐；PS 探针只在开头打一次，
     开头就没通(入口不带 -Snapshot / 没 pwsh)就不再每轮白等 180 秒。"""
@@ -243,6 +258,7 @@ def build_context(root, settings, paths):
         'model_fn': model_fn,
         'verb_fn': make_verb_fn(root, known, spec_parser),
         'kb_fn': make_kb_fn(root),
+        'prog_fn': make_prog_fn(root),
         'known_stages': known,
         'spec_parser': spec_parser,
     }
@@ -260,6 +276,13 @@ def greeting(root, paths, settings):
 def run_agent(root, ask='', rollback=False, rollback_dry=False):
     """`python -m gdagent agent` 的总入口。返回进程退出码。
     回滚两条通道不经过模型(纯本地)；对话通道 -Ask 单发一句，不带就是 REPL。"""
+    # 人用通道在 GBK 码页控制台打印：模型回复里的 • 、† 这类字会炸掉 print(2026-09-28 实机撞过)。
+    # 编码本身跟着控制台不动(防乱码)，只把编不出的字符换成 ? —— 宁可一个问号，不许崩一轮对话。
+    for _s in (sys.stdout, sys.stderr):
+        try:
+            _s.reconfigure(errors='replace')
+        except Exception:                                    # noqa: BLE001 - 换不掉就维持原样
+            pass
     paths = EN.Paths(root)
     if rollback_dry:
         print(EN.rollback_settings(paths, dry=True))
@@ -278,7 +301,8 @@ def run_agent(root, ask='', rollback=False, rollback_dry=False):
     if ask:
         EN.send_exchange(paths, ask, history, ctx['model_fn'], ctx['verb_fn'],
                          known_stages=ctx['known_stages'], spec_parser=ctx['spec_parser'],
-                         snapshot_fn=ctx['snapshot_fn'], kb_fn=ctx['kb_fn'], kb_state=kb_state)
+                         snapshot_fn=ctx['snapshot_fn'], kb_fn=ctx['kb_fn'], kb_state=kb_state,
+                         prog_fn=ctx['prog_fn'])
         return 0
     print('说需求即可(例：明天开始刷特种芯片组，刷到 8 个就停)。exit / quit 退出。', file=sys.stderr)
     while True:
@@ -293,5 +317,6 @@ def run_agent(root, ask='', rollback=False, rollback_dry=False):
             continue
         EN.send_exchange(paths, t, history, ctx['model_fn'], ctx['verb_fn'],
                          known_stages=ctx['known_stages'], spec_parser=ctx['spec_parser'],
-                         snapshot_fn=ctx['snapshot_fn'], kb_fn=ctx['kb_fn'], kb_state=kb_state)
+                         snapshot_fn=ctx['snapshot_fn'], kb_fn=ctx['kb_fn'], kb_state=kb_state,
+                         prog_fn=ctx['prog_fn'])
     return 0

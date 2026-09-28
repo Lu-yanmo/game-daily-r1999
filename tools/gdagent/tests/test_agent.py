@@ -16,6 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 from gdagent import engine as EN                       # noqa: E402
 from gdagent import live as LV                         # noqa: E402
+from gdagent import progression as PG                  # noqa: E402
 
 fake_spec_parser = EN.fake_spec_parser                  # 对拍/自检同一件：家只有一个（engine.py 顶部）
 
@@ -440,6 +441,148 @@ class TestKbExchange(unittest.TestCase):
                          printer=lambda t: None)          # 不接 kb_fn 的旧装配(对拍/训练)：动作仍过闸，回执说没接
         joined = '\n'.join(h['text'] for h in history)
         self.assertIn('没接 kb_fn', joined)
+
+
+# ---------- 第五动词 progression-lookup(数值走结构化表；同 kb-search 是 Python-only 增量，golden 不含) ----------
+
+class TestProgGate(unittest.TestCase):
+    def test_basic_and_case_insensitive(self):
+        n = EN.test_action({'type': 'PROGRESSION-LOOKUP', 'char': ' 37 '})
+        self.assertTrue(n['Ok'])
+        self.assertEqual(n['Char'], '37')                  # trim 进规整值
+        self.assertEqual(n['Line'], '')
+        self.assertEqual(n['Stage'], '')
+
+    def test_missing_char_rejected(self):
+        self.assertFalse(EN.test_action({'type': 'progression-lookup'})['Ok'])
+        self.assertFalse(EN.check_progression_lookup({'char': '   '})['Ok'])
+
+    def test_length_limits(self):
+        self.assertFalse(EN.check_progression_lookup({'char': '字' * (EN.PROG_CHAR_MAX + 1)})['Ok'])
+        self.assertFalse(EN.check_progression_lookup({'char': 'a', 'line': 'x' * 21})['Ok'])
+        self.assertFalse(EN.check_progression_lookup({'char': 'a', 'stage': 'x' * 21})['Ok'])
+
+    def test_game_is_not_taken_from_model(self):
+        n = EN.test_action({'type': 'progression-lookup', 'char': '37', 'game': 'ark'})
+        self.assertTrue(n['Ok'])
+        self.assertNotIn('Game', n)                        # game 由引擎按会话注入，模型填的被忽略
+
+
+class TestProgLookupData(unittest.TestCase):
+    """数据层用临时沙盒表钉死，不依赖本机 state/progression(那是本地件)。"""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp(prefix='gd-prog-')
+        tab = {"_meta": {"updated": "2026-01-01"},
+               "characters": {"37": {"insight": {"I": {"微尘": 8}, "III": {"币": 200000, "全知:": 16}},
+                                    "resonance": {"15": {"币": 3200000}},
+                                    "gap": "洞悉线缺 II"}}}
+        pd = os.path.join(self.dir, 'state', 'progression')
+        os.makedirs(pd)
+        with open(os.path.join(pd, 'r1999.json'), 'w', encoding='utf-8') as f:
+            f.write(json.dumps(tab, ensure_ascii=False))
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def test_full_hit(self):
+        r = PG.lookup(self.dir, 'r1999', '37')
+        self.assertTrue(r['ok'])
+        self.assertIn('insight', r['lines'])
+        self.assertEqual(r['gap'], '洞悉线缺 II')
+
+    def test_line_stage_narrow(self):
+        r = PG.lookup(self.dir, 'r1999', '37', 'insight', 'III')
+        self.assertEqual(r['lines']['insight'], {'III': {'币': 200000, '全知:': 16}})
+
+    def test_misses_are_honest(self):
+        self.assertFalse(PG.lookup(self.dir, 'ark', '37')['ok'])            # 没这游戏的表
+        self.assertFalse(PG.lookup(self.dir, 'r1999', '不存在')['ok'])
+        self.assertFalse(PG.lookup(self.dir, 'r1999', '37', 'nosuchline')['ok'])
+        self.assertFalse(PG.lookup(self.dir, 'r1999', '37', 'insight', 'VII')['ok'])
+
+
+class TestProgReceipt(unittest.TestCase):
+    def test_ok_receipt_carries_meta_and_lines(self):
+        r = EN.format_prog_receipt({'ok': True, 'why': '', 'game': 'r1999', 'char': '37',
+                                    'meta': {'updated': '2026-09-28'},
+                                    'lines': {'insight': {'III': {'币': 200000}}}})
+        self.assertIn('养成表实查(r1999 · 37 · 数据采集 2026-09-28)', r)
+        self.assertIn('200000', r)
+
+    def test_miss_and_none(self):
+        self.assertIn('养成表没查到：表内无角色',
+                      EN.format_prog_receipt({'ok': False, 'why': '表内无角色「x」'}))
+        self.assertIn('没给原因', EN.format_prog_receipt(None))
+
+    def test_budget_truncation(self):
+        big = {'ok': True, 'why': '', 'game': 'ark', 'char': 'y', 'meta': {},
+               'lines': {'skillup': {str(i): {'材': 99} for i in range(400)}}}
+        r = EN.format_prog_receipt(big)
+        self.assertIn('表太长已截断', r)
+        self.assertLessEqual(len(r), EN.PROG_RECEIPT_BUDGET + 200)
+
+
+class TestProgExchange(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.mkdtemp(prefix='gd-prog-x-')
+        self.paths = EN.Paths(self.dir)
+        self.paths.settings.parent.mkdir(parents=True, exist_ok=True)
+        self.paths.settings.write_text('{}', encoding='utf-8')
+        self.calls = []
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def _prog(self, char, line, stage):
+        self.calls.append((char, line, stage))
+        return {'ok': True, 'why': '', 'game': 'r1999', 'char': char,
+                'meta': {'updated': '2026-09-28'},
+                'lines': {'insight': {'III': {'币': 200000}}}}
+
+    @staticmethod
+    def _acts(char):
+        return '{"reply":"查表","actions":[{"type":"progression-lookup","char":"%s"}]}' % char
+
+    def _run(self, queue, prog_fn):
+        holder = {'i': 0}
+
+        def model(msgs):
+            txt = queue[holder['i']] if holder['i'] < len(queue) else '{"reply":"完","actions":[]}'
+            holder['i'] += 1
+            return {'Ok': True, 'Text': txt}
+
+        history = []
+        EN.send_exchange(self.paths, '37 洞悉三要多少', history, model,
+                         lambda a, allowed=False: None, snapshot_fn=lambda: '',
+                         printer=lambda t: None, prog_fn=prog_fn)
+        return history
+
+    def test_receipt_into_next_round(self):
+        history = self._run([self._acts('37'), '{"reply":"按表作答","actions":[]}'], self._prog)
+        joined = '\n'.join(h['text'] for h in history)
+        self.assertIn('养成表实查', joined)
+        self.assertIn('200000', joined)
+        self.assertEqual(self.calls, [('37', '', '')])
+
+    def test_prog_fn_exception_becomes_receipt_not_crash(self):
+        def bad(char, line, stage):
+            raise RuntimeError('表文件炸了')
+        history = self._run([self._acts('37'), '{"reply":"收到","actions":[]}'], bad)
+        joined = '\n'.join(h['text'] for h in history)
+        self.assertIn('查表出了意外', joined)
+        self.assertIn('表文件炸了', joined)
+
+    def test_no_prog_fn_engine_says_not_connected(self):
+        history = []
+        EN.send_exchange(self.paths, '查', history,
+                         lambda m: {'Ok': True, 'Text': self._acts('37')},
+                         lambda a, allowed=False: None, snapshot_fn=lambda: '',
+                         printer=lambda t: None)          # 旧装配(对拍/训练)不接 prog_fn：动作过闸、回执如实说没接
+        joined = '\n'.join(h['text'] for h in history)
+        self.assertIn('没接 prog_fn', joined)
 
 
 # ---------- 活层里可离线钉的两件：降级快照 / 假件装配 ----------

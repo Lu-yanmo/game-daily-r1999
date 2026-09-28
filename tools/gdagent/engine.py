@@ -299,6 +299,47 @@ def format_kb_receipt(res, budget=KB_BUDGET, per_block=KB_PER_BLOCK):
     return '\n'.join(lines)
 
 
+# ---------- 纯函数：progression-lookup 闸与回执(第五动词；数值走结构化表、不进向量库) ----------
+PROG_CHAR_MAX = 40
+PROG_ARG_MAX = 20
+PROG_RECEIPT_BUDGET = 1800
+
+
+def check_progression_lookup(action):
+    c = ps_str(_map_get(action, 'char')).strip()
+    if not c:
+        return {'Ok': False, 'Why': '没给 char(角色名是必填，精确全名匹配)'}
+    if len(c) > PROG_CHAR_MAX:
+        return {'Ok': False, 'Why': 'char 太长(最多 %d 字，收到 %d)' % (PROG_CHAR_MAX, len(c))}
+    line = ps_str(_map_get(action, 'line')).strip()
+    if len(line) > PROG_ARG_MAX:
+        return {'Ok': False, 'Why': 'line 太长(最多 %d 字，收到 %d)' % (PROG_ARG_MAX, len(line))}
+    stage = ps_str(_map_get(action, 'stage')).strip()
+    if len(stage) > PROG_ARG_MAX:
+        return {'Ok': False, 'Why': 'stage 太长(最多 %d 字，收到 %d)' % (PROG_ARG_MAX, len(stage))}
+    # game 一律由引擎按会话上下文注入(与 kb-search 同一原则)：模型填了也只会被忽略，不算错
+    return {'Ok': True, 'Char': c, 'Line': line, 'Stage': stage}
+
+
+def format_prog_receipt(res):
+    """lookup() 信封 dict → 回执串。查无表/查无角色都如实一句拒，绝不编数。"""
+    if not isinstance(res, dict) or not res.get('ok'):
+        why = ps_str((res or {}).get('why') if isinstance(res, dict) else None) or '没给原因'
+        return '养成表没查到：%s' % why
+    meta = res.get('meta') if isinstance(res.get('meta'), dict) else {}
+    lines = ['养成表实查(%s · %s · 数据采集 %s)：' % (
+        res.get('game') or '?', res.get('char') or '?', meta.get('updated') or '?')]
+    body = json.dumps(res.get('lines') or {}, ensure_ascii=False, separators=(',', ':'))
+    if len(body) > PROG_RECEIPT_BUDGET:
+        body = body[:PROG_RECEIPT_BUDGET] + '…(表太长已截断，用 line/stage 收窄再查)'
+    lines.append(body)
+    gap = res.get('gap')
+    if gap:
+        gap_txt = '、'.join(ps_str(x) for x in gap) if isinstance(gap, list) else ps_str(gap)
+        lines.append('(缺档说明：%s)' % gap_txt)
+    return '\n'.join(lines)
+
+
 def test_action(action, known_stages=None, spec_parser=None):
     known_stages = known_stages or {}
     atype = ps_str(_map_get(action, 'type'))
@@ -334,6 +375,14 @@ def test_action(action, known_stages=None, spec_parser=None):
         if not chk['Ok']:
             return {'Ok': False, 'Why': 'kb-search：%s' % chk['Why']}
         return {'Ok': True, 'Type': atype, 'Query': chk['Query'], 'Top': chk['Top']}
+    if atype.lower() == 'progression-lookup':
+        # 第五动词(§8 已定案落地)：只读查 state/progression 结构化表、自动放行、不算 Mutating。
+        # 与 kb-search 同为 Python-only 增量 —— lib\agent.ps1 冻结基准不认它，golden 永不含此用例。
+        chk = check_progression_lookup(action)
+        if not chk['Ok']:
+            return {'Ok': False, 'Why': 'progression-lookup：%s' % chk['Why']}
+        return {'Ok': True, 'Type': atype, 'Char': chk['Char'],
+                'Line': chk['Line'], 'Stage': chk['Stage']}
     return {'Ok': False, 'Why': '不认识的动作类型「%s」(只有 set-config/preview/run-verb)' % atype}
 
 
@@ -563,12 +612,14 @@ def rollback_settings(paths, dry=False):
 # ---------- 引擎的一轮(纯流程；模型/verb/快照/确认全部注入) ----------
 def send_exchange(paths, user_text, history, model_fn, verb_fn, known_stages=None,
                   spec_parser=None, confirm_fn=None, snapshot_fn=None, apply_fn=None,
-                  printer=None, max_rounds=4, kb_fn=None, kb_state=None):
+                  printer=None, max_rounds=4, kb_fn=None, kb_state=None, prog_fn=None):
     """引擎的一轮：用户话 → 模型(≤max_rounds 次工具往返) → 人读结论。
     所有动作逐条过 test_action。history 是调用方持有的 list[{'role','text'}]，本函数负责追加。
     confirm_fn(desc)->bool 是真跑前的问人钩子；返回模型最后一轮的 Reply。
     kb_fn(query, top)->do_search 形状 是知识库检索钩子(进程内注入)；
-    kb_state 是会话级 {'seen': set()} 跨轮持有 —— 每轮(本函数一次调用)kb-search 封顶 2 次。"""
+    kb_state 是会话级 {'seen': set()} 跨轮持有 —— 每轮(本函数一次调用)kb-search 封顶 2 次。
+    prog_fn(char, line, stage)->lookup 信封形状 是第五动词的养成表钩子(进程内注入)；
+    本地确定性查询，不设预算不设封顶。"""
     known_stages = known_stages or {}
     if kb_state is None:
         kb_state = {'seen': set()}
@@ -645,6 +696,15 @@ def send_exchange(paths, user_text, history, model_fn, verb_fn, known_stages=Non
                         except Exception as exc:                      # noqa: BLE001 - 检索炸不许拖崩对话
                             res = {'ok': False, 'why': '检索出了意外：%s' % exc}
                         receipts.append(format_kb_receipt(res))
+            elif n['Type'].lower() == 'progression-lookup':
+                if prog_fn is None:
+                    receipts.append('养成表没查到：这台引擎没接 prog_fn(这棵树上没有养成表通道，按查不到处理)')
+                else:
+                    try:
+                        res = prog_fn(n['Char'], n['Line'], n['Stage'])
+                    except Exception as exc:                      # noqa: BLE001 - 查表炸不许拖崩对话
+                        res = {'ok': False, 'why': '查表出了意外：%s' % exc}
+                    receipts.append(format_prog_receipt(res))
             else:
                 if n['DryRun']:
                     v = verb_fn(n['Args'])

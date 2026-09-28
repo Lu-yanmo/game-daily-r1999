@@ -35,6 +35,11 @@ class Config:
         # 显式配 0 = 关裁剪。
         raw_floor = rt.get("kbRerankMinScore")
         self.rerank_min = float(raw_floor) if raw_floor not in (None, "") else 0.12
+        # rerank 候选池：向量粗排送给 rerank 的条数。之前硬编码 max(top*2,top)，
+        # top=3 时只喂 6 条——2026-09-28 ra-59 实测：目标块 rerank 排第 1(0.2887)
+        # 但向量序第 14，进不了 6 条池，管线把精排饿死。默认 24，显式配 0=回旧行为。
+        raw_pool = rt.get("kbRerankCandidates")
+        self.rerank_candidates = int(raw_pool) if raw_pool not in (None, "") else 24
 
     def _resolve_base(self, rt):
         base = (rt.get("kbBaseUrl") or "").strip()

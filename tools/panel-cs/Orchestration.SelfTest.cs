@@ -65,6 +65,7 @@ namespace GdPanel
             MaaGuiGroup(b);
             TaskArgsGroup(b);
             RetryGroup(b);
+            SkipGroup(b);
             return b.Result("--orchtest");
         }
 
@@ -453,5 +454,57 @@ namespace GdPanel
         static object[] Rlg(object r) { return Gd.List(Gd.Get(D(r), "Logs")); }
         static string Rlv(object r, int i) { return Gd.Str(Gd.Get(D(Rlg(r)[i]), "Level")); }
         static string Rtx(object r, int i) { return Gd.Str(Gd.Get(D(Rlg(r)[i]), "Text")); }
+
+        // ---------- 2026-09-28 新增：detect-maa-fight-skip(认 MAA 的跳关回执) ----------
+        // 场景行逐字抄自本机 MAA 安装目录的 debug\gui.log 06:00:42~06:00:57 段(09-28 真跑实录)。
+        static void SkipGroup(Box b)
+        {
+            string start = "[2026-09-28 06:00:42.007][INF][Bootstrapper]           <2> MaaAssistantArknights GUI started";
+            string gf1 = "[2026-09-28 06:00:57.347][INF][FightSettingsUserControlModel] <2> GetFightStage: from [\"PR-D-2\"], selected null";
+            string noOpen = "[2026-09-28 06:00:57.347][INF][TaskQueueViewModel]     <2> 关卡计划内没有当日开放的关卡";
+            string skipLine = "[2026-09-28 06:00:57.348][INF][TaskQueueViewModel]     <2> 理智作战: 剩余理智 任务跳过";
+
+            object real = Skip(start + "\n" + gf1 + "\n" + noOpen + "\n" + skipLine);
+            b.Chk("09-28 实录会话：Skipped=true、认库实况 Plan=[PR-D-2]、任务跳过计 1", () =>
+                Sk(real) && Pl(real).Length == 1 && Gd.Str(Pl(real)[0]) == "PR-D-2" && Ts(real) == 1);
+            b.Chk("证据行剥掉时间戳/模块前缀，剩原话", () =>
+                Ev(real).Length >= 1 && Gd.Str(Ev(real)[0]) == "关卡计划内没有当日开放的关卡");
+
+            object normal = Skip(start + "\n"
+                + "[2026-09-28 06:00:57.347][INF][FightSettingsUserControlModel] <2> GetFightStage: from [\"PR-D-2\", \"CE-5\", \"LS-5\"], selected PR-D-2\n"
+                + "[2026-09-28 06:10:59.000][INF][TaskQueueViewModel]     <2> 任务已全部完成！");
+            b.Chk("正常轮(有开放关)不误认：Skipped=false、Plan 三关原样读出", () =>
+                !Sk(normal) && Pl(normal).Length == 3 && Gd.Str(Pl(normal)[2]) == "LS-5");
+
+            object fullSan = Skip(start + "\n" + skipLine);
+            b.Chk("只有『理智作战: … 任务跳过』没有『没有当日开放』句 → 不算认关(理智已满等其它起因)，只计数", () =>
+                !Sk(fullSan) && Ts(fullSan) == 1);
+
+            object twoSessions = Skip(noOpen + "\n" + start + "\n" + gf1 + "\n" + noOpen + "\n" + skipLine + "\n" + start + "\n"
+                + "[2026-09-28 18:01:00.000][INF][TaskQueueViewModel]     <2> 任务已全部完成！");
+            b.Chk("多会话文本只押最后一次 GUI started 之后(上一轮的跳关不背今晚的锅)", () =>
+                !Sk(twoSessions) && Ts(twoSessions) == 0 && Pl(twoSessions).Length == 0);
+
+            object lastPlan = Skip(start + "\n" + gf1 + "\n"
+                + "[2026-09-28 06:00:58.000][INF][FightSettingsUserControlModel] <2> GetFightStage: from [\"CE-5\"], selected CE-5\n" + noOpen);
+            b.Chk("会话里多条 GetFightStage → Plan 取最后一条", () =>
+                Sk(lastPlan) && Pl(lastPlan).Length == 1 && Gd.Str(Pl(lastPlan)[0]) == "CE-5");
+
+            // 剔掉 farm 关重试那一轮的形态：长草关被 MAA 加载期整个修剪掉 → from [] 再任务跳过。
+            object emptyPlan = Skip(start + "\n"
+                + "[2026-09-28 18:00:57.347][INF][FightSettingsUserControlModel] <2> GetFightStage: from [], selected null\n" + skipLine);
+            b.Chk("第二档：from [] 空计划 + Fight 任务跳过 → 也算认关", () =>
+                Sk(emptyPlan) && Pl(emptyPlan).Length == 0 && Ts(emptyPlan) == 1);
+            object emptyNoSkip = Skip(start + "\n"
+                + "[2026-09-28 18:00:57.347][INF][FightSettingsUserControlModel] <2> GetFightStage: from [], selected null\n");
+            b.Chk("只有 from [] 没有任务跳过句 → 不算(没证据说这一轮真被跳)", () =>
+                !Sk(emptyNoSkip) && Pl(emptyNoSkip).Length == 0 && Ts(emptyNoSkip) == 0);
+        }
+
+        static object Skip(string text) { return Orchestration.MaaFightSkip(Inp("text", text)); }
+        static bool Sk(object r) { return Gd.Truthy(Gd.Get(D(r), "Skipped")); }
+        static object[] Pl(object r) { return Gd.List(Gd.Get(D(r), "Plan")); }
+        static int Ts(object r) { return Convert.ToInt32(Gd.Get(D(r), "TaskSkips"), System.Globalization.CultureInfo.InvariantCulture); }
+        static object[] Ev(object r) { return Gd.List(Gd.Get(D(r), "Evidence")); }
     }
 }

@@ -600,5 +600,69 @@ namespace GdPanel
             }
             return Gd.Out("Retryable", retryable, "Logs", logs.ToArray());
         }
+
+        // ==================== verb: detect-maa-fight-skip(2026-09-28 新增：认 MAA 的跳关回执) ====================
+        // 背景(09-28 06:00 实测)：我们写盘的 StagePlan 三关确实落文件(MAA 开机 .bak 里 TimesLimit/DropId
+        // 都在)，但 MAA 加载时按认库把当日不可选的关**修剪**出计划(GetFightStage: from 只剩 1 关)，
+        // 剩下的又不开放 → 整条 Fight 跳过，随后照常宣布「任务已全部完成」——判定层拿到的是假 ok。
+        // 输入 gui.log 文本(整份或尾巴都行)：先自切"最后一次 GUI started 起"= 本次会话，纯字符串不读盘。
+        // Skipped 第一档只押「关卡计划内没有当日开放的关卡」这一句(理智作战: … 任务跳过 有多种起因，比如理智已满，
+        // 不能单独当认关证据，只作旁证计数)；Plan 取会话内最后一条 GetFightStage: from 的引号串数组。
+        // 第二档(见循环后注释)：from [] 空计划 + Fight 任务跳过 也算认关。
+        // 止损动作(剔 farm 关重试一次/认栽/当日标记)全在 ark-daily 壳层编排，这里只出结论。
+
+        internal static object MaaFightSkip(Dictionary<string, object> inp)
+        {
+            string text = Gd.Str(Gd.Get(inp, "text"));
+            string[] lines = Regex.Split(text, @"\r?\n");
+            int startIdx = 0;
+            for (int i = lines.Length - 1; i >= 0; i--)
+            {
+                if (Regex.IsMatch(lines[i], "MaaAssistantArknights GUI started", RegexOptions.None, TimeSpan.FromSeconds(5)))
+                { startIdx = i; break; }
+            }
+            List<string> plan = new List<string>();
+            List<string> evidence = new List<string>();
+            bool skipped = false;
+            bool sawPlan = false;
+            int taskSkips = 0;
+            for (int i = startIdx; i < lines.Length; i++)
+            {
+                string line = lines[i];
+                Match mf = Regex.Match(line, @"GetFightStage:\s*from\s*\[([^\]]*)\]", RegexOptions.None, TimeSpan.FromSeconds(5));
+                if (mf.Success)
+                {
+                    sawPlan = true;
+                    plan = new List<string>();
+                    foreach (Match mq in Regex.Matches(mf.Groups[1].Value, @"""([^""]*)""", RegexOptions.None, TimeSpan.FromSeconds(5)))
+                        plan.Add(mq.Groups[1].Value);
+                    continue;
+                }
+                if (Regex.IsMatch(line, "关卡计划内没有当日开放的关卡", RegexOptions.None, TimeSpan.FromSeconds(5)))
+                {
+                    skipped = true;
+                    if (evidence.Count < 3) evidence.Add(CleanGuiLine(line));
+                }
+                else if (Regex.IsMatch(line, @"(理智作战|剩余理智)[^\r\n]*任务跳过", RegexOptions.None, TimeSpan.FromSeconds(5)))
+                {
+                    taskSkips++;
+                    if (evidence.Count < 3) evidence.Add(CleanGuiLine(line));
+                }
+            }
+            // 第二档认关：加载期修剪把计划修成**空列表**(GetFightStage: from [] 出现且只剩 0 关)再叠上
+            // Fight 的「任务跳过」—— 剔掉 farm 关重试的那一轮就是这个形态，「没有当日开放」句未必会打。
+            // 没见过 GetFightStage(理智已满等更早的跳过)不算：那条路径压根没走到建计划。
+            if (!skipped && taskSkips > 0 && sawPlan && plan.Count == 0) skipped = true;
+            return Gd.Out("Skipped", skipped, "Plan", plan.ToArray(),
+                "TaskSkips", taskSkips, "Evidence", evidence.ToArray());
+        }
+
+        // 与 parse-maa-gui-lines 的 stall 清洗同款：剥掉 `<时间戳][级别][模块] <n> ` 前缀、压多空格。
+        static string CleanGuiLine(string line)
+        {
+            string s = Regex.Replace(line, @"^.*?<\d+>\s*", "", RegexOptions.None, TimeSpan.FromSeconds(5));
+            s = Regex.Replace(s, @"\s+", " ", RegexOptions.None, TimeSpan.FromSeconds(5));
+            return s.Trim();
+        }
     }
 }

@@ -153,7 +153,9 @@ def do_search(store, cfg, query, game=None, top=6, rerank_on=True, embed_fn=None
     except E.EmbedError as e:
         return {"ok": False, "hits": [], "why": "query embed 失败：%s" % e}
     scope_note = "" if game else "（未指定 game，只搜 general）"
-    hits = S.topk(chunks, vectors, qv, game=game, k=max(top * 2, top))
+    # 候选池取 max(rerank_candidates, top*2)：给精排足够料（见 config.rerank_candidates 注释）
+    pool_k = max(getattr(cfg, "rerank_candidates", 0), top * 2, top)
+    hits = S.topk(chunks, vectors, qv, game=game, k=pool_k)
     rerank_applied = False
     if rerank_on and cfg.rerank_model and hits:
         docs = [{"text": h[0]["text"]} for h in hits]

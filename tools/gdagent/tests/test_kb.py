@@ -347,6 +347,32 @@ class TestManager(unittest.TestCase):
                            transport=self._ranked_transport(0.02, 0.05))
         self.assertTrue(hit0["hits"])
 
+    def test_rerank_candidate_pool_not_starved(self):
+        # WIKI-2 ra-59 实测坑钉桩：do_search 曾只给 rerank 喂 max(top*2,top) 条，
+        # 目标块向量序靠后但 rerank 排第一时被池子饿死。默认池 24，显式配 0 回旧行为。
+        M.import_paths(self.st, self.cfg, self.root, self.md_dir, game="general", embed_fn=self.fake)
+        seen = {}
+        real_topk = S.topk
+
+        def spy_topk(chunks, vectors, qv, game=None, k=6):
+            seen["k"] = k
+            return real_topk(chunks, vectors, qv, game=game, k=k)
+
+        cfg = make_cfg(kbEmbedModel="fake-model", kbRerankModel="some-rerank")
+        old = M.S.topk
+        M.S.topk = spy_topk
+        try:
+            M.do_search(self.st, cfg, "理智", game="ark", top=3, embed_fn=self.fake,
+                        transport=self._ranked_transport(0.9, 0.5))
+            self.assertGreaterEqual(seen.get("k", 0), 24)
+            cfg0 = make_cfg(kbEmbedModel="fake-model", kbRerankModel="some-rerank",
+                            kbRerankCandidates="0")
+            M.do_search(self.st, cfg0, "理智", game="ark", top=3, embed_fn=self.fake,
+                        transport=self._ranked_transport(0.9, 0.5))
+            self.assertEqual(seen.get("k"), 6)
+        finally:
+            M.S.topk = old
+
     def test_drop_needs_yes(self):
         M.import_paths(self.st, self.cfg, self.root, self.md_dir, game="general", embed_fn=self.fake)
         r = M.drop_game(self.st, self.cfg, "ark")

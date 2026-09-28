@@ -340,7 +340,13 @@ def format_prog_receipt(res):
     meta = res.get('meta') if isinstance(res.get('meta'), dict) else {}
     lines = ['养成表实查(%s · %s · 数据采集 %s)：' % (
         res.get('game') or '?', res.get('char') or '?', meta.get('updated') or '?')]
-    body = json.dumps(res.get('lines') or {}, ensure_ascii=False, separators=(',', ':'))
+    got = res.get('lines') or {}
+    if isinstance(got, dict) and 'skills' in got:
+        # 技能文本走人话排版：整坨 JSON 里效果描述占九成，直接吐 JSON 会把预算全吃光还不可读
+        from . import progression as PG
+        body = PG._fmt_skills(got.get('skills'))
+    else:
+        body = json.dumps(got, ensure_ascii=False, separators=(',', ':'))
     if len(body) > PROG_RECEIPT_BUDGET:
         body = body[:PROG_RECEIPT_BUDGET] + '…(表太长已截断，用 line/stage 收窄再查)'
     lines.append(body)

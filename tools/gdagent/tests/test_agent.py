@@ -487,7 +487,14 @@ class TestProgLookupData(unittest.TestCase):
         tab = {"_meta": {"updated": "2026-01-01"},
                "characters": {"37": {"insight": {"I": {"微尘": 8}, "III": {"币": 200000, "全知:": 16}},
                                     "resonance": {"15": {"币": 3200000}},
-                                    "gap": "洞悉线缺 II"}}}
+                                    "skills": [{"slot": "1", "name": "甲技", "levels": {"1": "效果一"}},
+                                               {"slot": "3", "name": "丙技",
+                                                "levels": {"1": "效果三",
+                                                           "Rank Ⅲ": {"desc": "效果三满",
+                                                                      "init": "38", "cost": "50",
+                                                                      "dur": ""}}}],
+                                    "gap": "洞悉线缺 II"},
+                                    "无技能": {"insight": {"I": {"币": 1}}, "skills": []}}}
         pd = os.path.join(self.dir, 'state', 'progression')
         os.makedirs(pd)
         with open(os.path.join(pd, 'r1999.json'), 'w', encoding='utf-8') as f:
@@ -513,6 +520,41 @@ class TestProgLookupData(unittest.TestCase):
         self.assertFalse(PG.lookup(self.dir, 'r1999', '37', 'nosuchline')['ok'])
         self.assertFalse(PG.lookup(self.dir, 'r1999', '37', 'insight', 'VII')['ok'])
 
+    def test_skills_line_cn_alias_and_slot(self):
+        """技能文本走同一条查表路：中文线名"技能"→skills，stage 按槽筛(一/1 都认)。"""
+        self.assertTrue(PG.lookup(self.dir, 'r1999', '37', '技能')['ok'])
+        one = PG.lookup(self.dir, 'r1999', '37', '技能', '一')
+        self.assertEqual([s['slot'] for s in one['lines']['skills']], ['1'])
+        self.assertEqual(PG.lookup(self.dir, 'r1999', '37', 'skills', '3')['lines']['skills'],
+                         PG.lookup(self.dir, 'r1999', '37', '技能', '三')['lines']['skills'])
+        self.assertFalse(PG.lookup(self.dir, 'r1999', '37', '技能', '9')['ok'])   # 无此槽
+
+    def test_skills_absent_is_honest_refusal(self):
+        self.assertTrue(PG.lookup(self.dir, 'r1999', '无技能')['ok'])         # 角色在表内
+        r = PG.lookup(self.dir, 'r1999', '无技能', '技能')
+        self.assertFalse(r['ok'])
+        self.assertIn('无技能文本', r['why'])
+
+    def test_full_dump_includes_skills(self):
+        self.assertIn('skills', PG.lookup(self.dir, 'r1999', '37')['lines'])
+
+
+class TestProgSkillsFormat(unittest.TestCase):
+    """_fmt_skills 排版：专精档带 初始/消耗/持续，与上一档完全相同的描述降成「同前」(省预算)。"""
+
+    def test_rank_rows_and_dedupe(self):
+        txt = PG._fmt_skills([{'slot': '3', 'name': '甲', 'levels': {
+            '1': '造成250%伤害', '7': '造成320%伤害',
+            'Rank Ⅰ': {'desc': '造成320%伤害', 'init': '38', 'cost': '53', 'dur': ''},
+            'Rank Ⅲ': {'desc': '造成380%伤害', 'init': '38', 'cost': '50', 'dur': ''}}}], )
+        self.assertIn('技能3【甲】', txt)
+        self.assertIn('Rank Ⅰ：初始38/消耗53/持续-：同前', txt)     # 与 7 级逐字相同 → 不重排全文
+        self.assertIn('Rank Ⅲ：初始38/消耗50/持续-：造成380%伤害', txt)
+
+    def test_empty_slots(self):
+        self.assertEqual(PG._fmt_skills([]), '')
+        self.assertEqual(PG._fmt_skills(None), '')
+
 
 class TestProgReceipt(unittest.TestCase):
     def test_ok_receipt_carries_meta_and_lines(self):
@@ -526,6 +568,15 @@ class TestProgReceipt(unittest.TestCase):
         self.assertIn('养成表没查到：表内无角色',
                       EN.format_prog_receipt({'ok': False, 'why': '表内无角色「x」'}))
         self.assertIn('没给原因', EN.format_prog_receipt(None))
+
+    def test_skills_receipt_is_prose_not_json(self):
+        r = EN.format_prog_receipt({'ok': True, 'why': '', 'game': 'ark', 'char': '望',
+                                    'meta': {'updated': '2026-09-28'},
+                                    'lines': {'skills': [{'slot': '3', 'name': '天下劫',
+                                                          'levels': {'1': '造成250%伤害'}}]}})
+        self.assertIn('技能3【天下劫】', r)
+        self.assertIn('造成250%伤害', r)
+        self.assertNotIn('"levels"', r)          # 人话排版，不吐原始 JSON
 
     def test_budget_truncation(self):
         big = {'ok': True, 'why': '', 'game': 'ark', 'char': 'y', 'meta': {},

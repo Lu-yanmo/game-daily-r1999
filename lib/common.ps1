@@ -1098,3 +1098,67 @@ function Test-GdExportLeaks {
     }
     return @($hits | Sort-Object -Unique)
 }
+
+# ---------- GdCore 进程内内核加载器(K0 收官件，形态=丙·宿主各自现编；契约全文 docs\gd-core-contract.md) ----------
+# 丙案要点：内核源码 tools\gdcore\*.cs 纯 BCL/C#5/纯 ASCII，pwsh7 走 Roslyn、5.1 走 CodeDom 各自 Add-Type -Path 现编，
+# 天然双宿主可载、零 dll 产物、零分发面。加载炸(源码缺/编译被杀软拦/契约号不匹配)一律静默回退逐行冻结的 PS 原身，
+# 内核永不是硬依赖——不许把 06:00 那轮置于死地(方案 §0/§3.2 在案)。
+# K0 白名单为空 = 一个函数都没内核化，入口行为零变化；K1 起每内核化一个函数才往 $script:GdCoreFunctions 添名。
+# settings.runtime.coreOff 是函数级热开关(列出即关该函数、缺失=全开，"没显式 false 就是开"同族语义)——
+# 单个内核函数出 bug 改一行 settings 当日止血，不挡其余函数继续跑。
+$script:GdCoreState = 'off'      # off|live|fallback
+$script:GdCoreNote = ''          # 回退时该说的一句话(调用方经 Get-GdCoreStatus 取自印)；live 恒空串
+$script:GdCoreFunctions = @()    # 已内核化函数白名单(K0 空)
+$script:GdCoreOff = @()          # settings.runtime.coreOff 快照，由 Sync-GdCoreOff 灌
+
+function Get-GdCoreContract { 'GDCore-K0.1' }   # 壳侧期望契约号；K1 每内核化一批函数就同步 +1 并在 GdCore.cs 同改
+
+function Add-GdCore {
+    <# 幂等装载：已定态直接回现状。任何异常吞掉只落状态——本函数永不向上抛(回退语义)。 #>
+    param([string]$SourceDir)
+    if ($script:GdCoreState -ne 'off') { return $script:GdCoreState }
+    if (-not $SourceDir) { $SourceDir = Join-Path $PSScriptRoot '..\tools\gdcore' }
+    $ErrorActionPreference = 'Stop'
+    try {
+        $srcs = @(Get-ChildItem -LiteralPath $SourceDir -Filter '*.cs' -File | ForEach-Object { $_.FullName })
+        if (-not $srcs.Count) { throw "内核源码目录没有 .cs：$SourceDir" }
+        Add-Type -Path $srcs
+        if ([GdCore.Meta]::Contract() -ne (Get-GdCoreContract)) {
+            throw "契约号不匹配：内核=$([GdCore.Meta]::Contract()) 壳=$(Get-GdCoreContract)"
+        }
+        $script:GdCoreState = 'live'
+    } catch {
+        $script:GdCoreState = 'fallback'
+        $script:GdCoreNote = '内核：回退PS'
+    }
+    return $script:GdCoreState
+}
+
+function Test-GdCoreFn {
+    <# 壳函数路由判据：内核活着 且 该函数在白名单 且 不在 coreOff —— 否则走逐行冻结的原身。
+       -contains/-notcontains 不分大小写是 PS 运算符本性(批 9 在案)，正好当大小写宽容面用。 #>
+    param([Parameter(Mandatory)][string]$Name)
+    if ($script:GdCoreState -ne 'live') { return $false }
+    if ($script:GdCoreFunctions -notcontains $Name) { return $false }
+    if ($script:GdCoreOff -contains $Name) { return $false }
+    return $true
+}
+
+function Sync-GdCoreOff {
+    <# 入口拿到 settings 后灌一次 coreOff 快照。形状坏/StrictMode 缺属性炸一律当"没配"=全开(缺键宽容在案)。 #>
+    param([Parameter(Mandatory)]$Settings)
+    $off = @()
+    try {
+        if ($Settings.runtime -and $Settings.runtime.coreOff) {
+            $off = @($Settings.runtime.coreOff | ForEach-Object { [string]$_ })
+        }
+    } catch { $off = @() }
+    $script:GdCoreOff = $off
+    return $off
+}
+
+function Get-GdCoreStatus {
+    <# 日志就绪后由入口自印的一行读数：live 不吵人(空串)，回退只说'内核：回退PS'。 #>
+    if ($script:GdCoreState -eq 'fallback') { return $script:GdCoreNote }
+    return ''
+}

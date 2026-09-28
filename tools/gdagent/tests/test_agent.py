@@ -5,6 +5,7 @@
 约定同全家：不联网、不读真 config、不起真子进程 —— 写盘只发生在临时沙盒；
 模型/verb/快照/确认全部走 send_exchange 的注入缝，一次网都不联。
 """
+import io
 import json
 import os
 import sys
@@ -136,6 +137,30 @@ class TestReplyParse(unittest.TestCase):
         p4 = EN.resolve_reply(six)
         self.assertEqual(len(p4['Actions']), 4)
         self.assertIn('截', p4['Why'])
+
+    def test_bare_action_array_is_accepted(self):
+        # 实测坑：模型第二轮只吐裸 actions 数组(没有 reply/actions 外壳)。
+        # 容错 = 认它、按空 reply 执行动作；不许把原始 JSON 和报错甩给玩家。
+        raw = '[{"type":"set-config","path":"ark.farmTargets","value":["特种芯片组=8@PR-D-2"]},' \
+              '{"type":"preview"}]'
+        p = EN.resolve_reply(raw)
+        self.assertTrue(p['Ok'])                          # 不再判解析失败
+        self.assertEqual(p['Reply'], '')                  # 空 reply：引擎不印"agent："空行
+        self.assertEqual(len(p['Actions']), 2)
+        self.assertEqual(p['Actions'][0]['type'], 'set-config')
+        self.assertEqual(p['Why'], '')
+
+    def test_bare_array_over_four_truncates(self):
+        p = EN.resolve_reply('[' + ','.join(['{"type":"preview"}'] * 6) + ']')
+        self.assertTrue(p['Ok'])
+        self.assertEqual(len(p['Actions']), 4)
+        self.assertIn('截', p['Why'])
+
+    def test_bare_array_of_non_objects_stays_chat(self):
+        p = EN.resolve_reply('["刷 CE-6 就行"]')           # 不是动作列表：仍旧按纯聊天处理
+        self.assertFalse(p['Ok'])
+        self.assertEqual(p['Actions'], [])
+        self.assertIn('CE-6', p['Reply'])
 
 
 # ---------- [a4] 多轮消息组装 ----------
@@ -281,6 +306,25 @@ class TestExchangeLoop(unittest.TestCase):
 
     def _supervisor(self):
         return EN.read_json(self.paths.settings)['runtime']['supervisor']
+
+    def test_bare_array_round_executes_actions(self):
+        # 实测坑的第二层：裸数组轮不能只解析得动，动作要真执行、且不许向玩家喷报错。
+        self.queue = [
+            '[{"type":"set-config","path":"runtime.supervisor","value":false},'
+            '{"type":"preview"}]',
+            '{"reply":"监督已关，预览也跑了","actions":[]}',
+        ]
+        printed = []
+        history = []
+        final = EN.send_exchange(self.paths, '关掉监督并预览', history,
+                                 self._model, self._verb,
+                                 known_stages={}, spec_parser=fake_spec_parser,
+                                 snapshot_fn=lambda: 'SNAP', printer=printed.append)
+        self.assertIs(self._supervisor(), False)          # set-config 落地
+        self.assertEqual(len([c for c in self.verb_calls if '-DryRun' in c['args']]), 1)
+        self.assertNotIn('解析失败', '\n'.join(printed))
+        self.assertIn('监督已关', final)
+        self.assertEqual(len(self.model_calls), 2)        # 空 reply 轮照常把回执送回模型
 
     def test_model_failure_breaks_cleanly(self):
         history = []
@@ -774,6 +818,101 @@ class TestFarmReceipt(unittest.TestCase):
                                     'ranked': []})
         self.assertIn('理智?', r)
 
+    def test_receipt_with_eff_shows_community_footer(self):
+        r = EN.format_farm_receipt({'ok': True, 'why': '', 'game': 'ark', 'material': '龙门币',
+                                    'meta': {'updated': '2026-09-28'}, 'series': 'CE', 'has_eff': True,
+                                    'note': '按每理智期望掉落件数排序(Penguin-Stats 社区统计)', 'total_sources': 2,
+                                    'best': {'stage': 'CE-6_c', 'name': 'CE-6', 'cost': 36, 'kind': '材料本',
+                                             'qty': 10000.0, 'eff': 277.778},
+                                    'ranked': [{'stage': 'CE-6_c', 'name': 'CE-6', 'cost': 36, 'kind': '材料本',
+                                                'qty': 10000.0, 'eff': 277.778}]})
+        self.assertIn('每局≈10000.0件·277.778件/理智', r)
+        self.assertIn('Penguin-Stats 社区统计', r)
+        self.assertNotIn('不含每场数量/掉率', r)
+
+
+class TestFarmEffPriority(unittest.TestCase):
+    """DROP2：表内有 qty/eff(Penguin 统计)时按 件/理智 降序推荐；无 eff 关排后；cheapest 不受影响。"""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp(prefix='gd-eff-')
+        tab = {"_meta": {"updated": "2026-09-28"}, "by_material": {
+            "龙门币": [
+                {"stage": "CE-6_c", "name": "CE-6", "cost": 36, "kind": "材料本", "slot": "common",
+                 "qty": 10000.0, "eff": 277.778},
+                {"stage": "10-8_m", "name": "10-8", "cost": 21, "kind": "关卡", "slot": "common",
+                 "qty": 3480.0, "eff": 165.714},
+                {"stage": "剿灭X_y", "name": "剿灭X", "cost": 60, "kind": "剿灭", "slot": "first"}],
+            # 效率最高档不是理智最低关：证明按 eff 而非旧"最低理智"口径
+            "轻锰矿": [
+                {"stage": "3-2_x", "name": "3-2", "cost": 15, "kind": "关卡", "slot": "common",
+                 "qty": 0.3, "eff": 0.02},
+                {"stage": "5-4_y", "name": "5-4", "cost": 21, "kind": "关卡", "slot": "common",
+                 "qty": 1.05, "eff": 0.05}],
+        }}
+        dd = os.path.join(self.dir, 'state', 'drops')
+        os.makedirs(dd)
+        with open(os.path.join(dd, 'ark.json'), 'w', encoding='utf-8') as f:
+            f.write(json.dumps(tab, ensure_ascii=False))
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def test_eff_ordering_beats_tier_rule(self):
+        r = DR.lookup(self.dir, 'ark', '轻锰矿')
+        self.assertTrue(r['has_eff'])
+        self.assertEqual(r['best']['stage'], '5-4_y')      # eff 高者优先，哪怕理智更高
+        self.assertIn('Penguin-Stats', r['note'])
+
+    def test_no_eff_sources_sort_last(self):
+        r = DR.lookup(self.dir, 'ark', '龙门币')
+        self.assertEqual(r['best']['stage'], 'CE-6_c')
+        stages = [e['stage'] for e in r['ranked']]
+        self.assertEqual(stages[-1], '剿灭X_y')            # 无统计关沉底
+
+    def test_cheapest_mode_ignores_eff(self):
+        # cheapest 恒按理智升序：CE-6(eff最高)让位给理智最低的 10-8(21)
+        r = DR.lookup(self.dir, 'ark', '龙门币', 'cheapest')
+        self.assertEqual(r['best']['stage'], '10-8_m')
+
+    def test_wiki_fixed_source_named_in_note(self):
+        # 固定产出线(龙门币这类 penguin 不统计的)：note 要说 wiki 出处，不冒充社区统计
+        with io.open(os.path.join(self.dir, 'state', 'drops', 'ark.json'), encoding='utf-8') as f:
+            tab = json.load(f)
+        tab['by_material']['高级材料'] = [
+            {"stage": "4-1_w", "name": "4-1", "cost": 18, "kind": "关卡", "slot": "common",
+             "qty": 2700, "eff": 150.0, "src": "wiki-fixed"}]
+        with io.open(os.path.join(self.dir, 'state', 'drops', 'ark.json'), 'w', encoding='utf-8') as f:
+            f.write(json.dumps(tab, ensure_ascii=False))
+        r = DR.lookup(self.dir, 'ark', '高级材料')
+        self.assertTrue(r['has_eff'])
+        self.assertIn('wiki 效率表固定产出', r['note'])
+        self.assertNotIn('Penguin-Stats', r['note'])
+
+    def test_best_alt_is_top_non_ben(self):
+        # "CE 没开"现算替补：排除 CE 系列后效率最高的 10-8，无统计的剿灭关不顶位
+        r = DR.lookup(self.dir, 'ark', '龙门币')
+        self.assertEqual(r['best_alt']['stage'], '10-8_m')
+
+    def test_receipt_shows_alt_line(self):
+        r = EN.format_farm_receipt(DR.lookup(self.dir, 'ark', '龙门币', 'all'))
+        self.assertIn('非材料本替补(该系列没开/打不了专用本时用)：10-8', r)
+
+    def test_fallback_when_no_stats_at_all(self):
+        # 只有无 eff 的材料：走旧材料本最高档回退口径，note 点明回退
+        with io.open(os.path.join(self.dir, 'state', 'drops', 'ark.json'), encoding='utf-8') as f:
+            tab = json.load(f)
+        tab['by_material']['技巧之章'] = [
+            {"stage": "CA-1_k", "name": "CA-1", "cost": 10, "kind": "材料本", "slot": "common"},
+            {"stage": "CA-5_m", "name": "CA-5", "cost": 30, "kind": "材料本", "slot": "common"}]
+        with open(os.path.join(self.dir, 'state', 'drops', 'ark.json'), 'w', encoding='utf-8') as f:
+            f.write(json.dumps(tab, ensure_ascii=False))
+        r = DR.lookup(self.dir, 'ark', '技巧之章')
+        self.assertFalse(r['has_eff'])
+        self.assertEqual(r['best']['stage'], 'CA-5_m')      # 旧口径：材料本最高档
+        self.assertIn('回退档位口径', r['note'])
+
 
 class TestFarmExchange(unittest.TestCase):
     def setUp(self):
@@ -835,6 +974,25 @@ class TestFarmExchange(unittest.TestCase):
                          printer=lambda t: None)      # 旧装配不接 farm_fn：动作过闸、回执如实说没接
         joined = '\n'.join(h['text'] for h in history)
         self.assertIn('没接 farm_fn', joined)
+
+    def test_empty_reply_not_printed(self):
+        """教材 §6 话术纪律：纯查表轮 reply 为空是正常的，不许印出"agent："空行刷存在感。"""
+        lines = []
+        holder = {'i': 0}
+        queue = ['{"reply":"","actions":[{"type":"farm-lookup","material":"龙门币"}]}',
+                 '{"reply":"刷 10-8。","actions":[]}']
+
+        def model(msgs):
+            txt = queue[holder['i']] if holder['i'] < len(queue) else '{"reply":"完","actions":[]}'
+            holder['i'] += 1
+            return {'Ok': True, 'Text': txt}
+
+        EN.send_exchange(self.paths, 'CE 没开刷龙门币去哪', [], model,
+                         lambda a, allowed=False: None, snapshot_fn=lambda: '',
+                         printer=lines.append, farm_fn=self._farm)
+        agent_lines = [l for l in lines if l.startswith('agent：')]
+        self.assertEqual(agent_lines, ['agent：刷 10-8。'])     # 只有结论那一句，没有空行
+        self.assertTrue(any(l.startswith('(回执)') for l in lines))
 
 
 class TestPickKbGames(unittest.TestCase):

@@ -381,7 +381,12 @@ def check_farm_lookup(action):
 def _farm_line(e):
     cost = e.get('cost')
     cost_txt = ('%s理智' % cost) if cost is not None else '理智?'
-    return '%s(%s·%s)' % (e.get('name') or e.get('stage') or '?', cost_txt, e.get('kind') or '关')
+    tail = ''
+    eff = e.get('eff')
+    qty = e.get('qty')
+    if eff:
+        tail = '·每局≈%s件·%s件/理智' % (qty, eff)
+    return '%s(%s·%s%s)' % (e.get('name') or e.get('stage') or '?', cost_txt, e.get('kind') or '关', tail)
 
 
 def format_farm_receipt(res):
@@ -396,6 +401,9 @@ def format_farm_receipt(res):
     best = res.get('best')
     if isinstance(best, dict) and best:
         lines.append('最划算：%s' % _farm_line(best))
+    alt = res.get('best_alt')
+    if isinstance(alt, dict) and alt and alt is not best:
+        lines.append('非材料本替补(该系列没开/打不了专用本时用)：%s' % _farm_line(alt))
     note = res.get('note')
     if note:
         lines.append('(口径：%s)' % note)
@@ -407,7 +415,10 @@ def format_farm_receipt(res):
             lines.append('  · ' + _farm_line(e))
         if len(ranked) > len(show):
             lines.append('  …另有 %d 处' % (len(ranked) - len(show)))
-    lines.append('(表只含理智单价与掉落归属，不含每场数量/掉率；"划不划算"按材料本取最高档、无本取理智最低现算)')
+    if res.get('has_eff'):
+        lines.append('(每局件数与理智效率按口径行所示出处采集——社区统计期望或 wiki 效率表固定产出，非官方、非实时；剿灭/险地等无统计关不参与效率排序)')
+    else:
+        lines.append('(表只含理智单价与掉落归属，不含每场数量/掉率；"划不划算"按材料本取最高档、无本取理智最低现算)')
     return '\n'.join(lines)
 
 
@@ -483,6 +494,18 @@ def resolve_reply(text):
     if text is None or not str(text).strip():
         return {'Ok': False, 'Reply': '', 'Actions': [], 'Why': '模型没回内容'}
     body = _FENCE_TAIL.sub('', _FENCE_HEAD.sub('', text))
+    # 容错(2026-09-28 实测：模型偶尔第二轮只吐裸 actions 数组，不带 reply 外壳)：
+    # 认它、按空 reply 执行动作，比把原始 JSON+解析报错甩给玩家好。PS 壳早已薄转发不再解析回复。
+    s = str(body).strip()
+    if s.startswith('[') and s.endswith(']'):
+        try:
+            arr = json.loads(s)
+        except ValueError:
+            arr = None
+        if isinstance(arr, list) and all(isinstance(x, dict) for x in arr):
+            acts = arr[:4]
+            return {'Ok': True, 'Reply': '', 'Actions': acts,
+                    'Why': '(第 5 个起的动作被引擎截掉)' if len(arr) > 4 else ''}
     a, b = body.find('{'), body.rfind('}')
     if a < 0 or b <= a:
         return {'Ok': False, 'Reply': str(text).strip(), 'Actions': [],
@@ -742,7 +765,10 @@ def send_exchange(paths, user_text, history, model_fn, verb_fn, known_stages=Non
         if r['Why']:
             reply = '%s  %s' % (reply, r['Why'])
         final = reply
-        say('agent：%s' % reply)
+        # 教材 §6 话术纪律后，纯查表轮的空 reply 不再印"agent："空行(PS 壳已冻结、不跟进，
+        # 差异只在显示层且 golden 48 例无空 reply 场景，不将对拍基准)。
+        if reply:
+            say('agent：%s' % reply)
         history.append({'role': 'assistant', 'text': reply})
         if not r['Ok'] or not r['Actions']:
             break

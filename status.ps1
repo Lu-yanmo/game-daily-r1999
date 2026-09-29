@@ -21,7 +21,11 @@ foreach ($lib in @('common', 'decisions', 'modules', 'maa', 'm9a', 'mumu', 'ark-
     if (Test-Path -LiteralPath $libPath) { . $libPath }
 }
 
+# 内核接线(与 daily-clear 同一套)：体检自己就要用 Get-GdVersion/Read-GdJson，先编再读才和真实跑的是同一条路。
+# 编不成不会抛，只会在这屏最后一行显示"内核=fallback"，其余读数照旧。
+$null = Add-GdCore
 $S = Get-GdSettings -Quiet
+$null = Sync-GdCoreOff -Settings $S
 
 $script:sec = 0
 function Show-GdSectionHeader {
@@ -89,6 +93,8 @@ Invoke-GdTolerant {
 Invoke-GdTolerant {
     # 版本号只有仓库根那个 VERSION 文件一处；报问题前先跑一次 status，第一屏就能说清"我用的是哪版"。
     Write-Host ("  {0,-10} {1}" -f '版本', (Get-GdVersion)) -ForegroundColor Gray
+    # 内核现状一行(与日志里自印的那句同一个函数)：报"这台机器跑得不对"时先看它是 live 还是 fallback。
+    Write-Host ('  ' + (Get-GdCoreReadout)) -ForegroundColor Gray
 }
 
 Show-GdSectionHeader '进程 / 模拟器'

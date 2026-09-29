@@ -21,6 +21,12 @@ param(
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'lib\common.ps1')
 
+# 内核接线(接线批)：这份文件只用 Get-GdSettings / Join-GdPath / Stop-GdRunLock 那几件，全在 whitelist 里。
+# 它是"按下按钮"的短命宿主，所以只在**回退**时吭一声，live 时不给面板添一行噪音。
+$null = Add-GdCore
+$coreNote = Get-GdCoreStatus
+if ($coreNote) { Write-GdLog $coreNote -Level WARN }
+
 # 这份文件会原样进两个导出仓库，所以先问"这棵树上装了哪一路"：只有一路时 -Games 没有意义，
 # 而且单游戏入口 daily-clear.ps1 压根没有 -Games 参数，硬传会当场报"找不到参数"。
 # 判据按 lib\<id>-module.ps1 有几个来数(模块清单文件本身就是"这一路在不在"的标记)，
@@ -33,6 +39,7 @@ if ($moduleIds.Count -eq 1) {
     if ($Games -notin @('all', $onlyGame)) { Write-GdLog "本仓库只有 $onlyGame 这一路，-Games $Games 被忽略" -Level WARN }
 }
 $S = Get-GdSettings -Quiet
+$null = Sync-GdCoreOff -Settings $S     # coreOff 热开关要等 settings 到手，"读配置"那一步本身不受它管
 $task = if ($TaskName) { $TaskName } else { "$($S.schedule.taskPrefix)-Manual" }
 $daily = Join-Path $PSScriptRoot 'daily-clear.ps1'
 

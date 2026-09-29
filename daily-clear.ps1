@@ -40,6 +40,14 @@ $ErrorActionPreference = 'Stop'
 Start-GdTranscript -Tag "daily-$Tag"
 Write-GdLog "=== 1999 日常开始(tag=$Tag, dryRun=$DryRun)===" -Level STEP
 
+# ---------- 内核接线(源码 tools\gdcore\*.cs，装载器与契约号在 lib\common.ps1 末尾那块) ----------
+# 必须排在 Get-GdSettings 之前(内核化的七件里就有读配置那两件)；编不成一律静默回退 PS 原身，内核不是硬依赖。
+$null = Add-GdCore
+$coreT0 = Get-Date
+$coreNote = Get-GdCoreStatus
+if ($coreNote) { Write-GdLog $coreNote -Level WARN }
+Write-GdLog (Get-GdCoreReadout)
+
 [void](Import-GdModules)
 foreach ($libPath in (Get-GdModuleLibPaths)) { . $libPath }
 Sync-GdEntryVerbs
@@ -48,10 +56,14 @@ Sync-GdEntryVerbs
 # 双击的人只会以为程序坏了。
 $S = Get-GdSettings -TellAndExit
 
+# settings.runtime.coreOff：单个内核函数出 bug，改一行配置就把那一件退回 PS 原身(当日止血，不挡其余)
+$null = Sync-GdCoreOff -Settings $S
+
 $gates = @()
 if ($Ack) { $gates += @{ Id = 'r1999'; Verb = 'Ack' } }
 if ($ShopDone) { $gates += @{ Id = 'r1999'; Verb = 'ShopDone' } }
 if ($ShopReset) { $gates += @{ Id = 'r1999'; Verb = 'ShopReset' } }
 
 $code = Invoke-GdDailyRound -S $S -ElevateScript (Join-Path $PSScriptRoot 'daily-clear.ps1') -BoundParams $PSBoundParameters -Gates $gates -Opt @{ Plan = $Plan } -Force:$Force -DryRun:$DryRun -SkipCleanup:$SkipCleanup -NameField ShortName -NoticeOwner '1999' -Tag $Tag
+Write-GdLog ('收尾 ' + (Get-GdCoreReadout -ElapsedSec ((Get-Date) - $coreT0).TotalSeconds))
 exit $code

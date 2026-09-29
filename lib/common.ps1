@@ -539,6 +539,7 @@ function Invoke-GdNative {
     $psi.CreateNoWindow = $true
     $psi.WorkingDirectory = Split-Path -Parent $File
     $p = [System.Diagnostics.Process]::Start($psi)
+    $script:GdChildProcs++      # 接线批的"一轮进程数"读数口径：两个包装函数各数一次，见 GdCore 块头注
     $outTask = $p.StandardOutput.ReadToEndAsync()
     $errTask = $p.StandardError.ReadToEndAsync()
     if (-not $p.WaitForExit($TimeoutSeconds * 1000)) {
@@ -574,6 +575,7 @@ function Invoke-GdChild {
     $psi.WorkingDirectory = $global:GD.Root
     foreach ($k in @($Env.Keys)) { $psi.EnvironmentVariables[[string]$k] = [string]$Env[[string]$k] }
     $p = [System.Diagnostics.Process]::Start($psi)
+    $script:GdChildProcs++      # 同上：视觉兜底走的是这一个包装
     $outTask = $p.StandardOutput.ReadToEndAsync()
     $errTask = $p.StandardError.ReadToEndAsync()
     if (-not $p.WaitForExit($TimeoutSeconds * 1000)) {
@@ -1188,12 +1190,18 @@ function Test-GdExportLeaks {
 # K1 起每内核化一个函数才往 $script:GdCoreFunctions 添名(白名单=内核有实现且已对拍过的函数，逐个加，不批量放开)。
 # settings.runtime.coreOff 是函数级热开关(列出即关该函数、缺失=全开，"没显式 false 就是开"同族语义)——
 # 单个内核函数出 bug 改一行 settings 当日止血，不挡其余函数继续跑。
-# 注意：Add-GdCore 目前没有接到任何生产入口(接线是 K 系列后段的独立一步)，所以生产态恒 off = 全部走 PS 原身；
-# 白名单里的函数只有显式调过 Add-GdCore 的进程(=golden 对拍门)才会真走内核。
+# 注意：自 2026-09-29 的**接线批**起，生产入口(三个 daily-clear / status / run-via-task / supervise)在
+# 读到 settings 之前显式调一次 Add-GdCore，并把一行读数写进日志(见下面的 Get-GdCoreReadout)；
+# 没接线的宿主(panel.ps1 兜底、setup/install 一次性入口)照旧恒 off = 全走 PS 原身，行为一字不变。
 $script:GdCoreState = 'off'      # off|live|fallback
 $script:GdCoreNote = ''          # 回退时该说的一句话(调用方经 Get-GdCoreStatus 取自印)；live 恒空串
 $script:GdCoreFunctions = @('Join-GdPath', 'Read-GdJson', 'Backup-GdFile', 'Get-GdSettings', 'Get-GdVersion', 'Add-GdHistory', 'Stop-GdRunLock')   # 已内核化白名单(K1a 路径；K1b 序列化三件套的纯规则残余；K2 版本规范/CSV 行/归属判定。出局面按契约 §8/§9 记档：Write-GdJson、Write-GdLog、Show-GdVersionFile)
 $script:GdCoreOff = @()          # settings.runtime.coreOff 快照，由 Sync-GdCoreOff 灌
+# 接线批(09-29)的性能读数两条：Add-GdCore 只记"编了几毫秒"，子进程计数挂在两个起进程的包装函数上。
+# 为什么在这里数：丙形态的内核是**进程内**的，接线本身一个新进程都不起 —— 要证的就是这件事，
+# 所以出口给的是"宿主自己编了一次、花多少毫秒"+"这一轮真起了多少个外部子进程"。
+$script:GdCoreMs = -1            # 本进程现编一次花了多少毫秒(-1 = 没编过)
+$script:GdChildProcs = 0         # 本进程经 Invoke-GdNative / Invoke-GdChild 起过的外部子进程累计
 
 function Get-GdCoreContract { 'GDCore-K2.1' }   # 壳侧期望契约号；每内核化一批就同步 +1 并在 tools\gdcore\GdCore.cs 同改
 
@@ -1206,7 +1214,10 @@ function Add-GdCore {
     try {
         $srcs = @(Get-ChildItem -LiteralPath $SourceDir -Filter '*.cs' -File | ForEach-Object { $_.FullName })
         if (-not $srcs.Count) { throw "内核源码目录没有 .cs：$SourceDir" }
-        Add-Type -Path $srcs
+        # 只量 Add-Type 这一段：它是本批唯一的新增开销，编译炸了也要留下它花了多少毫秒(finally 落表)
+        $sw = New-Object System.Diagnostics.Stopwatch
+        $sw.Start()
+        try { Add-Type -Path $srcs } finally { $sw.Stop(); $script:GdCoreMs = [int]$sw.Elapsed.TotalMilliseconds }
         if ([GdCore.Meta]::Contract() -ne (Get-GdCoreContract)) {
             throw "契约号不匹配：内核=$([GdCore.Meta]::Contract()) 壳=$(Get-GdCoreContract)"
         }
@@ -1245,4 +1256,28 @@ function Get-GdCoreStatus {
     <# 日志就绪后由入口自印的一行读数：live 不吵人(空串)，回退只说'内核：回退PS'。 #>
     if ($script:GdCoreState -eq 'fallback') { return $script:GdCoreNote }
     return ''
+}
+
+function Get-GdCoreReadout {
+    <# 接线批(09-29)的性能读数出口：一句现状 —— 内核状态 / 契约号 / 现编花了几毫秒 / 白名单里真路由了几件 /
+       本宿主起过几个外部子进程 / 宿主 PS 版本，入口在起跑与收尾各印一次(-ElapsedSec 只收尾传)。
+       与上面那句的分工：Get-GdCoreStatus 是**契约钉死的回退警报**(live 恒空串，门里逐字比过)，
+       本函数永远给全量、只进日志不判分 —— 所以想改这句的措辞随时可以，想改那句得先过契约门。 #>
+    param([double]$ElapsedSec = -1)
+    $routed = 0
+    if ($script:GdCoreState -eq 'live') {
+        $routed = @($script:GdCoreFunctions | Where-Object { Test-GdCoreFn $_ }).Count
+    }
+    $ms = '未编'
+    if ($script:GdCoreMs -ge 0) { $ms = [string]$script:GdCoreMs }
+    $parts = @()
+    $parts += '内核=' + $script:GdCoreState
+    $parts += '契约=' + (Get-GdCoreContract)
+    $parts += '现编=' + $ms + 'ms'
+    $parts += '路由=' + [string]$routed + '/' + [string]@($script:GdCoreFunctions).Count
+    $parts += '屏蔽=' + [string]@($script:GdCoreOff).Count
+    $parts += '子进程=' + [string]$script:GdChildProcs
+    $parts += '宿主=ps' + [string]$PSVersionTable.PSVersion
+    if ($ElapsedSec -ge 0) { $parts += '挂钟=' + [string]([math]::Round($ElapsedSec, 1)) + 's' }
+    return ($parts -join ' ')
 }

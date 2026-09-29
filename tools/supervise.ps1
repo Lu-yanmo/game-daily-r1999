@@ -30,9 +30,17 @@ foreach ($libPath in (Get-GdModuleLibPaths)) { . $libPath }
 
 Start-GdTranscript -Tag 'supervise'
 
+# 内核接线(接线批)：监督是**长命宿主**(一轮里每隔几十秒拍一次，读盘全走 Read-GdJson/Get-GdSettings)，
+# 所以它是七个函数在真实那一轮里最密集的用处 —— 起跑先编一次，之后整轮都吃这一口。
+$null = Add-GdCore
+$coreNote = Get-GdCoreStatus
+if ($coreNote) { Write-GdLog $coreNote -Level WARN }
+Write-GdLog (Get-GdCoreReadout)
+
 # 监督只旁观，配置缺哪项都够它把心跳拍下去；但 settings.json 整个读不到就没什么可监督的(主流程也起不来)。
 $S = $null
 try { $S = Get-GdSettings -Quiet } catch { Write-GdLog "配置读不到，监督不起：$($_.Exception.Message)" -Level ERROR; exit 3 }
+$null = Sync-GdCoreOff -Settings $S
 
 # 要盯的路线：注册表里"装了 + 给了 SupervisorEvidence 钩子"的那几路，再按 -Games 收窄。
 $want = @($Games -split '\+' | Where-Object { $_ -and $_ -ne 'all' })

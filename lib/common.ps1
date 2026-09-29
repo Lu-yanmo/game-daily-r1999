@@ -43,11 +43,20 @@ function Get-GdVersion {
     if ($File) { $path = $File }
     elseif ($global:GdVersionCache -and -not $Refresh) { return $global:GdVersionCache }
     $v = ''
-    if (Test-Path -LiteralPath $path) {
-        try { $v = ([string](Get-Content -LiteralPath $path -TotalCount 1)).Trim() } catch { $v = '' }
+    if (Test-GdCoreFn 'Get-GdVersion') {
+        # K2 口径：读盘(含那条吞错的 try)留壳，只管现场；内核收"Trim + 形状校验 + 0.0.0 兜底"这一条纯规则。
+        # 这条规则不是没牙的：实测 .NET 的 \d 认全角与阿拉伯-印度数字(两引擎都判形状对)，而 U+FEFF 不算空白，
+        # BOM 粘头的 VERSION 两引擎都掉进 0.0.0 —— 复刻必须用 Regex，不许改成 '0'..'9' 逐字符判。
+        $raw = ''
+        if (Test-Path -LiteralPath $path) { try { $raw = [string](Get-Content -LiteralPath $path -TotalCount 1) } catch { $raw = '' } }
+        $v = [string]([GdCore.Versions]::Normalize($raw))
+    } else {
+        if (Test-Path -LiteralPath $path) {
+            try { $v = ([string](Get-Content -LiteralPath $path -TotalCount 1)).Trim() } catch { $v = '' }
+        }
+        # 读不到 / 形状不对都不抛：体检和面板是只读的，宁可说"版本号读不出来"也别把整段体检带走。
+        if ($v -notmatch '^\d+\.\d+\.\d+$') { $v = '0.0.0' }
     }
-    # 读不到 / 形状不对都不抛：体检和面板是只读的，宁可说"版本号读不出来"也别把整段体检带走。
-    if ($v -notmatch '^\d+\.\d+\.\d+$') { $v = '0.0.0' }
     if (-not $File) { $global:GdVersionCache = $v }
     return $v
 }
@@ -88,6 +97,14 @@ function Start-GdTranscript {
 
 function Read-GdJson {
     param([Parameter(Mandatory)][string]$Path)
+    if (Test-GdCoreFn 'Read-GdJson') {
+        # K1b 内核路：只收"缺文件文案 + BOM 剥离"两条规则，解析本身照旧交给宿主 cmdlet
+        # (ConvertFrom-Json 的内核化在动工前就被矩阵判出局，理由见 docs\gd-core-contract.md §8)。
+        if (-not (Test-Path -LiteralPath $Path)) { throw ([GdCore.Json]::MissingFileMessage($Path)) }
+        $text = [GdCore.Json]::StripBom([System.IO.File]::ReadAllText($Path))
+        return $text | ConvertFrom-Json
+    }
+    # ---- 原身(内核缺席/被 coreOff 关掉时逐字照跑；不许与上面的内核路各自漂移，改动必重跑 golden) ----
     if (-not (Test-Path -LiteralPath $Path)) { throw "找不到文件：$Path" }
     $text = [System.IO.File]::ReadAllText($Path)
     if ($text.Length -gt 0 -and $text[0] -eq [char]0xFEFF) { $text = $text.Substring(1) }
@@ -95,6 +112,9 @@ function Read-GdJson {
 }
 
 function Write-GdJson {
+    # 内核化定档(K1b)：本函数**不进内核**。序列化真身是宿主的 ConvertTo-Json，
+    # 落盘编码是一句 BCL 调用，中间没有"PS 解释执行的纯规则"可收；
+    # 且这里写出去的文件由 MAA/M9A 等外部程序读，复刻不全伤的是助手配置(实测见 docs\gd-core-contract.md §8)。
     param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)]$Object, [int]$Depth = 100)
     $json = $Object | ConvertTo-Json -Depth $Depth
     [System.IO.File]::WriteAllText($Path, $json, (New-Object System.Text.UTF8Encoding($false)))
@@ -156,6 +176,20 @@ function Backup-GdFile {
     if (-not (Test-Path -LiteralPath $Path)) { return $null }
     $name = [System.IO.Path]::GetFileName($Path)
     $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+    if (Test-GdCoreFn 'Backup-GdFile') {
+        # K1b 内核路：命名规则(=Paths 的一步 join)与"留 20 份、往后都删"的剪枝计划归内核，
+        # 复制/列举/删除照旧走 cmdlet —— 排序也故意留在壳侧：原身的并列次序取自 Get-ChildItem，
+        # 内核再排一次会改判 tie-break，故 PastKeep 只接"壳已按 LastWriteTime 降序排好"的名字表。
+        $dest = [GdCore.Backup]::BuildPath($global:GD.Backup, $name, $stamp)
+        Copy-Item -LiteralPath $Path -Destination $dest -Force
+        $existing = @(Get-ChildItem -LiteralPath $global:GD.Backup -Filter "$name.*.bak" |
+            Sort-Object LastWriteTime -Descending | ForEach-Object { $_.Name })
+        foreach ($doomed in @([GdCore.Backup]::PastKeep($existing, 20))) {
+            Remove-Item -LiteralPath (Join-Path $global:GD.Backup ([string]$doomed)) -Force
+        }
+        return $dest
+    }
+    # ---- 原身(内核缺席/被 coreOff 关掉时逐字照跑) ----
     $dest = Join-Path $global:GD.Backup "$name.$stamp.bak"
     Copy-Item -LiteralPath $Path -Destination $dest -Force
     # 只保留每个文件最近 20 份备份
@@ -193,12 +227,42 @@ function Get-GdSettings {
     param([switch]$Quiet, [string[]]$RequirePaths, [switch]$TellAndExit)
     $path = Join-Path $global:GD.Root 'config\settings.json'
     if (-not (Test-Path -LiteralPath $path)) {
-        $msg = '还没有 config\settings.json。先跑 setup.ps1(自动探测助手安装位置并生成)，或把 config\settings.example.json 复制成 settings.json 后手填 paths。'
+        if (Test-GdCoreFn 'Get-GdSettings') {
+            # K1b 内核路：这句文案的内核版本住在 GdCore.Msgs.cs，而那份 .cs 是从下面原身那一行
+            # 逐字切出来生成的(tools\gen-gdcore-msgs.ps1)—— 两边同不一致由 golden 门判，不靠人眼。
+            $msg = [string]([GdCore.Settings]::MissingConfigMessage())
+        } else {
+            $msg = '还没有 config\settings.json。先跑 setup.ps1(自动探测助手安装位置并生成)，或把 config\settings.example.json 复制成 settings.json 后手填 paths。'
+        }
         if ($TellAndExit) { Stop-GdBeforeRun $msg }
         throw $msg
     }
     $s = Read-GdJson -Path $path
     if (-not $RequirePaths) { $RequirePaths = @(Get-GdRequiredPathKeys) }
+    if (Test-GdCoreFn 'Get-GdSettings') {
+        # K1b 内核路：paths 缺项点名 + 三句 WARN/硬停话术 + "非 -Quiet 才硬停"的判据都归内核。
+        # 但 $s.paths.$k 这种动态成员访问和它自带的真假判定必须留在壳侧(C# 拿不到 PS 的动态绑定，
+        # 硬要拿就得引 System.Management.Automation，破 pure-BCL 约束)：内核收到的是已经判过的平行数组。
+        $keys = @($RequirePaths)
+        $vals = @()
+        $exs = @()
+        foreach ($k in $keys) {
+            $raw = $s.paths.$k
+            $vals += ($( if ($raw) { [string]$raw } else { '' }))
+            $exs += [bool](Test-GdPathReady ([string]$raw))
+        }
+        $r = [GdCore.Settings]::Evaluate([string[]]$keys, [string[]]$vals, [bool[]]$exs, [bool](-not $Quiet))
+        foreach ($line in @($r.WarnLines)) {
+            if ($line) { Write-GdLog ([string]$line) -Level WARN -Quiet:$Quiet }
+        }
+        $msg = [string]$r.StopMessage
+        if ($msg) {
+            if ($TellAndExit) { Stop-GdBeforeRun $msg }
+            throw $msg
+        }
+        return $s
+    }
+    # ---- 原身(内核缺席/被 coreOff 关掉时逐字照跑) ----
     $missing = @()
     foreach ($k in $RequirePaths) {
         $p = $s.paths.$k
@@ -234,6 +298,13 @@ function Join-GdPath {
       真正会拿这个结果去干活的入口由 Get-GdSettings(非 -Quiet)先硬停，所以放宽这里不会把错误咽掉。
     #>
     param([AllowEmptyString()][string]$Base, [Parameter(Mandatory)][string[]]$Parts)
+    if (Test-GdCoreFn 'Join-GdPath') {
+        # K1a 内核路：规则住 tools\gdcore\GdCore.Paths.cs(逐格对拍见 tools\probe-kernel-paths-golden.ps1)。
+        # param 块的 [AllowEmptyString]/[Mandatory][string[]] 绑定校验故意留在壳侧(内核不碰参数绑定语义)，
+        # 内核只负责"空 base→空串 + 跳过空段 + Join-Path 拼接规则"这三件事。
+        return [GdCore.Paths]::Join($Base, @($Parts))
+    }
+    # ---- 原身(内核缺席/被 coreOff 关掉时逐字照跑；不许与上面的内核语义各自漂移，改动必重跑 golden) ----
     if (-not $Base) { return '' }
     $p = $Base
     foreach ($part in @($Parts)) {
@@ -838,12 +909,21 @@ function Add-GdHistory {
     if (-not (Test-Path -LiteralPath $file)) {
         '"time","game","mode","status","duration_sec","detail"' | Set-Content -LiteralPath $file -Encoding utf8
     }
-    $dur = if ($null -ne $DurationSec) { "$([math]::Round($DurationSec))" } else { '' }
-    $fields = @(
-        (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'),
-        $Game, $Mode, $Status, $dur, ($Detail -replace "`r?`n", ' | ')
-    )
-    $row = ($fields | ForEach-Object { '"' + ([string]$_ -replace '"', '""') + '"' }) -join ','
+    if (Test-GdCoreFn 'Add-GdHistory') {
+        # K2 口径：舍入仍在壳里做(原身就是 [math]::Round，字符串入参的宽容差是运行时的，内核改成"更宽容"就是改语义)；
+        # 内核只把已舍入的数写成串，并钉死 -0 那一格(实测 7 写 "-0"、5.1 写 "0"，存量 history.csv 按 5.1 那支写的)。
+        $dur = ''
+        if ($null -ne $DurationSec) { $dur = [string]([GdCore.Csv]::DurationText([double]([math]::Round($DurationSec)))) }
+        $flat = [string]([GdCore.Csv]::Flatten($Detail))
+        $row = [string]([GdCore.Csv]::BuildRow([string[]]@((Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), [string]$Game, [string]$Mode, [string]$Status, $dur, $flat)))
+    } else {
+        $dur = if ($null -ne $DurationSec) { "$([math]::Round($DurationSec))" } else { '' }
+        $fields = @(
+            (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'),
+            $Game, $Mode, $Status, $dur, ($Detail -replace "`r?`n", ' | ')
+        )
+        $row = ($fields | ForEach-Object { '"' + ([string]$_ -replace '"', '""') + '"' }) -join ','
+    }
     Add-Content -LiteralPath $file -Value $row -Encoding utf8
 }
 
@@ -910,9 +990,11 @@ function Stop-GdRunLock {
     $file = Join-Path $global:GD.State 'running.json'
     if (-not (Test-Path -LiteralPath $file)) { return }
     try {
-        # 只删自己登记的那一份：万一别的轮已经覆盖了它，删就等于把别人的撞车保护拆了
+        # 只删自己登记的那一份：万一别的轮已经覆盖了它，删就等于把别人的撞车保护拆了。
+        # K2 实测：-match 不分大小写，所以 {"PID":123} 也算自己的 —— 内核用 RegexOptions.IgnoreCase 复刻这一格。
         $txt = [string](Get-Content -LiteralPath $file -Raw)
-        if ($txt -match ('"pid"\s*:\s*' + $PID + '[\s,}]')) { Remove-Item -LiteralPath $file -Force }
+        $mine = if (Test-GdCoreFn 'Stop-GdRunLock') { [bool]([GdCore.RunLock]::OwnsText($txt, $PID)) } else { $txt -match ('"pid"\s*:\s*' + $PID + '[\s,}]') }
+        if ($mine) { Remove-Item -LiteralPath $file -Force }
     } catch { }
 }
 
@@ -1103,15 +1185,17 @@ function Test-GdExportLeaks {
 # 丙案要点：内核源码 tools\gdcore\*.cs 纯 BCL/C#5/纯 ASCII，pwsh7 走 Roslyn、5.1 走 CodeDom 各自 Add-Type -Path 现编，
 # 天然双宿主可载、零 dll 产物、零分发面。加载炸(源码缺/编译被杀软拦/契约号不匹配)一律静默回退逐行冻结的 PS 原身，
 # 内核永不是硬依赖——不许把 06:00 那轮置于死地(方案 §0/§3.2 在案)。
-# K0 白名单为空 = 一个函数都没内核化，入口行为零变化；K1 起每内核化一个函数才往 $script:GdCoreFunctions 添名。
+# K1 起每内核化一个函数才往 $script:GdCoreFunctions 添名(白名单=内核有实现且已对拍过的函数，逐个加，不批量放开)。
 # settings.runtime.coreOff 是函数级热开关(列出即关该函数、缺失=全开，"没显式 false 就是开"同族语义)——
 # 单个内核函数出 bug 改一行 settings 当日止血，不挡其余函数继续跑。
+# 注意：Add-GdCore 目前没有接到任何生产入口(接线是 K 系列后段的独立一步)，所以生产态恒 off = 全部走 PS 原身；
+# 白名单里的函数只有显式调过 Add-GdCore 的进程(=golden 对拍门)才会真走内核。
 $script:GdCoreState = 'off'      # off|live|fallback
 $script:GdCoreNote = ''          # 回退时该说的一句话(调用方经 Get-GdCoreStatus 取自印)；live 恒空串
-$script:GdCoreFunctions = @()    # 已内核化函数白名单(K0 空)
+$script:GdCoreFunctions = @('Join-GdPath', 'Read-GdJson', 'Backup-GdFile', 'Get-GdSettings', 'Get-GdVersion', 'Add-GdHistory', 'Stop-GdRunLock')   # 已内核化白名单(K1a 路径；K1b 序列化三件套的纯规则残余；K2 版本规范/CSV 行/归属判定。出局面按契约 §8/§9 记档：Write-GdJson、Write-GdLog、Show-GdVersionFile)
 $script:GdCoreOff = @()          # settings.runtime.coreOff 快照，由 Sync-GdCoreOff 灌
 
-function Get-GdCoreContract { 'GDCore-K0.1' }   # 壳侧期望契约号；K1 每内核化一批函数就同步 +1 并在 GdCore.cs 同改
+function Get-GdCoreContract { 'GDCore-K2.1' }   # 壳侧期望契约号；每内核化一批就同步 +1 并在 tools\gdcore\GdCore.cs 同改
 
 function Add-GdCore {
     <# 幂等装载：已定态直接回现状。任何异常吞掉只落状态——本函数永不向上抛(回退语义)。 #>

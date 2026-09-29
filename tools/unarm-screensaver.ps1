@@ -42,15 +42,9 @@ function Set-GdSettingChangedBroadcast {
     <# 让正在跑的会话立刻重读 HKCU\Control Panel\Desktop。
         只发一条广播消息，不注入输入、不碰别的进程 —— 所以它不需要提权，也不会替你把屏保点掉。 #>
     try {
-        Add-Type -TypeDefinition @'
-using System;
-using System.Runtime.InteropServices;
-public static class GdSettingChange {
-    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
-    public static extern IntPtr SendMessageTimeoutW(IntPtr hWnd, uint msg, IntPtr wParam, string lParam,
-        uint fuFlags, uint uTimeout, out IntPtr lpdwResult);
-}
-'@
+        # B0(2026-09-29)：签名本体在 tools\gdinterop\GdSettingChange.cs，现编交给 lib\common.ps1 的 Add-GdInterop。
+        # 编不过就抛给下面那个 catch —— 它印的正是原来那句"广播失败，注册表已经改好了，注销/重登一次生效"，行为同形。
+        if ((Add-GdInterop) -ne 'live') { throw 'interop 现编失败(GdSettingChange 不可用)' }
         $res = [IntPtr]::Zero
         # HWND_BROADCAST=0xFFFF, WM_SETTINGCHANGE=0x1A, SMTO_ABORTIFHUNG=0x0002, 参数 "Windows Shell"
         [void][GdSettingChange]::SendMessageTimeoutW([IntPtr]0xFFFF, 0x1A, [IntPtr]::Zero, 'Windows Shell', 0x0002, 3000, [ref]$res)

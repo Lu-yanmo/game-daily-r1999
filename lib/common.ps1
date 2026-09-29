@@ -314,32 +314,43 @@ function Join-GdPath {
     return $p
 }
 
+# --- B0(2026-09-29)：P/Invoke 现场件也从 here-string 搬进真 .cs，宿主各自现编 ---
+# 与下面 Add-GdCore(本文件末尾)的分工：内核 GdCore 装的是**纯规则**(路径/序列化/版本行/历史行)，
+# 编不过可以回退逐行冻结的 PS 原身；interop 装的是 **P/Invoke 签名**，PS 侧没有原身可退(类型只能现编)，
+# 所以这里的"回退"= 让调用方拿到它本来就写好的那条"读不到/失败"语义：Add-GdInterop 永不向上抛、只落状态，
+# 由调用方按状态各走各的分支(Add-GdSleepTypeDef 抛给 Enter-GdNoSleep 的 catch 说"禁止睡眠失败"，
+# Get-GdInputDesktopName 直接返回空串 = "不知道")。内核和 interop 都不是硬依赖——不许把 06:00 那轮置于死地。
+$script:GdInteropState = 'off'    # off|live|fallback
+$script:GdInteropMs = -1          # 本进程现编 interop 花了几毫秒(-1 = 没编过)
+function Add-GdInterop {
+    <# 幂等装载 tools\gdinterop\*.cs：一次 Add-Type -Path 全量现编。任何异常吞掉只落状态——本函数永不向上抛(回退语义)。 #>
+    param([string]$SourceDir)
+    if ($script:GdInteropState -ne 'off') { return $script:GdInteropState }
+    if (-not $SourceDir) { $SourceDir = Join-Path $PSScriptRoot '..\tools\gdinterop' }
+    $ErrorActionPreference = 'Stop'    # 不加这句：Add-Type 编译失败在非交互宿主里可能只写 ErrorRecord，try/catch 抓不住而类型却没落地
+    try {
+        # 按目录现扫、不一份份列(publish-split 里 gdcore 那条教训)：漏一份 .cs = 克隆者那边现编失败、本地却一直绿
+        $srcs = @(Get-ChildItem -LiteralPath $SourceDir -Filter '*.cs' -File | ForEach-Object { $_.FullName })
+        if (-not $srcs.Count) { throw "interop 源码目录没有 .cs：$SourceDir" }
+        $sw = New-Object System.Diagnostics.Stopwatch
+        $sw.Start()
+        try { Add-Type -Path $srcs } finally { $sw.Stop(); $script:GdInteropMs = [int]$sw.Elapsed.TotalMilliseconds }
+        $script:GdInteropState = 'live'
+    } catch {
+        $script:GdInteropState = 'fallback'
+    }
+    return $script:GdInteropState
+}
+
 # --- 防止系统在跑日常时睡眠/被屏保盖屏 ---
 $global:GdSleepHandle = $false
-$global:GdDeskTypeDef = $false    # Get-GdInputDesktopName 的 Add-Type 只做一次
+$global:GdDeskTypeDef = $false    # Get-GdInputDesktopName 的 interop 只做一次
 function Add-GdSleepTypeDef {
+    <# B0 起这里不再内联 C#：签名在 tools\gdinterop\GdPower.cs，现编由 Add-GdInterop 负责。
+       编不过要**抛**(与旧 `Add-Type ... -ErrorAction Stop` 同形)——调用方 Enter-GdNoSleep 的 catch 才说得出"禁止睡眠失败"，
+       Exit-GdNoSleep 靠 $global:GdSleepHandle 为假直接不碰 [GdPower]，两边语义都与迁移前一致。 #>
     if ($global:GdSleepHandle) { return }
-    Add-Type -TypeDefinition @'
-using System;
-using System.Runtime.InteropServices;
-public static class GdPower {
-    [DllImport("kernel32.dll", SetLastError = true)]
-    public static extern uint SetThreadExecutionState(uint esFlags);
-    public const uint ES_CONTINUOUS       = 0x80000000;
-    public const uint ES_SYSTEM_REQUIRED  = 0x00000001;
-    public const uint ES_DISPLAY_REQUIRED = 0x00000002;
-
-    // ES_DISPLAY_REQUIRED 只管显示器电源/睡眠计时；屏保看的是"最后一次输入"，
-    // 脚本不动鼠标，到点照样全屏盖住端游窗口 → 必须显式关掉。
-    [DllImport("user32.dll", EntryPoint = "SystemParametersInfo", SetLastError = true)]
-    public static extern bool SPIGetActive(uint action, uint param, ref bool pvParam, uint flags);
-    [DllImport("user32.dll", EntryPoint = "SystemParametersInfo", SetLastError = true)]
-    public static extern bool SPISetActive(uint action, uint param, IntPtr pvParam, uint flags);
-    public const uint SPI_GETSCREENSAVEACTIVE = 0x0010;
-    public const uint SPI_SETSCREENSAVEACTIVE = 0x0011;
-    public const uint SPIF_SENDWININICHANGE   = 0x0002;
-}
-'@ -ErrorAction Stop
+    if ((Add-GdInterop) -ne 'live') { throw "interop 现编失败(GdPower 不可用)，状态=$script:GdInteropState" }
     $global:GdSleepHandle = $true
 }
 function Get-GdScreensaverConfig {
@@ -422,23 +433,14 @@ function Get-GdInputDesktopName {
        返回 ''=读不到(按"不知道"处理，不得据此判锁屏)。2026-09-26 加：06:00 两轮方舟全是死在
        会话被屏保桌面接管上，起跑前一行就能判掉，不该再烧 12 分钟等端游。 #>
     if (-not $global:GdDeskTypeDef) {
-        # 注意：这里绝不能给 Add-Type 加 -ErrorAction SilentlyContinue —— 实测那样类型会"编译成功但不落地"，
-        # 之后每次 [GdDesk]:: 都静默走 catch 返回 ''(2026-09-26 排查)。用 try/catch，失败就本轮按"读不到"处理。
-        # 形态也必须像 GdPower/GdWin 一样用完整 -TypeDefinition+显式 class：-Name+-MemberDefinition 在函数体内
-        # 同样会"成功但不落地"(实测 2026-09-26)。
-        try {
-            Add-Type -TypeDefinition @'
-using System;
-using System.Text;
-using System.Runtime.InteropServices;
-public static class GdDesk {
-    [DllImport("user32.dll")] public static extern IntPtr OpenInputDesktop(uint flags, bool inherit, uint access);
-    [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern bool GetUserObjectInformationW(IntPtr hObj, int nIndex, StringBuilder pvInfo, uint nLength, out uint lpnLengthNeeded);
-    [DllImport("user32.dll")] public static extern bool CloseDesktop(IntPtr hDesktop);
-}
-'@
-            $global:GdDeskTypeDef = $true
-        } catch { return '' }
+        # 注意(这条教训 B0 前后都成立)：绝不能给现编加 -ErrorAction SilentlyContinue —— 实测那样类型会"编译成功但不落地"，
+        # 之后每次 [GdDesk]:: 都静默走 catch 返回 ''(2026-09-26 排查)。形态也必须像 GdPower/GdWin 一样是完整
+        # -TypeDefinition/-Path + 显式 class：-Name+-MemberDefinition 在函数体内同样会"成功但不落地"(实测 2026-09-26)。
+        # B0 起编译这一段搬进 Add-GdInterop(签名本体在 tools\gdinterop\GdDesk.cs)：它内部自带
+        # $ErrorActionPreference='Stop'、任何异常只落状态不外抛，所以这里判返回值——编不过就本轮按"读不到"处理，
+        # 与旧那句 try/catch{ return '' } 一字同形。
+        if ((Add-GdInterop) -ne 'live') { return '' }
+        $global:GdDeskTypeDef = $true
     }
     try {
         # 参数照抄 vision-ark 里实测可用的 [GdWin]::InputDesktopName：flags=OPEN_EXISTING(2)，

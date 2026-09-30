@@ -3,6 +3,8 @@
 KB 动词：import / search / stats / drop / compact / rebuild / reindex / rollback / probe
 agent 动词(M2)：agent = 和需求管家对话(人用终端，输出是人话)；agent-eval = 对拍批处理口
 (cases JSONL → 投影结果 JSONL，tools\\probe-agent-golden.ps1 的双跑 Python 侧)。
+两击确认(M6 GUI 轮)：agent-plan --ask "…" = 第一击(要真跑的步骤只列计划、落盘、回代号)；
+agent-run --plan <代号> = 第二击(按代号取回计划，逐条重新过闸后真跑)。这两条 stdout 只有信封 JSON。
 """
 import argparse
 import sys
@@ -48,6 +50,11 @@ def build_parser():
     s.add_argument("--rollback", action="store_true", help="按 journal 逆序恢复(不经过模型)")
     s.add_argument("--rollback-dry", dest="rollback_dry", action="store_true", help="只看攒了几项变更")
 
+    s = sub.add_parser("agent-plan", help="两击确认·第一击：问一句，要真跑的步骤只列计划不执行(stdout 出信封)")
+    s.add_argument("--ask", required=True, help="一句需求原文")
+    s = sub.add_parser("agent-run", help="两击确认·第二击：按第一击回的代号把那份计划真跑掉(stdout 出信封)")
+    s.add_argument("--plan", required=True, help="计划代号(形如 20260929-121530-ab12)")
+
     s = sub.add_parser("agent-eval", help="对拍批处理口：cases JSONL → 投影结果 JSONL")
     s.add_argument("--cases", required=True)
     s.add_argument("--out", required=True)
@@ -64,6 +71,17 @@ def main(argv=None):
         from . import live
         return live.run_agent(CFG.ROOT, ask=args.ask, rollback=args.rollback,
                               rollback_dry=args.rollback_dry)
+    # 两击确认的两条机读口：stdout 只有信封 JSON，人话一律 stderr(铁律同 KB 动词)。
+    if args.verb == "agent-plan":
+        from . import live
+        res = live.plan_ask(CFG.ROOT, args.ask)
+        ENV.emit(res)
+        return 0 if res.get("ok") else 1
+    if args.verb == "agent-run":
+        from . import live
+        res = live.plan_execute(CFG.ROOT, args.plan)
+        ENV.emit(res)
+        return 0 if res.get("ok") else 1
     if args.verb == "agent-eval":
         sp = EN.fake_spec_parser if args.fake_farm_spec else None
         n = EN.run_eval_cases(args.cases, args.out, sp)

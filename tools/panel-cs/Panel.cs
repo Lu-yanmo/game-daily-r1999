@@ -38,6 +38,8 @@
 //   panel-cs.exe --orchtest      不显示窗口：批次 5 编排/排程层(Orchestration.cs)纯规则段回环 —— 同上，不起进程不读盘
 //   panel-cs.exe --svtest        不显示窗口：批次 6 监督 agent(Supervisor.cs)纯判定段回环 —— 同上，不读盘不起进程
 //   panel-cs.exe --looptest      不显示窗口：批次 7 活段判据(RunLoops.cs)tick 剧本回环 —— 同上，读数/回执全由场景直喂
+//   panel-cs.exe --agenttest     不显示窗口：对话小窗那条链的纯规则段(Agent.cs) —— 找解释器的顺序、CRT 命令行转义、
+//                                信封投影。不起进程、不联网、不要求这台机器装了 Python(喂的是假尺子和手写 JSON)。
 //
 // 编译：powershell -File tools\panel-cs\build.ps1   (用 C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe)
 
@@ -124,6 +126,10 @@ namespace GdPanel
         bool expArkUp, expMumuUp, expRewardUp, expAskUp;
         Button btnOnly;             // 只跑当前页那一路(单游戏仓会自动藏起来)
         DateTime onlyAt = DateTime.MinValue;
+        // 「问需求管家」：入口在左栏，窗子是另一只独立小窗(不是主控台的一页 —— 它不转达状态读数，它说话)。
+        // 只保一份引用：重复点入口应当把那扇窗叫到眼前，而不是开出第二个对话(两个窗子会各持一份待确认的计划)。
+        Button btnAgent;
+        AgentChatForm agentWin;
         Button btnMin, btnMax, btnClose;   // 无边框后的自绘"标题栏"三键
         readonly System.Windows.Forms.Timer pump = new System.Windows.Forms.Timer();
         // beat：状态自动刷新。没有它的时候"现在到底跑没跑/跑到哪"只能靠手点刷新，
@@ -268,7 +274,7 @@ namespace GdPanel
                 Environment.Exit(GdCli.Run(argv[0], tail));
             }
             bool selftest = false, headless = false, dump = false, exptest = false, exttest = false, whytest = false, consoletest = false;
-            bool coretest = false, echotest = false, dectest = false, statetest = false, proctest = false, visiontest = false, orchtest = false, svtest = false, looptest = false;
+            bool coretest = false, echotest = false, dectest = false, statetest = false, proctest = false, visiontest = false, orchtest = false, svtest = false, looptest = false, agenttest = false;
             foreach (string a in argv)
             {
                 string l = a.ToLowerInvariant();
@@ -288,6 +294,7 @@ namespace GdPanel
                 if (l == "--orchtest") orchtest = true;
                 if (l == "--svtest") svtest = true;
                 if (l == "--looptest") looptest = true;
+                if (l == "--agenttest") agenttest = true;
                 if (l == "--no-beat") PanelForm.AutoBeatDefault = false;
             }
             // Core/契约自检同理走无头早退：它们只喂临时树，不需要(也不该)把面板整副构造起来。
@@ -300,6 +307,7 @@ namespace GdPanel
             if (orchtest) Environment.Exit(GdOrchSelfTest.OrchTest());
             if (svtest) Environment.Exit(GdSvSelfTest.SvTest());
             if (looptest) Environment.Exit(GdLoopSelfTest.LoopTest());
+            if (agenttest) Environment.Exit(GdAgentSelfTest.AgentTest());
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             PanelForm f = new PanelForm(headless);

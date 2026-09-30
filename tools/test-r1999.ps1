@@ -269,6 +269,17 @@ Check '新版文案不认识时 Read-GdM9ALine 返回 $null(而不是硬凑一�
 # 断言对象随之换文件，断言内容(那条跳过清单)一个字没改。
 $r1999Daily = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\lib\r1999-daily.ps1') -Raw -Encoding utf8
 Check '1999 重试会跳过 not-started/empty-queue/unknown-format/blocked' ($r1999Daily -match "Status -notin @\('ok', 'not-started', 'empty-queue', 'unknown-format', 'blocked'\)")
+# M9A 自动更新闸(tools\m9a-update.ps1，2026-09-30 用户「检查到更新自己更就行了」)：这里只做静态锚，
+# 不联网、不起子进程 —— 实测链路当晚 12:40 人工 -Apply 走过一次(v4.10.0→v4.11.0)，测试不许依赖网络。
+Check '1999 起跑段挂了 M9A 自动更新闸(调 tools\m9a-update.ps1 -Apply，失败只 WARN)' (($r1999Daily -match 'm9a-update\.ps1') -and ($r1999Daily -match 'M9A 自动更新未完成'))
+Check '自动更新闸放在 Invoke-GdTakeover 之前(更新器见进程在跑就拒动，顺序就是正确性)' ($r1999Daily.IndexOf('m9a-update.ps1') -ge 0 -and $r1999Daily.IndexOf('m9a-update.ps1') -lt $r1999Daily.IndexOf('Invoke-GdTakeover'))
+Check '更新器本体在位且退出码契约写在头注' ((Test-Path -LiteralPath (Join-Path $PSScriptRoot 'm9a-update.ps1')) -and ((Get-Content -LiteralPath (Join-Path $PSScriptRoot 'm9a-update.ps1') -Raw -Encoding utf8) -match '0 = 已是最新'))
+# 活动打完没打完的 agent 判定(tools\1999-event-audit.ps1，2026-09-30 用户「让agent判断」)：同样只做静态锚，
+# 不碰模拟器不联网 —— 真链路 09-30 用 -Image 旁路对着一张方舟截图实问过(模型如实答 unknown，保守纪律成立)。
+$r1999Audit = Get-Content -LiteralPath (Join-Path $PSScriptRoot '1999-event-audit.ps1') -Raw -Encoding utf8
+Check '1999 收尾段挂了活动审计(队列跑完才问、失败只 WARN 不挡轮)' (($r1999Daily -match '1999-event-audit\.ps1') -and ($r1999Daily -match '维持 event-pending'))
+Check '审计工具的护栏语义在案：只有画面证据明确的 yes 才 ack，no/unknown 照旧等人' (($r1999Audit -match '只有画面上出现明确的"全部完成"证据才许答 yes') -and ($r1999Audit -match 'no/unknown 维持 pending'))
+Check '审计工具只问不点：点击通道一个字都不许出现' (($r1999Audit -notmatch 'input tap') -and ($r1999Audit -notmatch 'Invoke-GdVisionRescue') -and ($r1999Audit -match 'Save-GdMuMuShot'))
 
 Write-Host "`n[t17] 单任务识别失败 / 版本落后 / 连不上模拟器 —— 09-25 19:24 那一轮的复盘"
 <#

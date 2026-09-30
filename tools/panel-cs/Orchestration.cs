@@ -191,7 +191,9 @@ namespace GdPanel
         // ==================== verb: resolve-ark-farm-plan(原 Resolve-ArkFarmPlan) ====================
         // 纯判定：目标清单 + 账本 + 学习表 → 本轮补刷方案。一次只锁"还差最多"的一个目标；
         // 刷哪关：显式填的 > 学习表挑(每场平均掉最多的优先，并列取见得多的，最多 2 关) > 不刷并说为什么；
-        // 次数 = ceil(缺口 / 每场平均掉落)，封顶 MaxTimes。输出键序逐字照抄旧 pscustomobject。
+        // 次数 = 缺口(09-29 用户口径「先把目标刷满再刷别的」：按每场至少掉 1 的保守折算，不再拿平均掉落率打折；
+        // append 档 MAA 侧是目标库存监停(DropCount=目标绝对值，凑够当场停整条 Fight 链)，TimesLimit 只是单轮护栏，
+        // 保守只会多给护栏、不会多刷；封顶 MaxTimes 不变)。输出键序逐字照抄旧 pscustomobject。
 
         static Dictionary<string, object> FarmPlanNone(string why)
         {
@@ -272,7 +274,7 @@ namespace GdPanel
                     continue;
                 }
 
-                // 每场平均掉落：只按真正会刷到的关算；没学习数据就按 1 估并明说
+                // 每场平均掉落：挑关仍按它(掉得多的打头)，Reason 里如实报数；但次数不再用它折算(见头注)
                 int tq = 0, tr = 0;
                 if (dropTable.ContainsKey(id))
                 {
@@ -287,9 +289,9 @@ namespace GdPanel
                 if (tr > 0)
                 {
                     avg = Math.Max((double)tq / tr, 0.1);
-                    avgNote = "按学习到的每场约 " + RoundStr(Math.Round(avg, 1));
+                    avgNote = "按每场掉 1 保守给次数、凑满目标为止(学习到的每场约 " + RoundStr(Math.Round(avg, 1)) + ")";
                 }
-                int times = (int)Math.Ceiling((double)gap / avg);
+                int times = gap;
                 string capNote = "";
                 if (times > maxTimes) { times = maxTimes; capNote = "(单轮封顶 " + maxTimes + "，剩下的明天接着刷)"; }
 

@@ -151,12 +151,12 @@ namespace GdPanel
                 "nameToId", N2I, "idToName", I2N, "inventory", Obj("30135", 18),
                 "origin", Obj(), "dropTable", DT, "knownStages", Known, "maxTimes", 12);
             Dictionary<string, object> rf = D(Orchestration.FarmPlan(inp1));
-            b.Chk("缺口=目标-现有；显式填关优先；次数按学习掉落率折算", () =>
+            b.Chk("缺口=目标-现有；显式填关优先；次数保守折算=缺口(每场掉 1 保底，凑满目标为止)", () =>
                 Bool(rf["Active"]) && IntOf(rf["Gap"]) == 12 && (string)Gd.List(rf["Stages"])[0] == "CE-5"
-                && IntOf(rf["Times"]) == 5);
-            b.Chk("Reason 说清账目(逐字口径：还差 12 / 每场约 2.4)", () => {
+                && IntOf(rf["Times"]) == 12);
+            b.Chk("Reason 说清账目(逐字口径：还差 12 / 每场约 2.4 照报但只进括号)", () => {
                 string s = Gd.Str(rf["Reason"]);
-                return s.Contains("还差 12") && s.Contains("每场约 2.4") && s.StartsWith("补刷 D32钢×5 @CE-5：目标 30，现有 18");
+                return s.Contains("还差 12") && s.Contains("每场约 2.4") && s.StartsWith("补刷 D32钢×12 @CE-5：目标 30，现有 18");
             });
 
             Dictionary<string, object> inpCap = Obj("targets", new object[] { Spec("D32钢", 99, "CE-5") },
@@ -216,9 +216,9 @@ namespace GdPanel
                 "nameToId", N2I, "idToName", I2N, "inventory", Obj("30135", 18),
                 "origin", Obj(), "dropTable", DT, "knownStages", Known, "maxTimes", 12);
             Dictionary<string, object> rl = D(Orchestration.FarmPlan(inpL));
-            b.Chk("没填关 → 学习表挑关(平均掉得多的打头，最多 2 关)", () => {
+            b.Chk("没填关 → 学习表挑关(平均掉得多的打头，最多 2 关)；次数仍=缺口 12", () => {
                 object[] st = Gd.List(rl["Stages"]);
-                return st.Length == 2 && (string)st[0] == "CE-5" && (string)st[1] == "CE-4" && IntOf(rl["Times"]) == 7;
+                return st.Length == 2 && (string)st[0] == "CE-5" && (string)st[1] == "CE-4" && IntOf(rl["Times"]) == 12;
             });
             b.Chk("合计均值的串面 1.9(1.875 不是中点，ToEven 不生效，实测两代 PS 都给 1.9)", () =>
                 Gd.Str(rl["Reason"]).Contains("每场约 1.9"));

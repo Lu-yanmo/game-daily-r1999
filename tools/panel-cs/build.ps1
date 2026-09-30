@@ -80,6 +80,10 @@ if ($Verify) {
     & $exe --looptest
     if ($LASTEXITCODE -ne 0) { throw 'panel-cs --looptest 有红项' }
     Write-Host 'panel-cs --looptest OK'
+    # 对话小窗那条链的纯规则段：找解释器的顺序 / CRT 命令行转义 / 信封投影(不起进程、不联网、不要求本机装了 Python)
+    & $exe --agenttest
+    if ($LASTEXITCODE -ne 0) { throw 'panel-cs --agenttest 有红项' }
+    Write-Host 'panel-cs --agenttest OK'
     # 面板自证：读一次 -DumpSummary 协议 + 渲染 + 逐页布局断言 + 主题切换链
     & $exe --selftest
     if ($LASTEXITCODE -ne 0) { throw 'panel-cs --selftest 有红项' }

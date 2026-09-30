@@ -127,5 +127,25 @@ namespace GdPanel
             if (RefreshNow("手动刷新")) AppendLog("已刷新上面的状态。");
         }
 
+        // ---------- 「问需求管家」：开/唤那一只独立小窗 ----------
+        // 面板这边只给三样东西：仓库根、当前主题、"现在有没有一轮在跑"的判据。
+        // 能跑什么/要跑几步/跑没跑成，全部由 tools\gdagent 的机读口回答(契约：stdout 那一行信封)，
+        // 面板一个字都不判定 —— 和其余按钮转调脚本是同一套分工。
+        void OpenAgentWindow()
+        {
+            if (agentWin != null && !agentWin.IsDisposed) { agentWin.Activate(); return; }
+            agentWin = new AgentChatForm(root, th,
+                delegate { return busy || extBusy; },
+                delegate(string msg) { AppendLog(msg); });
+            agentWin.FormClosed += delegate { agentWin = null; };
+            agentWin.Show(this);
+            AppendLog("开了对话小窗：第一击只列计划，真跑要你在小窗上再点一次「确认执行」。");
+        }
+
+        // 主面板换主题时通知它(小窗不自己存主题，跟着面板走)
+        void SyncAgentTheme()
+        {
+            if (agentWin != null && !agentWin.IsDisposed) agentWin.ApplyThemeNow(th);
+        }
     }
 }

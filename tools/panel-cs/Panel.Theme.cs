@@ -114,6 +114,7 @@ namespace GdPanel
             RefreshCards();
             SetChip(busy ? "正在跑" : "空闲", busy);
             SaveTheme();
+            SyncAgentTheme();   // 对话小窗不自己存主题：面板切了它就得跟着切，否则两扇窗一黑一白
             AppendLog("已切到" + (th.Name == "dark" ? "黑" : "白") + "底主题(记在 state\\panel-theme.txt，下次打开还在)。");
         }
 

@@ -221,6 +221,17 @@ namespace GdPanel
             btnTheme.Anchor = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
             btnTheme.Click += OnThemeClick;
 
+            // 「问需求管家」的入口(和导航项同一栏，但它不是页 —— 它开的是一只独立小窗)。
+            // 位置算死的：导航最多 7 项(总览+两路+主控台四页)到 y=392，那句提示到 ~420，这里 436 起一格，
+            // 离下面那颗切主题的按钮(640)还有一整段。为什么放在栏上而不进主控台四页：
+            // 那四页是"转达读数"的地方，而这一句是要**办事**的，混在一起就分不清谁在说话。
+            btnAgent = MakeButton(rail, "问需求管家", 12, 436, RailW - 24, 34, "chip");
+            btnAgent.TextAlign = ContentAlignment.MiddleLeft;
+            btnAgent.Padding = new Padding(12, 0, 26, 0);
+            rowTip.SetToolTip(btnAgent, "开一只独立小窗和盘上的需求管家对话(tools\\gdagent)。两击确认：第一击它只把要真跑的那几行列给你看，" +
+                                       "你再点「确认执行」才会跑；不点就一步都不做。查表/预览这类不改东西的问话当场就答。");
+            btnAgent.Click += delegate { OpenAgentWindow(); };
+
             // 页脚两行的文案要等协议解析完才知道(这一仓有哪几路)，这里只建控件，文本在 RefreshCards 里刷
             foot1 = MakeLabel(rail, "面板 C# · 引擎 " + Path.GetFileName(engine).Replace(".exe", ""), 21, 684, RailW - 30, 17, null, SmallFont(), false);
             foot1.Anchor = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;

@@ -1,7 +1,7 @@
 # gdagent —— game-daily 的 agent + 游戏知识库层（Python）
 
-技术栈定案与完整设计见仓库根的 `docs/kb-plan.md`。本包 M1 只落地**知识库核**；
-对话回路迁 Python（engine/model）在 M2 补。
+技术栈定案与完整设计见仓库根的 `docs/kb-plan.md`。M1 落的是知识库核，M2 起对话回路也在本包
+（`engine.py` 纯流程 + `model.py` 模型往返 + `live.py` 活层装配）；里程碑逐轮实录看 kb-plan §7。
 
 ## 怎么跑
 
@@ -21,6 +21,22 @@ python tools\kb.py probe       # 真实 embed 连通性（需 key）
 
 所有动词 **stdout 只出一行 JSON 信封**（`{ok, ..., why}`），日志/进度走 stderr。
 等价写法（cd 到 tools 后）：`python -m gdagent <verb> ...`。
+
+## agent 的四条口（人用 / 两击确认 / 对拍）
+
+```
+python -m gdagent agent                    # 人用终端 REPL（输出是人话，不是信封）
+python -m gdagent agent --ask "…"          # 人用终端单发一句，办完就退
+python -m gdagent agent-plan --ask "…"     # 两击确认·第一击：整轮照跑，要真跑的步骤只列进计划
+python -m gdagent agent-run --plan <代号>  # 两击确认·第二击：按代号取回计划，逐条重闸后真跑
+python -m gdagent agent-eval --cases x --out y   # PS↔Python 双跑对拍口（probe-agent-golden 喂它）
+```
+
+`agent-plan` / `agent-run` 是给 C# 面板那颗对话小窗用的机读口，两条铁律：
+**stdout 只有信封**、**全程不读标准输入**（GUI 起的子进程后面没有键盘，等一颗 y 就是死一轮）。
+护栏一条没松：set-config / preview / 三张查表按现行语义当场办（改配置有备份+journal 可回滚），
+只有"会真跑一轮 daily-clear"的步骤才要第二击；计划落 `state\agent\plans\<代号>.json`（只留最近 20 份），
+第二击**不信盘上那份旧事实** —— 每条参数重新过一遍白名单闸，闸拒的记一条、真跑没成的当场收尾不再往下。
 
 ## 前置：key 与端点
 

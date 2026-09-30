@@ -83,6 +83,22 @@ function Start-GdR1999Daily {
     param([Parameter(Mandatory)]$S, [Parameter(Mandatory)]$Instance)
     $inst = $Instance
     Write-GdLog '--- 重返未来：1999(MuMu + M9A)---' -Level STEP
+    $selfEngine = (Get-Process -Id $PID).Path   # 起子进程用当前引擎自己(5.1→powershell.exe / 7→pwsh.exe)，两处外挂共用
+    <# M9A 自动更新闸(2026-09-30 用户口径「检查到更新自己更就行了」)：必须放在起 M9A 之前 ——
+       更新器见 m9a 进程在跑就拒动(且永不硬杀)。整链(备份/下载/覆盖/校验)最坏十几分钟，
+       但任何失败只 WARN 不挡当日轮；已是最新时子进程秒退，日常不拖节奏。契约在 tools\m9a-update.ps1 头注。 #>
+    try {
+        $updOut = @(& $selfEngine -NoProfile -ExecutionPolicy Bypass -File (Join-Path $global:GD.Root 'tools\m9a-update.ps1') -Apply 2>&1)
+        $updCode = $LASTEXITCODE
+        if ($updCode -eq 0) {
+            $updLine = (@($updOut | Where-Object { [string]$_ -match '已是最新|更新完成' }) | Select-Object -Last 1)
+            Write-GdLog ('M9A 自动更新闸：' + [string]$updLine)
+        } else {
+            Write-GdLog ('M9A 自动更新未完成(退出码 ' + $updCode + ')，不挡当日轮：' + ((@($updOut | ForEach-Object { [string]$_ })) -join ' / ')) -Level WARN
+        }
+    } catch {
+        Write-GdLog "M9A 自动更新闸本身抛错，跳过它照常跑：$($_.Exception.Message)" -Level WARN
+    }
     Invoke-GdTakeover -S $S -Names @((Get-M9APaths -S $S).Name) -Label 'M9A'
     if (-not (Start-GdMuMu -S $S)) { Write-GdLog 'MuMu 未能确认启动，仍尝试让 M9A 自行处理' -Level WARN }
     $m9aCfg = Set-M9AInstance -S $S -Instance $inst -Apply
@@ -131,5 +147,20 @@ function Start-GdR1999Daily {
     #         Write-GdLog '1999 队列没开始/空跑完成 → 重试没有意义，直接记入本轮告警' -Level WARN
     #     }
     Stop-M9A -S $S
+    <# 活动打完没打完 —— 让 agent 看画面判断(2026-09-30 用户口径，工具 tools\1999-event-audit.ps1)：
+       只在队列真跑完的形态问(此时 MuMu 还热着、M9A 已关)，工具内部对"没有待确认活动"自带秒退；
+       判定 yes 才会 ack，unknown/no 维持 event-pending 照旧等人。整段最坏三分半(拉起+等画面+问一次)，
+       任何失败只 WARN —— 审计是加分项，不许把当日轮带崩。 #>
+    if ($r.Status -in @('ok', 'empty-queue')) {
+        try {
+            $audOut = @(& $selfEngine -NoProfile -ExecutionPolicy Bypass -File (Join-Path $global:GD.Root 'tools\1999-event-audit.ps1') -Apply 2>&1)
+            $audCode = $LASTEXITCODE
+            $audLine = (@($audOut | ForEach-Object { [string]$_ }) | Where-Object { $_ -match '审计结论|无事发生|维持 event-pending' } | Select-Object -Last 1)
+            if ($audCode -eq 0) { Write-GdLog ('1999 活动审计：' + [string]$audLine) }
+            else { Write-GdLog ('1999 活动审计没审成(退出码 ' + $audCode + ')，维持现状：' + ((@($audOut | ForEach-Object { [string]$_ })) -join ' / ')) -Level WARN }
+        } catch {
+            Write-GdLog "1999 活动审计本身抛错，跳过它照常收尾：$($_.Exception.Message)" -Level WARN
+        }
+    }
     return $r
 }

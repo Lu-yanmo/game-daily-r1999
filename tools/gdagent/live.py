@@ -325,16 +325,21 @@ def greeting(root, paths, settings):
     return '需求管家 · 模型 %s · %s · %s' % (MD.resolve_model(settings), gb_txt, key_txt)
 
 
-def run_agent(root, ask='', rollback=False, rollback_dry=False):
-    """`python -m gdagent agent` 的总入口。返回进程退出码。
-    回滚两条通道不经过模型(纯本地)；对话通道 -Ask 单发一句，不带就是 REPL。"""
-    # 人用通道在 GBK 码页控制台打印：模型回复里的 • 、† 这类字会炸掉 print(2026-09-28 实机撞过)。
-    # 编码本身跟着控制台不动(防乱码)，只把编不出的字符换成 ? —— 宁可一个问号，不许崩一轮对话。
+def _guard_console():
+    """人用/机读通道共用的控制台守卫：GBK 码页控制台上 print 会炸(2026-09-28 实机撞过，
+    模型回复里的 • 、† 这类字编不出)。编码本身跟着控制台不动(防乱码)，只把编不出的字符换成 ?
+    —— 宁可一个问号，不许崩一轮对话。"""
     for _s in (sys.stdout, sys.stderr):
         try:
             _s.reconfigure(errors='replace')
         except Exception:                                    # noqa: BLE001 - 换不掉就维持原样
             pass
+
+
+def run_agent(root, ask='', rollback=False, rollback_dry=False):
+    """`python -m gdagent agent` 的总入口。返回进程退出码。
+    回滚两条通道不经过模型(纯本地)；对话通道 -Ask 单发一句，不带就是 REPL。"""
+    _guard_console()
     paths = EN.Paths(root)
     if rollback_dry:
         print(EN.rollback_settings(paths, dry=True))
@@ -372,3 +377,58 @@ def run_agent(root, ask='', rollback=False, rollback_dry=False):
                          snapshot_fn=ctx['snapshot_fn'], kb_fn=ctx['kb_fn'], kb_state=kb_state,
                          prog_fn=ctx['prog_fn'], farm_fn=ctx['farm_fn'])
     return 0
+
+
+# ---------- 两击确认的机读口(面板上那颗对话小窗吃这两个) ----------
+# 与 run_agent 的分别：那一条给人用、印的是人话；这两条 stdout 只有信封 dict(由 __main__ emit)，
+# 而且**全程不调 input()** —— 子进程的口上没有键盘，"等玩家确认"这件事在 GUI 里就是一颗按钮，
+# 不该在 Python 进程里以"读一行标准输入"的形状存在。
+def _machine_paths(root):
+    """两条机读口共用的前置：控制台守卫 + settings 在不在。返回 (paths, settings, 错误信封或 None)。"""
+    _guard_console()
+    paths = EN.Paths(root)
+    if not paths.settings.is_file():
+        return paths, None, {'ok': False, 'why': '找不到 config\\settings.json —— 先跑 setup.ps1，agent 不猜路径'}
+    return paths, MD.read_settings(root), None
+
+
+def plan_ask(root, ask):
+    """第一击：问一句需求，跑完整回路但要真跑的那几步只列计划。返回信封 dict。
+    非计划动作(改配置/预览/三张查表)按现行语义当场就办了 —— 回执会一并进 reply 的下游，
+    面板把它们原样显示给人看，不藏。"""
+    paths, settings, err = _machine_paths(root)
+    if err:
+        return err
+    text = str(ask or '').strip()
+    if not text:
+        return {'ok': False, 'why': '没给 --ask(这一口一次问一句)'}
+    print(greeting(root, paths, settings), file=sys.stderr)
+    ctx = build_context(root, settings, paths)
+    r = EN.plan_exchange(paths, text, [], ctx['model_fn'], ctx['verb_fn'],
+                         known_stages=ctx['known_stages'], spec_parser=ctx['spec_parser'],
+                         snapshot_fn=ctx['snapshot_fn'], kb_fn=ctx['kb_fn'],
+                         prog_fn=ctx['prog_fn'], farm_fn=ctx['farm_fn'])
+    if not r['Ok']:
+        return {'ok': False, 'why': r['Why'], 'reply': r['Reply'], 'plan_id': ''}
+    return {'ok': True, 'why': r['Why'], 'reply': r['Reply'], 'plan_id': r['Id'],
+            'created': r['Created'],
+            'items': [{'desc': p['Desc'], 'args': list(p['Args'])} for p in r['Plan']]}
+
+
+def plan_execute(root, plan_id):
+    """第二击：按代号取回那份计划，逐条重闸后真跑。计划里没有的一步都不多做。"""
+    paths, settings, err = _machine_paths(root)
+    if err:
+        return err
+    pid = str(plan_id or '').strip()
+    if not pid:
+        return {'ok': False, 'why': '没给 --plan(第二击要的是第一击回的那个代号)'}
+    ld = EN.load_plan(paths, pid)
+    if not ld['Ok']:
+        return {'ok': False, 'why': ld['Why'], 'plan_id': pid}
+    ctx = build_context(root, settings, paths)      # 重闸要 known_stages 与 farmTargets 解析器，仍走同一装配
+    r = EN.run_plan(paths, ld['Plan'], ctx['verb_fn'],
+                    known_stages=ctx['known_stages'], spec_parser=ctx['spec_parser'])
+    return {'ok': r['Ok'], 'why': r['Why'], 'plan_id': pid, 'created': ld['Created'],
+            'results': [{'desc': x['Desc'], 'args': list(x['Args']), 'status': x['Status'],
+                         'exit': x.get('Exit'), 'detail': x.get('Detail', '')} for x in r['Results']]}

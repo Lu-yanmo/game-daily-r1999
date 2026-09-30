@@ -588,6 +588,12 @@ class Paths:
         return self.agent_dir / 'journal.jsonl'
 
     @property
+    def plans_dir(self):
+        """两击确认的计划落盘点(state/agent/plans/<id>.json)：第一击写、第二击读，
+        中间隔着一个人的一次点击 —— 计划必须是盘上的事实，不能只在内存里活着。"""
+        return self.agent_dir / 'plans'
+
+    @property
     def backups(self):
         return self.root / 'backups'
 
@@ -714,7 +720,7 @@ def rollback_settings(paths, dry=False):
 def send_exchange(paths, user_text, history, model_fn, verb_fn, known_stages=None,
                   spec_parser=None, confirm_fn=None, snapshot_fn=None, apply_fn=None,
                   printer=None, max_rounds=4, kb_fn=None, kb_state=None, prog_fn=None,
-                  farm_fn=None):
+                  farm_fn=None, pending=None):
     """引擎的一轮：用户话 → 模型(≤max_rounds 次工具往返) → 人读结论。
     所有动作逐条过 test_action。history 是调用方持有的 list[{'role','text'}]，本函数负责追加。
     confirm_fn(desc)->bool 是真跑前的问人钩子；返回模型最后一轮的 Reply。
@@ -723,7 +729,10 @@ def send_exchange(paths, user_text, history, model_fn, verb_fn, known_stages=Non
     prog_fn(char, line, stage)->lookup 信封形状 是第五动词的养成表钩子(进程内注入)；
     本地确定性查询，不设预算不设封顶。
     farm_fn(material, mode)->drops.lookup 信封形状 是第六动词的刷本效率表钩子(进程内注入)；
-    同为本地确定性查询，推荐在数据层现算。"""
+    同为本地确定性查询，推荐在数据层现算。
+    pending 是**计划档**开关(两击确认的第一击)：给了这个列表就等于宣告"这一张口上没有键盘"——
+    要真跑的那几步一律不执行、也不问 confirm_fn，而是逐条 append {'Args','Desc'} 进去，
+    回执如实写"列进计划、等玩家确认"。set-config / preview / 三张查表照现行语义不动。"""
     known_stages = known_stages or {}
     if kb_state is None:
         kb_state = {'seen': set()}
@@ -733,10 +742,16 @@ def send_exchange(paths, user_text, history, model_fn, verb_fn, known_stages=Non
         def confirm_fn(d):
             # PS 侧是 Read-Host(断 stdin 会 throw 终止当轮)；这里同哲学但收成一句人话：
             # 拿不到回答 = 没确认 —— 真跑宁可不做，绝不无确认放行(-Ask 单发/管道输入都走这条)。
+            # 2026-09-29 补第二层：GUI 起的子进程 stdin 是**关掉的**，input() 在那里抛的
+            # 不是 EOFError 而是 RuntimeError("input(): lost sys.stdin") —— 那一样是"拿不到回答"，
+            # 同口径收成 False，绝不让一条没人的口把整轮对话炸掉。
             try:
                 ans = input('要执行真跑吗？%s [y/N] ' % d)
             except (EOFError, KeyboardInterrupt):
                 print('(没有输入，按不确认处理)')
+                return False
+            except Exception:                                 # noqa: BLE001 - 没有 stdin 也算没确认
+                print('(这个口上没有键盘，按不确认处理)')
                 return False
             return bool(re.match(r'^[yY]', ans))
     gamebook = ''
@@ -827,7 +842,12 @@ def send_exchange(paths, user_text, history, model_fn, verb_fn, known_stages=Non
                     receipts.append('run-verb(%s) 退出码 %s：\n%s' % (' '.join(n['Args']), v['Exit'], v['Detail']))
                 else:
                     desc = ' '.join(n['Args'])
-                    if confirm_fn(desc):
+                    if pending is not None:
+                        # 第一击(计划档)：这条就是给面板上那颗"确认执行"按钮用的 —— 不问人、不执行。
+                        pending.append({'Args': list(n['Args']), 'Desc': desc})
+                        receipts.append('这一步列进计划(第 %d 条)，等玩家当面确认，本轮没执行：%s'
+                                        % (len(pending), desc))
+                    elif confirm_fn(desc):
                         v = verb_fn(n['Args'], True)
                         receipts.append('run-verb(%s) 退出码 %s：\n%s' % (desc, v['Exit'], v['Detail']))
                     else:
@@ -837,6 +857,182 @@ def send_exchange(paths, user_text, history, model_fn, verb_fn, known_stages=Non
         turn_text = '上一轮你提的动作已执行，回执如下。请对照回执给出简短结论(不需要再重复动作)：\n' + joined
         say('(回执)\n' + joined)
     return final
+
+
+# ---------- 两击确认：第一击出计划、第二击照计划执行(对话小窗的后端) ----------
+PLAN_ID_SHAPE = re.compile(r'^\d{8}-\d{6}-[0-9a-f]{4}$')
+PLAN_KEEP = 20        # 计划目录只留最近这么多份(代号前缀是时间戳，字典序=时间序)
+
+
+def _prune_plans(paths, keep=PLAN_KEEP, protect=None):
+    """留底有个数：计划文件里存的是"某人问过什么 + 打算跑什么参数"，攒着没用还越问越多。
+    只按名字排序删最老的(protect 那份——刚写好的当前计划——永远不删)；
+    任何意外都吞：清理失败不该把刚写好的计划判成失败。"""
+    try:
+        files = sorted(p for p in Path(paths.plans_dir).glob('*.json') if p.is_file())
+    except Exception:                                     # noqa: BLE001
+        return
+    for old in files[:-keep] if keep > 0 else []:
+        if protect is not None and str(old) == str(protect):
+            continue
+        try:
+            old.unlink()
+        except OSError:                                   # 被占用(面板正读它)—— 下一轮再删
+            pass
+
+
+def new_plan_id(ts=None, salt=None):
+    """计划代号 = 本地时间戳 + 4 位十六进制盐(同一秒连出两份也不撞)。
+    两个分量都可注入：自检喂死 ts/salt 就得到确定值。"""
+    stamp = str(ts) if ts else datetime.now().strftime('%Y%m%d-%H%M%S')
+    s = str(salt) if salt else '%04x' % (time.time_ns() & 0xFFFF)
+    return '%s-%s' % (stamp, s[-4:].rjust(4, '0'))
+
+
+def plan_path(paths, plan_id):
+    return Path(paths.plans_dir) / ('%s.json' % plan_id)
+
+
+def save_plan(paths, plan, keep=None):
+    """计划落盘(state/agent/plans/<id>.json)；缺 id 就现造一个，缺 created 就补一个。
+    写失败不抛，原因带回给调用方(第一击的回复已经印给人看了，不该被落盘拖死)。
+    keep 只是自检用来验清理口径的，日常调用不传(= PLAN_KEEP)。"""
+    obj = dict(plan or {})
+    pid = str(obj.get('id') or '')
+    if not pid:
+        pid = new_plan_id()
+        obj['id'] = pid
+    if not PLAN_ID_SHAPE.match(pid):
+        return {'Ok': False, 'Id': pid, 'Why': '计划代号不合形状：%s' % pid}
+    obj.setdefault('created', now_ts())
+    dest = plan_path(paths, pid)
+    try:
+        write_json(dest, obj)
+    except Exception as exc:                                # noqa: BLE001
+        return {'Ok': False, 'Id': pid, 'Why': '计划写不下去：%s' % exc}
+    _prune_plans(paths, keep=(PLAN_KEEP if keep is None else keep), protect=dest)
+    return {'Ok': True, 'Id': pid, 'Plan': obj, 'Why': ''}
+
+
+def plan_items(plan):
+    """取回计划里待执行的条目，规整成 [{'Args','Desc'}]；**不成形状一律回 None**(调用方按"这计划不认"处理)。
+    只认 items 逐条 {'args':[非空字符串…], 'desc':任意}：desc 缺了拿 args 拼一句，别的键不管。"""
+    if not isinstance(plan, dict):
+        return None
+    raw = plan.get('items')
+    if not isinstance(raw, list) or not raw:
+        return None
+    out = []
+    for it in raw:
+        if not isinstance(it, dict):
+            return None
+        args = it.get('args')
+        if not isinstance(args, list) or not args:
+            return None
+        strs = [ps_str(a) for a in args]
+        if any(s == '' for s in strs):
+            return None
+        out.append({'Args': strs, 'Desc': ps_str(it.get('desc')) or ' '.join(strs)})
+    return out
+
+
+def load_plan(paths, plan_id):
+    """按代号读回计划。**代号形状不合先拒**：这个值要拼进文件名，不是一句随便的字符串。"""
+    pid = str(plan_id or '')
+    if not PLAN_ID_SHAPE.match(pid):
+        return {'Ok': False, 'Why': '计划代号不合形状(应是 20260929-121530-ab12 这种)：%s' % (pid or '(空)')}
+    path = plan_path(paths, pid)
+    if not path.is_file():
+        return {'Ok': False, 'Why': '找不到计划 %s —— 隔得太久或被新计划顶了，重新问一句' % pid}
+    try:
+        raw = read_json(path)
+    except Exception as exc:                                # noqa: BLE001
+        return {'Ok': False, 'Why': '计划 %s 读不出：%s' % (pid, exc)}
+    items = plan_items(raw)
+    if items is None:
+        return {'Ok': False, 'Why': '计划 %s 不成形状，不敢照它跑' % pid}
+    return {'Ok': True, 'Id': pid, 'Plan': raw, 'Items': items,
+            'Created': ps_str(raw.get('created')), 'Reply': ps_str(raw.get('reply'))}
+
+
+def run_plan(paths, plan, verb_fn, known_stages=None, spec_parser=None):
+    """第二击：一份计划逐条**重新过闸**再执行 —— 执行层不信上游(与 live.make_verb_fn 同一哲学)，
+    计划文件是盘上的旧事实，白名单与参数表今天可能已经变了。
+    闸拒的条目记一条"被拒"继续看下一条；真跑了却没成(没起来或退出码非 0)当场收尾，
+    后面的条目一步都不再碰 —— 烧理智的动作宁可少做，不可多做。"""
+    items = plan_items(plan)
+    if items is None:
+        return {'Ok': False, 'Why': '没有可执行的计划(不成形状，或者本来就是空的)', 'Results': []}
+    results = []
+    ran = refused = bad = skipped = 0
+    stopped = ''
+    for it in items:
+        if stopped:
+            results.append(dict(it, Status='未执行', Detail=stopped, Exit=None))
+            skipped += 1
+            continue
+        chk = check_verb_args(it['Args'], known_stages, spec_parser)
+        if not chk['Ok']:
+            results.append(dict(it, Status='被拒', Detail=chk['Why'], Exit=None))
+            refused += 1
+            continue
+        try:
+            v = verb_fn(it['Args'], True)
+        except Exception as exc:                            # noqa: BLE001 - 一步炸不许吞掉已有结果
+            v = {'Ran': False, 'Exit': -1, 'Detail': '执行这一步出了意外：%s' % exc}
+        v = v if isinstance(v, dict) else {}
+        code = v.get('Exit')
+        done = bool(v.get('Ran')) and str(code) == '0'
+        results.append(dict(it, Status='已执行' if done else '没成',
+                            Detail=ps_str(v.get('Detail')), Exit=code))
+        if done:
+            ran += 1
+        else:
+            bad += 1
+            stopped = '前一步「%s」没成，后面的不再跑' % it['Desc']
+    attempted = ran + refused + bad
+    if attempted:
+        try:            # 台账：真跑过什么留一行(回滚只看 op=set，这一行不影响它，另有自检钉住)
+            append_journal(paths, {'ts': now_ts(), 'op': 'run-plan', 'items': attempted,
+                                   'detail': '；'.join('%s=%s' % (r['Desc'], r['Status']) for r in results),
+                                   'backup': ''})
+        except Exception:                                   # noqa: BLE001 - 台账写不进不该把结果吞掉
+            pass
+    okv = ran > 0 and not refused and not bad and not skipped
+    why = '' if okv else '%d 条执行 / %d 条被拒 / %d 条没成 / %d 条没轮到(共 %d 条)' % (
+        ran, refused, bad, skipped, len(items))
+    return {'Ok': okv, 'Why': why, 'Results': results,
+            'Ran': ran, 'Refused': refused, 'Failed': bad, 'Skipped': skipped}
+
+
+def plan_exchange(paths, user_text, history, model_fn, verb_fn, known_stages=None,
+                  spec_parser=None, snapshot_fn=None, kb_fn=None, kb_state=None,
+                  prog_fn=None, farm_fn=None, printer=None, max_rounds=4):
+    """两击确认的**第一击**：整轮照跑(预览/查表/改配置按现行语义不变)，
+    但凡模型要"真跑一轮"的步骤一律不执行 —— 收集成一份计划落盘。
+    返回 {'Ok','Reply','Plan','Id','Created','Why'}；Id 空 = 这一轮根本没有要确认的东西。
+    这条路上一次 input() 都不许发生：机读口后面没有键盘，也不该有人在子进程里等玩家敲 y。"""
+    pending = []
+
+    def say(t):
+        if printer is not None:
+            printer(t)
+
+    reply = send_exchange(paths, user_text, history, model_fn, verb_fn,
+                          known_stages=known_stages, spec_parser=spec_parser,
+                          snapshot_fn=snapshot_fn, kb_fn=kb_fn, kb_state=kb_state,
+                          prog_fn=prog_fn, farm_fn=farm_fn,
+                          pending=pending, printer=say, max_rounds=max_rounds)
+    if not pending:
+        return {'Ok': True, 'Reply': reply, 'Plan': [], 'Id': '', 'Created': '',
+                'Why': '这一轮没有要真跑的动作，不用确认'}
+    sv = save_plan(paths, {'items': [{'args': list(p['Args']), 'desc': p['Desc']} for p in pending],
+                           'ask': user_text, 'reply': reply})
+    if not sv['Ok']:
+        return {'Ok': False, 'Reply': reply, 'Plan': pending, 'Id': '', 'Created': '',
+                'Why': '计划列出来了但没落盘：%s' % sv['Why']}
+    return {'Ok': True, 'Reply': reply, 'Plan': pending, 'Id': sv['Id'],
+            'Created': ps_str(sv['Plan'].get('created')), 'Why': ''}
 
 
 # ---------- 对拍批处理口：cases JSONL → 投影后的结果 JSONL ----------

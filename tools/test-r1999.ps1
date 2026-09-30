@@ -280,6 +280,10 @@ $r1999Audit = Get-Content -LiteralPath (Join-Path $PSScriptRoot '1999-event-audi
 Check '1999 收尾段挂了活动审计(队列跑完才问、失败只 WARN 不挡轮)' (($r1999Daily -match '1999-event-audit\.ps1') -and ($r1999Daily -match '维持 event-pending'))
 Check '审计工具的护栏语义在案：只有画面证据明确的 yes 才 ack，no/unknown 照旧等人' (($r1999Audit -match '只有画面上出现明确的"全部完成"证据才许答 yes') -and ($r1999Audit -match 'no/unknown 维持 pending'))
 Check '审计工具只问不点：点击通道一个字都不许出现' (($r1999Audit -notmatch 'input tap') -and ($r1999Audit -notmatch 'Invoke-GdVisionRescue') -and ($r1999Audit -match 'Save-GdMuMuShot'))
+# 18:21/19:10/19:20 三次实锤定下的现场自理三件：VM 自己起自己关(谁拉起谁关)、落点拿到后先显式 connect
+# (adb server 列表为空时 -s 序列号直接 device not found)、序列化拿不到时有界轮询而不是当场判死。
+Check '审计工具自己保虚拟机在场：起 VM、只有我们起的才关回去(对称还原)' (($r1999Audit -match 'Start-GdMuMu') -and ($r1999Audit -match 'Stop-GdMuMu') -and ($r1999Audit -match 'weBootedVm'))
+Check '审计工具拿到落点先 Connect-GdAdb 再走 -s(实锤 09-30 19:20 空列表 device not found)' ($r1999Audit -match 'Connect-GdAdb')
 
 Write-Host "`n[t17] 单任务识别失败 / 版本落后 / 连不上模拟器 —— 09-25 19:24 那一轮的复盘"
 <#
@@ -396,6 +400,10 @@ $fnEp = Get-GdTestCodeOnly (Get-Command Get-GdMuMuAdbEndpoint).Definition
     Check 'adb 端点第一选择是调用方给的 Conn(那一路真要用的设备)' ($fnEp -match '\$Conn\.Adb' -and $fnEp -match '\$Conn\.Serial')
     Check '第二选择问 MuMuManager 的 adb -v，且只抠 ip:port 不认字段名(输出形态各家版本不一)' (
         $fnEp -match "'adb', '-v'" -and $fnEp -match 'd\{1,3\}')
+    # 09-30 19:16 只读探测实锤：本机这版回的 JSON 里 adb_host 与 adb_port 各占一行，连续 ip:port 抠不到，
+    # 虚拟机明明在跑却被误报"多半没在跑" —— 分字段兜底必须有，且不许写成只认这一版。
+    Check '抠不到连续 ip:port 时兜 JSON 分字段形态(adb_host/adb_port 拼回序列号)' (
+        $fnEp -match 'adb_host' -and $fnEp -match 'adb_port')
     Check '第三选择 adb devices，但**恰好一台**才认(挑错设备等于往别人的模拟器里点)' ($fnEp -match '\$ons\.Count -eq 1')
     Check '源码里不写死 adb 端口(换了 MuMu 版本/实例编号就错)' ($fnEp -notmatch '16384|7555|127\.0\.0\.1:\d')
     Check '拿不到 adb 时先说"跑 setup.ps1"，不拿相对路径硬跑' ($fnEp -match 'setup\.ps1')

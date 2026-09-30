@@ -148,8 +148,9 @@ function Start-GdR1999Daily {
     #     }
     Stop-M9A -S $S
     <# 活动打完没打完 —— 让 agent 看画面判断(2026-09-30 用户口径，工具 tools\1999-event-audit.ps1)：
-       只在队列真跑完的形态问(此时 MuMu 还热着、M9A 已关)，工具内部对"没有待确认活动"自带秒退；
-       判定 yes 才会 ack，unknown/no 维持 event-pending 照旧等人。整段最坏三分半(拉起+等画面+问一次)，
+       只在队列真跑完的形态问；工具内部对"没有待确认活动"自带秒退，且自己负责把被 M9A「关闭游戏」
+       顺手关掉的虚拟机重新起起来、用完关回去(09-30 18:21 首跑实锤的时序)。
+       判定 yes 才会 ack，unknown/no 维持 event-pending 照旧等人。整段最坏七八分钟(起 VM+拉游戏+问一次)，
        任何失败只 WARN —— 审计是加分项，不许把当日轮带崩。 #>
     if ($r.Status -in @('ok', 'empty-queue')) {
         try {

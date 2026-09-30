@@ -21,7 +21,8 @@ function Get-GdMuMuAdbEndpoint {
     <# 把"该用哪个 adb、打哪个序列号"定下来，三个来源按可信度排：
        ① 调用方直接给的 $Conn(m9a.ps1 从实例配置里读到的 AdbDevice，那是这一路真要用的设备)；
        ② MuMuManager 的 `adb -v <index>` —— 虚拟机在跑时才给得出，输出形态各家版本不一，
-          所以只从整段文本里抠第一个 `ip:port`，不认字段名；没跑时它会回 errcode -201；
+          所以先从整段文本里抠连续的 `ip:port`(不认字段名)，落空再兜这版实测的 JSON 分字段形态
+          ("adb_host"/"adb_port" 两行拼回序列号，09-30 实锤)；没跑时它会回 errcode -201；
        ③ `adb devices` 里第一个状态为 device 的序列号(兜到 ② 也拿不到时的情况，比如用户自己连过)。
        绝不写死 16384/7555 这类端口：换了 MuMu 版本或实例编号就错，而且本机专属值不许进源码(见 test-modules 的 m8)。
        返回 @{Adb;Serial;Why}，拿不到时 Adb/Serial 为空、Why 是能进日志的一句话。 #>
@@ -44,8 +45,18 @@ function Get-GdMuMuAdbEndpoint {
         try { $m = Get-GdMuMu -S $S } catch { $m = $null }
         if ($m -and (Test-GdPathReady $m.Manager)) {
             $r = Invoke-GdNative -File $m.Manager -Arguments @('adb', '-v', $m.Index) -TimeoutSeconds 30
-            $hit = [regex]::Match([string]($r.Out + $r.Err), '\b\d{1,3}(?:\.\d{1,3}){3}:\d{2,5}\b')
+            $txt = [string]($r.Out + $r.Err)
+            $hit = [regex]::Match($txt, '\b\d{1,3}(?:\.\d{1,3}){3}:\d{2,5}\b')
             if ($hit.Success) { $serial = $hit.Value }
+            else {
+                <# 实锤(09-30 19:16 只读探测)：本机这版 MuMuManager 的 `adb -v` 回的是 JSON 分字段形态 ——
+                   "adb_host" 与 "adb_port" 两个字段各占一行，ip 和 port 根本不连续，
+                   上面那条"抠连续 ip:port"的正则永远落空，还把"虚拟机明明在跑"误报成 vm not running
+                   (18:21 审计钩与 19:10 试跑都栽在这一条上)。这里按字段取值拼回序列号；旧版连续形态仍走上面那条。 #>
+                $h = [regex]::Match($txt, '"adb_host(?:_ip)?"\s*:\s*"([^"]+)"')
+                $p = [regex]::Match($txt, '"adb_port"\s*:\s*"?(\d+)"?')
+                if ($h.Success -and $p.Success) { $serial = ($h.Groups[1].Value + ':' + $p.Groups[1].Value) }
+            }
         }
     }
     if (-not $serial) {
@@ -56,7 +67,7 @@ function Get-GdMuMuAdbEndpoint {
         if ($ons.Count -eq 1) { $serial = $ons[0] }
     }
     if (-not $serial) {
-        return [pscustomobject]@{ Adb = $adb; Serial = ''; Why = '拿不到 adb 序列号：MuMu 虚拟机多半没在跑(MuMuManager adb 会回 vm not running)' }
+        return [pscustomobject]@{ Adb = $adb; Serial = ''; Why = '拿不到 adb 序列号：虚拟机没在跑，或这版 MuMuManager 的 adb -v 输出形态两种认法都落空(09-30 已兜 JSON 分字段形态)' }
     }
     return [pscustomobject]@{ Adb = $adb; Serial = $serial; Why = '' }
 }

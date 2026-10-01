@@ -1185,6 +1185,85 @@ function Test-GdExportLeaks {
     return @($hits | Sort-Object -Unique)
 }
 
+# ---------- 新宿主(Rust 核)出货链：壳侧期望契约号 + 二进制逐字节泄漏门 ----------
+# 2026-10-01 落，判据原文在 docs\r0-adrs.md §5.3(第 3/4/5 处)。上面那道文本门**按扩展名跳过** .exe/.dll/.zip，
+# 所以二进制今天不受它保护 —— 文本门绿不等于包干净。下面两道件就是把这一格补上：
+# 期望契约号有一份(壳侧)、要扫的东西有一份(仍走 Get-GdLocalOnlyValues 这个唯一口径 + 从环境现推的短串)、
+# 逐字节扫法有一份(两副眼镜：cargo 产物里是 UTF-8/ASCII，csc 产物里是 UTF-16，只看一副就有半边盲区)。
+function Get-GdRustContract { 'RustCore-R0.1' }   # 与 tools\rustcore\src\main.rs 的 const CONTRACT 同改；同一轮内不许单侧动
+
+function Get-GdBinaryLeakSet {
+    <# 二进制门要扫的东西 = 文本门那一份(Get-GdLocalOnlyValues，唯一口径) + 三条**从环境变量现推**的短串/形状。
+       短串必须按词边界数：实测过 `sk-` 这类短前缀裸着数会抓到清单里 `task-lifecycle` 中间那截，
+       第一次真跑就红在两句人话上(判据 §5.3-5 那条坑)。用户名/用户目录根一律从 $env 现推 ——
+       往源码里写它们的字面量本身就算泄漏(注释也算，这条纪律在案)。 #>
+    param([string]$LocalSettings)
+    $set = @()
+    foreach ($v in @(Get-GdLocalOnlyValues -LocalSettings $LocalSettings)) {
+        $set += [pscustomobject]@{ Label = $v.Label; Value = $v.Value; Kind = 'text'; Word = ($v.Value.Length -lt 10) }
+    }
+    $user = [string]$env:USERNAME
+    if ($user) { $set += [pscustomobject]@{ Label = 'env.USERNAME'; Value = $user; Kind = 'text'; Word = $true } }
+    $usersRoot = ''
+    if ($env:USERPROFILE) { $usersRoot = [string](Split-Path -Parent ([string]$env:USERPROFILE)) }
+    if ($usersRoot) { $set += [pscustomobject]@{ Label = 'env.USERSROOT'; Value = $usersRoot; Kind = 'text'; Word = $false } }
+    $set += [pscustomobject]@{ Label = 'key-shape'; Value = 'sk-[A-Za-z0-9]{12}'; Kind = 'regex'; Word = $false }
+    return @($set)
+}
+
+function Test-GdBinaryLeaks {
+    <# 对一个目录里的**二进制**做逐字节本机专属值扫描；返回 "相对路径 <- 是哪一项"，空 = 干净。
+       覆盖的正是文本门按扩展名跳开那一批(外加 Rust 产物常见的 .pdb/.lib/.rlib/.o)。
+       调用点：tools\publish-split.ps1 扫导出目录、tools\build-exe.ps1 扫 zip 之前的 stage 树。 #>
+    param([string]$Dir, [object[]]$Set)
+    if (-not $Set -or -not @($Set).Count) { return @() }
+    $hits = @()
+    foreach ($f in @(Get-ChildItem -LiteralPath $Dir -Recurse -File |
+            Where-Object { $_.FullName -notmatch '\\(logs|state|backups|\.git)\\' -and $_.FullName -notmatch '\\config\\settings\.json$' -and
+                $_.Extension -in '.png', '.ico', '.exe', '.dll', '.zip', '.pdb', '.lib', '.rlib', '.o' })) {
+        $bytes = @([System.IO.File]::ReadAllBytes($f.FullName))
+        if (-not $bytes.Count) { continue }
+        $views = @()
+        $views += [System.Text.Encoding]::GetEncoding(28591).GetString($bytes)   # Latin1：一字节一字符，UTF-8/ASCII 原形
+        $views += [System.Text.Encoding]::Unicode.GetString($bytes)              # UTF-16LE：csc 产物里字符串的形状
+        $rel = $f.FullName.Substring($Dir.Length + 1)
+        foreach ($n in $Set) {
+            $needle = [string]$n.Value
+            if (-not $needle) { continue }
+            foreach ($view in $views) {
+                $hit = $false
+                if ($n.Kind -eq 'regex') { $hit = [regex]::IsMatch($view, $needle) }
+                elseif ($n.Word) { $hit = [regex]::IsMatch($view, ('(?<![A-Za-z0-9])' + [regex]::Escape($needle) + '(?![A-Za-z0-9])')) }
+                else { $hit = ($view.IndexOf($needle, [System.StringComparison]::Ordinal) -ge 0) }
+                if ($hit) { $hits += "$rel <- $($n.Label)"; break }
+            }
+        }
+    }
+    return @($hits | Sort-Object -Unique)
+}
+
+# ---------- 原生命令收流：5.1 那颗地雷的双引擎兜法(本轮实测逼出来的) ----------
+function Invoke-GdNativeCapture {
+    <# 5.1 + $ErrorActionPreference='Stop' + `2>&1` = **原生命令往 stderr 写一行，就当场炸一次终止错误**
+       (NativeCommandError)；7 侧同一段代码只是把那一行当普通文本收进来。
+       这不是理论问题，本轮就踩在出货链第 0 步上：`gdprobe --selftest` 里有一枚**故意**的负对照
+       (拿 `Z:\…\envelope.json` 试"写不下去时读数不许凭空消失"，见 main.rs 的 render_envelope)，
+       它按设计会往 stderr 印一行 —— 于是 5.1 下"探针 159 项全绿、退出码 0"与"打包链路当场抛"能同时发生。
+       cargo 自己也把进度打在 stderr，同一族。
+       本函数**只**管收流：在那一句里把 EAP 降到 Continue、stdout/stderr 都收成字符串数组、退出码原样交回。
+       ⚠ 判据一律留在调用方：不许在这里替调用方判成败(判据只住一处的纪律不因收流方式而变)。 #>
+    param([Parameter(Mandatory)][string]$Exe, [string[]]$Arguments = @())
+    $prev = $ErrorActionPreference
+    $code = -1
+    $lines = @()
+    $ErrorActionPreference = 'Continue'
+    try {
+        $lines = @(& $Exe @Arguments 2>&1 | ForEach-Object { [string]$_ })
+        $code = $LASTEXITCODE
+    } finally { $ErrorActionPreference = $prev }
+    return [pscustomobject]@{ ExitCode = $code; Lines = @($lines) }
+}
+
 # ---------- GdCore 进程内内核加载器(K0 收官件，形态=丙·宿主各自现编；契约全文 docs\gd-core-contract.md) ----------
 # 丙案要点：内核源码 tools\gdcore\*.cs 纯 BCL/C#5/纯 ASCII，pwsh7 走 Roslyn、5.1 走 CodeDom 各自 Add-Type -Path 现编，
 # 天然双宿主可载、零 dll 产物、零分发面。加载炸(源码缺/编译被杀软拦/契约号不匹配)一律静默回退逐行冻结的 PS 原身，

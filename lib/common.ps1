@@ -1190,7 +1190,7 @@ function Test-GdExportLeaks {
 # 所以二进制今天不受它保护 —— 文本门绿不等于包干净。下面两道件就是把这一格补上：
 # 期望契约号有一份(壳侧)、要扫的东西有一份(仍走 Get-GdLocalOnlyValues 这个唯一口径 + 从环境现推的短串)、
 # 逐字节扫法有一份(两副眼镜：cargo 产物里是 UTF-8/ASCII，csc 产物里是 UTF-16，只看一副就有半边盲区)。
-function Get-GdRustContract { 'RustCore-R0.1' }   # 与 tools\rustcore\src\main.rs 的 const CONTRACT 同改；同一轮内不许单侧动
+function Get-GdRustContract { 'RustCore-R1.0' }   # 与 tools\rustcore\src\main.rs 的 const CONTRACT 同改；同一轮内不许单侧动
 
 function Get-GdBinaryLeakSet {
     <# 二进制门要扫的东西 = 文本门那一份(Get-GdLocalOnlyValues，唯一口径) + 三条**从环境变量现推**的短串/形状。

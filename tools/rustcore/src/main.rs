@@ -1,10 +1,14 @@
-// gdprobe —— 换宿主方案(Rust 核) R0 **只读段**探针。契约号：RustCore-R0.1。
+// gdprobe —— 换宿主方案(Rust 核)的探针。契约号见下面的 `CONTRACT`。
 //
-// 这个文件只做两件不需要碰游戏、不碰助手实例的事：
+// 这个文件起初只做两件不需要碰游戏、不碰助手实例的事：
 //   1) 从**内容**读版本（DLL 自己报的版本号 + 装包里 interface.json 的资源轴字段），
 //   2) 用 LoadLibrary + GetProcAddress 确认「本轮要调的函数在不在导出表里」。
 // 连接、追加任务、start/stop 那半**不在这里**：按 docs\rust-core-plan.md §4 第 6 项，
 // 那半会动助手侧现场，只在 GUI 确认不在场的窗口手动跑，且要留"改了哪些现场"的说明。
+//
+// R1 起多一层**事件流归一**（`--events`）：只吃内联夹具、不加载任何 DLL，
+// 它给的是"序号对账 + 终态判据 + 出口裁剪"这套**方法**；现场那一半仍等连接段另两档的窗口样本。
+// 按 ADR-2 那条硬门：清单里还有 `unobserved` 格子，这一层就**不许**替换任何生产判据。
 //
 // 纪律（写在这里给下一个改这个文件的人）：
 //   - 零外部 crate，Win32 直接 FFI；
@@ -19,7 +23,7 @@ use std::ffi::c_void;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::process::exit;
 
-const CONTRACT: &str = "RustCore-R0.1";
+const CONTRACT: &str = "RustCore-R1.0";
 const ROLE: &str = "R0-readonly";
 
 // ---------------------------------------------------------------- Win32 直调
@@ -709,9 +713,27 @@ fn filetime_now() -> u64 {
 
 /// 相对起点毫秒。时间戳口径这条读数的**唯一来源**就是它 —— 两侧回调都不自带时间戳，
 /// 所以事件流必须自己打，且要打标（ADR-2 的 ts_source）。
+/// ⚠ 基线是 `OnceLock` **首次调用才落**的，所以调用方必须在"想量从哪儿开始"那一刻先叫它一次；
+/// 连接段在 10-02 之前就漏了这一步，于是首枚事件的 `rel_ms` **恒为 0**（那条实跑里唯一的回执是销毁事件，
+/// 0 会被读成"零毫秒就到了"，其实它只证"这是第一枚"）。修法在 `connect_run` 入口，判据在那儿钉着。
 fn rel_ms() -> i64 {
     let t0 = *T0_FILETIME.get_or_init(filetime_now);
     filetime_now().saturating_sub(t0) as i64 / 10_000
+}
+
+/// 挂钟等值的唯一算法（FILETIME 一格 = 100ns ⇒ /10_000 成毫秒；倒退或不齐就饱和成 0，不绕回大数）。
+/// 拆成纯函数是为了让自检能拿确定夹具钉它，而不是去掐现场时间。
+fn elapsed_ms(entry: u64, now: u64) -> u64 {
+    now.saturating_sub(entry) / 10_000
+}
+
+/// `waited_ms` 的**唯一 setter**。原先只在执行段末尾赋一次，于是任何提前 return 的档（闸没过、
+/// 目录不在场、DLL 加载不了……）这格都是结构体初始值 0 —— 而 0 会被读成"没等"，其实它只证
+/// "没走到那行"（10-02 那两遍假绿的 `waited_ms=0` 就是这么来的）。现在每条退出路都过这里，
+/// 口径统一成**从进连接段到退出**的挂钟，不再掺"执行段"与"整段"两套含义。
+fn stamp(mut r: ConnectReport) -> ConnectReport {
+    r.waited_ms = elapsed_ms(r.entry_filetime, filetime_now());
+    r
 }
 
 /// 稳定哈希（FNV-1a 64）：对拍要比"同一条事件是不是同一条"，但原文可能带本机路径，
@@ -848,6 +870,319 @@ unsafe extern "system" fn mf_cb(_handle: *mut c_void, message: *const i8, detail
     }
 }
 
+// ---- R1：事件流归一层（方案 §4 第 4 项；统一发生在**我方内部表示**，不在 ABI 层）
+//
+// ADR-2 字段名那一维的口径：**不许自造字段名**。对方给的原名逐字留在 `raw_name`（和 `raw_code`）里，
+// `name` 是我方的归一映射、`domain` / `state` 是我方的分档 —— 三份各存各的，映射名单独一档、单独挂号。
+// 两份 adapter 就是上面那两个 extern fn（ark_cb 三参整数号 / mf_cb 四参字符串名，**不同构**），
+// adapter 之上才是同一条流；不要去求"一个 callback 类型同时满足两侧"的写法，那个类型不存在。
+
+/// 归一后的一条事件。
+///
+/// **这里没有 `raw_len` / `raw_hash`**：实测 `raw_len` 就是资源落点路径长度的直接读数
+/// （失败侧 38 / 成功侧 43，差 5 恰为 `\base`），`raw_hash` 在 `Failed` 与 `Succeeded` 两侧**都给**
+/// （它是内容指纹不是标志位）。按 `docs\r0-adrs.md` §6-3 第 ①② 条，对外这份事件流**在出口处裁掉这两枚**；
+/// 它们仍留在环内的 `Event` 上，供本机连接段信封（`--connect`）做逐条等值对照。
+#[derive(Clone)]
+struct NormEvent {
+    seq: u64,
+    abi: &'static str,
+    raw_code: String,
+    raw_name: String,
+    name: String,
+    domain: String,
+    state: String,
+    ts_source: &'static str,
+    on_main_thread: bool,
+    rel_ms: i64,
+    details: String,
+}
+
+fn last_seg(s: &str) -> String {
+    match s.rfind('.') {
+        Some(i) => s[i + 1..].to_string(),
+        None => s.to_string(),
+    }
+}
+
+fn first_seg(s: &str) -> String {
+    match s.find('.') {
+        Some(i) => s[..i].to_string(),
+        None => String::new(),
+    }
+}
+
+/// 遗留侧的号段分档（**我方分档，不是对方的字段**）：0..5 归 `core`、1xxxx `task_chain`、
+/// 2xxxx `sub_task`、3xxxx `report`，其余 `unknown`。
+fn asst_domain(code: &str) -> &'static str {
+    let n: i32 = match code.parse::<i32>() {
+        Ok(v) => v,
+        Err(_) => return "unknown",
+    };
+    match n {
+        0..=5 => "core",
+        10000..=19999 => "task_chain",
+        20000..=29999 => "sub_task",
+        30000..=39999 => "report",
+        _ => "unknown",
+    }
+}
+
+fn state_of(name: &str) -> String {
+    for s in ["Error", "Start", "Completed", "Stopped", "ExtraInfo", "Info"].iter() {
+        if name.ends_with(*s) {
+            return (*s).to_string();
+        }
+    }
+    last_seg(name)
+}
+
+/// 环里的一条 → 归一的一条。`main_thread` 由调用方给（实测线程号**每跑一次都换**，
+/// 所以只许当"是不是主线程"的布尔用，不许当识别依据）。
+fn normalize(e: &Event, main_thread: u32) -> NormEvent {
+    let domain = if e.abi == "asst" {
+        asst_domain(&e.code).to_string()
+    } else {
+        first_seg(&e.message)
+    };
+    NormEvent {
+        seq: e.seq,
+        abi: e.abi,
+        raw_code: e.code.clone(),
+        raw_name: e.message.clone(),
+        name: e.message.clone(),
+        domain,
+        state: if e.abi == "asst" { state_of(&e.message) } else { last_seg(&e.message) },
+        // 两侧回调都不自带时间戳（实测负向读数：`details` 里只有 hash/path/res_id/type，没有任何时间字段），
+        // 所以这一格恒为 local 并**必须打标** —— 不打标就会把"我补的"当"它测的"拿去对拍。
+        ts_source: "local",
+        on_main_thread: e.thread == main_thread,
+        rel_ms: e.rel_ms,
+        details: e.details.clone(),
+    }
+}
+
+/// 序号对账的读数（丢失语义那一维**唯一**能现在就建起来的那半：方法先有，读数等窗口）。
+#[derive(Clone)]
+struct Loss {
+    received: u64,
+    expected: Option<u64>,
+    contiguous: bool,
+    gaps: Vec<u64>,
+    first_seq: u64,
+    verdict: &'static str,
+}
+
+/// **连续不等于没丢**。没有"已知应到数"时判 `unverified`，绝不判"没丢"——
+/// 这正是 `loss_semantics` 那一格在 R0 跑两遍都没被替换的原因（两遍各收到自己那 2 条，没有参照流）。
+fn loss_check(seqs: &[u64], expected: Option<u64>) -> Loss {
+    let mut gaps: Vec<u64> = Vec::new();
+    let mut i = 1usize;
+    while i < seqs.len() {
+        let prev = seqs[i - 1];
+        let cur = seqs[i];
+        if cur > prev + 1 {
+            let mut m = prev + 1;
+            while m < cur {
+                gaps.push(m);
+                m += 1;
+            }
+        }
+        i += 1;
+    }
+    let contiguous = seqs.windows(2).all(|w| w[1] == w[0] + 1);
+    let received = seqs.len() as u64;
+    let verdict: &'static str = if !contiguous {
+        "gapped"
+    } else if expected.is_none() {
+        "unverified"
+    } else if received == expected.unwrap_or(0) {
+        "expected-met"
+    } else {
+        "expected-mismatch"
+    };
+    Loss {
+        received,
+        expected,
+        contiguous,
+        gaps,
+        first_seq: if seqs.is_empty() { 0 } else { seqs[0] },
+        verdict,
+    }
+}
+
+/// 终态：**只认归一后的事件名**。framework 侧 `code` 恒为空串 ⇒ 按 code 判必错；
+/// `details.hash` 成败两侧都给 ⇒ 按 hash 判必错。取**环序里最后命中的那条**（实测到达顺序 Starting 先、终态后）。
+fn terminal_of(name: &str) -> Option<&'static str> {
+    match name {
+        "AllTasksCompleted" => Some("succeeded"),
+        "TaskChainError" | "InitFailed" => Some("failed"),
+        "TaskChainStopped" => Some("stopped"),
+        _ => {
+            if name.ends_with(".Succeeded") {
+                Some("succeeded")
+            } else if name.ends_with(".Failed") {
+                Some("failed")
+            } else if name.ends_with(".Stopped") {
+                Some("stopped")
+            } else {
+                None
+            }
+        }
+    }
+}
+
+fn event_verdict(events: &[NormEvent]) -> (&'static str, String) {
+    let mut verdict = "no-terminal";
+    let mut why = String::from("环里没有终态事件：只有起始不见收尾时不许判成败（'ok 从不证资源'那条判读错的镜像）");
+    for e in events {
+        if let Some(v) = terminal_of(&e.name) {
+            verdict = v;
+            why = format!("末条终态命中：{}", e.name);
+        }
+    }
+    (verdict, why)
+}
+
+/// 事件流的对外信封 —— 这个函数体里**不许出现**被裁掉的那两枚读数，`--selftest` 有一条门数着它。
+fn render_events_json(fixture: &str, main_thread: u32, cb_panics: u32, events: &[NormEvent], loss: &Loss) -> String {
+    let mut p: Vec<String> = Vec::new();
+    p.push(format!("\"ok\":{}", if events.is_empty() { "false" } else { "true" }));
+    p.push(format!("\"contract\":{}", jstr(CONTRACT)));
+    p.push(format!("\"role\":\"R1-events\""));
+    p.push(format!("\"fixture\":{}", jstr(fixture)));
+    p.push(format!("\"event_count\":{}", events.len()));
+    p.push(format!("\"main_thread\":{}", main_thread));
+    p.push(format!("\"callback_panics\":{}", cb_panics));
+    p.push(format!("\"loss\":{{\"first_seq\":{},\"received\":{},\"expected\":{},\"contiguous\":{},\"gaps\":{},\"verdict\":{}}}",
+        loss.first_seq,
+        loss.received,
+        match loss.expected {
+            Some(v) => v.to_string(),
+            None => "\"not-attempted\"".to_string(),
+        },
+        if loss.contiguous { "true" } else { "false" },
+        jarr(&loss.gaps.iter().map(|g| g.to_string()).collect::<Vec<_>>()),
+        jstr(loss.verdict)));
+    let (v, w) = event_verdict(events);
+    p.push(format!("\"verdict\":{}", jstr(v)));
+    p.push(format!("\"why\":{}", jstr(&w)));
+    let ev: Vec<String> = events
+        .iter()
+        .map(|e| {
+            format!(
+                "{{\"seq\":{},\"abi\":{},\"raw_code\":{},\"raw_name\":{},\"name\":{},\"domain\":{},\"state\":{},\"ts_source\":{},\"on_main_thread\":{},\"rel_ms\":{},\"details\":{}}}",
+                e.seq,
+                jstr(e.abi),
+                jstr(&e.raw_code),
+                jstr(&e.raw_name),
+                jstr(&e.name),
+                jstr(&e.domain),
+                jstr(&e.state),
+                jstr(e.ts_source),
+                if e.on_main_thread { "true" } else { "false" },
+                e.rel_ms,
+                jstr(&e.details)
+            )
+        })
+        .collect();
+    p.push(format!("\"events\":[{}]", ev.join(",")));
+    format!("{{{}}}", p.join(","))
+}
+
+/// 内联夹具：形状取自连接段两次实跑**读到的形状**，`details` 原文里**没有一个字节的现场数据**
+/// （路径写成 `<本机路径>` 标签，计数与 id 是编的）。所以这些**不是观测读数** ——
+/// 出口里带 `fixture` 标，对拍门拿它钉的是**装配形状与判据**，不是"该到几条"。
+///
+/// framework 那对故意把两条的 `details` 原文写成**一模一样**：两枚 hash 因此相同，
+/// 而终态必须一败一成判得开 —— 这就是"按 hash 判成败"的证伪样本。
+fn fixture_events(which: &str) -> Vec<(&'static str, String, String, String)> {
+    let asst_three: Vec<(&'static str, String, String, String)> = vec![
+        (
+            "asst",
+            "2".to_string(),
+            ark_msg_name(2).to_string(),
+            r#"{"what":"ScreencapCost","avg":56}"#.to_string(),
+        ),
+        (
+            "asst",
+            "10001".to_string(),
+            ark_msg_name(10001).to_string(),
+            r#"{"chain":"MainLine"}"#.to_string(),
+        ),
+        (
+            "asst",
+            "3".to_string(),
+            ark_msg_name(3).to_string(),
+            r#"{"status":"success"}"#.to_string(),
+        ),
+    ];
+    let mf_pair: Vec<(&'static str, String, String, String)> = vec![
+        (
+            "framework",
+            String::new(),
+            "Resource.Loading.Starting".to_string(),
+            r#"{"path":"<本机路径>","res_id":2096769248,"type":"file","count":1}"#.to_string(),
+        ),
+        (
+            "framework",
+            String::new(),
+            "Resource.Loading.Succeeded".to_string(),
+            r#"{"path":"<本机路径>","res_id":2096769248,"type":"file","count":1}"#.to_string(),
+        ),
+    ];
+    match which {
+        "asst" => asst_three,
+        "framework" => mf_pair,
+        "both" => {
+            let mut v = asst_three;
+            v.extend(mf_pair);
+            v
+        }
+        other => {
+            eprintln!("未知 fixture：{}（只有 asst / framework / both）", other);
+            exit(1);
+        }
+    }
+}
+
+/// 取环里 `from` 之后新加的那一段并归一。环在喂事件**之前**就必须就绪（keyfacts 里那条硬约束）。
+fn normalize_ring(main_thread: u32, from: usize) -> Vec<NormEvent> {
+    let guard = match events().lock() {
+        Ok(g) => g.clone(),
+        Err(p) => p.into_inner().clone(),
+    };
+    guard.iter().skip(from).map(|e| normalize(e, main_thread)).collect()
+}
+
+/// `--events` 那一档：把内联夹具**从 adapter 同一处入口**灌进环（不是抄一份事件形状的副本），
+/// 再走归一 → 序号对账 → 终态判据 → 对外信封。全程不加载任何 DLL、不问机器现场。
+fn run_events(fixture: &str, expected: Option<u64>, drop_at: u64, out: &Option<String>) -> i32 {
+    // 这一档的事件是**我方自己**在调用线程上推进环的，所以 `on_main_thread` 恒为 true ——
+    // 这是构造出来的，不是读数。连接段那两次实跑读到的是**跨线程**（32304 vs 主线程 32520），
+    // 那条读数只能在真回调里拿，夹具造不出来；`--selftest` 里第 12 节用一个手搓的 `Event`
+    // 单独钉住"线程号不等 ⇒ false"这一支，免得这一档全 true 把判据的空转当成通过。
+    let main_thread = unsafe { GetCurrentThreadId() };
+    let before = events().lock().map(|g| g.len()).unwrap_or(0);
+    for (abi, code, message, raw) in fixture_events(fixture) {
+        push_event(abi, code, message, &raw);
+    }
+    let mut list = normalize_ring(main_thread, before);
+    if drop_at > 0 && list.len() >= 2 {
+        // 造缺口：从**环的副本**里抽掉第 N 条，seq 因此断号 —— 判据必须报 gapped 并指出缺的是哪个号。
+        let idx = ((drop_at as usize) - 1).min(list.len() - 1);
+        list.remove(idx);
+    }
+    let seqs: Vec<u64> = list.iter().map(|e| e.seq).collect();
+    let loss = loss_check(&seqs, expected);
+    let json = render_events_json(fixture, main_thread, CB_PANICS.load(Ordering::SeqCst), &list, &loss);
+    emit(&json, out);
+    if list.is_empty() {
+        return 2;
+    }
+    0
+}
+
 // ---- 环境闸（纯判据，可无头自检）
 
 #[derive(Clone, Default)]
@@ -916,6 +1251,19 @@ fn reaches_connect(scope: &str) -> bool {
     scope == "adb-live"
 }
 
+/// config 的缺省**按侧给**，唯一口径：
+/// mf 侧 `MaaAdbControllerCreate` 的第 5 枚要 **JSON 对象** —— 非对象字面量会被框架在建控制器处当场判掉
+/// （10-03 首跑对方原话 `Parse config failed, or not object, invalid config: Default`）；
+/// ark 侧 `AsstConnect` 的第 4 枚是遗留侧的连接配置名，缺省 `General`。
+/// 壳侧原先"空就填 Default"那句已删、探针原先写死的 `General` 也撤了：那两处对 mf 都是错值。
+fn default_config(kind_name: &str) -> &'static str {
+    if kind_name == "mf" {
+        "{}"
+    } else {
+        "General"
+    }
+}
+
 fn connect_plan(kind_name: &str, scope: &str, load_resource: bool, minimal_task: bool) -> Vec<&'static str> {
     let mut v: Vec<&'static str> = Vec::new();
     // shape 档：一枚函数都不调（版本自报除外）—— 它读的是"能不能加载、导出了什么"，不是"能不能连上"。
@@ -924,11 +1272,16 @@ fn connect_plan(kind_name: &str, scope: &str, load_resource: bool, minimal_task:
     }
     match kind_name {
         "ark" => {
+            // 顺序在 10-02 **重排过一次**，重排的理由比顺序本身更要紧，所以钉在这里：
+            // 上游 v6.18.0 的 `AsstCaller.cpp` 里 `AsstCreateEx` 开头就是 `if (!inited()) return nullptr;`，
+            // 而 `inited()` 读的是 `ResourceLoader::loaded()` —— 遗留侧"能不能建实例"**以"资源已加载"为前置**。
+            // R0 原先把 `AsstLoadResource` 排在 `AsstCreateEx` 之后，两遍 ark×resource 实跑因此恒得空句柄；
+            // 又因为在空句柄处提前 return，资源那一步**压根没执行**，却照样报 CONNECT-OK（假绿，读数见 §9.4）。
             v.push("AsstSetUserDir");
-            v.push("AsstCreateEx");
             if load_resource {
                 v.push("AsstLoadResource");
             }
+            v.push("AsstCreateEx");
             if reaches_connect(scope) {
                 v.push("AsstConnect");
             }
@@ -999,6 +1352,9 @@ struct ConnectOpts {
     adb: String,
     address: String,
     config: String,
+    // mf 侧第六枚：上游 Python 绑定逐字核实 = `agent_path`（MaaAgentBinary 目录），
+    // 原先硬塞 `"{}"` 是拿非路径字面量当路径喂（10-03 ②）。
+    agent_path: String,
     load_resource: bool,
     resource_path: String,
     minimal_task: String,
@@ -1026,6 +1382,8 @@ struct ConnectReport {
     main_thread: u32,
     cb_panics: u32,
     waited_ms: u64,
+    /// 进连接段那一刻的 FILETIME，`waited_ms` 的基线（**不进信封**：它是口径不是读数）。
+    entry_filetime: u64,
     freed: bool,
 }
 
@@ -1103,8 +1461,10 @@ fn effective_resource(kind_name: &str, dir: &str, over: &str) -> String {
     }
     let root = dir.trim_end_matches(|c| c == '/' || c == '\\');
     match kind_name {
-        // 遗留侧 AsstLoadResource 按惯例吃**装包根**（自己去找 resource 目录）—— 此说**未经实跑核验**：本地无 header、
-        // asst.py 给的是签名不是语义，M9A 那次实测的是 framework 侧 PostPipeline，不许外推。ark 档跑起来由 resource_load 说。
+        // 遗留侧 AsstLoadResource 吃**装包根**：这句原先是"按惯例、未经核验"的推断，10-02 由上游源码
+        // 逐字证实 —— `AsstCaller.cpp` 里它就是 `auto res_path = os_path / "resource"; ... load(res_path)`，
+        // 传装包根是对的，传 <装包根>\resource 反而会找成 resource\resource。**机制已证，读数仍欠**：
+        // 这一档此前恒死在建实例那一步（前置门没开，见 connect_plan 的 ark 段），复跑后才由 resource_load 说。
         // framework 侧的 PostPipeline 吃**目录本身**，所以回落值就是 <dir>\resource（这条已被 09-30 首跑实测判过 failed）。
         "ark" => root.to_string(),
         _ => format!("{}\\resource", root),
@@ -1151,10 +1511,57 @@ fn resource_outcome(calls: &[String], requested: bool) -> &'static str {
                 if v == "0" {
                     return "failed";
                 }
+                // "这一步压根没执行"与"执行了但没回执"是两件事，混成一谈就会把顺序缺陷读成对端沉默。
+                if v == "not-attempted" {
+                    return "not-attempted";
+                }
             }
         }
     }
     "not-reported"
+}
+
+/// 空句柄的**归因**：只从 calls 里已有的标签读，不在这里第二次问对方、也不猜。
+/// 上一版这里只有一句"返回空句柄，后面一步都不做"，读数看着像"对方不给句柄"；
+/// 实际是遗留侧的前置门没开（`inited()` 要看资源面），归因写出来才知道该修哪一侧。
+fn create_null_reason(calls: &[String], load_requested: bool) -> String {
+    let out = resource_outcome(calls, load_requested);
+    if load_requested && out != "ok" {
+        return format!(
+            "AsstCreateEx 返回空句柄：遗留侧它以「资源已加载」为前置（上游 inited()），而这一轮资源面是 {} —— 后面一步都不做",
+            out
+        );
+    }
+    "AsstCreateEx 返回空句柄：没让它先载资源时这是必然（前置门同上），后面一步都不做".to_string()
+}
+
+/// "连接段到底起步了没有"也从 calls 里读，与 resource_outcome 同构、不另起一套判据：
+/// 计划非空时那几枚句柄标签只要**没拿到句柄**就算没起步 —— `null`（调用返回空）、
+/// `absent`（符号缺失，等于没法起步）、`not-attempted`（计划里排着却没试到）三种同属。
+/// shape 档与空计划压根不会有这些条，所以它对"只读形状"那两档天然无影响
+/// —— 把覆盖面加宽不等于把别的档带红。
+/// 10-03 加宽一格：`MaaAdbControllerCreate` 原先不在覆盖面里，于是 `ok:true` 与"控制器返回 null"同现、
+/// 末行照样印 CONNECT-OK（首跑实读）—— 这是"ok 从不证 X"同族的第四次。
+fn handle_lost(calls: &[String]) -> bool {
+    calls.iter().any(|c| {
+        ["AsstCreateEx=", "MaaResourceCreate=", "MaaAdbControllerCreate="].iter().any(|tag| {
+            c.strip_prefix(*tag).map(|v| v == "null" || v == "absent" || v == "not-attempted").unwrap_or(false)
+        })
+    })
+}
+
+/// 计划里排着、执行段**压根没走到**的符号，逐条补 `=not-attempted`。
+/// "没执行"与"执行了没回执"分家是 10-02 立的规矩；执行段提前退出（空句柄）时，
+/// 后面那几枚动作原先在 calls 里**静默消失**（10-03 首跑：控制器面排了 5 枚、只出现第 1 枚）——
+/// 补法从 plan 现取、不另写一份清单，清单一旦有第二份就会漂。
+/// 留过痕的（`=resolved` / `=absent` / 值）一律不碰：符号缺失是更响的一枚读数，不许被盖成"没试"。
+fn fill_not_attempted(plan: &[&'static str], calls: &mut Vec<String>) {
+    for sym in plan {
+        let tag = format!("{}=", sym);
+        if !calls.iter().any(|c| c.starts_with(&tag)) {
+            calls.push(format!("{}=not-attempted", sym));
+        }
+    }
 }
 
 fn connect_run(kind: &'static Kind, o: &ConnectOpts, gate_reasons: Vec<String>) -> ConnectReport {
@@ -1175,30 +1582,36 @@ fn connect_run(kind: &'static Kind, o: &ConnectOpts, gate_reasons: Vec<String>) 
         main_thread: unsafe { GetCurrentThreadId() },
         cb_panics: 0,
         waited_ms: 0,
+        entry_filetime: filetime_now(),
         freed: false,
     };
 
+    // 基线在**进函数**这一步就落（判据的解释在 `rel_ms` 的注释里）：不叫这一下，
+    // T0 要等首枚事件才初始化，`rel_ms` 第一枚就永远是 0 那枚假读数。
+    // 这条 `let _ =` 是**它唯一的调用位**（自检按字面钉），挪走或复制都会让 rel_ms 的口径重新分家。
+    let _ = rel_ms();
+
     if !r.gate_reasons.is_empty() {
         r.why = "闸没过：这一档什么都不做，DLL 一个都不加载、一个字都不写".to_string();
-        return r;
+        return stamp(r);
     }
     if kind.callable.is_empty() {
         r.why = "这一侧的连接段没有任何有签名源的函数，只准查导出、不准调".to_string();
-        return r;
+        return stamp(r);
     }
     if !std::path::Path::new(&o.dir).is_dir() {
         r.why = "装包目录不在场（前置不满足，不是代码错）".to_string();
-        return r;
+        return stamp(r);
     }
     if std::fs::create_dir_all(&o.user_dir).is_err() {
         r.why = "写入面建不出来：连接段拒绝在落盘收窄失败的情况下继续".to_string();
-        return r;
+        return stamp(r);
     }
 
     let plan = connect_plan(kind.name, &o.scope, o.load_resource, !o.minimal_task.is_empty());
     if let Some(bad) = plan_is_safe(kind, &plan) {
         r.why = bad;
-        return r;
+        return stamp(r);
     }
 
     // 加载 DLL（和只读段同一套候选路径 + 同一枚旗标）
@@ -1219,7 +1632,7 @@ fn connect_run(kind: &'static Kind, o: &ConnectOpts, gate_reasons: Vec<String>) 
     }
     let Some(cand) = chosen else {
         r.why = "目标 DLL 加载不了，连接段停在这里（不重试、不猜别的候选）".to_string();
-        return r;
+        return stamp(r);
     };
     r.loaded = true;
     r.calls.push(format!("dll={}", dir_label(&cand, true)));
@@ -1234,7 +1647,6 @@ fn connect_run(kind: &'static Kind, o: &ConnectOpts, gate_reasons: Vec<String>) 
         }
     }
 
-    let started = filetime_now();
     let wrote = unsafe {
         // 执行段**不看档名，看计划**：计划是空表就一枚都不调。
         // 如果这里再按档名自己比一次，就有了两处各说各话的射程判据 ——
@@ -1250,8 +1662,17 @@ fn connect_run(kind: &'static Kind, o: &ConnectOpts, gate_reasons: Vec<String>) 
             "这一档没有可用的连接段实现".to_string()
         }
     };
-    r.waited_ms = filetime_now().saturating_sub(started) / 10_000;
+    // `waited_ms` 不在这里算：它由退出位唯一的 setter `stamp` 从"进连接段那一刻"起算。
+    // 原先这里拿的是执行段自己的起点，于是提前 return 的六条路（闸没过、无签名源、装包目录不在场、
+    // 写入面建不出来、计划不安全、DLL 加载不了）交出的 `waited_ms` 恒为 0 ——
+    // 而 0 只证"没走到赋值那行"，不证"没等"，这是一枚会把人引错的读数（10-02 实测踩实）。
     r.why = wrote;
+    // 10-03 ③：执行段提前退出时，计划里没走到的符号在 calls 里静默消失 —— 逐条补 not-attempted。
+    // 放置刻意在下面 resource_load 计算之前：补出来的标签和既有标签走同一处读取（resource_outcome），
+    // 这样早退路上资源面也不会被含糊成 not-reported。
+    if !plan.is_empty() {
+        fill_not_attempted(&plan, &mut r.calls);
+    }
 
     if let Ok(g) = events().lock() {
         r.events = g.clone();
@@ -1267,8 +1688,13 @@ fn connect_run(kind: &'static Kind, o: &ConnectOpts, gate_reasons: Vec<String>) 
         r.freed = c != 0;
         r.calls.push(format!("FreeLibrary={}", if r.freed { "true" } else { "false" }));
     }
-    r.ok = r.calls.iter().any(|c| c.starts_with("dll=")) && r.cb_panics == 0;
-    r
+    // ok 的覆盖面在 10-02 加过一次、10-03 又加宽一格：它原先只证"DLL 进得来 + 回调没炸"，于是那两遍
+    // "空句柄、后面一步都不做"照样换到 CONNECT-OK —— 这是"ok 从不证 X"同族的第三次；10-03 首跑又印出
+    // 了第四次（`ok:true` 与 `MaaAdbControllerCreate=null` 同现），所以第三件扩成**计划里那几枚句柄**：
+    // 任一没拿到（null / absent / not-attempted）⇒ ok 必须是 false。
+    // 判据仍只住一处（只从 calls 里已有的标签读，与 resource_outcome 同构），信封字段一枚没加。
+    r.ok = r.calls.iter().any(|c| c.starts_with("dll=")) && r.cb_panics == 0 && !handle_lost(&r.calls);
+    stamp(r)
 }
 
 unsafe fn run_ark(hmod: *mut c_void, o: &ConnectOpts, r: &mut ConnectReport) -> String {
@@ -1282,17 +1708,11 @@ unsafe fn run_ark(hmod: *mut c_void, o: &ConnectOpts, r: &mut ConnectReport) -> 
         let got = f(ud.as_ptr());
         r.calls.push(format!("AsstSetUserDir={}", got));
     }
-    if let Some(p) = take(r, hmod, "AsstCreateEx") {
-        let f: AsstCreateExFn = std::mem::transmute(p);
-        core = f(ark_cb as *const () as *mut c_void, std::ptr::null_mut());
-        r.calls.push(format!("AsstCreateEx={}", if core.is_null() { "null" } else { "handle" }));
-        if core.is_null() {
-            return "AsstCreateEx 返回空句柄，后面一步都不做".to_string();
-        }
-    } else {
-        return "拿不到 AsstCreateEx：这一侧的连接段没有可起步的入口".to_string();
-    }
 
+    // 载资源**排在建实例之前**，且这里的 `o.load_resource` 不是自己新算的判据 ——
+    // 它和 connect_plan 里那一句是同一枚开关：计划里有这条，执行段才做这条。
+    // 上游 `AsstLoadResource(path)` 内部会自己 `path / "resource"`，所以遗留侧的落点**就是装包根**，
+    // 这句原先只能写"按惯例、未经实跑核验"，现在由对方源码逐字证实（同一条还管着能不能起步，见上）。
     if o.load_resource {
         if let Some(p) = take(r, hmod, "AsstLoadResource") {
             let d = cstr_bytes(&effective_resource("ark", &o.dir, &o.resource_path));
@@ -1300,6 +1720,23 @@ unsafe fn run_ark(hmod: *mut c_void, o: &ConnectOpts, r: &mut ConnectReport) -> 
             let got = f(d.as_ptr());
             r.calls.push(format!("AsstLoadResource={}", got));
         }
+    }
+
+    if let Some(p) = take(r, hmod, "AsstCreateEx") {
+        let f: AsstCreateExFn = std::mem::transmute(p);
+        core = f(ark_cb as *const () as *mut c_void, std::ptr::null_mut());
+        r.calls.push(format!("AsstCreateEx={}", if core.is_null() { "null" } else { "handle" }));
+        if core.is_null() {
+            // 提前 return 时资源面可能压根没被执行过。不给它补一条标签，resource_outcome 就会把
+            // "没做"说成"做了没报"（not-reported）—— 10-02 那两遍实跑印的就是这个错话。
+            // 补标签的判据仍然只有 resource_outcome 一处，这里只负责如实留一条"没尝试"。
+            if o.load_resource && resource_outcome(&r.calls, true) == "not-reported" {
+                r.calls.push("AsstLoadResource=not-attempted".to_string());
+            }
+            return create_null_reason(&r.calls, o.load_resource);
+        }
+    } else {
+        return "拿不到 AsstCreateEx：这一侧的连接段没有可起步的入口".to_string();
     }
 
     if reaches_connect(&o.scope) {
@@ -1385,7 +1822,9 @@ unsafe fn run_mf(hmod: *mut c_void, o: &ConnectOpts, r: &mut ConnectReport) -> S
             let a = cstr_bytes(&o.adb);
             let ad = cstr_bytes(&o.address);
             let cf = cstr_bytes(&o.config);
-            let ag = cstr_bytes("{}");
+            // 第六枚 = agent_path（上游 Python 绑定逐字核实：缺省即装包内 MaaAgentBinary 目录），
+            // 不再硬塞 `"{}"`；给了就原样传、没给是空串（生产口径里它恒为真路径，读法见 usage）。
+            let ag = cstr_bytes(&o.agent_path);
             let f: MaaAdbControllerCreateFn = std::mem::transmute(p);
             ctl = f(a.as_ptr(), ad.as_ptr(), o.screencap_mask, o.input_mask, cf.as_ptr(), ag.as_ptr());
             r.calls.push(format!("MaaAdbControllerCreate={}", if ctl.is_null() { "null" } else { "handle" }));
@@ -1583,6 +2022,20 @@ fn selftest() -> i32 {
         chk(has("AsstLoadResource") == (kn == "ark" && lr), &format!("{}：载资源判据落错（ark 侧）", label), &mut fails, &mut total);
         chk(has("MaaResourcePostPipeline") == (kn == "mf" && lr), &format!("{}：载资源判据落错（mf 侧）", label), &mut fails, &mut total);
         if kn == "ark" {
+            // 载资源必须排在**建实例之前**：上游 v6.18.0 的 `AsstCreateEx` 开头是 `if (!inited()) return nullptr;`，
+            // 而 `inited()` 读的就是 ResourceLoader 的 loaded() —— 遗留侧"能不能起步"以"资源已加载"为前置。
+            // R0 把这条顺序排反过，两遍 ark×resource 实跑各得一句"看着成功、其实一步都没走"的假绿读数
+            // （空句柄处提前 return ⇒ 资源那步压根没执行 ⇒ 想拿的遗留侧事件流恒为 0）。这条就是钉顺序的。
+            if lr {
+                let i_load = plan.iter().position(|p| *p == "AsstLoadResource");
+                let i_create = plan.iter().position(|p| *p == "AsstCreateEx");
+                chk(
+                    matches!((i_load, i_create), (Some(l), Some(c)) if l < c),
+                    &format!("{}：ark 侧载资源没排在 AsstCreateEx 之前（遗留侧建实例以「资源已加载」为前置）", label),
+                    &mut fails,
+                    &mut total,
+                );
+            }
             chk(has("AsstAppendTask") == (mt && reaches_connect(sc)), &format!("{}：最小任务符号出现得不合规则（只在 adb-live 档、且给了最小任务时才有）", label), &mut fails, &mut total);
             chk(has("AsstSetTaskParams") == (mt && reaches_connect(sc)), &format!("{}：排队与设参两条不相配", label), &mut fails, &mut total);
             chk(has("AsstDestroy"), &format!("{}：没有收尾销毁：独占轮会留下句柄", label), &mut fails, &mut total);
@@ -1664,13 +2117,110 @@ fn selftest() -> i32 {
     chk(resource_outcome(&vec!["AsstLoadResource=1".to_string()], true) == "ok", "遗留侧的成功形状没认出来", &mut fails, &mut total);
     chk(resource_outcome(&vec!["MaaResourceLoaded=resolved".to_string()], true) == "not-reported", "只有存在性读数就当资源报过了（resolved 不是 1）", &mut fails, &mut total);
     chk(resource_outcome(&Vec::new(), false) == "skipped", "--no-load-resource 那一档却报了成败", &mut fails, &mut total);
-    let outcome_spell: &str = &["resource", "_outcome("].concat();
+    // 10-02 那两遍假绿读数配套钉的三件：没执行≠没回执、空句柄≠起步、空句柄的话术得指向真根因。
+    chk(resource_outcome(&vec!["AsstLoadResource=not-attempted".to_string()], true) == "not-attempted", "「这一步压根没执行」被读成了「做了没报」", &mut fails, &mut total);
+    chk(
+        resource_outcome(&vec!["AsstLoadResource=resolved".to_string(), "AsstLoadResource=not-attempted".to_string()], true) == "not-attempted",
+        "存在性标签(resolved)排在前面时，补进去的 not-attempted 就被挡住了",
+        &mut fails,
+        &mut total,
+    );
+    chk(handle_lost(&vec!["dll=MaaCore.dll".to_string(), "AsstCreateEx=null".to_string()]), "空句柄没被认成「没起步」：CONNECT-OK 又会掩盖一步都没走的事实", &mut fails, &mut total);
+    chk(!handle_lost(&vec!["dll=MaaCore.dll".to_string(), "AsstCreateEx=handle".to_string()]), "拿到了句柄却被这条判据判成没起步", &mut fails, &mut total);
+    chk(!handle_lost(&Vec::new()), "shape 档（一条句柄标签都没有）被新覆盖面带红", &mut fails, &mut total);
+    chk(handle_lost(&vec!["MaaResourceCreate=null".to_string()]), "framework 侧的空资源句柄没被认出来", &mut fails, &mut total);
+    // 10-03 ②：覆盖面再宽一格 —— 控制器句柄也进判据，"没拿到"的三种形态（null/absent/not-attempted）同属。
+    chk(handle_lost(&vec!["MaaAdbControllerCreate=null".to_string()]), "framework 侧的空控制器句柄没被认出来：ok:true 又会与它同现（10-03 首跑原文）", &mut fails, &mut total);
+    chk(!handle_lost(&vec!["MaaAdbControllerCreate=handle".to_string()]), "控制器拿到了句柄却被判成没起步", &mut fails, &mut total);
+    chk(handle_lost(&vec!["AsstCreateEx=not-attempted".to_string()]), "计划里排着却没试到的句柄该算没拿到（not-attempted 与 null 同属「没起步」）", &mut fails, &mut total);
+    chk(handle_lost(&vec!["MaaResourceCreate=absent".to_string()]), "符号缺失（absent）没被算成没起步：三件全空也换得到 CONNECT-OK", &mut fails, &mut total);
+    let null_calls: Vec<String> = vec!["AsstCreateEx=null".to_string(), "AsstLoadResource=not-attempted".to_string()];
+    chk(create_null_reason(&null_calls, true).contains("not-attempted"), "空句柄的归因没把资源面读数带出来：话术又会把人指回「对方不给句柄」", &mut fails, &mut total);
+    chk(create_null_reason(&Vec::new(), false).contains("前置"), "没给载资源时空句柄的归因该落在前置门上，不是随便一句", &mut fails, &mut total);
+    // 10-03 ③：执行段提前退出时，计划里没走到的符号必须逐条留 not-attempted，不许静默消失。
+    // 补法从计划现取（单一函数，定义另由下面「判据只住一处」那组 needle 钉）；这里钉"会进补单的那一段"的次序：
+    // 建控制器之后、名字仍以 MaaController 开头的那四枚 —— 空句柄路上恰恰是它们没走到。其余符号不该进补单：
+    // 末尾的 MaaResourceDestroy 在早退路上走得到（else 分支之后照旧执行）、会留痕，夹具里把这条也钉了。
+    let ctrl_plan = connect_plan("mf", "adb-live", true, false);
+    let ctrl_tail: Vec<&str> = ctrl_plan
+        .iter()
+        .skip_while(|s| **s != "MaaAdbControllerCreate")
+        .skip(1)
+        .take_while(|s| s.starts_with("MaaController"))
+        .copied()
+        .collect();
+    chk(
+        ctrl_tail == vec!["MaaControllerAddSink", "MaaControllerPostConnection", "MaaControllerConnected", "MaaControllerDestroy"],
+        "控制器尾段清单与计划漂了：补 not-attempted 的清单从计划现取，改这里前先对计划",
+        &mut fails,
+        &mut total,
+    );
+    // 夹具故意只给到建控制器那一步的留痕（断在 null 之后）：缺口=资源面后三枚 + 控制器面后四枚，按计划序补。
+    let mut ctl_null_calls: Vec<String> = vec![
+        "dll=MaaFramework.dll".to_string(),
+        "MaaResourceCreate=resolved".to_string(),
+        "MaaResourceCreate=handle".to_string(),
+        "MaaAdbControllerCreate=resolved".to_string(),
+        "MaaAdbControllerCreate=null".to_string(),
+        "MaaResourceDestroy=resolved".to_string(),
+        "MaaResourceDestroy=done".to_string(),
+    ];
+    let len_before_fill = ctl_null_calls.len();
+    fill_not_attempted(&ctrl_plan, &mut ctl_null_calls);
+    let added: Vec<String> = ctl_null_calls.iter().skip(len_before_fill).cloned().collect();
+    chk(
+        added == vec![
+            "MaaResourceAddSink=not-attempted", "MaaResourcePostPipeline=not-attempted", "MaaResourceLoaded=not-attempted",
+            "MaaControllerAddSink=not-attempted", "MaaControllerPostConnection=not-attempted", "MaaControllerConnected=not-attempted", "MaaControllerDestroy=not-attempted",
+        ],
+        "缺口没按计划逐条补全（少补=静默消失，多补=凭空造句）",
+        &mut fails,
+        &mut total,
+    );
+    let mut done_calls: Vec<String> = ctrl_plan.iter().map(|s| format!("{}=resolved", s)).collect();
+    let done_len = done_calls.len();
+    fill_not_attempted(&ctrl_plan, &mut done_calls);
+    chk(done_calls.len() == done_len, "已留过痕（=resolved）的 calls 被补了 not-attempted：判据会把正常跑读成缺口", &mut fails, &mut total);
+    // 10-03 ①：config 缺省按侧给（壳侧 Default / 探针写死 General 两处错默认都不许回来），
+    // 第六枚只许从 o.agent_path 取、不许再拿非路径字面量顶包。
+    chk(default_config("mf") == "{}", "mf 侧 config 缺省不是 JSON 对象：建控制器处会当场判掉（10-03 首跑 invalid config 原文）", &mut fails, &mut total);
+    chk(default_config("ark") == "General", "ark 侧 config 缺省不是 General：遗留侧连接配置名换默认要另开一轮证据", &mut fails, &mut total);
+    let ag_needle: &str = &["&o.", "agent_path"].concat();
+    chk(SRC.matches(ag_needle).count() == 1, "第六枚（agent_path）的取数点不唯一或已丢：又会拿非路径字面量当路径喂进去", &mut fails, &mut total);
+    let outcome_spell: &str = &["fn ", "resource", "_outcome("].concat();
     let eff_spell: &str = &["effective", "_resource("].concat();
     // 数"判据只住一处"必须**只数 selftest 之外**的那半份源码：自检里对这两个函数的每次调用都是真调用点，
     // 整份一起数就把自己数进去了（同一类坑这一轮第三次踩：needle 只要出现在射程内就会骗读数）。
+    // 10-02 把资源面这条 needle 从"数使用点"改成了**数定义点**（`fn ` 前缀）：空句柄归因那一次合法地
+    // 多用了两处同一判据，按使用点数会把"复用同一处"读成"起了第二处炉灶"。取舍如实记在这里 ——
+    // 它比原先弱一点：挡得住"另写一份算资源成败的逻辑"，挡不住"同一份判据被到处调用"（后者本来就不是违规）。
+    // 落点口径那条仍按使用点数（4 = 定义 + mf/ark/投影），因为这一轮它的使用点数一字未变。
     let src_head: &str = SRC.split("fn selftest(").next().unwrap_or("");
-    chk(src_head.matches(outcome_spell).count() == 2, "资源成败的判据有了第二处 spelling：执行面与信封面会各说各话", &mut fails, &mut total);
+    chk(src_head.matches(outcome_spell).count() == 1, "资源成败的判据有了第二处定义：执行面与信封面会各说各话", &mut fails, &mut total);
     chk(src_head.matches(eff_spell).count() == 4, "落点口径没共用同一处（定义 + mf/ark/投影 三处使用）", &mut fails, &mut total);
+    // 10-03 ③ 同款：not-attempted 的补法也必须是同一处定义（从计划现取、不另写清单）。
+    // 与上面两条同一族（只数定义点）：挡的是"另起一处补法"，不是"同一处被正规调用"。
+    let fill_def: &str = &["fn ", "fill", "_not_attempted("].concat();
+    chk(src_head.matches(fill_def).count() == 1, "not-attempted 的补法起了第二处定义：执行面各补各的，静默缺口会换个地方长回来", &mut fails, &mut total);
+
+    // 7b. 两枚时间字段的口径（10-02 那一遍实跑量出来的两处假读数，改的是**语义**不是字段名）
+    // ① `rel_ms` 的基线是 `OnceLock` 首次调用才落 ⇒ 必须在进连接段时就叫一次，否则首枚事件恒 0；
+    // ② `waited_ms` 原先只在执行段末尾赋值 ⇒ 提前 return 的档交出的 0 只证"没走到那行"、不证"没等"。
+    // 两枚都按同一族"判据只住一处"的尺子钉：这里数的是**定义点与调用位**，不是掐现场时间。
+    chk(elapsed_ms(0, 50_000) == 5, "挂钟等值换算错：FILETIME 一格 100ns，50_000 格该是 5 毫秒", &mut fails, &mut total);
+    chk(elapsed_ms(100, 50) == 0, "时钟倒退没饱和成 0：绕回大数会把 waited_ms 印成一枚荒谬读数", &mut fails, &mut total);
+    chk(elapsed_ms(0, 10_000_000) == 1000, "一秒没等于一千毫秒：两侧对账的刻度就废了", &mut fails, &mut total);
+    let stamp_def: &str = &["fn ", "stamp("].concat();
+    let stamp_any: &str = &["", "stamp("].concat();
+    let rel_seed: &str = &["let _ = ", "rel_ms("].concat();
+    let waited_set: &str = &["r.", "waited_ms = "].concat();
+    chk(src_head.matches(waited_set).count() == 1, "waited_ms 有了第二处赋值：那枚恒 0 的读数会换个地方长回来", &mut fails, &mut total);
+    chk(src_head.matches(stamp_def).count() == 1, "退出位 setter 起了第二处定义：两套口径会各说各话", &mut fails, &mut total);
+    // 8 = 定义 1 + 出口 7（六道前置检查含 DLL 加载失败 + 正常收尾）。
+    // 这一格**故意**会随"加一条退出路"而红：漏接一条就又交出一枚恒 0 的 waited_ms，
+    // 所以宁可让人来 +1，也不放它自己悄悄过。
+    chk(src_head.matches(stamp_any).count() == 8, "connect_run 的退出路与 setter 对不上了（8 = 定义 + 7 条出口），数一下是不是新加的 return 没接进 stamp", &mut fails, &mut total);
+    chk(src_head.matches(rel_seed).count() == 1, "rel_ms 的入口基线调用位不唯一（或已丢）：首枚事件又会交 0 那枚假读数", &mut fails, &mut total);
 
     // 8. 脱敏与哈希：对方回调里的原文**默认当作会漏本机路径**来处理
     let sc = scrub(r#"{"path":"D:\Some\Where\MaaCore.dll","name":"x"}"#);
@@ -1741,6 +2291,180 @@ fn selftest() -> i32 {
         &mut total,
     );
 
+    // 12. R1 归一层的映射形状（全用手搓的 `Event`，不加载 DLL、不推环 —— 推环那一步在第 9 节已经测过）。
+    //     这一节的重点不是"名字对不对得上"，而是**三份各存各的**：对方原名逐字进 `raw_name`，
+    //     我方的档位进 `domain` / `state`。哪天有人把 `name` 改成"自己发明的统一名"，这几条就红。
+    let mk_event = |seq: u64, abi: &'static str, code: &str, msg: &str, thread: u32| Event {
+        seq,
+        abi,
+        code: code.to_string(),
+        message: msg.to_string(),
+        thread,
+        rel_ms: seq as i64 * 10,
+        raw_len: 38,
+        raw_hash: 7,
+        details: "{}".to_string(),
+    };
+    let a_start = normalize(&mk_event(1, "asst", "10001", "TaskChainStart", 111), 111);
+    chk(
+        a_start.raw_name == "TaskChainStart" && a_start.name == "TaskChainStart",
+        "归一之后对方原名不在了：ADR-2 字段名那一维的『以对方给的名字为准』丢了",
+        &mut fails,
+        &mut total,
+    );
+    chk(a_start.domain == "task_chain" && a_start.state == "Start", "遗留侧 1xxxx 段没归到 task_chain/Start", &mut fails, &mut total);
+    chk(a_start.ts_source == "local", "时间戳没打标：『我补的』会被当成『它测的』拿去对拍", &mut fails, &mut total);
+    chk(a_start.on_main_thread, "同线程号却判了非主线程", &mut fails, &mut total);
+    // 实测连接段两次都是**跨线程**回调（32304 vs 32520、20284 vs 32412），所以"不等 ⇒ false"这一支
+    // 必须有门 —— --events 那一档的事件是我方自己推的，恒为 true，构造上就给不出这一支。
+    chk(!normalize(&mk_event(1, "asst", "10001", "TaskChainStart", 111), 999).on_main_thread, "线程号不等却判了主线程：跨线程读数会被抹平", &mut fails, &mut total);
+    let a_info = normalize(&mk_event(2, "asst", "2", "ConnectionInfo", 111), 111);
+    chk(a_info.domain == "core" && a_info.state == "Info", "遗留侧低段位 0..=5 没归到 core", &mut fails, &mut total);
+    let f_start = normalize(&mk_event(3, "framework", "", "Resource.Loading.Starting", 111), 111);
+    chk(f_start.domain == "Resource" && f_start.state == "Starting", "framework 侧三段名没按首/尾段拆", &mut fails, &mut total);
+    chk(f_start.raw_code.is_empty(), "framework 侧 code 恒空串这一读数被改成了别的", &mut fails, &mut total);
+    chk(normalize(&mk_event(4, "framework", "", "Resource.Loading.Succeeded", 111), 111).state == "Succeeded", "framework 侧终态名归错", &mut fails, &mut total);
+    chk(asst_domain("9999") == "unknown" && asst_domain("not-a-number") == "unknown", "号段外或非数字没兜住（会静默进某一档）", &mut fails, &mut total);
+    chk(state_of("Summary.JsonCpp") == "JsonCpp", "认不出尾段时没退成最后一段", &mut fails, &mut total);
+
+    // 13. R1 的三条判据：序号对账 / 终态判据 / 出口裁剪。
+    //     ① **连续不等于没丢**：没有"已知应到数"只能报 unverified，这是 `loss_semantics` 那一格
+    //        在 R0 跑两遍都没被替换的原因（两遍各收到自己那 2 条，没有参照流）。
+    let contig = loss_check(&[1, 2, 3, 4], None);
+    chk(
+        contig.contiguous && contig.verdict == "unverified" && contig.gaps.is_empty(),
+        "连续 + 没给应到数 ⇒ 必须 unverified；判成『没丢』就是那一格的假绿",
+        &mut fails,
+        &mut total,
+    );
+    chk(loss_check(&[1, 2, 3], Some(3)).verdict == "expected-met", "对上应到数却没判 met", &mut fails, &mut total);
+    chk(
+        loss_check(&[1, 2], Some(3)).verdict == "expected-mismatch",
+        "『该到 3 只到 2』没判 mismatch：这种读数出去了没人管",
+        &mut fails,
+        &mut total,
+    );
+    // 条数对上**不等于**没缺号：1,2,4 收到 3 条、应到 3 条 —— 必须报 gapped 并指出缺的是 3 号。
+    let gapped = loss_check(&[1, 2, 4], Some(3));
+    chk(
+        gapped.verdict == "gapped" && gapped.gaps == vec![3u64] && gapped.received == 3 && gapped.first_seq == 1,
+        "缺口没被抓出来（或没指出缺哪个号）：条数对不上号时的『齐全』是假的",
+        &mut fails,
+        &mut total,
+    );
+    let empty_loss = loss_check(&[], None);
+    chk(empty_loss.received == 0 && empty_loss.verdict == "unverified", "空环既不许判『没丢』也不许判 met", &mut fails, &mut total);
+
+    //     ② 成败**只认 message**：夹具 framework 那两条的 details 原文逐字相同 ⇒ 环里两枚 hash 相同，
+    //        code 又恒为空串，判据仍然要把"起始 / 终态"分开 —— 这就是那条判读错的证伪样本。
+    let fe = fixture_events("framework");
+    chk(
+        fixture_events("asst").len() == 3 && fe.len() == 2 && fixture_events("both").len() == 5,
+        "夹具条数变了：--expected 的示例读数与旁路对拍门的基线都会跟着漂",
+        &mut fails,
+        &mut total,
+    );
+    chk(
+        fnv1a64(fe[0].3.as_bytes()) == fnv1a64(fe[1].3.as_bytes()),
+        "夹具那两条的原文 hash 不相等：证伪样本本身失效了（按 hash 判不成反证）",
+        &mut fails,
+        &mut total,
+    );
+    let fw_start_n = normalize(&mk_event(1, "framework", fe[0].1.as_str(), fe[0].2.as_str(), 111), 222);
+    let fw_done_n = normalize(&mk_event(2, "framework", fe[1].1.as_str(), fe[1].2.as_str(), 111), 222);
+    let fw_fail_n = normalize(&mk_event(3, "framework", "", "Resource.Loading.Failed", 111), 222);
+    let judged = event_verdict(&vec![fw_start_n.clone(), fw_done_n.clone()]);
+    chk(
+        judged.0 == "succeeded" && judged.1.contains("Succeeded"),
+        "code 恒空 + hash 相同的一对里判不出成败：『只认 message』这条落空",
+        &mut fails,
+        &mut total,
+    );
+    chk(
+        event_verdict(&vec![fw_start_n]).0 == "no-terminal",
+        "只有起始没有收尾也敢判成败（『ok 从不证资源』那条判读错的镜像）",
+        &mut fails,
+        &mut total,
+    );
+    chk(
+        event_verdict(&vec![fw_done_n, fw_fail_n.clone()]).0 == "failed",
+        "末条终态没盖过前一条：环序里最后命中的那条才算",
+        &mut fails,
+        &mut total,
+    );
+    chk(
+        terminal_of("AllTasksCompleted") == Some("succeeded")
+            && terminal_of("TaskChainError") == Some("failed")
+            && terminal_of("TaskChainStopped") == Some("stopped"),
+        "遗留侧三个终态名判错",
+        &mut fails,
+        &mut total,
+    );
+    chk(terminal_of("ConnectionInfo").is_none() && fw_fail_n.state == "Failed", "非终态事件被判成终态", &mut fails, &mut total);
+
+    //     ③ 出口裁剪：对外那一份**不带** raw_len / raw_hash（实测它们是落点路径长度与原文指纹的直接读数）。
+    //        两道：一道数**函数体**（结构上就不许出现），一道数**渲染出来的信封**（真跑出来的读数里也不许有）。
+    let body_needle: &str = &["fn render_events", "_json("].concat();
+    let body_from = SRC.find(body_needle);
+    let body_tail = if let Some(at) = body_from { &SRC[at..] } else { "" };
+    let body_to = body_tail.find("\n}").unwrap_or(body_tail.len());
+    let body = &body_tail[..body_to];
+    chk(!body.is_empty(), "在自家源码里没定位到事件流信封的装配函数：下面那两条裁剪门就在空转", &mut fails, &mut total);
+    let cut_len: &str = &["raw_", "len"].concat();
+    let cut_hash: &str = &["raw_", "hash"].concat();
+    chk(
+        !body.contains(cut_len) && !body.contains(cut_hash),
+        "装配函数里出现了被裁掉的那两枚读数：ADR §6-3 第①条破约",
+        &mut fails,
+        &mut total,
+    );
+    let asst_two: Vec<NormEvent> = vec![
+        normalize(&mk_event(1, "asst", "10001", "TaskChainStart", 111), 111),
+        normalize(&mk_event(2, "asst", "3", "AllTasksCompleted", 111), 111),
+    ];
+    let json = render_events_json("asst", 111, 0, &asst_two, &loss_check(&[1, 2], Some(2)));
+    chk(
+        json.contains(r#""loss":"#) && json.contains(r#""verdict":"succeeded""#),
+        "事件流出口没有 loss / verdict 这两格：对拍拿不到判据",
+        &mut fails,
+        &mut total,
+    );
+    chk(
+        !json.contains(cut_len) && !json.contains(cut_hash),
+        "渲染出来的事件流信封里出现了 raw_len/raw_hash",
+        &mut fails,
+        &mut total,
+    );
+    chk(json.matches(r#""seq":"#).count() == 2, "events 数组条数与序号读数不一致", &mut fails, &mut total);
+    let empty_json = render_events_json("asst", 111, 0, &[], &loss_check(&[], None));
+    chk(
+        empty_json.contains(r#""ok":false"#) && empty_json.contains("no-terminal"),
+        "空环给出 ok:true：这一档会把自己没收到事件说成跑通了",
+        &mut fails,
+        &mut total,
+    );
+    // --events 那一档必须并入同一条 emit 出口（否则 --out 出现"某一档默默忽略"的假口径），
+    // 且分派必须落在「--kind 那条必填」**之前**：这一档不需要装包，被必填拦死就等于没开。
+    // 这里数的是**整份** SRC 而不是 src_head：分派在 run() 里，而 run() 排在 selftest **之后**，
+    // 用 src_head 会两处都找不到、双双退成 MAX 再判成红（这一族"针落在射程外"的坑本轮第二次踩）。
+    // needle 一律运行期拼，**且失败文案里也不许把那串字面量原样写出来**：整份一起数时，
+    // 自家标签先于 run() 命中，门就红在一句人话上（本轮真踩：文案里的 `--kind` 与那条必填连起来写，
+    // SRC.find 先逮到的是这条文案自己 —— 同一族坑第四次，判据读的是自己就必须把自己排除在射程外）。
+    chk(
+        SRC.matches(&["emit(&", "json"].concat()).count() == 1,
+        "事件流那一档没走 emit：--out 在这档上是空头承诺",
+        &mut fails,
+        &mut total,
+    );
+    let dispatch_at = SRC.find(&["run_events(", "&fixture"].concat()).unwrap_or(usize::MAX);
+    let kind_gate_at = SRC.find(&["--kind ", "必填"].concat()).unwrap_or(usize::MAX);
+    chk(
+        dispatch_at < kind_gate_at,
+        "--events 的分派落在那条必填拦路虎之后：这一档会被装包必填拦死，『只吃夹具』成了空话",
+        &mut fails,
+        &mut total,
+    );
+
     if fails.is_empty() {
         println!("RESULT SELFTEST-PASS checks={} contract={}", total, CONTRACT);
         return 0;
@@ -1802,7 +2526,7 @@ fn emit(json: &str, out: &Option<String>) {
 
 fn usage() -> ! {
     println!(
-        "gdprobe {} —— R0 探针。只读段随时能跑；连接段要三闸。\n\
+        "gdprobe {} —— 探针。只读段随时能跑；连接段要三闸；事件流档只吃夹具。\n\
          \n\
          只读段：gdprobe --kind <ark|mf|w32cu> --dir <装包目录> [--show-path] [--free]\n\
          \t  gdprobe --list-kinds      列出两侧装包形状（含各自必需/连接符号清单）\n\
@@ -1811,16 +2535,27 @@ fn usage() -> ! {
          连接段：gdprobe --connect --kind <ark|mf> --dir <装包目录> --user-dir <我方写入目录>\n\
          \t              --scope <shape|resource|adb-live> [--no-load-resource] [--resource-path <资源落点目录>]\n\
          \t              [--adb <路径>] [--address <host:port>] [--config <json>]\n\
-         \t              [--minimal-task <类型>] [--timeout-ms N] [--screencap-mask N] [--input-mask N] [--free]\n\
+         \t              [--agent-path <MaaAgentBinary 目录>] [--minimal-task <类型>] [--timeout-ms N]\n\
+         \t              [--screencap-mask N] [--input-mask N] [--free]\n\
          \t              --i-confirm-gui-absent --i-accept-live --i-window-clear\n\
          \t  三个 --i-* 一个都不能少；助手进程在场时**直接拒跑**（不抢方向盘、不代杀进程）。\n\
          \t  档位射程：shape = 只加载与查导出、一枚函数都不调；\n\
          \t\t\tresource = 起实例 / 建资源 / 绑回调，不碰设备、不提权、不点击；\n\
          \t\t\t\t落点默认 mf=<装包>\\\\resource、ark=<装包根>，--resource-path 可指名模块子树（整目录会被框架判重复键）；\n\
-         \t\t\t\t资源加载成没成看信封 resource_load，**别拿 ok 当它**（ok 只证 DLL 进得来 + 回调没炸）；\n\
+         \t\t\t\t资源加载成没成看信封 resource_load，**别拿 ok 当它**（ok 只证 DLL 进得来 + 回调没炸 + 计划里那几枚句柄都拿到了）；\n\
          \t\t\tadb-live = 唯一真碰设备的一档（建控制器 + 发连接回执）。\n\
+         \t  --config 缺省按侧给：mf = {{}}（JSON 对象 —— 非对象字面量会被框架在建控制器处直接判掉）、ark = General；\n\
+         \t  --agent-path 是 mf 侧第六枚（上游 Python 绑定核实：agent_path = 装包内 MaaAgentBinary 目录），缺省空串原样传。\n\
          \t  连接段永远不调 AsstStart / 任务提交：R0 的\"最小任务\"只到排队 + 回执。\n\
          \t  没有本地签名源的函数（ark 侧 AsstAttachWindow / AsstConnected 等）只查导出、不调用。\n\
+         \n\
+         事件流档（R1）：gdprobe --events [--fixture <asst|framework|both>] [--expected N] [--seq-gap N] [--out <文件>]\n\
+         \t  这一档**只吃内联夹具，不加载任何 DLL、不碰任何现场**，所以它不需要 --kind 也不需要 --dir。\n\
+         \t  它给的是归一层的形状与判据：两侧原始事件名逐字保留、域与状态由我方映射、\n\
+         \t  序号连续性对账（**连续不等于没丢** —— 没有 --expected 就只报 unverified）、\n\
+         \t  成败只认 message（按 details 里的 hash 判必错，夹具里那两条 framework 事件**故意共用同一份原文**）。\n\
+         \t  出口信封**不带** raw_len / raw_hash：实测它们是资源落点路径长度与原文指纹的直接读数，属本机事实。\n\
+         \t  这一层是旁路对拍用的，按 ADR-2 那条硬门，它**不替换**任何生产判据。\n\
          \n\
          自检：gdprobe --selftest        无头，不加载任何 DLL、不碰任何现场\n\
          \n\
@@ -1889,13 +2624,19 @@ fn run(args: &[String]) -> i32 {
     let mut scope = "shape".to_string();
     let mut adb = String::new();
     let mut address = String::new();
-    let mut config = "General".to_string();
+    // 空 = **没给**：真正的缺省按侧给（唯一口径在 default_config），下文 connect 段入口处兜底。
+    // 原先把 `General` 写死在这——它对 mf 侧是错值（framework 要 JSON 对象），10-03 首跑实证。
+    let mut config = String::new();
+    let mut agent_path = String::new();
     let mut load_resource = true;
     let mut resource_path = String::new();
     let mut minimal_task = String::new();
     let mut timeout_ms = 4_000u64;
     let mut screencap_mask = 0xFFFF_FFFFu64;
     let mut input_mask = 0xFFFF_FFFFu64;
+    let mut fixture = "both".to_string();
+    let mut expected_raw = String::new();
+    let mut drop_at = 0u64;
     let mut flags = GateFlags::default();
     let mut i = 0usize;
     while i < args.len() {
@@ -1947,6 +2688,22 @@ fn run(args: &[String]) -> i32 {
                 mode = "connect";
                 i += 1;
             }
+            "--events" => {
+                mode = "events";
+                i += 1;
+            }
+            "--fixture" => {
+                fixture = need("--fixture", args, i);
+                i += 2;
+            }
+            "--expected" => {
+                expected_raw = need("--expected", args, i);
+                i += 2;
+            }
+            "--seq-gap" => {
+                drop_at = parse_u64("--seq-gap", &need("--seq-gap", args, i));
+                i += 2;
+            }
             "--scope" => {
                 let v = need("--scope", args, i);
                 if v != "shape" && v != "resource" && v != "adb-live" {
@@ -1970,6 +2727,10 @@ fn run(args: &[String]) -> i32 {
             }
             "--config" => {
                 config = need("--config", args, i);
+                i += 2;
+            }
+            "--agent-path" => {
+                agent_path = need("--agent-path", args, i);
                 i += 2;
             }
             "--minimal-task" => {
@@ -2016,6 +2777,19 @@ fn run(args: &[String]) -> i32 {
         }
     }
 
+    if mode == "events" {
+        // 事件流档放在 --kind/--dir 那两必填**之前**返回：它是 R1 的归一层自检面，
+        // 只吃内联夹具，不加载任何 DLL，所以"要指哪枚装包"这个问题在这里根本没有意义。
+        // 反过来写的话，一次纯粹的归一层对拍会被"忘了给 --dir"拦死，那条错误话术会让人
+        // 以为这档也要装包 —— 而它恰恰是**不需要**装包也能跑的那一档。
+        let exp = if expected_raw.is_empty() {
+            None
+        } else {
+            Some(parse_u64("--expected", &expected_raw))
+        };
+        return run_events(&fixture, exp, drop_at, &out_file);
+    }
+
     if mode == "preflight" {
         return preflight(&flags, &out_file);
     }
@@ -2030,6 +2804,11 @@ fn run(args: &[String]) -> i32 {
     };
 
     if mode == "connect" {
+        // config 缺省按侧给（唯一口径在 default_config）：空 = 没给 —— 壳侧那句"空就填 Default"已删，
+        // 它对 mf 是错字面量（10-03 首跑 `invalid config` 原话），对 ark 也不是连接配置名。
+        if config.is_empty() {
+            config = default_config(k.name).to_string();
+        }
         // 顺序是刻意的：**闸先于参数**。三闸没拨属"规则说不干"（2 档 + 机读信封），
         // 缺参数才属"用法"（1 档）。反过来写的话，一次 GUI 在场的违规会被当成用法错报出去，
         // 调用方就分不清是自己忘了拨闸还是忘了给 --user-dir，而前者才是要紧的那条。
@@ -2049,6 +2828,7 @@ fn run(args: &[String]) -> i32 {
                 adb: adb.clone(),
                 address: address.clone(),
                 config: config.clone(),
+                agent_path: agent_path.clone(),
                 load_resource,
                 resource_path: resource_path.clone(),
                 minimal_task: minimal_task.clone(),
@@ -2081,6 +2861,7 @@ fn run(args: &[String]) -> i32 {
             adb,
             address,
             config,
+            agent_path,
             load_resource,
             resource_path,
             minimal_task,

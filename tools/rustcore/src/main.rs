@@ -15,6 +15,11 @@
 // 它与 C# 那份的等值由 tools\rustcore\probe-sv-rust-golden.ps1 三侧逐字对拍钉死（old=7b07650 旧 PS /
 // new=现树 C# 转发壳 / rust=这里）。同样是旁路对拍面：生产入口在 R3 解锁三件到位前**一律不接线**（方案 §8.3）。
 //
+// R2② 续一层**farm/intent 五段搬家**（`--farm-intent`）：目标清单解析 / 掉落文本 / 补刷判表 /
+// 方舟本轮意图 / 1999 本轮意图，逐字复刻 tools\panel-cs\Orchestration.cs 那五段，46 档内联夹具一次跑全。
+// 等值由 tools\rustcore\probe-farm-intent-rust-golden.ps1 三侧逐字对拍钉死（old=a2fdd67 旧 PS / new=现树壳 / rust=这里）。
+// 同 `--sv`：旁路对拍面，生产不接线；信封**不带 date 格**（这一档不吃时钟，门也不做日期对账）。
+//
 // 纪律（写在这里给下一个改这个文件的人）：
 //   - 零外部 crate，Win32 直接 FFI；
 //   - 本机绝对路径一律由调用方(PS 薄壳)从 settings 取好传进来，**这个文件里不许出现任何一条本机路径字面量**；
@@ -1254,8 +1259,9 @@ fn sv_ne_false(v: &JVal) -> bool {
     }
 }
 
-/// `Gd.Str`：null → ""；数字按不变文化。数组/对象这两支在夹具与生产字面里都不可达
-/// （C# 那份走到这里是 Convert.ToString 的类型名），这里按"数组空格拼接"兜底并注释在案。
+/// `Gd.Str`：null → ""；数字按不变文化。数组支 = `Convert.ToString(object[])` → 类型名
+/// "System.Object[]"（10-05 twotgt 实锤：畸形嵌套数组元素经 Gd.Str 就是这个串，甲侧 S/R
+/// 两段同形印证）；对象支在夹具与生产字面里仍不可达，留空串兜底。
 fn jv_str(v: &JVal) -> String {
     match v {
         JVal::Null => String::new(),
@@ -1263,7 +1269,7 @@ fn jv_str(v: &JVal) -> String {
         JVal::B(b) => if *b { "True" } else { "False" }.to_string(),
         JVal::I(i) => i.to_string(),
         JVal::F(f) => format!("{}", f),
-        JVal::A(a) => a.iter().map(jv_str).collect::<Vec<_>>().join(" "),
+        JVal::A(_) => "System.Object[]".to_string(),
         JVal::O(_) => String::new(),
     }
 }
@@ -1859,6 +1865,1197 @@ fn render_sv_json(date: &str) -> String {
 /// 日期戳由 `--date` 注入（不给=空串，那是"没注入"的显式读数，探针永不读时钟）。
 fn run_sv(date: &str, out: &Option<String>) -> i32 {
     let json = render_sv_json(date);
+    emit(&json, out);
+    0
+}
+
+// ==================== verb: farm-intent（R2②：farm/intent 五段纯规则） ====================
+// 转写自 tools\panel-cs\Orchestration.cs 的五段（parse-farm-target-spec / parse-ark-drop-text /
+// resolve-ark-farm-plan / apply-ark-daily-intent / apply-r1999-daily-intent），零外部依赖 ⇒
+// 八处正则全部手写等价扫描。\s ≡ char::is_whitespace；\d 按 ASCII 数字落（.NET 默认是 Unicode
+// 数位面，差异面=全角数字这类非 ASCII 位，夹具不出现，注释在案）。对拍门在
+// tools\rustcore\probe-farm-intent-rust-golden.ps1（三侧：旧 PS 真身 / 现树壳 / 本出口）。
+
+/// 跳 `\s*`：从字节位置 `i`（须在 char 边界）起跳过空白，返回下一个非空白或串尾的位置。
+fn fi_skip_ws(s: &str, mut i: usize) -> usize {
+    while i < s.len() {
+        let c = s[i..].chars().next().unwrap();
+        if !c.is_whitespace() {
+            break;
+        }
+        i += c.len_utf8();
+    }
+    i
+}
+
+/// `-split '[,，、;；\s]+'` 后去空串：中英逗号/顿号/分号与空白都是关卡分隔。
+fn fi_split_stages(s: &str) -> Vec<String> {
+    s.split(|c: char| c == ',' || c == '，' || c == '、' || c == ';' || c == '；' || c.is_whitespace())
+        .filter(|x| !x.is_empty())
+        .map(|x| x.to_string())
+        .collect()
+}
+
+/// `^\d{3,8}$`：全 ASCII 数字且长度 3..=8（.NET 的 \d 是 Unicode 数位面，差异面见段头注）。
+fn fi_is_digits3to8(s: &str) -> bool {
+    s.len() >= 3 && s.len() <= 8 && s.bytes().all(|b| b.is_ascii_digit())
+}
+
+/// `int.Parse` 的夹具面替身：调用方已保证是 ASCII 数字串；超 i32::MAX 饱和（C# 那份超界会抛
+/// OverflowException，夹具不出现超长串，饱和只是防御性落点）。
+fn fi_parse_digits(s: &str) -> i32 {
+    let mut n: i64 = 0;
+    for b in s.bytes() {
+        n = n * 10 + (b - b'0') as i64;
+        if n > i32::MAX as i64 {
+            return i32::MAX;
+        }
+    }
+    n as i32
+}
+
+/// `int.TryParse(s, NumberStyles.Integer)` 的替身：前后空白、可选 +/-、全 ASCII 数字，须落进 i32。
+fn fi_try_i32(v: &JVal) -> Option<i32> {
+    let s = jv_str(v);
+    let t = s.trim();
+    if t.is_empty() {
+        return None;
+    }
+    let (neg, digits) = if let Some(r) = t.strip_prefix('-') {
+        (true, r)
+    } else if let Some(r) = t.strip_prefix('+') {
+        (false, r)
+    } else {
+        (false, t)
+    };
+    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let mut n: i64 = 0;
+    for b in digits.bytes() {
+        n = n.checked_mul(10)?.checked_add((b - b'0') as i64)?;
+    }
+    i32::try_from(if neg { -n } else { n }).ok()
+}
+
+/// `Gd.Map` 的只读投影：对象 → Some(键值切片)（空对象也是对象）；其余 → None。
+fn fi_as_map(v: &JVal) -> Option<&[(String, JVal)]> {
+    match v {
+        JVal::O(o) => Some(o.as_slice()),
+        _ => None,
+    }
+}
+
+/// 键查值（缺键 → Null，与 Gd.Get 同口径）。
+fn fi_kv(o: &[(String, JVal)], k: &str) -> JVal {
+    for (kk, vv) in o {
+        if kk == k {
+            return vv.clone();
+        }
+    }
+    JVal::Null
+}
+
+/// `ContainsValue`（Add-Member 前的查重）：Gd.Str 等值。
+fn fi_list_has(list: &[JVal], v: &JVal) -> bool {
+    let s = jv_str(v);
+    list.iter().any(|x| jv_str(x) == s)
+}
+
+/// `JoinObjects`：各元素 Gd.Str 后按 sep 拼。
+fn fi_join(list: &[JVal], sep: &str) -> String {
+    list.iter().map(jv_str).collect::<Vec<_>>().join(sep)
+}
+
+/// `Math.Round(x, 1)` 的替身（先乘 10 再银行家舍入——1.875 与 2.4 这两颗夹具值在 double 里
+/// 乘 10 都精确，与 .NET 的十进制舍入等价；半分界行为见 round_half_even）。
+fn fi_round1(f: f64) -> f64 {
+    round_half_even(f * 10.0) / 10.0
+}
+
+/// `d.ToString("R")` 的串面：最短往返串（1.0 打成 "1"，与 .NET "R" 一致）。
+fn fi_round_str(f: f64) -> String {
+    format!("{}", f)
+}
+
+/// 主正则 `^(?<k>.+?)\s*[=＝]\s*(?<n>\d+)(?:\s*@\s*(?<s>.+))?$` 的手写等价扫描：
+/// k 从左往右试长度（`.+?` 懒惰）；k 不跨 '\n'（`.` 默认不匹配换行）。返回值 `(Key, Target, Stages)`，
+/// Stages=None=@ 分支未匹配（正则组 s 缺席）。t 已在调用方 Trim ⇒ `$` 的"串尾 \n 之前"分支不可达。
+fn fi_spec_scan(t: &str) -> Option<(String, i32, Option<Vec<String>>)> {
+    if t.is_empty() {
+        return None;
+    }
+    let first_nl = t.find('\n').unwrap_or(t.len());
+    let mut ends: Vec<usize> = Vec::new();
+    for (i, _) in t.char_indices() {
+        if i > 0 && i <= first_nl {
+            ends.push(i);
+        }
+    }
+    if first_nl == t.len() {
+        ends.push(t.len());
+    }
+    for &e in &ends {
+        let p = fi_skip_ws(t, e);
+        let mut q = if t[p..].starts_with('=') {
+            p + 1
+        } else if t[p..].starts_with('＝') {
+            p + '＝'.len_utf8()
+        } else {
+            continue;
+        };
+        q = fi_skip_ws(t, q);
+        let bytes = t.as_bytes();
+        let mut m = q;
+        while m < t.len() && bytes[m].is_ascii_digit() {
+            m += 1;
+        }
+        if m == q {
+            continue;
+        }
+        let after = fi_skip_ws(t, m);
+        let mut stages: Option<Vec<String>> = None;
+        let mut matched = false;
+        if after < t.len() && bytes[after] == b'@' {
+            let q2 = fi_skip_ws(t, after + 1);
+            if q2 < t.len() && !t[q2..].contains('\n') {
+                stages = Some(fi_split_stages(&t[q2..]));
+                matched = true;
+            }
+        }
+        if !matched && fi_skip_ws(t, m) == t.len() {
+            matched = true;
+        }
+        if !matched {
+            continue;
+        }
+        return Some((t[..e].trim().to_string(), fi_parse_digits(&t[q..m]), stages));
+    }
+    None
+}
+
+/// `parse-farm-target-spec`：一行目标文本 → {Found;Spec?}。吃 "名字=数量[@关卡…]" 与 json 对象
+/// {item/target/stages} 各写法；解析不动的给 Bad 说明（调用方汇总着说，不静默丢）。
+fn fi_target_spec(raw: &JVal) -> JVal {
+    if matches!(raw, JVal::Null) {
+        return jv_o(vec![("Found", JVal::B(false))]);
+    }
+    if let JVal::S(s0) = raw {
+        let t = s0.trim();
+        if t.is_empty() {
+            return jv_o(vec![("Found", JVal::B(false))]);
+        }
+        let (key, target, stages, bad) = match fi_spec_scan(t) {
+            Some((k, n, st)) => (k, n, st, String::new()),
+            None => (
+                String::new(),
+                0,
+                None,
+                format!("看不懂「{}」，要写成 材料名=数量[@关卡1,关卡2]", t),
+            ),
+        };
+        let st = match stages {
+            Some(v) => JVal::A(v.into_iter().map(JVal::S).collect()),
+            None => JVal::A(Vec::new()),
+        };
+        return jv_o(vec![
+            ("Found", JVal::B(true)),
+            ("Spec", jv_o(vec![
+                ("Key", JVal::S(key)),
+                ("Target", JVal::I(target as i64)),
+                ("Stages", st),
+                ("Raw", JVal::S(t.to_string())),
+                ("Bad", JVal::S(bad)),
+            ])),
+        ]);
+    }
+    let obj = match fi_as_map(raw) {
+        Some(o) => o,
+        None => return jv_o(vec![("Found", JVal::B(false))]),
+    };
+    let mut k = jv_str(&fi_kv(obj, "item"));
+    if k.is_empty() {
+        k = jv_str(&fi_kv(obj, "name"));
+    }
+    let mut n = fi_try_i32(&fi_kv(obj, "target")).unwrap_or(0);
+    if n == 0 {
+        n = fi_try_i32(&fi_kv(obj, "count")).unwrap_or(0);
+    }
+    let stages_v = fi_kv(obj, "stages");
+    let mut s: Vec<JVal> = jv_list(&stages_v).into_iter().cloned().collect();
+    if s.len() == 1 {
+        if let JVal::S(ss) = &s[0] {
+            s = fi_split_stages(ss).into_iter().map(JVal::S).collect();
+        }
+    }
+    if k.is_empty() {
+        return jv_o(vec![
+            ("Found", JVal::B(true)),
+            ("Spec", jv_o(vec![
+                ("Key", JVal::S(String::new())),
+                ("Target", JVal::I(0)),
+                ("Stages", JVal::A(Vec::new())),
+                ("Raw", JVal::S(jv_to_json(raw))),
+                ("Bad", JVal::S("条目里没有材料名/代号(item)".to_string())),
+            ])),
+        ]);
+    }
+    if n <= 0 {
+        return jv_o(vec![
+            ("Found", JVal::B(true)),
+            ("Spec", jv_o(vec![
+                ("Key", JVal::S(k.clone())),
+                ("Target", JVal::I(0)),
+                ("Stages", JVal::A(s)),
+                ("Raw", JVal::S(k.clone())),
+                ("Bad", JVal::S(format!("{} 的目标数量没写或不是正整数", k))),
+            ])),
+        ]);
+    }
+    jv_o(vec![
+        ("Found", JVal::B(true)),
+        ("Spec", jv_o(vec![
+            ("Key", JVal::S(k.clone())),
+            ("Target", JVal::I(n as i64)),
+            ("Stages", JVal::A(s)),
+            ("Raw", JVal::S(format!("{}={}", k, n))),
+            ("Bad", JVal::S(String::new())),
+        ])),
+    ])
+}
+
+/// `\r?\n` 断行：只按 '\n' 切、回溯剥行尾 '\r'。
+fn fi_split_lines(t: &str) -> Vec<&str> {
+    t.split('\n').map(|l| l.strip_suffix('\r').unwrap_or(l)).collect()
+}
+
+/// `^\[[^\]]*\]\s*` 剥前缀：以 '[' 开头且存在 ']' 时剥到首个 ']' 后并跳空白；否则原样。
+fn fi_strip_bracket_prefix(s: &str) -> &str {
+    if let Some(rest) = s.strip_prefix('[') {
+        if let Some(i) = rest.find(']') {
+            let after = &rest[i + 1..];
+            return &after[fi_skip_ws(after, 0)..];
+        }
+    }
+    s
+}
+
+/// `^<\d+>\s*` 剥前缀：'<' + ASCII 数字（至少 1 位）+ '>' + 跳空白；否则原样。
+fn fi_strip_angle(s: &str) -> &str {
+    if let Some(rest) = s.strip_prefix('<') {
+        let b = rest.as_bytes();
+        let mut i = 0;
+        while i < b.len() && b[i].is_ascii_digit() {
+            i += 1;
+        }
+        if i > 0 && i < b.len() && b[i] == b'>' {
+            let after = &rest[i + 1..];
+            return &after[fi_skip_ws(after, 0)..];
+        }
+    }
+    s
+}
+
+/// `([A-Za-z0-9][A-Za-z0-9\-]*)\s*掉落统计`：最左匹配，组1 = 关卡代号。
+/// 正则里 `[A-Za-z0-9\-]*` 的回退在此不可达（组1 全 ASCII，回退一字符后 `\s*` 跳 0 个、
+/// 下一字符仍是组1 字符，接不上"掉落统计"字面）⇒ 吃尽 + 跳空白即是全部候选。
+fn fi_find_head(s: &str) -> Option<String> {
+    let b = s.as_bytes();
+    let n = b.len();
+    for pos in 0..n {
+        if !b[pos].is_ascii_alphanumeric() {
+            continue;
+        }
+        let mut e = pos + 1;
+        while e < n && (b[e].is_ascii_alphanumeric() || b[e] == b'-') {
+            e += 1;
+        }
+        let p = fi_skip_ws(s, e);
+        if s[p..].starts_with("掉落统计") {
+            return Some(s[pos..e].to_string());
+        }
+    }
+    None
+}
+
+/// `([^\s:：,，、;()（）+]+)\s*[::]\s*(\d+)(?:\s*[（(]\s*\+(\d+)\s*[）)])?` 的手写扫描：
+/// 返回 `(Name, Num, Delta)`（组3 成功=Delta 取解析值，否则 0）。组1 负集只含 ASCII ';'
+/// ——全角 '；' 是合法名字字符（照抄 C# 负集）；空白按 char::is_whitespace 判。
+fn fi_scan_pairs(s: &str) -> Vec<(String, i32, i32)> {
+    let cs: Vec<char> = s.chars().collect();
+    let n = cs.len();
+    let is_neg = |c: char| {
+        c.is_whitespace()
+            || matches!(c, ':' | '：' | ',' | '，' | '、' | ';' | '(' | ')' | '（' | '）' | '+')
+    };
+    let mut out: Vec<(String, i32, i32)> = Vec::new();
+    let mut i = 0usize;
+    while i < n {
+        if is_neg(cs[i]) {
+            i += 1;
+            continue;
+        }
+        let mut e1 = i + 1;
+        while e1 < n && !is_neg(cs[e1]) {
+            e1 += 1;
+        }
+        // 组1 回退不可达（组1 不含空白，回退一字符后 `\s*` 跳 0 个、下一字符仍是组1 字符，
+        // 接不上 ':'）⇒ 吃尽 + 跳空白见冒号即是唯一候选。
+        let mut g = e1;
+        while g < n && cs[g].is_whitespace() {
+            g += 1;
+        }
+        if g >= n || !(cs[g] == ':' || cs[g] == '：') {
+            i += 1;
+            continue;
+        }
+        let mut h = g + 1;
+        while h < n && cs[h].is_whitespace() {
+            h += 1;
+        }
+        if h >= n || !cs[h].is_ascii_digit() {
+            i += 1;
+            continue;
+        }
+        let mut m = h;
+        while m < n && cs[m].is_ascii_digit() {
+            m += 1;
+        }
+        let num1: String = cs[h..m].iter().collect();
+        // 可选组整体匹配才取组3（`\d+` 回退到数字面恒接不上 ')'，与正则同）；否则 Delta=0、匹配尾=数字尾。
+        let mut delta = 0i32;
+        let mut next = m;
+        let mut m2 = m;
+        while m2 < n && cs[m2].is_whitespace() {
+            m2 += 1;
+        }
+        if m2 < n && (cs[m2] == '(' || cs[m2] == '（') {
+            let mut m3 = m2 + 1;
+            while m3 < n && cs[m3].is_whitespace() {
+                m3 += 1;
+            }
+            if m3 < n && cs[m3] == '+' {
+                let mut m4 = m3 + 1;
+                while m4 < n && cs[m4].is_whitespace() {
+                    m4 += 1;
+                }
+                if m4 < n && cs[m4].is_ascii_digit() {
+                    let mut m5 = m4;
+                    while m5 < n && cs[m5].is_ascii_digit() {
+                        m5 += 1;
+                    }
+                    let num3: String = cs[m4..m5].iter().collect();
+                    let mut m6 = m5;
+                    while m6 < n && cs[m6].is_whitespace() {
+                        m6 += 1;
+                    }
+                    if m6 < n && (cs[m6] == ')' || cs[m6] == '）') {
+                        delta = fi_parse_digits(&num3);
+                        next = m6 + 1;
+                    }
+                }
+            }
+        }
+        out.push((cs[i..e1].iter().collect(), fi_parse_digits(&num1), delta));
+        i = next;
+    }
+    out
+}
+
+/// `parse-ark-drop-text`：gui.log 片段 → {Blocks:[{Stage;Items:[{Name;Delta}]}]}。
+/// 只认 (+N) 增量；"当前次数/理智/用时"这类同名不同物的行靠拒绝表挡掉；块是连续的，
+/// 出现不像配额的行就算块结束（后面的行不再入账）。
+fn fi_drop_text(t: &str) -> JVal {
+    const REJECTS: [&str; 6] = ["当前次数", "理智", "剩余理智", "用时", "预计", "累计理智"];
+    let mut blocks: Vec<(String, Vec<JVal>)> = Vec::new();
+    let mut cur: Option<usize> = None;
+    if !t.trim().is_empty() {
+        for raw in fi_split_lines(t) {
+            let l0 = raw.trim();
+            if l0.is_empty() {
+                continue;
+            }
+            let line = fi_strip_angle(fi_strip_bracket_prefix(l0));
+            if let Some(stage) = fi_find_head(line) {
+                blocks.push((stage, Vec::new()));
+                cur = Some(blocks.len() - 1);
+                continue;
+            }
+            let idx = match cur {
+                Some(x) => x,
+                None => continue,
+            };
+            let pairs = fi_scan_pairs(line);
+            if pairs.is_empty() {
+                cur = None;
+                continue;
+            }
+            for (nm, _num, delta) in pairs {
+                if REJECTS.iter().any(|r| *r == nm) {
+                    continue;
+                }
+                blocks[idx]
+                    .1
+                    .push(jv_o(vec![("Name", JVal::S(nm)), ("Delta", JVal::I(delta as i64))]));
+            }
+        }
+    }
+    let arr: Vec<JVal> = blocks
+        .into_iter()
+        .map(|(stage, items)| jv_o(vec![("Stage", JVal::S(stage)), ("Items", JVal::A(items))]))
+        .collect();
+    jv_o(vec![("Blocks", JVal::A(arr))])
+}
+
+/// 从可选 map 上取键（map 缺位或键缺 → Null）。
+fn fi_map_kv(m: Option<&[(String, JVal)]>, k: &str) -> JVal {
+    match m {
+        Some(o) => fi_kv(o, k),
+        None => JVal::Null,
+    }
+}
+
+fn fi_plan_none(why: &str) -> JVal {
+    jv_o(vec![
+        ("Active", JVal::B(false)),
+        ("Reason", JVal::S(why.to_string())),
+        ("ItemId", JVal::S(String::new())),
+        ("ItemName", JVal::S(String::new())),
+        ("Have", JVal::I(0)),
+        ("Target", JVal::I(0)),
+        ("Gap", JVal::I(0)),
+        ("Stages", JVal::A(Vec::new())),
+        ("Times", JVal::I(0)),
+    ])
+}
+
+/// `resolve-ark-farm-plan`：目标清单 + 账本 + 学习表 → 本轮补刷方案。
+/// 一次只锁"还差最多"的一个目标；刷哪关：显式填的 > 学习表挑（平均每场掉最多的优先、
+/// 并列取见得多的，最多 2 关）> 不刷并说为什么；次数=缺口（保守口径：每场至少 1 折算，
+/// 凑满目标为止，封顶 MaxTimes）。输出键序逐字照抄旧 pscustomobject。
+/// 宽容注：C# 那份对 nameToId/dropTable 等**缺键**会 NRE，壳侧保证不喂那种形状；
+/// 这里按空 map/Null 宽容处理，夹具面两者不可分。
+fn fi_plan(inp: &JVal) -> JVal {
+    let o0 = fi_as_map(inp).unwrap_or(&[]);
+    let targets_v = fi_kv(o0, "targets");
+    let targets = jv_list(&targets_v);
+    let n2i_v = fi_kv(o0, "nameToId");
+    let name_to_id = fi_as_map(&n2i_v);
+    let i2n_v = fi_kv(o0, "idToName");
+    let id_to_name = fi_as_map(&i2n_v);
+    let inv_v = fi_kv(o0, "inventory");
+    let inventory = fi_as_map(&inv_v);
+    let org_v = fi_kv(o0, "origin");
+    let origin = fi_as_map(&org_v);
+    let dt_v = fi_kv(o0, "dropTable");
+    let drop_table = fi_as_map(&dt_v);
+    let ks_v = fi_kv(o0, "knownStages");
+    let known = fi_as_map(&ks_v);
+    let mut max_times = jv_int(&fi_kv(o0, "maxTimes"), 12);
+    if max_times < 1 {
+        max_times = 1;
+    }
+    if targets.is_empty() {
+        return fi_plan_none("没配 ark.farmTargets → 材料补刷未启动");
+    }
+
+    let mut notes: Vec<String> = Vec::new();
+    let mut best: Option<JVal> = None;
+    let mut best_gap: i64 = 0;
+    for t0 in targets {
+        let t = match fi_as_map(t0) {
+            Some(m) => m,
+            None => continue,
+        };
+        let bad = jv_str(&fi_kv(t, "Bad"));
+        if !bad.is_empty() {
+            notes.push(format!("跳过「{}」：{}", jv_str(&fi_kv(t, "Raw")), bad));
+            continue;
+        }
+        let mut nm = jv_str(&fi_kv(t, "Key"));
+        let key = nm.clone();
+        let mut id = String::new();
+        if fi_is_digits3to8(&key) {
+            id = key.clone();
+            if let Some(m) = id_to_name {
+                if m.iter().any(|(k, _)| *k == id) {
+                    nm = jv_str(&fi_kv(m, &id));
+                }
+            }
+        } else if let Some(m) = name_to_id {
+            if m.iter().any(|(k, _)| *k == key) {
+                id = jv_str(&fi_kv(m, &key));
+            }
+        }
+        if id.is_empty() {
+            notes.push(format!(
+                "跳过「{}」：材料名在 MAA 材料表(item_index)里找不到",
+                jv_str(&fi_kv(t, "Raw"))
+            ));
+            continue;
+        }
+        let have = if let Some(m) = inventory {
+            if m.iter().any(|(k, _)| *k == id) {
+                jv_int(&fi_kv(m, &id), 0)
+            } else {
+                0
+            }
+        } else {
+            0
+        };
+        let target_n = jv_int(&fi_kv(t, "Target"), 0);
+        let gap = target_n - have;
+        if gap <= 0 {
+            notes.push(format!("{} 已够({}/{})", nm, have, jv_str(&fi_kv(t, "Target"))));
+            continue;
+        }
+
+        let stages_v = fi_kv(t, "Stages");
+        // 保真保留元素原形（10-05 twotgt 实锤：stages 里可能挂着嵌套数组这种畸形形状，
+        // C# 把原对象一路带到 stOk/输出；串化只在比较与 Reason 处按 Gd.Str 现做）。
+        let mut stages: Vec<JVal> = jv_list(&stages_v).into_iter().cloned().collect();
+        if stages.is_empty() {
+            // 没填关卡 → 从学习表挑：平均每场掉得最多的优先，并列取见得多的；最多挑 2 关
+            let mut learned: Vec<(String, f64, i64)> = Vec::new();
+            let by_stage_v = fi_map_kv(drop_table, &id);
+            if let Some(by_stage) = fi_as_map(&by_stage_v) {
+                for (stage_key, rec) in by_stage {
+                    let runs = jv_int(&fi_map_kv(fi_as_map(rec), "runs"), 0);
+                    let qty = jv_int(&fi_map_kv(fi_as_map(rec), "qty"), 0);
+                    if runs > 0 && qty > 0 {
+                        learned.push((stage_key.clone(), qty as f64 / runs as f64, runs));
+                    }
+                }
+            }
+            // OrderByDescending(Avg).ThenByDescending(Runs) 是稳定排序（相等保枚举序）；Take(2)
+            learned.sort_by(|a, b| {
+                b.1.partial_cmp(&a.1)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then(b.2.cmp(&a.2))
+            });
+            learned.truncate(2);
+            stages = learned.into_iter().map(|(s, _, _)| JVal::S(s)).collect();
+            if stages.is_empty() {
+                notes.push(format!(
+                    "{} 还差 {}，但不知道该刷哪关(清单里没填、掉落账本也没教过) → 把它写成 {}@CE-5 这种带关卡的形式",
+                    nm,
+                    gap,
+                    jv_str(&fi_kv(t, "Raw"))
+                ));
+                continue;
+            }
+        }
+        let mut bad_st: Vec<JVal> = Vec::new();
+        if let Some(ks) = known {
+            if !ks.is_empty() {
+                for st in &stages {
+                    // C#：knownStages.ContainsKey(Gd.Str(st)) —— 键比较走 GD.Str 串口径
+                    if !ks.iter().any(|(k, _)| k == &jv_str(st)) {
+                        bad_st.push(st.clone());
+                    }
+                }
+            }
+        }
+        // C#：ContainsValue(badSt, st) —— 同样 Gd.Str 等值；stOk 保留**原对象**（不重塑形）
+        let st_ok: Vec<JVal> = stages
+            .iter()
+            .filter(|st| !bad_st.iter().any(|b| jv_str(b) == jv_str(st)))
+            .cloned()
+            .collect();
+        if st_ok.is_empty() {
+            notes.push(format!(
+                "{} 还差 {}，但关卡 {} 不被 MAA 关卡表认识 → 先更 MAA 资源或改 farmTargets",
+                nm,
+                gap,
+                fi_join(&bad_st, "/")
+            ));
+            continue;
+        }
+
+        // 每场平均掉落：挑关仍按它（掉得多的打头），Reason 里如实报数；但次数不再用它折算
+        let mut tq: i64 = 0;
+        let mut tr: i64 = 0;
+        let by_id_v = fi_map_kv(drop_table, &id);
+        if let Some(by_stage) = fi_as_map(&by_id_v) {
+            for st in &st_ok {
+                let rec = fi_kv(by_stage, &jv_str(st));
+                if !matches!(rec, JVal::Null) {
+                    tq += jv_int(&fi_map_kv(fi_as_map(&rec), "qty"), 0);
+                    tr += jv_int(&fi_map_kv(fi_as_map(&rec), "runs"), 0);
+                }
+            }
+        }
+        let mut avg: f64 = 1.0;
+        let mut avg_note = "掉落率未知，按每场 1 估".to_string();
+        if tr > 0 {
+            avg = ((tq as f64) / (tr as f64)).max(0.1);
+            avg_note = format!(
+                "按每场掉 1 保守给次数、凑满目标为止(学习到的每场约 {})",
+                fi_round_str(fi_round1(avg))
+            );
+        }
+        let mut times = gap;
+        let mut cap_note = String::new();
+        if times > max_times {
+            times = max_times;
+            cap_note = format!("(单轮封顶 {}，剩下的明天接着刷)", max_times);
+        }
+
+        let cand = jv_o(vec![
+            ("Active", JVal::B(true)),
+            ("ItemId", JVal::S(id.clone())),
+            ("ItemName", JVal::S(nm.clone())),
+            ("Have", JVal::I(have)),
+            ("Target", JVal::I(target_n)),
+            ("Gap", JVal::I(gap)),
+            ("Stages", JVal::A(st_ok.clone())),
+            ("Times", JVal::I(times)),
+            ("Avg", JVal::F(avg)),
+            ("AvgNote", JVal::S(avg_note)),
+            ("CapNote", JVal::S(cap_note)),
+            ("BadStages", JVal::A(bad_st.clone())),
+        ]);
+        if best.is_none() || gap > best_gap {
+            best_gap = gap;
+            best = Some(cand);
+        }
+    }
+    if best.is_none() {
+        let mut why = "本轮没有要补刷的材料".to_string();
+        if !notes.is_empty() {
+            why = format!("本轮没有要补刷的材料：{}", notes.join("；"));
+        }
+        return fi_plan_none(&why);
+    }
+    let best = best.unwrap();
+    let bm = fi_as_map(&best).unwrap();
+    let b_id = jv_str(&fi_kv(bm, "ItemId"));
+    let origin_note = if jv_str(&fi_map_kv(origin, &b_id)) == "depot" {
+        "(现值来自库存缓存标定，是估算)"
+    } else {
+        ""
+    };
+    let bad_note = {
+        let bv = fi_kv(bm, "BadStages");
+        let list: Vec<String> = jv_list(&bv).iter().map(|v| jv_str(*v)).collect();
+        if list.is_empty() {
+            String::new()
+        } else {
+            format!("；已剔除不认识的关卡 {}", list.join("/"))
+        }
+    };
+    let stages_str = {
+        let sv = fi_kv(bm, "Stages");
+        let list: Vec<String> = jv_list(&sv).iter().map(|v| jv_str(*v)).collect();
+        list.join(",")
+    };
+    let reason = format!(
+        "补刷 {}×{} @{}：目标 {}，现有 {}{}，还差 {}，{}{}{}",
+        jv_str(&fi_kv(bm, "ItemName")),
+        jv_str(&fi_kv(bm, "Times")),
+        stages_str,
+        jv_str(&fi_kv(bm, "Target")),
+        jv_str(&fi_kv(bm, "Have")),
+        origin_note,
+        jv_str(&fi_kv(bm, "Gap")),
+        jv_str(&fi_kv(bm, "AvgNote")),
+        jv_str(&fi_kv(bm, "CapNote")),
+        bad_note
+    );
+    jv_o(vec![
+        ("Active", JVal::B(true)),
+        ("ItemId", JVal::S(b_id)),
+        ("ItemName", fi_kv(bm, "ItemName")),
+        ("Have", fi_kv(bm, "Have")),
+        ("Target", fi_kv(bm, "Target")),
+        ("Gap", fi_kv(bm, "Gap")),
+        ("Stages", fi_kv(bm, "Stages")),
+        ("Times", fi_kv(bm, "Times")),
+        ("Reason", JVal::S(reason)),
+        ("Notes", JVal::A(notes.iter().map(|s| JVal::S(s.clone())).collect())),
+    ])
+}
+
+/// 键值字面 → owned 键值表（键序=书写序）。
+fn fi_kvv(kv: Vec<(&str, JVal)>) -> Vec<(String, JVal)> {
+    kv.into_iter().map(|(k, v)| (k.to_string(), v)).collect()
+}
+
+/// `Overwrite`（Add-Member -Force 同语义）：旧键原位覆盖、新键排末尾。
+fn fi_overwrite(src: &[(String, JVal)], kv: Vec<(&str, JVal)>) -> Vec<(String, JVal)> {
+    let mut o: Vec<(String, JVal)> = src.to_vec();
+    for (k, v) in kv {
+        if let Some(pos) = o.iter().position(|(kk, _)| kk == k) {
+            o[pos].1 = v;
+        } else {
+            o.push((k.to_string(), v));
+        }
+    }
+    o
+}
+
+/// `apply-ark-daily-intent`（原 Resolve-GdArkDecision 的构造段）：命令行意图 → 本轮方舟方案。
+/// 五格 {Ark;FarmMode;HasFarmFields;FarmSet;Warnings}；FarmSet=本次场景给了可补方案
+/// （farmOpt 非空，旧门 Farm=SET/NULL 同一件事）；Warnings 由门侧拼两段调用的话术。
+fn fi_ark_intent(inp: &JVal) -> JVal {
+    let o0 = fi_as_map(inp).unwrap_or(&[]);
+    let ark_v = fi_kv(o0, "ark");
+    let mut ark: Vec<(String, JVal)> = fi_as_map(&ark_v).map(|m| m.to_vec()).unwrap_or_default();
+    let stage = jv_str(&fi_kv(o0, "stage"));
+    let force = jv_truthy(&fi_kv(o0, "force"));
+    let farm = jv_truthy(&fi_kv(o0, "farm"));
+    let farm_opt = fi_kv(o0, "farmOpt");
+    let mut warnings: Vec<JVal> = Vec::new();
+
+    if !stage.is_empty() {
+        ark = fi_kvv(vec![
+            ("Mode", JVal::S("manual".to_string())),
+            ("Stage", JVal::S(stage.clone())),
+            ("StageHint", JVal::S(stage.clone())),
+            ("ClearSanity", JVal::B(true)),
+            ("Reason", JVal::S(format!("命令行指定刷 {}", stage))),
+            ("EventKey", JVal::Null),
+            ("EventTip", JVal::Null),
+            ("Source", JVal::S("manual".to_string())),
+        ]);
+    }
+    if force && jv_str(&fi_kv(&ark, "Mode")) == "event-pending" {
+        let hint = jv_str(&fi_kv(&ark, "StageHint"));
+        ark = fi_kvv(vec![
+            ("Mode", JVal::S("event".to_string())),
+            ("Stage", JVal::S(hint.clone())),
+            ("StageHint", JVal::S(hint.clone())),
+            ("ClearSanity", JVal::B(true)),
+            ("Reason", JVal::S(format!("(-Force) 跳过活动确认门，直接刷 {}", hint))),
+            ("EventKey", fi_kv(&ark, "EventKey")),
+            ("EventTip", fi_kv(&ark, "EventTip")),
+            ("Source", fi_kv(&ark, "Source")),
+        ]);
+        warnings.push(JVal::S("-Force：本轮忽略活动确认门".to_string()));
+    }
+
+    let (farm_stages, farm_reason): (Vec<JVal>, String) = if matches!(farm_opt, JVal::Null) {
+        (Vec::new(), String::new())
+    } else {
+        let sv = fi_map_kv(fi_as_map(&farm_opt), "Stages");
+        let st: Vec<JVal> = jv_list(&sv).iter().map(|v| (*v).clone()).collect();
+        (st, jv_str(&fi_map_kv(fi_as_map(&farm_opt), "Reason")))
+    };
+    let mut farm_mode = String::new();
+    let mut has_farm_fields = false;
+
+    if farm {
+        has_farm_fields = true;
+        if !matches!(farm_opt, JVal::Null) {
+            farm_mode = "dedicated".to_string();
+            let joined = fi_join(&farm_stages, ",");
+            ark = fi_kvv(vec![
+                ("Mode", JVal::S("farm".to_string())),
+                ("Stage", JVal::S(joined.clone())),
+                ("StageHint", JVal::S(joined.clone())),
+                ("ClearSanity", JVal::B(true)),
+                ("Reason", JVal::S(format!("材料补刷专用轮 — {}", farm_reason))),
+                ("EventKey", fi_kv(&ark, "EventKey")),
+                ("EventTip", fi_kv(&ark, "EventTip")),
+                ("Source", fi_kv(&ark, "Source")),
+            ]);
+        } else {
+            warnings.push(JVal::S("-Farm 本轮没有可补的材料 → 按原方案跑".to_string()));
+        }
+    } else if !matches!(farm_opt, JVal::Null) {
+        has_farm_fields = true;
+        farm_mode = "append".to_string();
+        // 需求优先档：farm 关排最前（去重），长草关在后（也去重）
+        let mut merged: Vec<JVal> = Vec::new();
+        for st in &farm_stages {
+            if !fi_list_has(&merged, st) {
+                merged.push(st.clone());
+            }
+        }
+        for st in fi_split_stages(&jv_str(&fi_kv(&ark, "Stage"))) {
+            let stv = JVal::S(st);
+            if !fi_list_has(&merged, &stv) {
+                merged.push(stv);
+            }
+        }
+        let reason_new = format!(
+            "{}；需求优先 {}",
+            jv_str(&fi_kv(&ark, "Reason")),
+            farm_reason
+        );
+        ark = fi_overwrite(
+            &ark,
+            vec![
+                ("Stage", JVal::S(fi_join(&merged, ","))),
+                ("Reason", JVal::S(reason_new)),
+            ],
+        );
+    }
+
+    jv_o(vec![
+        ("Ark", JVal::O(ark)),
+        ("FarmMode", JVal::S(farm_mode)),
+        ("HasFarmFields", JVal::B(has_farm_fields)),
+        ("FarmSet", JVal::B(!matches!(farm_opt, JVal::Null))),
+        ("Warnings", JVal::A(warnings)),
+    ])
+}
+
+/// `apply-r1999-daily-intent`：-Force 跳确认门与 -Plan 手动指定两段构造（Plan≠auto 无条件
+/// 覆盖 Force 那段的结果）→ {Decision;Warnings}。
+fn fi_r1999_intent(inp: &JVal) -> JVal {
+    let o0 = fi_as_map(inp).unwrap_or(&[]);
+    let d_v = fi_kv(o0, "decision");
+    let mut d: Vec<(String, JVal)> = fi_as_map(&d_v).map(|m| m.to_vec()).unwrap_or_default();
+    let plan = jv_str(&fi_kv(o0, "plan"));
+    let force = jv_truthy(&fi_kv(o0, "force"));
+    let mut warnings: Vec<JVal> = Vec::new();
+
+    if force && jv_str(&fi_kv(&d, "Mode")) == "event-pending" {
+        d = fi_kvv(vec![
+            ("Mode", JVal::S("event".to_string())),
+            ("Instance", JVal::S("event".to_string())),
+            ("Version", fi_kv(&d, "Version")),
+            ("VersionName", fi_kv(&d, "VersionName")),
+            ("EventKey", fi_kv(&d, "EventKey")),
+            ("EventTip", fi_kv(&d, "EventTip")),
+            ("Reason", JVal::S("(-Force) 跳过 1999 活动确认门，直接用活动方案".to_string())),
+            ("DataAge", fi_kv(&d, "DataAge")),
+        ]);
+        warnings.push(JVal::S("-Force：1999 本轮忽略活动确认门".to_string()));
+    }
+    if plan != "auto" {
+        d = fi_kvv(vec![
+            ("Mode", JVal::S(plan.clone())),
+            ("Instance", JVal::S(plan.clone())),
+            ("Version", JVal::S("manual".to_string())),
+            ("VersionName", JVal::S("命令行指定".to_string())),
+            ("EventKey", JVal::Null),
+            ("EventTip", JVal::Null),
+            ("Reason", JVal::S(format!("命令行指定 {}", plan))),
+            ("DataAge", JVal::Null),
+        ]);
+    }
+    jv_o(vec![
+        ("Decision", JVal::O(d)),
+        ("Warnings", JVal::A(warnings)),
+    ])
+}
+
+/// 门用 ark 场景的两步调用（旧序刻意保留：先 manual/force 一步，再拿变换后的 ark 过 farm 档
+/// 一步），farmOpt 由场景注入；Warnings=两段依序合计。
+fn fi_ark_case(inp: &JVal) -> JVal {
+    let o0 = fi_as_map(inp).unwrap_or(&[]);
+    let ark0 = fi_kv(o0, "ark");
+    let stage = fi_kv(o0, "stage");
+    let force = fi_kv(o0, "force");
+    let farm = fi_kv(o0, "farm");
+    let farm_opt = fi_kv(o0, "farmOpt");
+
+    let d1 = fi_ark_intent(&jv_o(vec![
+        ("ark", ark0),
+        ("stage", stage),
+        ("force", force),
+        ("farm", JVal::B(false)),
+        ("farmOpt", JVal::Null),
+    ]));
+    let ark1 = fi_kv(fi_as_map(&d1).unwrap_or(&[]), "Ark");
+    let d2 = fi_ark_intent(&jv_o(vec![
+        ("ark", ark1),
+        ("stage", JVal::S(String::new())),
+        ("force", JVal::B(false)),
+        ("farm", farm),
+        ("farmOpt", farm_opt.clone()),
+    ]));
+    let d2m = fi_as_map(&d2).unwrap_or(&[]);
+    let mut w: Vec<JVal> = Vec::new();
+    for src in [&d1, &d2] {
+        let sm = fi_as_map(src).unwrap_or(&[]);
+        let wv = fi_kv(sm, "Warnings");
+        for x in jv_list(&wv) {
+            w.push(x.clone());
+        }
+    }
+    jv_o(vec![
+        ("Ark", fi_kv(d2m, "Ark")),
+        ("FarmMode", fi_kv(d2m, "FarmMode")),
+        ("HasFarmFields", fi_kv(d2m, "HasFarmFields")),
+        ("FarmSet", JVal::B(!matches!(farm_opt, JVal::Null))),
+        ("Warnings", JVal::A(w)),
+    ])
+}
+
+/// 46 档夹具（名册顺序与旧门 probe-orch-golden.ps1 的 Run 顺序逐字对齐）：
+/// spec 13 / drop 6 / plan 14 / ark 9 / r19 4。输入值照旧门字节（ark 用旧门版 IdleArk
+/// Stage='CE-5,LS-5,CE-5' 与 PendArk）——自检另有 C# SelfTest 版输入，两版勿混。
+fn fi_fixture_cases() -> Vec<(&'static str, JVal)> {
+    let n2i = || {
+        jv_o(vec![
+            ("D32钢", JVal::S("30135".to_string())),
+            ("或铝石", JVal::S("30115".to_string())),
+        ])
+    };
+    let i2n = || {
+        jv_o(vec![
+            ("30135", JVal::S("D32钢".to_string())),
+            ("30115", JVal::S("或铝石".to_string())),
+        ])
+    };
+    let known = || jv_o(vec![("CE-5", JVal::B(true)), ("CE-4", JVal::B(true))]);
+    let dt = || {
+        jv_o(vec![(
+            "30135",
+            jv_o(vec![
+                ("CE-5", jv_o(vec![("runs", JVal::I(5)), ("qty", JVal::I(12))])),
+                ("CE-4", jv_o(vec![("runs", JVal::I(3)), ("qty", JVal::I(3))])),
+            ]),
+        )])
+    };
+    let ft = |key: &str, target: i64, stages: Vec<&str>| -> JVal {
+        jv_o(vec![
+            ("Key", JVal::S(key.to_string())),
+            ("Target", JVal::I(target)),
+            ("Stages", JVal::A(stages.into_iter().map(|s| JVal::S(s.to_string())).collect())),
+            ("Raw", JVal::S(format!("{}={}", key, target))),
+            ("Bad", JVal::S(String::new())),
+        ])
+    };
+    let plan_in = |targets: Vec<JVal>, inv: JVal, org: JVal, dtv: JVal, ksv: JVal, mt: i64| -> JVal {
+        jv_o(vec![
+            ("targets", JVal::A(targets)),
+            ("nameToId", n2i()),
+            ("idToName", i2n()),
+            ("inventory", inv),
+            ("origin", org),
+            ("dropTable", dtv),
+            ("knownStages", ksv),
+            ("maxTimes", JVal::I(mt)),
+        ])
+    };
+    let inv_of = |n: i64| jv_o(vec![("30135", JVal::I(n))]);
+    let raw = |s: &str| jv_o(vec![("raw", JVal::S(s.to_string()))]);
+    let text = |s: &str| jv_o(vec![("text", JVal::S(s.to_string()))]);
+    let idle = || {
+        jv_o(vec![
+            ("Mode", JVal::S("idle".to_string())),
+            ("Stage", JVal::S("CE-5,LS-5,CE-5".to_string())),
+            ("StageHint", JVal::S("CE-5,LS-5".to_string())),
+            ("ClearSanity", JVal::B(true)),
+            ("Reason", JVal::S("长草".to_string())),
+            ("EventKey", JVal::Null),
+            ("EventTip", JVal::Null),
+            ("Source", JVal::S("weekday".to_string())),
+        ])
+    };
+    let pend = || {
+        jv_o(vec![
+            ("Mode", JVal::S("event-pending".to_string())),
+            ("Stage", JVal::Null),
+            ("StageHint", JVal::S("CT-1".to_string())),
+            ("ClearSanity", JVal::B(false)),
+            ("Reason", JVal::S("等新活动确认".to_string())),
+            ("EventKey", JVal::S("act1".to_string())),
+            ("EventTip", JVal::S("sidestory".to_string())),
+            ("Source", JVal::S("event".to_string())),
+        ])
+    };
+    let fo1 = || {
+        jv_o(vec![
+            ("Stages", JVal::A(vec![JVal::S("PR-D-2".to_string()), JVal::S("CE-5".to_string())])),
+            ("Reason", JVal::S("补刷 特种芯片组×8 @PR-D-2".to_string())),
+        ])
+    };
+    let fo2 = || {
+        jv_o(vec![
+            ("Stages", JVal::A(vec![JVal::S("PR-D-2".to_string())])),
+            ("Reason", JVal::S("补刷 D32钢×5 @CE-5".to_string())),
+        ])
+    };
+    let fcase = |ark0: JVal, stage: &str, force: bool, farm: bool, fo: JVal| -> JVal {
+        jv_o(vec![
+            ("ark", ark0),
+            ("stage", JVal::S(stage.to_string())),
+            ("force", JVal::B(force)),
+            ("farm", JVal::B(farm)),
+            ("farmOpt", fo),
+        ])
+    };
+    let pendr = || {
+        jv_o(vec![
+            ("Mode", JVal::S("event-pending".to_string())),
+            ("Instance", JVal::S("idle".to_string())),
+            ("Version", JVal::S("v4.7.1".to_string())),
+            ("VersionName", JVal::S("测试版本".to_string())),
+            ("EventKey", JVal::S("act123".to_string())),
+            ("EventTip", JVal::S("活动".to_string())),
+            ("Reason", JVal::S("待确认".to_string())),
+            ("DataAge", JVal::Null),
+        ])
+    };
+    let rcase = |plan: &str, force: bool| -> JVal {
+        jv_o(vec![
+            ("decision", pendr()),
+            ("plan", JVal::S(plan.to_string())),
+            ("force", JVal::B(force)),
+        ])
+    };
+    vec![
+        // ---- spec 13 ----
+        ("spec/plain", raw("D32钢=30@CE-5")),
+        ("spec/code", raw("30135=12@CE-5,CE-4")),
+        ("spec/seps", raw("30135=12@CE-5、CE-4；LS-5")),
+        ("spec/fullwidth", raw("D32钢＝30 @ CE-5")),
+        ("spec/nostage", raw("D32钢=30")),
+        ("spec/obj", jv_o(vec![(
+            "raw",
+            jv_o(vec![
+                ("item", JVal::S("D32钢".to_string())),
+                ("target", JVal::I(20)),
+                ("stages", JVal::A(vec![JVal::S("CE-5".to_string())])),
+            ]),
+        )])),
+        ("spec/obj-str", jv_o(vec![(
+            "raw",
+            jv_o(vec![
+                ("item", JVal::S("D32钢".to_string())),
+                ("target", JVal::I(20)),
+                ("stages", JVal::A(vec![JVal::S("CE-5，CE-4".to_string())])),
+            ]),
+        )])),
+        ("spec/obj-alt", jv_o(vec![(
+            "raw",
+            jv_o(vec![
+                ("name", JVal::S("或铝石".to_string())),
+                ("count", JVal::I(7)),
+            ]),
+        )])),
+        ("spec/obj-badn", jv_o(vec![(
+            "raw",
+            jv_o(vec![("item", JVal::S("D32钢".to_string()))]),
+        )])),
+        ("spec/obj-nok", jv_o(vec![("raw", jv_o(vec![("target", JVal::I(5))]))])),
+        ("spec/garbage", raw("想刷点火腿")),
+        ("spec/null", jv_o(vec![("raw", JVal::Null)])),
+        ("spec/blank", raw("   ")),
+        // ---- drop 6 ----
+        // prefix/nohead/nostage 三档复刻"子进程实收单段"：块里 `-Text '头行' + "`n" + '对'` 没加括号，
+        // 裸 `+` 拼接在 PS 参数模式里只把第一段绑进 -Text、其余 token 坠入 $args 被丢（10-05
+        // comma-probe 双引擎实锤：`T1 -Text 'x1' + 'x2' + 'x3'` → Text=[x1]、argN=4）。
+        ("drop/two", text("[08:50:26] CE-5 掉落统计:\nD32钢 : 2 (+2)   或铝石 : 1 (+1)   当前次数 : 3\n[08:52:10] LS-5 掉落统计:\n采购凭证 : 30 (30)")),
+        ("drop/prefix", text("<12> PR-B-2 掉落统计:")),
+        ("drop/stop", text("CE-4 掉落统计:\nD32钢 : 1 (+1)\n这是一句普通说明\n30135 : 9 (+9)")),
+        ("drop/nohead", text("掉落统计:")),
+        ("drop/empty", text("")),
+        ("drop/nostage", text("CE5X 掉落统计:")),
+        // ---- plan 14 ----
+        ("plan/none", jv_o(vec![("targets", JVal::A(Vec::new()))])),
+        ("plan/basic", plan_in(vec![ft("D32钢", 30, vec!["CE-5"])], inv_of(18), JVal::O(Vec::new()), dt(), known(), 12)),
+        ("plan/cap", plan_in(vec![ft("D32钢", 99, vec!["CE-5"])], JVal::O(Vec::new()), JVal::O(Vec::new()), dt(), known(), 4)),
+        ("plan/enough", plan_in(vec![ft("D32钢", 10, vec!["CE-5"])], inv_of(12), JVal::O(Vec::new()), dt(), known(), 12)),
+        ("plan/badst", plan_in(vec![ft("D32钢", 30, vec!["CE-9"])], JVal::O(Vec::new()), JVal::O(Vec::new()), JVal::O(Vec::new()), known(), 12)),
+        ("plan/unknm", plan_in(vec![ft("点火腿", 5, vec![])], JVal::O(Vec::new()), JVal::O(Vec::new()), JVal::O(Vec::new()), JVal::O(Vec::new()), 12)),
+        ("plan/nowhere", plan_in(vec![ft("D32钢", 5, vec![])], JVal::O(Vec::new()), JVal::O(Vec::new()), JVal::O(Vec::new()), JVal::O(Vec::new()), 12)),
+        ("plan/depot", plan_in(vec![ft("D32钢", 8, vec!["CE-5"])], inv_of(4), jv_o(vec![("30135", JVal::S("depot".to_string()))]), JVal::O(Vec::new()), JVal::O(Vec::new()), 12)),
+        ("plan/twotgt", plan_in(
+            // 单目标畸形形：块里写的是 `@(Ft 'D32钢' 20 @('CE-5'), Ft '或铝石' 100 @('CE-4'))`，
+            // 逗号把 `@('CE-5')` 与裸词 `Ft` 粘成 Stages 的第 2 元素、余下三枚 token 坠入 $args 被丢
+            // ——第二个目标「或铝石」从未进入调用（10-05 comma-probe 双引擎实锤：stagesN=2、
+            // E0=[System.Object[]]、E1=[Ft]；甲侧 S/R 两段都印 System.Object[],Ft）。逐字复刻实收形状。
+            vec![jv_o(vec![
+                ("Key", JVal::S("D32钢".to_string())),
+                ("Target", JVal::I(20)),
+                ("Stages", JVal::A(vec![
+                    JVal::A(vec![JVal::S("CE-5".to_string())]),
+                    JVal::S("Ft".to_string()),
+                ])),
+                ("Raw", JVal::S("D32钢=20".to_string())),
+                ("Bad", JVal::S(String::new())),
+            ])],
+            jv_o(vec![("30135", JVal::I(18)), ("30115", JVal::I(90))]),
+            JVal::O(Vec::new()),
+            JVal::O(Vec::new()),
+            JVal::O(Vec::new()),
+            12,
+        )),
+        ("plan/learn", plan_in(vec![ft("D32钢", 30, vec![])], inv_of(18), JVal::O(Vec::new()), dt(), known(), 12)),
+        ("plan/code", plan_in(vec![ft("30115", 20, vec!["CE-4"])], JVal::O(Vec::new()), JVal::O(Vec::new()), JVal::O(Vec::new()), JVal::O(Vec::new()), 12)),
+        ("plan/badnote", plan_in(
+            vec![
+                jv_o(vec![
+                    ("Key", JVal::S("点火腿".to_string())),
+                    ("Target", JVal::I(0)),
+                    ("Stages", JVal::A(Vec::new())),
+                    ("Raw", JVal::S("想刷点火腿".to_string())),
+                    ("Bad", JVal::S("看不懂「想刷点火腿」，要写成 材料名=数量[@关卡1,关卡2]".to_string())),
+                ]),
+                ft("D32钢", 20, vec!["CE-5"]),
+            ],
+            inv_of(18),
+            JVal::O(Vec::new()),
+            JVal::O(Vec::new()),
+            JVal::O(Vec::new()),
+            12,
+        )),
+        ("plan/zerot", plan_in(vec![ft("D32钢", 3, vec!["CE-5"])], JVal::O(Vec::new()), JVal::O(Vec::new()), JVal::O(Vec::new()), JVal::O(Vec::new()), 0)),
+        ("plan/mixst", plan_in(vec![ft("D32钢", 12, vec!["CE-5", "CE-9"])], inv_of(18), JVal::O(Vec::new()), dt(), known(), 12)),
+        // ---- ark 9 ----
+        ("ark/plain", fcase(idle(), "", false, false, JVal::Null)),
+        ("ark/manual", fcase(pend(), "OF-1", false, false, JVal::Null)),
+        ("ark/force", fcase(pend(), "", true, false, JVal::Null)),
+        ("ark/force-idle", fcase(idle(), "", true, false, JVal::Null)),
+        ("ark/farm-ded", fcase(idle(), "", false, true, fo1())),
+        ("ark/farm-none", fcase(idle(), "", false, true, JVal::Null)),
+        ("ark/append", fcase(idle(), "", false, false, fo1())),
+        ("ark/manual-farm", fcase(idle(), "OF-1", false, false, fo2())),
+        ("ark/force-farm", fcase(pend(), "", true, false, fo2())),
+        // ---- r19 4 ----
+        ("r19/plain", rcase("auto", false)),
+        ("r19/force", rcase("auto", true)),
+        ("r19/plan", rcase("idle", false)),
+        ("r19/both", rcase("idle", true)),
+    ]
+}
+
+/// `--farm-intent` 的信封装配（纯函数；`run_farm_intent` 与 `--selftest` 共用同一处 —— 自检
+/// 复现的就是真出口）。**无 date 格**：这档不吃时钟，对应门也不做日期注入。
+fn render_farm_intent_json() -> String {
+    let cases = fi_fixture_cases();
+    let items: Vec<String> = cases
+        .iter()
+        .map(|(name, inp)| {
+            let data = if name.starts_with("spec/") {
+                // 夹具的 body 是 {raw:<条目>} 包装（与 drop 的 {text:…} 同款）；壳吃的是**条目本身**
+                // ——这里剥一层再进纯判定（10-05 三侧门首跑抓到的 13 档 spec 全红就是这个根因：
+                // 旧码把整包 body 当条目，于是 R= 打印出 {"raw":…}、Bad=「没有材料名/代号」）。
+                let rv = fi_kv(fi_as_map(inp).unwrap_or(&[]), "raw");
+                fi_target_spec(&rv)
+            } else if name.starts_with("drop/") {
+                let t = fi_kv(fi_as_map(inp).unwrap_or(&[]), "text");
+                fi_drop_text(&jv_str(&t))
+            } else if name.starts_with("plan/") {
+                fi_plan(inp)
+            } else if name.starts_with("ark/") {
+                fi_ark_case(inp)
+            } else if name.starts_with("r19/") {
+                fi_r1999_intent(inp)
+            } else {
+                JVal::Null // 名册由自检钉死五族，兜底不可达
+            };
+            format!("{{\"name\":{},\"data\":{}}}", jstr(name), jv_to_json(&data))
+        })
+        .collect();
+    format!(
+        "{{\"ok\":true,\"why\":\"只吃内联夹具的 farm/intent 五段纯判定（46 档）；这不是对方行为的读数\",\"contract\":{},\"role\":\"R2-farm-intent\",\"fixture\":\"farm-intent\",\"count\":{},\"cases\":[{}]}}",
+        jstr(CONTRACT),
+        items.len(),
+        items.join(",")
+    )
+}
+
+/// `--farm-intent` 那一档：同 `--events`/`--sv` 的出口纪律 —— 只吃内联夹具、不加载任何 DLL、
+/// 不碰任何现场；这档与时钟无关（信封不带日期格，探针永不读时钟）。
+fn run_farm_intent(out: &Option<String>) -> i32 {
+    let json = render_farm_intent_json();
     emit(&json, out);
     0
 }
@@ -3123,16 +4320,16 @@ fn selftest() -> i32 {
         &mut fails,
         &mut total,
     );
-    // --events 与 --sv 两档都必须并入同一条 emit 出口（否则 --out 出现"某一档默默忽略"的假口径），
-    // 且各自的分派必须落在「--kind 那条必填」**之前**：这两档都不需要装包，被必填拦死就等于没开。
+    // --events、--sv 与 --farm-intent 三档都必须并入同一条 emit 出口（否则 --out 出现"某一档默默忽略"的假口径），
+    // 且各自的分派必须落在「--kind 那条必填」**之前**：这三档都不需要装包，被必填拦死就等于没开。
     // 这里数的是**整份** SRC 而不是 src_head：分派在 run() 里，而 run() 排在 selftest **之后**，
     // 用 src_head 会两处都找不到、双双退成 MAX 再判成红（这一族"针落在射程外"的坑本轮第二次踩）。
     // needle 一律运行期拼，**且失败文案里也不许把那串字面量原样写出来**：整份一起数时，
     // 自家标签先于 run() 命中，门就红在一句人话上（本轮真踩：文案里的 `--kind` 与那条必填连起来写，
     // SRC.find 先逮到的是这条文案自己 —— 同一族坑第四次，判据读的是自己就必须把自己排除在射程外）。
     chk(
-        SRC.matches(&["emit(&", "json"].concat()).count() == 2,
-        "事件流/监督判定两档没同走一处 emit：--out 在其中一档上是空头承诺",
+        SRC.matches(&["emit(&", "json"].concat()).count() == 3,
+        "事件流/监督判定/farm-intent 三档没同走一处 emit：--out 在其中一档上是空头承诺",
         &mut fails,
         &mut total,
     );
@@ -3564,6 +4761,637 @@ fn selftest() -> i32 {
         &mut total,
     );
 
+    // 15. R2② farm/intent 五段：逐条转写 tools\panel-cs\Orchestration.SelfTest.cs（46 项 = spec 11 + drop 6 + plan 15 + ark 11 + r19 3），
+    //     加 6 项自指（分派顺序、夹具名册、信封身份）。期望字面逐字抄自该 SelfTest 与旧 pscustomobject 键序 ——
+    //     这里红了就是移植走样，改 fi_*，不改期望（§7 同一条纪律）。不加载任何 DLL、不碰现场。
+    //     输入照 SelfTest 版：IdleArk 只两关(CE-5,LS-5)、drop/prefix 是单行 —— 与门档夹具（旧门三关版）刻意不同，
+    //     两套输入各钉各的面；ArkIntent 用例走 fi_ark_intent 单步（SelfTest 原样），两步序在门档 fi_ark_case 里。
+    let s1 = |x: &str| JVal::S(x.to_string());
+    let xg = |o: &JVal, k: &str| -> JVal { jv_get(o, k) };
+    let xs = |o: &JVal, k: &str| -> String { jv_str(&jv_get(o, k)) };
+    let xb = |o: &JVal, k: &str| -> bool { jv_truthy(&jv_get(o, k)) };
+    let xi = |o: &JVal, k: &str| -> i64 { jv_int(&jv_get(o, k), i64::MIN) };
+    let xl = |v: &JVal| -> Vec<JVal> { jv_list(v).into_iter().cloned().collect() };
+    let x_at = |v: &JVal, i: usize| -> String { jv_list(v).get(i).map(|x| jv_str(*x)).unwrap_or_default() };
+    let xnl = |v: &JVal| -> bool { matches!(v, JVal::Null) };
+
+    // —— 目标清单解析：11 ——
+    let sp1 = fi_target_spec(&s1("D32钢=30@CE-5"));
+    let sp1d = xg(&sp1, "Spec");
+    chk(
+        xb(&sp1, "Found") && xs(&sp1d, "Key") == "D32钢" && xi(&sp1d, "Target") == 30
+            && xl(&xg(&sp1d, "Stages")).len() == 1 && xs(&sp1d, "Bad") == "",
+        "farm/intent·spec：名=数@关 拆得开",
+        &mut fails,
+        &mut total,
+    );
+    let sp2 = xg(&fi_target_spec(&s1("30135=12@CE-5,CE-4")), "Spec");
+    chk(
+        xs(&sp2, "Key") == "30135" && xl(&xg(&sp2, "Stages")).len() == 2,
+        "farm/intent·spec：代号+多关(逗号/顿号分隔)拆得开",
+        &mut fails,
+        &mut total,
+    );
+    let sp2b = xg(&fi_target_spec(&s1("30135=12@CE-5、CE-4；LS-5")), "Spec");
+    chk(
+        xl(&xg(&sp2b, "Stages")).len() == 3,
+        "farm/intent·spec：顿号/分号/空白都是关卡分隔",
+        &mut fails,
+        &mut total,
+    );
+    let sp3 = xg(
+        &fi_target_spec(&jv_o(vec![
+            ("item", s1("D32钢")),
+            ("target", JVal::I(20)),
+            ("stages", JVal::A(vec![s1("CE-5")])),
+        ])),
+        "Spec",
+    );
+    chk(
+        xs(&sp3, "Key") == "D32钢" && xi(&sp3, "Target") == 20 && xs(&sp3, "Bad") == "",
+        "farm/intent·spec：json 对象写法也吃",
+        &mut fails,
+        &mut total,
+    );
+    let sp3b = xg(
+        &fi_target_spec(&jv_o(vec![
+            ("item", s1("D32钢")),
+            ("target", JVal::I(20)),
+            ("stages", JVal::A(vec![s1("CE-5，CE-4")])),
+        ])),
+        "Spec",
+    );
+    chk(
+        xl(&xg(&sp3b, "Stages")).len() == 2,
+        "farm/intent·spec：stages 只给一条串时按分隔符再切(旧 $s.Count -eq 1 分支)",
+        &mut fails,
+        &mut total,
+    );
+    let sp3c = xg(
+        &fi_target_spec(&jv_o(vec![("name", s1("或铝石")), ("count", JVal::I(7))])),
+        "Spec",
+    );
+    chk(
+        xs(&sp3c, "Key") == "或铝石" && xi(&sp3c, "Target") == 7 && xl(&xg(&sp3c, "Stages")).is_empty(),
+        "farm/intent·spec：name/count 别名也吃，没关卡就是空数组",
+        &mut fails,
+        &mut total,
+    );
+    let sp4 = xg(&fi_target_spec(&s1("想刷点火腿")), "Spec");
+    chk(
+        xs(&sp4, "Bad").contains("材料名=数量") && xs(&sp4, "Raw") == "想刷点火腿",
+        "farm/intent·spec：看不懂的行给 Bad 说明而不是丢掉",
+        &mut fails,
+        &mut total,
+    );
+    let sp5 = xg(&fi_target_spec(&jv_o(vec![("item", s1("D32钢"))])), "Spec");
+    chk(
+        xs(&sp5, "Bad").contains("目标数量") && xs(&sp5, "Raw") == "D32钢",
+        "farm/intent·spec：对象缺数量也给 Bad(Raw 回显键名)",
+        &mut fails,
+        &mut total,
+    );
+    let sp6 = xg(&fi_target_spec(&jv_o(vec![("target", JVal::I(5))])), "Spec");
+    chk(
+        xs(&sp6, "Bad") == "条目里没有材料名/代号(item)" && xs(&sp6, "Raw") == "{\"target\":5}",
+        "farm/intent·spec：对象连 item 都没有 → Bad 里点名(item)，Raw 回压缩 JSON",
+        &mut fails,
+        &mut total,
+    );
+    chk(
+        !xb(&fi_target_spec(&JVal::Null), "Found") && !xb(&fi_target_spec(&s1("   ")), "Found"),
+        "farm/intent·spec：raw 缺失/空串 → Found:false(旧实现返回 $null)",
+        &mut fails,
+        &mut total,
+    );
+    let sp7 = xg(&fi_target_spec(&s1("D32钢＝30 @ CE-5")), "Spec");
+    chk(
+        xi(&sp7, "Target") == 30 && xl(&xg(&sp7, "Stages")).len() == 1,
+        "farm/intent·spec：全角等号与 @ 前后空格都认(旧正则 [=＝] 与 \\s*@\\s*)",
+        &mut fails,
+        &mut total,
+    );
+
+    // —— 掉落文本解析：6 ——
+    let dsample = "[08:50:26] CE-5 掉落统计:\nD32钢 : 2 (+2)   或铝石 : 1 (+1)   当前次数 : 3\n[08:52:10] LS-5 掉落统计:\n采购凭证 : 30 (30)";
+    let dd = fi_drop_text(dsample);
+    let dblks = xl(&xg(&dd, "Blocks"));
+    chk(
+        dblks.len() == 2 && xs(&dblks[0], "Stage") == "CE-5" && xs(&dblks[1], "Stage") == "LS-5",
+        "farm/intent·drop：两个块、关卡代号抓得到",
+        &mut fails,
+        &mut total,
+    );
+    let ditem0 = xl(&xg(&dblks[0], "Items"));
+    chk(
+        ditem0.len() == 2 && xs(&ditem0[0], "Name") == "D32钢" && xi(&ditem0[0], "Delta") == 2,
+        "farm/intent·drop：时间戳前缀不影响识别；「当前次数」被拒绝表挡掉",
+        &mut fails,
+        &mut total,
+    );
+    let ditem1 = xl(&xg(&dblks[1], "Items"));
+    chk(
+        ditem1.len() == 1 && xi(&ditem1[0], "Delta") == 0,
+        "farm/intent·drop：只按 (+N) 记增量，\"(30)\"这种总数不当增量",
+        &mut fails,
+        &mut total,
+    );
+    chk(
+        xl(&xg(&fi_drop_text(""), "Blocks")).is_empty(),
+        "farm/intent·drop：空文本给空数组不抛",
+        &mut fails,
+        &mut total,
+    );
+    let db2 = xl(&xg(&fi_drop_text("<12> PR-B-2 掉落统计:术师芯片组 : 2 (+2)"), "Blocks"));
+    chk(
+        db2.len() == 1 && xs(&db2[0], "Stage") == "PR-B-2",
+        "farm/intent·drop：行首 <n> 前缀剥掉后块头照样认",
+        &mut fails,
+        &mut total,
+    );
+    let db3 = xl(&xg(
+        &fi_drop_text("CE-4 掉落统计:\nD32钢 : 1 (+1)\n这是一句普通说明\n30135 : 9 (+9)"),
+        "Blocks",
+    ));
+    chk(
+        db3.len() == 1 && xl(&xg(&db3[0], "Items")).len() == 1,
+        "farm/intent·drop：出现不像配额的行就算块结束(后面不再入账)",
+        &mut fails,
+        &mut total,
+    );
+
+    // —— 补刷判表：15 ——
+    let n2i = jv_o(vec![("D32钢", s1("30135")), ("或铝石", s1("30115"))]);
+    let i2n = jv_o(vec![("30135", s1("D32钢")), ("30115", s1("或铝石"))]);
+    let known = jv_o(vec![("CE-5", JVal::B(true)), ("CE-4", JVal::B(true))]);
+    let dt = jv_o(vec![(
+        "30135",
+        jv_o(vec![
+            ("CE-5", jv_o(vec![("runs", JVal::I(5)), ("qty", JVal::I(12))])),
+            ("CE-4", jv_o(vec![("runs", JVal::I(3)), ("qty", JVal::I(3))])),
+        ]),
+    )]);
+    let fspec = |key: &str, target: i64, stages: Vec<JVal>| -> JVal {
+        jv_o(vec![
+            ("Key", s1(key)),
+            ("Target", JVal::I(target)),
+            ("Stages", JVal::A(stages)),
+            ("Raw", s1(&format!("{}={}", key, target))),
+            ("Bad", s1("")),
+        ])
+    };
+    let pin = |targets: Vec<JVal>, inv: JVal, org: JVal, dtt: JVal, kn: JVal, mx: i64| -> JVal {
+        jv_o(vec![
+            ("targets", JVal::A(targets)),
+            ("nameToId", n2i.clone()),
+            ("idToName", i2n.clone()),
+            ("inventory", inv),
+            ("origin", org),
+            ("dropTable", dtt),
+            ("knownStages", kn),
+            ("maxTimes", JVal::I(mx)),
+        ])
+    };
+    let r0 = fi_plan(&jv_o(vec![("targets", JVal::A(Vec::new()))]));
+    chk(
+        !xb(&r0, "Active") && xs(&r0, "Reason").contains("farmTargets"),
+        "farm/intent·plan：空清单不炸，理由说\"没配 farmTargets\"",
+        &mut fails,
+        &mut total,
+    );
+    let rf = fi_plan(&pin(
+        vec![fspec("D32钢", 30, vec![s1("CE-5")])],
+        jv_o(vec![("30135", JVal::I(18))]),
+        jv_o(Vec::new()),
+        dt.clone(),
+        known.clone(),
+        12,
+    ));
+    chk(
+        xb(&rf, "Active") && xi(&rf, "Gap") == 12 && x_at(&xg(&rf, "Stages"), 0) == "CE-5" && xi(&rf, "Times") == 12,
+        "farm/intent·plan：缺口=目标-现有；显式填关优先；次数保守折算=缺口(每场掉 1 保底，凑满目标为止)",
+        &mut fails,
+        &mut total,
+    );
+    chk(
+        xs(&rf, "Reason").contains("还差 12")
+            && xs(&rf, "Reason").contains("每场约 2.4")
+            && xs(&rf, "Reason").starts_with("补刷 D32钢×12 @CE-5：目标 30，现有 18"),
+        "farm/intent·plan：Reason 说清账目(逐字口径：还差 12 / 每场约 2.4 照报但只进括号)",
+        &mut fails,
+        &mut total,
+    );
+    let rc = fi_plan(&pin(
+        vec![fspec("D32钢", 99, vec![s1("CE-5")])],
+        jv_o(Vec::new()),
+        jv_o(Vec::new()),
+        dt.clone(),
+        known.clone(),
+        4,
+    ));
+    chk(
+        xi(&rc, "Times") == 4 && xs(&rc, "Reason").contains("(单轮封顶 4，剩下的明天接着刷)"),
+        "farm/intent·plan：单轮封顶生效并在 Reason 里说\"明天接着刷\"",
+        &mut fails,
+        &mut total,
+    );
+    let rg = fi_plan(&pin(
+        vec![fspec("D32钢", 10, vec![s1("CE-5")])],
+        jv_o(vec![("30135", JVal::I(12))]),
+        jv_o(Vec::new()),
+        dt.clone(),
+        known.clone(),
+        12,
+    ));
+    chk(
+        !xb(&rg, "Active") && xs(&rg, "Reason").contains("D32钢 已够(12/10)"),
+        "farm/intent·plan：已够的目标不刷，理由里带\"已够(12/10)\"",
+        &mut fails,
+        &mut total,
+    );
+    let ro = fi_plan(&pin(
+        vec![fspec("30135", 30, vec![s1("CE-9")])],
+        jv_o(Vec::new()),
+        jv_o(Vec::new()),
+        jv_o(Vec::new()),
+        known.clone(),
+        12,
+    ));
+    chk(
+        !xb(&ro, "Active") && xs(&ro, "Reason").contains("不被 MAA 关卡表认识"),
+        "farm/intent·plan：只填了不认识的关 → 不刷并说为什么",
+        &mut fails,
+        &mut total,
+    );
+    let ru = fi_plan(&pin(
+        vec![fspec("点火腿", 5, vec![])],
+        jv_o(Vec::new()),
+        jv_o(Vec::new()),
+        jv_o(Vec::new()),
+        jv_o(Vec::new()),
+        12,
+    ));
+    chk(
+        !xb(&ru, "Active") && xs(&ru, "Reason").contains("item_index"),
+        "farm/intent·plan：材料表查不到的名字跳过并说明(不静默)",
+        &mut fails,
+        &mut total,
+    );
+    let rn = fi_plan(&pin(
+        vec![fspec("D32钢", 5, vec![])],
+        jv_o(Vec::new()),
+        jv_o(Vec::new()),
+        jv_o(Vec::new()),
+        jv_o(Vec::new()),
+        12,
+    ));
+    chk(
+        !xb(&rn, "Active") && xs(&rn, "Reason").contains("@CE-5 这种带关卡的形式"),
+        "farm/intent·plan：没学习数据又没填关 → 提示写成带 @关卡 的形式",
+        &mut fails,
+        &mut total,
+    );
+    let re = fi_plan(&pin(
+        vec![fspec("D32钢", 8, vec![s1("CE-5")])],
+        jv_o(vec![("30135", JVal::I(4))]),
+        jv_o(vec![("30135", s1("depot"))]),
+        jv_o(Vec::new()),
+        jv_o(Vec::new()),
+        12,
+    ));
+    chk(
+        xs(&re, "Reason").contains("估算")
+            && xs(&re, "Reason").contains("按每场 1 估")
+            && xi(&re, "Times") == 4,
+        "farm/intent·plan：depot 标定的现值明说\"是估算\"；无学习数据按每场 1 估",
+        &mut fails,
+        &mut total,
+    );
+    let rb = fi_plan(&pin(
+        vec![fspec("D32钢", 20, vec![s1("CE-5")]), fspec("或铝石", 100, vec![s1("CE-4")])],
+        jv_o(vec![("30135", JVal::I(18)), ("30115", JVal::I(90))]),
+        jv_o(Vec::new()),
+        jv_o(Vec::new()),
+        jv_o(Vec::new()),
+        12,
+    ));
+    chk(
+        xs(&rb, "ItemName") == "或铝石" && xi(&rb, "Gap") == 10,
+        "farm/intent·plan：多目标一次只锁缺口最大的那个(或铝石差10)",
+        &mut fails,
+        &mut total,
+    );
+    let rl = fi_plan(&pin(
+        vec![fspec("D32钢", 30, vec![])],
+        jv_o(vec![("30135", JVal::I(18))]),
+        jv_o(Vec::new()),
+        dt.clone(),
+        known.clone(),
+        12,
+    ));
+    chk(
+        xl(&xg(&rl, "Stages")) == vec![s1("CE-5"), s1("CE-4")] && xi(&rl, "Times") == 12,
+        "farm/intent·plan：没填关 → 学习表挑关(平均掉得多的打头，最多 2 关)；次数仍=缺口 12",
+        &mut fails,
+        &mut total,
+    );
+    chk(
+        xs(&rl, "Reason").contains("每场约 1.9"),
+        "farm/intent·plan：合计均值的串面 1.9(1.875 不是中点，ToEven 不生效，实测两代 PS 都给 1.9)",
+        &mut fails,
+        &mut total,
+    );
+    let rcode = fi_plan(&pin(
+        vec![fspec("30115", 20, vec![s1("CE-4")])],
+        jv_o(Vec::new()),
+        jv_o(Vec::new()),
+        jv_o(Vec::new()),
+        jv_o(Vec::new()),
+        12,
+    ));
+    chk(
+        xs(&rcode, "ItemName") == "或铝石"
+            && xs(&rcode, "Reason").starts_with("补刷 或铝石×12 @CE-4：目标 20，现有 0，还差 20，掉落率未知，按每场 1 估"),
+        "farm/intent·plan：键是代号时 ItemName 反查回材料名(Reason 用名不用号)，无学习数据按 1 估并封顶",
+        &mut fails,
+        &mut total,
+    );
+    let rmix = fi_plan(&pin(
+        vec![
+            jv_o(vec![
+                ("Key", s1("点火腿")),
+                ("Target", JVal::I(0)),
+                ("Stages", JVal::A(Vec::new())),
+                ("Raw", s1("想刷点火腿")),
+                ("Bad", s1("看不懂「想刷点火腿」，要写成 材料名=数量[@关卡1,关卡2]")),
+            ]),
+            fspec("D32钢", 20, vec![s1("CE-5")]),
+        ],
+        jv_o(vec![("30135", JVal::I(18))]),
+        jv_o(Vec::new()),
+        jv_o(Vec::new()),
+        jv_o(Vec::new()),
+        12,
+    ));
+    chk(
+        xb(&rmix, "Active") && xl(&xg(&rmix, "Notes")).len() == 1
+            && x_at(&xg(&rmix, "Notes"), 0).starts_with("跳过「想刷点火腿」"),
+        "farm/intent·plan：坏行不进方案但 Notes 里留痕(汇总着说，不静默丢)",
+        &mut fails,
+        &mut total,
+    );
+    let rz = fi_plan(&pin(
+        vec![fspec("D32钢", 3, vec![s1("CE-5")])],
+        jv_o(Vec::new()),
+        jv_o(Vec::new()),
+        jv_o(Vec::new()),
+        jv_o(Vec::new()),
+        0,
+    ));
+    chk(
+        xi(&rz, "Times") == 1 && xs(&rz, "Reason").contains("单轮封顶 1"),
+        "farm/intent·plan：MaxTimes<1 兜成 1(旧 [int] 兜底)，封顶句跟着说 1",
+        &mut fails,
+        &mut total,
+    );
+
+    // —— 方舟本轮意图：11 ——
+    let idle = jv_o(vec![
+        ("Mode", s1("idle")),
+        ("Stage", s1("CE-5,LS-5")),
+        ("StageHint", s1("CE-5,LS-5")),
+        ("ClearSanity", JVal::B(true)),
+        ("Reason", s1("长草")),
+        ("EventKey", JVal::Null),
+        ("EventTip", JVal::Null),
+        ("Source", s1("weekday")),
+    ]);
+    let pend = jv_o(vec![
+        ("Mode", s1("event-pending")),
+        ("Stage", JVal::Null),
+        ("StageHint", s1("CT-1")),
+        ("ClearSanity", JVal::B(false)),
+        ("Reason", s1("等新活动确认")),
+        ("EventKey", s1("act1")),
+        ("EventTip", s1("sidestory")),
+        ("Source", s1("event")),
+    ]);
+    let fopt = jv_o(vec![
+        ("Stages", JVal::A(vec![s1("PR-D-2"), s1("CE-5")])),
+        ("Reason", s1("补刷 特种芯片组×8 @PR-D-2")),
+    ]);
+    let ain = |ark: JVal, stage: &str, force: bool, farm: bool, fo: JVal| -> JVal {
+        jv_o(vec![
+            ("ark", ark),
+            ("stage", s1(stage)),
+            ("force", JVal::B(force)),
+            ("farm", JVal::B(farm)),
+            ("farmOpt", fo),
+        ])
+    };
+    let am = fi_ark_intent(&ain(pend.clone(), "OF-1", false, false, JVal::Null));
+    let amk = xg(&am, "Ark");
+    chk(
+        xs(&amk, "Mode") == "manual" && xs(&amk, "Stage") == "OF-1" && xs(&amk, "StageHint") == "OF-1"
+            && xs(&amk, "Reason") == "命令行指定刷 OF-1" && xs(&amk, "Source") == "manual" && xb(&amk, "ClearSanity"),
+        "farm/intent·ark：-Stage 手造 manual(逐字：命令行指定刷 OF-1；Source=manual)",
+        &mut fails,
+        &mut total,
+    );
+    chk(
+        xnl(&xg(&amk, "EventKey")) && xnl(&xg(&amk, "EventTip")),
+        "farm/intent·ark：manual 档 EventKey/EventTip 是给过的空值(不是残留活动键)",
+        &mut fails,
+        &mut total,
+    );
+    let af = fi_ark_intent(&ain(pend.clone(), "", true, false, JVal::Null));
+    let afk = xg(&af, "Ark");
+    chk(
+        xs(&afk, "Mode") == "event" && xs(&afk, "Stage") == "CT-1"
+            && xs(&afk, "Reason") == "(-Force) 跳过活动确认门，直接刷 CT-1"
+            && xs(&afk, "EventKey") == "act1" && xs(&afk, "EventTip") == "sidestory" && xs(&afk, "Source") == "event",
+        "farm/intent·ark：-Force 跳确认门 → event 档取 StageHint，Reason 带(-Force)原话",
+        &mut fails,
+        &mut total,
+    );
+    chk(
+        xl(&xg(&af, "Warnings")).len() == 1 && x_at(&xg(&af, "Warnings"), 0) == "-Force：本轮忽略活动确认门",
+        "farm/intent·ark：-Force 的 WARN 文案原样交给壳去打",
+        &mut fails,
+        &mut total,
+    );
+    let fn_ = fi_ark_intent(&ain(idle.clone(), "", true, false, JVal::Null));
+    chk(
+        xl(&xg(&fn_, "Warnings")).is_empty() && xs(&xg(&fn_, "Ark"), "Mode") == "idle" && !xb(&fn_, "HasFarmFields"),
+        "farm/intent·ark：-Force 对非 event-pending 不动手(空 Warn，ark 原样)",
+        &mut fails,
+        &mut total,
+    );
+    let fd = fi_ark_intent(&ain(idle.clone(), "", false, true, fopt.clone()));
+    let fdk = xg(&fd, "Ark");
+    chk(
+        xs(&fdk, "Mode") == "farm" && xs(&fdk, "Stage") == "PR-D-2,CE-5"
+            && xs(&fdk, "Reason") == "材料补刷专用轮 — 补刷 特种芯片组×8 @PR-D-2",
+        "farm/intent·ark：专用轮 Mode=farm、Stage 只挂 farm 关(逗号拼)",
+        &mut fails,
+        &mut total,
+    );
+    chk(
+        xnl(&xg(&fdk, "EventKey")) && xs(&fdk, "Source") == "weekday" && xs(&fd, "FarmMode") == "dedicated"
+            && xb(&fd, "HasFarmFields"),
+        "farm/intent·ark：专用轮键抄自原 ark(EventKey/EventTip/Source)",
+        &mut fails,
+        &mut total,
+    );
+    let a_app = fi_ark_intent(&ain(
+        jv_o(vec![
+            ("Mode", s1("idle")),
+            ("Stage", s1("CE-5,LS-5,CE-5")),
+            ("StageHint", s1("CE-5,LS-5")),
+            ("ClearSanity", JVal::B(true)),
+            ("Reason", s1("长草")),
+            ("EventKey", JVal::Null),
+            ("EventTip", JVal::Null),
+            ("Source", s1("weekday")),
+        ]),
+        "",
+        false,
+        false,
+        fopt.clone(),
+    ));
+    let a_appk = xg(&a_app, "Ark");
+    chk(
+        xs(&a_appk, "Stage") == "PR-D-2,CE-5,LS-5" && xs(&a_app, "FarmMode") == "append",
+        "farm/intent·ark：需求优先档：farm 关排最前且去重(CE-5 不重复出现)",
+        &mut fails,
+        &mut total,
+    );
+    chk(
+        xs(&a_appk, "Reason") == "长草；需求优先 补刷 特种芯片组×8 @PR-D-2",
+        "farm/intent·ark：append 的 Reason 用「；需求优先 」拼接(逐字)",
+        &mut fails,
+        &mut total,
+    );
+    chk(
+        xs(&a_appk, "Mode") == "idle" && xs(&a_appk, "StageHint") == "CE-5,LS-5" && xb(&a_appk, "ClearSanity"),
+        "farm/intent·ark：append 档不动 Mode/StageHint/ClearSanity(只改 Stage/Reason)",
+        &mut fails,
+        &mut total,
+    );
+    let afl = fi_ark_intent(&ain(idle.clone(), "", false, true, JVal::Null));
+    chk(
+        xs(&afl, "FarmMode") == ""
+            && xb(&afl, "HasFarmFields")
+            && x_at(&xg(&afl, "Warnings"), 0) == "-Farm 本轮没有可补的材料 → 按原方案跑"
+            && xs(&xg(&afl, "Ark"), "Mode") == "idle",
+        "farm/intent·ark：-Farm 但本轮没有可补 → 原方案 + FarmMode 空 + WARN 文案",
+        &mut fails,
+        &mut total,
+    );
+
+    // —— 1999 本轮意图：3 ——
+    let pendr = jv_o(vec![
+        ("Mode", s1("event-pending")),
+        ("Instance", s1("idle")),
+        ("Version", s1("v4.7.1")),
+        ("VersionName", s1("测试版本")),
+        ("EventKey", s1("act123")),
+        ("EventTip", s1("活动")),
+        ("Reason", s1("待确认")),
+        ("DataAge", JVal::Null),
+    ]);
+    let rin = |plan: &str, force: bool| -> JVal {
+        jv_o(vec![
+            ("decision", pendr.clone()),
+            ("plan", s1(plan)),
+            ("force", JVal::B(force)),
+        ])
+    };
+    let rr = fi_r1999_intent(&rin("auto", true));
+    let rrk = xg(&rr, "Decision");
+    chk(
+        xs(&rrk, "Mode") == "event" && xs(&rrk, "Instance") == "event"
+            && xs(&rrk, "Reason") == "(-Force) 跳过 1999 活动确认门，直接用活动方案"
+            && xs(&rrk, "Version") == "v4.7.1" && xs(&rrk, "VersionName") == "测试版本"
+            && xs(&rrk, "EventKey") == "act123" && xnl(&xg(&rrk, "DataAge"))
+            && x_at(&xg(&rr, "Warnings"), 0) == "-Force：1999 本轮忽略活动确认门",
+        "farm/intent·r19：-Force → event/event，Reason 与 WARN 逐字",
+        &mut fails,
+        &mut total,
+    );
+    let rr2 = fi_r1999_intent(&rin("idle", true));
+    let rr2k = xg(&rr2, "Decision");
+    chk(
+        xs(&rr2k, "Mode") == "idle" && xs(&rr2k, "Instance") == "idle" && xs(&rr2k, "Version") == "manual"
+            && xs(&rr2k, "VersionName") == "命令行指定" && xs(&rr2k, "Reason") == "命令行指定 idle"
+            && xnl(&xg(&rr2k, "EventKey")) && xnl(&xg(&rr2k, "DataAge")),
+        "farm/intent·r19：-Plan≠auto 无条件覆盖(连 Force 的结果也覆盖)：Version=manual/VersionName=命令行指定",
+        &mut fails,
+        &mut total,
+    );
+    let rr3 = fi_r1999_intent(&rin("auto", false));
+    chk(
+        xl(&xg(&rr3, "Warnings")).is_empty() && xs(&xg(&rr3, "Decision"), "Mode") == "event-pending",
+        "farm/intent·r19：两样都不给 → decision 原样、零 Warn",
+        &mut fails,
+        &mut total,
+    );
+
+    // —— 自指六项：分派顺序 / 夹具名册 / 信封身份 ——
+    let fi_dispatch_at = SRC.find(&["run_farm_intent(", "&out_file"].concat()).unwrap_or(usize::MAX);
+    chk(
+        fi_dispatch_at < kind_gate_at,
+        "--farm-intent 的分派落在那条必填拦路虎之后：farm/intent 这一档会被装包必填拦死，『只吃夹具』成了空话",
+        &mut fails,
+        &mut total,
+    );
+    let fc = fi_fixture_cases();
+    let n_spec = fc.iter().filter(|(n, _)| n.starts_with("spec/")).count();
+    let n_drop = fc.iter().filter(|(n, _)| n.starts_with("drop/")).count();
+    let n_plan = fc.iter().filter(|(n, _)| n.starts_with("plan/")).count();
+    let n_ark = fc.iter().filter(|(n, _)| n.starts_with("ark/")).count();
+    let n_r19 = fc.iter().filter(|(n, _)| n.starts_with("r19/")).count();
+    chk(
+        fc.len() == 46 && n_spec == 13 && n_drop == 6 && n_plan == 14 && n_ark == 9 && n_r19 == 4,
+        &format!(
+            "farm/intent 夹具五族分家不对（spec/drop/plan/ark/r19 = {}/{}/{}/{}/{}，应 13/6/14/9/4）",
+            n_spec, n_drop, n_plan, n_ark, n_r19
+        ),
+        &mut fails,
+        &mut total,
+    );
+    let mut fi_names: Vec<&str> = fc.iter().map(|(n, _)| *n).collect();
+    fi_names.sort();
+    fi_names.dedup();
+    chk(
+        fi_names.len() == 46,
+        "farm/intent 夹具出现重名档：三侧门按名对账会把漏档读成对齐",
+        &mut fails,
+        &mut total,
+    );
+    let fj = render_farm_intent_json();
+    chk(
+        fj.contains(r#""ok":true"#)
+            && fj.contains(r#""role":"R2-farm-intent""#)
+            && fj.contains(r#""fixture":"farm-intent""#)
+            && fj.contains(r#""count":46"#),
+        "farm/intent 出口信封缺格：三侧对拍门靠 role/fixture/count 这几格判身份",
+        &mut fails,
+        &mut total,
+    );
+    chk(
+        fj.matches(r#""name":"#).count() == 46,
+        "farm/intent 信封 cases 条数与夹具名册不一致",
+        &mut fails,
+        &mut total,
+    );
+    chk(
+        !fj.contains(r#""date":"#),
+        "farm/intent 信封里出现了 date 格：这一档不吃时钟，多了它就对拍门多一个假身份格",
+        &mut fails,
+        &mut total,
+    );
+
     if fails.is_empty() {
         println!("RESULT SELFTEST-PASS checks={} contract={}", total, CONTRACT);
         return 0;
@@ -3661,6 +5489,12 @@ fn usage() -> ! {
          \t  把监督四段纯判定（开关取值 / 证据→状态 / 状态→动作 / 详情拼句）从与生产同一条调用面\n\
          \t  各过一遍（48 档场景），逐档结果装进一份信封，供三侧对拍门与 old/new 两侧逐字比对。\n\
          \t  --date 是详情那八档的日期戳注入（不给=空串；探针不读时钟 —— C# 侧同口径，日期由壳注入）。\n\
+         \n\
+         机器补刷判定档（R2②）：gdprobe --farm-intent [--out <文件>]\n\
+         \t  与上面两档同理**只吃内联夹具、不加载任何 DLL、不碰任何现场**，所以也不需要 --kind / --dir。\n\
+         \t  把 farm/intent 五段纯判定（目标清单解析 / 掉落文本 / 补刷判表 / 方舟本轮意图 / 1999 本轮意图）\n\
+         \t  各过一遍（46 档场景），逐档结果装进一份信封，供三侧对拍门与 old/new 两侧逐字比对。\n\
+         \t  **没有日期注入** —— 信封里不带 date 格：这一档不吃时钟，对应门也不做日期对账。\n\
          \n\
          自检：gdprobe --selftest        无头，不加载任何 DLL、不碰任何现场\n\
          \n\
@@ -3803,6 +5637,10 @@ fn run(args: &[String]) -> i32 {
                 mode = "sv";
                 i += 1;
             }
+            "--farm-intent" => {
+                mode = "farm-intent";
+                i += 1;
+            }
             "--date" => {
                 sv_date = need("--date", args, i);
                 i += 2;
@@ -3910,6 +5748,13 @@ fn run(args: &[String]) -> i32 {
         // "要指哪枚装包"在这里同样没有意义；被必填拦死就等于这一档没开。
         // （这段注释刻意不把那条必填的原话写出来 —— 自检的顺序门数整份源码，写出来先逮到的就是注释。）
         return run_sv(&sv_date, &out_file);
+    }
+
+    if mode == "farm-intent" {
+        // farm/intent 纯判定档与上面两档同理，同样落在两必填**之前**返回：只吃内联夹具、
+        // 不加载任何 DLL，"要指哪枚装包"在这里没有意义；被必填拦死就等于这一档没开。
+        // （照 sv 的样式，这条注释刻意不把那条必填的原话写出来 —— 自检的顺序门数整份源码。）
+        return run_farm_intent(&out_file);
     }
 
     if mode == "preflight" {

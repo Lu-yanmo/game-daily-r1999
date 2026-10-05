@@ -666,5 +666,67 @@ namespace GdPanel
             s = Regex.Replace(s, @"\s+", " ", RegexOptions.None, TimeSpan.FromSeconds(5));
             return s.Trim();
         }
+
+        // ==================== verb: observe-maa-stage-open(2026-10-05 新增：只读观测，攒"周几开哪本"的账) ====================
+        // 背景(10-04/10-05 实锤)：MAA 对我们写盘的 StagePlan 连砍两刀 —— 第一刀在加载期按账号解锁进度修剪
+        // (10-8 被剪)，第二刀在 GUI UpdateStageList 按星期修剪(周一 CE-5 被剪)；两刀剪空后内核走
+        // 「回到上次作战」重放(asst.log 里 first:["LastOrCurBattleBegin"])，照烧理智但打的不是我们指定的本。
+        // 修这个要靠"每星期几实际开哪些长草本"这张表，而这张表没人抄过 —— 本 verb 每轮从两份日志抄三对
+        // 真值读数进观测账本(state\ark-stage-weekday-obs.json)，攒满一周后**由人**看账成案写 planByWeekday。
+        // 护栏(用户批复 B 档)：只采集、只出读数，绝不在这里或账本里改任何配置。
+        // 输入纯文本三件(asstText=asst.log 全 tail、guiText=gui.log 全 tail、date=壳侧注入当天 yyyy-MM-dd；
+        // C# 侧不读盘不读钟，同 detect-maa-fight-skip 的纪律)。读数口径：
+        //   Found   = 文本里有没有 `append_task Fight ` 行(没有=这一轮没递 Fight 任务，观测无意义)；
+        //   Stage   = 最后一条该行的 "stage" 字段原样(空串正是"计划被剪空"的铁证，不粉饰)；
+        //   LastBattle = 该行**之后**是否出现同时含 LastOrCurBattleBegin 与 "taskchain":"Fight" 的行(重放实锤)；
+        //   Survivors/Selected = gui 最后一条 `GetFightStage: from [...], selected X` 的两半 —— 这是
+        //     MAA 眼里"今天开着的关名单"，哪怕本轮没被烧到也照抄(它就是我们要的开放表旁证)。实测剪空形状是
+        //     `from [""], selected `(空串占位不是关名，滤掉；selected 缺失或 null 统一成空串)；
+        //   SawGuiPlan = 有没有见过 GetFightStage 行(理智更早跳过的轮会没有)。
+        // 与 detect-maa-fight-skip 同族但语义相反：那条判"认栽"，这条只抄账；Skipped=false 的轮这里照样可能空名单。
+        internal static object MaaStageObserve(Dictionary<string, object> inp)
+        {
+            string asstText = Gd.Str(Gd.Get(inp, "asstText"));
+            string guiText = Gd.Str(Gd.Get(inp, "guiText"));
+            string date = Gd.Str(Gd.Get(inp, "date"));
+            bool found = false;
+            string stage = "";
+            bool lastBattle = false;
+            string[] survivors = new string[0];
+            string selected = "";
+            bool sawGuiPlan = false;
+
+            string[] asstLines = Regex.Split(asstText, @"\r?\n");
+            int appendIdx = -1;
+            for (int i = asstLines.Length - 1; i >= 0; i--)
+            {
+                if (asstLines[i].Contains("append_task Fight ")) { appendIdx = i; break; }
+            }
+            if (appendIdx >= 0)
+            {
+                found = true;
+                Match ms = Regex.Match(asstLines[appendIdx], @"""stage""\s*:\s*""([^""]*)""", RegexOptions.None, TimeSpan.FromSeconds(5));
+                if (ms.Success) stage = ms.Groups[1].Value;
+                for (int i = appendIdx + 1; i < asstLines.Length; i++)
+                {
+                    if (asstLines[i].Contains("LastOrCurBattleBegin") && asstLines[i].Contains(@"""taskchain"":""Fight"""))
+                    { lastBattle = true; break; }
+                }
+            }
+            foreach (string line in Regex.Split(guiText, @"\r?\n"))
+            {
+                Match mg = Regex.Match(line, @"GetFightStage:\s*from\s*\[([^\]]*)\]", RegexOptions.None, TimeSpan.FromSeconds(5));
+                if (!mg.Success) continue;
+                sawGuiPlan = true;
+                List<string> keep = new List<string>();
+                foreach (Match mq in Regex.Matches(mg.Groups[1].Value, @"""([^""]*)""", RegexOptions.None, TimeSpan.FromSeconds(5)))
+                    if (mq.Groups[1].Value.Length > 0) keep.Add(mq.Groups[1].Value);   // 实测剪空形状是 from [""], —— 空串占位不算存活关名
+                survivors = keep.ToArray();
+                Match msel = Regex.Match(line, @",\s*selected\s+(.+?)\s*$", RegexOptions.None, TimeSpan.FromSeconds(5));
+                selected = msel.Success && msel.Groups[1].Value != "null" ? msel.Groups[1].Value : "";
+            }
+            return Gd.Out("Found", found, "Date", date, "Stage", stage, "LastBattle", lastBattle,
+                "SawGuiPlan", sawGuiPlan, "Survivors", survivors, "Selected", selected);
+        }
     }
 }

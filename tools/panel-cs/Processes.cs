@@ -297,14 +297,17 @@ namespace GdPanel
                     }
                     else
                     {
-                        foreach (string flag in new string[] { "UseMedicine", "UseStone", "UseExpiringMedicine", "EnableTargetDrop", "EnableTimesLimit" })
-                        {
-                            if (PsNe(Gd.Get(q, flag), false))
-                            {
-                                changes.Add(name + " → " + flag + " = false");
-                                q[flag] = false;
-                            }
-                        }
+                        // 默认档护甲(10-04 实锤改口径)：asst.log 撤令后 14 枚 append_task Fight 恰好分成两堆 ——
+                        // 补刷协议轮(EnableTargetDrop/EnableTimesLimit 全开)内核收到真 stage，掉旗轮全部 stage:""。
+                        // 空 stage 时 Fight 走 Fight@GoLastBattle"回到上次作战"，把游戏记忆的关卡重放到理智耗尽
+                        // ——撤令后 09-30~10-02 六轮天天实打 PR-D-2 芯片，写进 StagePlan 的 CE-5 从未进过内核。
+                        // 所以无补刷时不再"全掉旗"，改挂一组永不触顶的护甲借用同一条递关卡的路：
+                        //   DropId=4001(龙门币)/DropCount=999999 —— 轮内计数口径，单轮最多两三万也碰不到顶；
+                        //   TimesLimit=20 —— 数量级护栏，正常情况下理智先停；
+                        //   IsInventoryTarget=false —— 仓库快照不认识，防止被陈旧库存当场掐停。
+                        // 停手权仍在理智，语义等价"剩余理智打空默认关"，但 GUI 会把默认关真递给内核并打赢
+                        // 一场，把"上次作战"覆盖掉。顺带顶掉 09-28 补刷时代残留的 DropId/DropCount/IsInventoryTarget。
+                        ApplyFarm(q, name, changes, "默认档护甲", true, "4001", 999999, false, 20);
                     }
                 }
                 intent.Add(new KeyValuePair<string, bool>(name, t));

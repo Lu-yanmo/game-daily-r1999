@@ -66,6 +66,7 @@ namespace GdPanel
             TaskArgsGroup(b);
             RetryGroup(b);
             SkipGroup(b);
+            ObserveGroup(b);
             return b.Result("--orchtest");
         }
 
@@ -506,5 +507,53 @@ namespace GdPanel
         static object[] Pl(object r) { return Gd.List(Gd.Get(D(r), "Plan")); }
         static int Ts(object r) { return Convert.ToInt32(Gd.Get(D(r), "TaskSkips"), System.Globalization.CultureInfo.InvariantCulture); }
         static object[] Ev(object r) { return Gd.List(Gd.Get(D(r), "Evidence")); }
+
+        // ---------- 2026-10-05 新增：observe-maa-stage-open(只读观测，攒每周几开哪本的账) ----------
+        // 夹具行逐字抄自本机 debug\asst.log 与 gui.log 的 10-05 两班实录；asst 行里 penguin_id 是
+        // 机专属值已整字段摘除(读数只押 stage/重放两格，摘它不伤判据)。
+        static void ObserveGroup(Box b)
+        {
+            string apEmpty = "[2026-10-05 06:00:55.354][INF][Px24300][Tx10913] asst::Assistant::append_task Fight {\"stage\":\"\",\"medicine\":0,\"times\":20,\"series\":0,\"server\":\"CN\",\"drops\":{\"4001\":999999}}";
+            string replay = "[2026-10-05 06:01:20.100][TRC][Px24300][Tx10913] asst::PackageTask::run | run subtask 1 / 4 {\"class\":\"asst::ProcessTask\",\"first\":[\"LastOrCurBattleBegin\"],\"subtask\":\"ProcessTask\",\"taskchain\":\"Fight\",\"taskid\":4}";
+            string guiEmpty = "[2026-10-05 06:00:55.350][INF][FightSettingsUserControlModel] <2> GetFightStage: from [\"\"], selected ";
+            string apNamed = "[2026-10-05 06:00:55.354][INF][Px24300][Tx10913] asst::Assistant::append_task Fight {\"stage\":\"LS-5\",\"medicine\":0,\"times\":20,\"series\":0,\"server\":\"CN\"}";
+            string guiOpen = "[2026-10-05 06:00:55.350][INF][FightSettingsUserControlModel] <2> GetFightStage: from [\"LS-5\", \"SK-5\"], selected LS-5";
+
+            object trimmed = Obs(apEmpty + "\n" + replay, guiEmpty, "2026-10-05");
+            b.Chk("10-05 两刀剪空铁证形状：Found=true、Stage 空串原样、重放实锤、名单滤掉空串占位", () =>
+                Of(trimmed) && Og(trimmed) == "" && Ol(trimmed) && Oo(trimmed)
+                && Ov(trimmed).Length == 0 && Oc(trimmed) == "" && Oq(trimmed) == "2026-10-05");
+
+            object normal = Obs(apNamed + "\n" + "[x] 无关行", guiOpen, "2026-10-06");
+            b.Chk("正常轮：Stage 非空、无重放行不算 LastBattle、Survivors 两关、Selected 抠出", () =>
+                Of(normal) && Og(normal) == "LS-5" && !Ol(normal)
+                && Ov(normal).Length == 2 && Gd.Str(Ov(normal)[1]) == "SK-5" && Oc(normal) == "LS-5");
+
+            object noFight = Obs("[2026-10-05][INF] 只有别的路径行", guiOpen, "2026-10-05");
+            b.Chk("asst 里没有 append_task Fight 行 → Found=false(gui 读数照抄不误)：这条观测进账本前会被壳跳过", () =>
+                !Of(noFight) && Oo(noFight) && Ov(noFight).Length == 2);
+
+            object prevShift = Obs(replay + "\n" + apNamed, "", "2026-10-05");
+            b.Chk("上一班遗留的重放行排在 append 之前 → 不算本轮走过回到上次作战(只朝后看)", () =>
+                Of(prevShift) && !Ol(prevShift));
+
+            object lastGui = Obs(apNamed, guiOpen + "\n"
+                + "[2026-10-05 18:01:03.300][INF][FightSettingsUserControlModel] <2> GetFightStage: from [\"CE-5\"], selected null", "2026-10-05");
+            b.Chk("多条 GetFightStage 取最后一条；selected 的 null 形态与缺失形态同样归空串", () =>
+                Ov(lastGui).Length == 1 && Gd.Str(Ov(lastGui)[0]) == "CE-5" && Oc(lastGui) == "");
+
+            object emptyAll = Obs("", "", "");
+            b.Chk("两份文本都空 → 全零读数不抛(壳侧空 tail 是高频路径)", () =>
+                !Of(emptyAll) && !Ol(emptyAll) && !Oo(emptyAll) && Ov(emptyAll).Length == 0);
+        }
+
+        static object Obs(string asst, string gui, string date) { return Orchestration.MaaStageObserve(Inp("asstText", asst, "guiText", gui, "date", date)); }
+        static bool Of(object r) { return Gd.Truthy(Gd.Get(D(r), "Found")); }
+        static string Og(object r) { return Gd.Str(Gd.Get(D(r), "Stage")); }
+        static bool Ol(object r) { return Gd.Truthy(Gd.Get(D(r), "LastBattle")); }
+        static bool Oo(object r) { return Gd.Truthy(Gd.Get(D(r), "SawGuiPlan")); }
+        static object[] Ov(object r) { return Gd.List(Gd.Get(D(r), "Survivors")); }
+        static string Oc(object r) { return Gd.Str(Gd.Get(D(r), "Selected")); }
+        static string Oq(object r) { return Gd.Str(Gd.Get(D(r), "Date")); }
     }
 }

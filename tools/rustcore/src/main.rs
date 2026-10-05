@@ -10,6 +10,11 @@
 // 它给的是"序号对账 + 终态判据 + 出口裁剪"这套**方法**；现场那一半仍等连接段另两档的窗口样本。
 // 按 ADR-2 那条硬门：清单里还有 `unobserved` 格子，这一层就**不许**替换任何生产判据。
 //
+// R2 起再加一层**监督纯判定搬家**（`--sv`）：把 tools\panel-cs\Supervisor.cs 的四段纯规则
+// （四件开关取值 / 证据→状态 / 状态→动作 / 详情拼句）逐字复刻到这边，48 档内联夹具一次跑全。
+// 它与 C# 那份的等值由 tools\rustcore\probe-sv-rust-golden.ps1 三侧逐字对拍钉死（old=7b07650 旧 PS /
+// new=现树 C# 转发壳 / rust=这里）。同样是旁路对拍面：生产入口在 R3 解锁三件到位前**一律不接线**（方案 §8.3）。
+//
 // 纪律（写在这里给下一个改这个文件的人）：
 //   - 零外部 crate，Win32 直接 FFI；
 //   - 本机绝对路径一律由调用方(PS 薄壳)从 settings 取好传进来，**这个文件里不许出现任何一条本机路径字面量**；
@@ -23,7 +28,7 @@ use std::ffi::c_void;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::process::exit;
 
-const CONTRACT: &str = "RustCore-R1.0";
+const CONTRACT: &str = "RustCore-R2.0";
 const ROLE: &str = "R0-readonly";
 
 // ---------------------------------------------------------------- Win32 直调
@@ -1180,6 +1185,681 @@ fn run_events(fixture: &str, expected: Option<u64>, drop_at: u64, out: &Option<S
     if list.is_empty() {
         return 2;
     }
+    0
+}
+
+// ---- R2：监督纯判定四段（照 tools\panel-cs\Supervisor.cs 逐字复刻；等值由三侧对拍门钉）
+//
+// 这一层的四个函数是 C# 那份的**逐字复刻**：话术、判据顺序、PS 等值口径（`$x -ne $false` 那套）
+// 一处都不许"顺手优化"。夹具（48 档，抄自 tools\probe-sv-golden.ps1 的场景清单）内联在下面，
+// 只吃夹具、不加载任何 DLL、不碰任何现场；日期戳由 --date 注入（C# 侧同样不读时钟，golden 才可复现）。
+// `JVal` 是这一层的通用值树：形状对齐 JavaScriptSerializer 反序列化的产物（对象/数组/字符串/数字/布尔/null），
+// 语义工具（truthy/get/str/int/list）对齐 C# 的 Gd.* 工具，一行一套、不掺 IO。
+
+#[derive(Clone, Debug, PartialEq)]
+enum JVal {
+    Null,
+    B(bool),
+    I(i64),
+    F(f64),
+    S(String),
+    A(Vec<JVal>),
+    O(Vec<(String, JVal)>),
+}
+
+fn jv_s(s: &str) -> JVal {
+    JVal::S(s.to_string())
+}
+
+fn jv_o(kv: Vec<(&str, JVal)>) -> JVal {
+    JVal::O(kv.into_iter().map(|(k, v)| (k.to_string(), v)).collect())
+}
+
+/// `Gd.Get`：null 映射、缺键、非对象 → Null（键冲突取首个，夹具面不出现重复键）。
+fn jv_get(v: &JVal, key: &str) -> JVal {
+    if let JVal::O(o) = v {
+        for (k, val) in o {
+            if k == key {
+                return val.clone();
+            }
+        }
+    }
+    JVal::Null
+}
+
+/// `Gd.Truthy`：null/空串/0/空集合为假，其余为真（判定层大量依赖，别按"非 null 即真"的直觉）。
+fn jv_truthy(v: &JVal) -> bool {
+    match v {
+        JVal::Null => false,
+        JVal::B(b) => *b,
+        JVal::S(s) => !s.is_empty(),
+        JVal::A(a) => !a.is_empty(),
+        JVal::O(o) => !o.is_empty(),
+        JVal::I(i) => *i != 0,
+        JVal::F(f) => *f != 0.0,
+    }
+}
+
+/// PS 等值口径：`$x -ne $false` 不是 C# 的 x != false —— bool 看值、数字转成 0/1、
+/// 字符串把 $false 换成 "False" 做大小写不敏感比较（'False' 字符串在 PS 里就是关）。
+/// 其余类型现实中不出现在 supervisor 键上，退化成真值判断（照 Supervisor.cs 注释口径）。
+fn sv_ne_false(v: &JVal) -> bool {
+    match v {
+        JVal::Null => true,
+        JVal::B(b) => *b,
+        JVal::S(s) => !s.eq_ignore_ascii_case("False"),
+        JVal::I(i) => *i != 0,
+        JVal::F(f) => *f != 0.0,
+        _ => jv_truthy(v),
+    }
+}
+
+/// `Gd.Str`：null → ""；数字按不变文化。数组/对象这两支在夹具与生产字面里都不可达
+/// （C# 那份走到这里是 Convert.ToString 的类型名），这里按"数组空格拼接"兜底并注释在案。
+fn jv_str(v: &JVal) -> String {
+    match v {
+        JVal::Null => String::new(),
+        JVal::S(s) => s.clone(),
+        JVal::B(b) => if *b { "True" } else { "False" }.to_string(),
+        JVal::I(i) => i.to_string(),
+        JVal::F(f) => format!("{}", f),
+        JVal::A(a) => a.iter().map(jv_str).collect::<Vec<_>>().join(" "),
+        JVal::O(_) => String::new(),
+    }
+}
+
+/// C# `Convert.ToInt32(double)` 的银行家舍入（到偶数）；夹具面用不到小数进 [int] 的格，
+/// 但口径写死在这里，省得将来某一档静默按"四舍五入"漂过去。
+fn round_half_even(f: f64) -> f64 {
+    let r = f.round();
+    if ((f - f.trunc()).abs() - 0.5).abs() < f64::EPSILON && (r % 2.0) != 0.0 {
+        r - f.signum()
+    } else {
+        r
+    }
+}
+
+/// `Gd.Int`：null → def；转换失败 → def（C# 侧对非法值也是差一条 throw 与 0 的区别，见 Supervisor.cs 已知局限注）。
+fn jv_int(v: &JVal, def: i64) -> i64 {
+    match v {
+        JVal::Null => def,
+        JVal::I(i) => *i,
+        JVal::F(f) => round_half_even(*f) as i64,
+        JVal::B(b) => if *b { 1 } else { 0 },
+        JVal::S(s) => s.trim().parse::<i64>().unwrap_or(def),
+        _ => def,
+    }
+}
+
+/// 状态判据的 `ToD`：null → 0；转不动 → 0（只用于和 quietSec 比大小）。
+fn jv_to_d(v: &JVal) -> f64 {
+    match v {
+        JVal::Null => 0.0,
+        JVal::I(i) => *i as f64,
+        JVal::F(f) => *f,
+        JVal::B(b) => if *b { 1.0 } else { 0.0 },
+        JVal::S(s) => s.trim().parse::<f64>().unwrap_or(0.0),
+        _ => 0.0,
+    }
+}
+
+/// `Gd.List`：null → 空；数组摊开；字符串/对象/标量都算"一个元素"（PS 的 @() 语义）。
+fn jv_list(v: &JVal) -> Vec<&JVal> {
+    match v {
+        JVal::Null => Vec::new(),
+        JVal::A(a) => a.iter().collect(),
+        other => vec![other],
+    }
+}
+
+/// 出口投影：只要合法 JSON。字符串走既有 jstr；输出面不出现 F（真出现也按最小数字打印）。
+fn jv_to_json(v: &JVal) -> String {
+    match v {
+        JVal::Null => "null".to_string(),
+        JVal::B(b) => if *b { "true" } else { "false" }.to_string(),
+        JVal::I(i) => i.to_string(),
+        JVal::F(f) => format!("{}", f),
+        JVal::S(s) => jstr(s),
+        JVal::A(a) => format!("[{}]", a.iter().map(jv_to_json).collect::<Vec<_>>().join(",")),
+        JVal::O(o) => format!(
+            "{{{}}}",
+            o.iter()
+                .map(|(k, val)| format!("{}:{}", jstr(k), jv_to_json(val)))
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
+    }
+}
+
+// ==================== verb: eval-supervisor-settings（原四件开关取值） ====================
+// 输入是四个**原始值**（缺键=null），一次算全：Enabled=「没显式 false 就是开」；
+// IntervalSec <15 归 60（拍太快费日志）；QuietSec=分钟×60、下限 5 分钟；MaxInterventions 缺省 1、负数钳 0。
+fn sv_settings(inp: &JVal) -> JVal {
+    let sup = jv_get(inp, "supervisor");
+    let enabled = matches!(sup, JVal::Null) || sv_ne_false(&sup);
+
+    let mut v = 0i64;
+    let raw_i = jv_get(inp, "intervalSeconds");
+    if jv_truthy(&raw_i) {
+        v = jv_int(&raw_i, 0);
+    }
+    if v < 15 {
+        v = 60;
+    }
+
+    let mut m = 30i64;
+    let raw_q = jv_get(inp, "quietMinutes");
+    if jv_truthy(&raw_q) {
+        m = jv_int(&raw_q, 0);
+    }
+    if m < 5 {
+        m = 5;
+    }
+
+    let raw_m = jv_get(inp, "maxInterventions");
+    let max = if matches!(raw_m, JVal::Null) {
+        1
+    } else {
+        let t = jv_int(&raw_m, 0);
+        if t < 0 { 0 } else { t }
+    };
+
+    jv_o(vec![
+        ("Enabled", JVal::B(enabled)),
+        ("IntervalSec", JVal::I(v)),
+        ("QuietSec", JVal::I(m * 60)),
+        ("MaxInterventions", JVal::I(max)),
+    ])
+}
+
+// ==================== verb: parse-supervisor-state（原 Get-GdSupervisorState） ====================
+// 规则心跳，零 token：done/dead/quiet/busy 四态。判据顺序是认真的（注释随旧实现搬来）：
+// done 排最前（完成线看到了，进程在不在都不重要）；dead 只在"曾经见过助手活着、现在没了"时才判；
+// quiet 要求**两本日志都**安静**严格大于**阈值；asst_age/daily_age 缺失按 0 收。
+fn sv_state(inp: &JVal) -> JVal {
+    let ev = jv_get(inp, "evidence");
+    if jv_truthy(&jv_get(&ev, "Done")) {
+        return jv_o(vec![("State", jv_s("done"))]);
+    }
+    let alive = jv_truthy(&jv_get(&ev, "AssistantAlive"));
+    if jv_truthy(&jv_get(inp, "everAlive")) && !alive {
+        return jv_o(vec![("State", jv_s("dead"))]);
+    }
+    let quiet = jv_int(&jv_get(inp, "quietSec"), 1800) as f64;
+    let a = jv_to_d(&jv_get(&ev, "AsstAgeSec"));
+    let d = jv_to_d(&jv_get(&ev, "DailyAgeSec"));
+    if a > quiet && d > quiet {
+        return jv_o(vec![("State", jv_s("quiet"))]);
+    }
+    jv_o(vec![("State", jv_s("busy"))])
+}
+
+// ==================== verb: resolve-supervisor-action（原 Get-GdSupervisorAction 决策表） ====================
+// 干预决策表：quiet 要**连续两拍**才算数（一拍可能是日志轮转/时间抖动）；
+// 画面 blocking=true → 不干预，那是主流程兜底的活场；blocking=false（没弹窗却全线静止）
+// 且这一路允许重启且还有额度 → restart_assistant；其余异常一律 notify，
+// 且每种状态一轮只通知一次（调用方记 alreadyNotified）。
+// done/busy 之外的 state 一律按 quiet 流程走（照抄旧实现的 fall-through）；字符串比较按
+// PS -eq 的大小写不敏感口径。四句 Why 是话术本体，逐字禁改（golden 拍全文）。
+fn sv_action(inp: &JVal) -> JVal {
+    let state = jv_str(&jv_get(inp, "state"));
+    if state.eq_ignore_ascii_case("done") || state.eq_ignore_ascii_case("busy") {
+        return jv_o(vec![("Kind", jv_s("none")), ("Why", jv_s(""))]);
+    }
+    let notified = jv_truthy(&jv_get(inp, "alreadyNotified"));
+    if state.eq_ignore_ascii_case("dead") {
+        if notified {
+            return jv_o(vec![("Kind", jv_s("none")), ("Why", jv_s(""))]);
+        }
+        return jv_o(vec![
+            ("Kind", jv_s("notify")),
+            ("Why", jv_s("助手进程不见了，而这一轮还没宣布完成")),
+        ]);
+    }
+    if jv_int(&jv_get(inp, "quietStreak"), 0) < 2 {
+        return jv_o(vec![("Kind", jv_s("none")), ("Why", jv_s(""))]);
+    }
+    let scr = jv_get(inp, "screen");
+    if !matches!(scr, JVal::Null) && jv_truthy(&jv_get(&scr, "Ok")) {
+        if jv_truthy(&jv_get(&scr, "Blocking")) {
+            return jv_o(vec![
+                ("Kind", jv_s("none")),
+                (
+                    "Why",
+                    JVal::S(format!(
+                        "画面被「{}」挡着，交给主流程兜底",
+                        jv_str(&jv_get(&scr, "What"))
+                    )),
+                ),
+            ]);
+        }
+        if jv_truthy(&jv_get(inp, "canRestart"))
+            && jv_int(&jv_get(inp, "interventions"), 0)
+                < jv_int(&jv_get(inp, "maxInterventions"), 1)
+        {
+            return jv_o(vec![
+                ("Kind", jv_s("restart_assistant")),
+                (
+                    "Why",
+                    JVal::S(format!(
+                        "连续静止且画面没有挡路的东西({})，判定层没醒，重启助手",
+                        jv_str(&jv_get(&scr, "What"))
+                    )),
+                ),
+            ]);
+        }
+        if notified {
+            return jv_o(vec![("Kind", jv_s("none")), ("Why", jv_s(""))]);
+        }
+        return jv_o(vec![
+            ("Kind", jv_s("notify")),
+            ("Why", jv_s("连续静止、画面没有弹窗，但这一路不许自动重启(或额度用完)")),
+        ]);
+    }
+    if notified {
+        return jv_o(vec![("Kind", jv_s("none")), ("Why", jv_s(""))]);
+    }
+    let mut why = String::from("连续静止，且看不清画面");
+    if !matches!(scr, JVal::Null) && jv_truthy(&jv_get(&scr, "Why")) {
+        why.push('(');
+        why.push_str(&jv_str(&jv_get(&scr, "Why")));
+        why.push(')');
+    }
+    jv_o(vec![("Kind", jv_s("notify")), ("Why", JVal::S(why))])
+}
+
+// ==================== verb: compose-supervisor-detail（原 Get-GdSupervisorDetailLines） ====================
+// 把 supervision.json 里**已经算好**的东西念成给人看的展开文本。纯函数、一个字都不判：
+// state/action/screen/why 都是采集与判据那两层写进去的值，这里只按固定字段取值、按固定说法拼句子。
+// 日期戳（Get-Date 现场）由壳以 date 参数注入（C# 侧同样，golden 才可复现）；行数刻意收敛
+// （最近 MaxBeats 拍×每路一行+现值头+介入记录）。纪律：输出行不许含 '|'（面板协议分隔符，
+// test-modules 钉着）；空串字段说"没问/none"，asst_age=-1 说"读不到"；beats 被上限挤掉时
+// 不许顺手 return 吞掉介入记录（旧实现注释原话）。
+fn sv_detail(inp: &JVal) -> JVal {
+    let mut lines: Vec<JVal> = Vec::new();
+    let sv = jv_get(inp, "sv");
+    if matches!(sv, JVal::Null) {
+        return jv_o(vec![("Lines", JVal::A(lines))]);
+    }
+
+    let stopped = if jv_truthy(&jv_get(&sv, "stopped")) {
+        format!(" · 收工 {}", jv_str(&jv_get(&sv, "stopped")))
+    } else {
+        String::new()
+    };
+    lines.push(JVal::S(format!(
+        "现值：PID {} · 盯的路线 {} · 上岗 {} · 最后一拍 {}{}",
+        jv_str(&jv_get(&sv, "pid")),
+        jv_str(&jv_get(&sv, "games")),
+        jv_str(&jv_get(&sv, "started")),
+        jv_str(&jv_get(&sv, "updated")),
+        stopped
+    )));
+    lines.push(JVal::S(format!(
+        "流水：logs\\supervision-{}.jsonl(一行一拍，留 7 天)",
+        jv_str(&jv_get(inp, "date"))
+    )));
+
+    let beats_val = jv_get(&sv, "beats");
+    let beats = jv_list(&beats_val);
+    if beats.is_empty() {
+        // 只说"还没落下第一拍"，不许就此结束：拍被挤掉、介入记录还在。
+        lines.push(jv_s("这一枚监督进程还没落下第一拍(起拍间隔默认 60 秒)。"));
+    } else {
+        let mut mb = jv_int(&jv_get(inp, "maxBeats"), 6);
+        if mb < 1 {
+            mb = 1;
+        }
+        let shown = (mb as usize).min(beats.len());
+        lines.push(JVal::S(format!(
+            "最近 {} 拍(字段：状态 / 助手日志静默 / 进程 / 完成线 / 画面 / 动作)：",
+            shown
+        )));
+        for &b in &beats[beats.len() - shown..] {
+            let mut ts = jv_str(&jv_get(b, "ts"));
+            let tsc: Vec<char> = ts.chars().collect();
+            if tsc.len() >= 19 {
+                // C# 的 Substring(11,8) 按 UTF-16 单元；这里按字符取，ASCII 日期戳两口径等值。
+                ts = tsc[11..19].iter().collect();
+            }
+            let games_val = jv_get(b, "games");
+            for g in jv_list(&games_val) {
+                let mut age = jv_str(&jv_get(g, "asst_age"));
+                age = if age == "-1" {
+                    "读不到".to_string()
+                } else {
+                    age + "秒"
+                };
+                lines.push(JVal::S(format!(
+                    "  {} {}={} 助手日志静默 {} 进程 {} 完成线 {} 画面 {} 动作 {}{}",
+                    ts,
+                    jv_str(&jv_get(g, "game")),
+                    jv_str(&jv_get(g, "state")),
+                    age,
+                    if jv_truthy(&jv_get(g, "alive")) { "在" } else { "没" },
+                    if jv_truthy(&jv_get(g, "done")) { "见过" } else { "没有" },
+                    if jv_truthy(&jv_get(g, "screen")) {
+                        jv_str(&jv_get(g, "screen"))
+                    } else {
+                        "没问".to_string()
+                    },
+                    if jv_truthy(&jv_get(g, "action")) {
+                        jv_str(&jv_get(g, "action"))
+                    } else {
+                        "none".to_string()
+                    },
+                    if jv_truthy(&jv_get(g, "why")) {
+                        format!(" 原因 {}", jv_str(&jv_get(g, "why")))
+                    } else {
+                        String::new()
+                    }
+                )));
+            }
+        }
+    }
+
+    let acts_val = jv_get(&sv, "actions");
+    let acts = jv_list(&acts_val);
+    if !acts.is_empty() {
+        lines.push(JVal::S(format!("介入记录({} 次)：", acts.len())));
+        for a in acts {
+            lines.push(JVal::S(format!(
+                "  {} {} {} {} — {}",
+                jv_str(&jv_get(a, "ts")),
+                jv_str(&jv_get(a, "game")),
+                jv_str(&jv_get(a, "kind")),
+                if jv_truthy(&jv_get(a, "ok")) { "成" } else { "没成" },
+                jv_str(&jv_get(a, "why"))
+            )));
+        }
+    } else {
+        lines.push(jv_s("这一轮没有介入过(它唯一的干预是重启助手，重启过会记在这里)。"));
+    }
+    jv_o(vec![("Lines", JVal::A(lines))])
+}
+
+// ---- R2 夹具与出口：48 档场景（12 开关 + 11 状态 + 17 动作 + 8 详情），逐条抄自
+//      tools\probe-sv-golden.ps1 的场景清单；名字与那边一字不差（三侧门按名做机器对账）。
+// 输入一律按**转发壳归一后的 verb 输入形状**给：settings 四键恒在（缺=$null）、
+// state 恒带 everAlive（壳缺省 $true —— 这一枚必须显式带上，C# 读法"缺键=null"是假，
+// 不带的话 rust 侧会跟 old/new 分家）、action 七键恒在（缺省值按壳填好）、d/ 首行带注入日期。
+fn sv_fixture_cases(date: &str) -> Vec<(&'static str, JVal)> {
+    let mut cases: Vec<(&'static str, JVal)> = Vec::new();
+
+    // ---------- set/ 12 档：eval-supervisor-settings ----------
+    let setv = |sup: JVal, iv: JVal, qm: JVal, mx: JVal| -> JVal {
+        jv_o(vec![
+            ("supervisor", sup),
+            ("intervalSeconds", iv),
+            ("quietMinutes", qm),
+            ("maxInterventions", mx),
+        ])
+    };
+    let nul = || JVal::Null;
+    cases.push(("set/empty", setv(nul(), nul(), nul(), nul())));
+    cases.push(("set/false", setv(JVal::B(false), nul(), nul(), nul())));
+    cases.push(("set/true", setv(JVal::B(true), nul(), nul(), nul())));
+    cases.push(("set/zero", setv(JVal::I(0), nul(), nul(), nul())));
+    cases.push(("set/strFalse", setv(jv_s("False"), nul(), nul(), nul())));
+    cases.push(("set/strlower", setv(jv_s("false"), nul(), nul(), nul())));
+    cases.push(("set/strYes", setv(jv_s("yes"), nul(), nul(), nul())));
+    cases.push(("set/low", setv(nul(), JVal::I(5), JVal::I(1), JVal::I(-3))));
+    cases.push(("set/ok", setv(nul(), JVal::I(90), JVal::I(45), JVal::I(2))));
+    cases.push(("set/edge", setv(nul(), JVal::I(15), JVal::I(5), JVal::I(0))));
+    cases.push(("set/strnum", setv(nul(), jv_s("90"), jv_s("5"), jv_s("2"))));
+    cases.push(("set/nulls", setv(nul(), nul(), nul(), nul())));
+
+    // ---------- st/ 11 档：parse-supervisor-state ----------
+    let stv = |done: JVal, alive: bool, aa: JVal, da: JVal, qs: i64, ever: bool| -> JVal {
+        jv_o(vec![
+            (
+                "evidence",
+                jv_o(vec![
+                    ("Done", done),
+                    ("AssistantAlive", JVal::B(alive)),
+                    ("AsstAgeSec", aa),
+                    ("DailyAgeSec", da),
+                ]),
+            ),
+            ("quietSec", JVal::I(qs)),
+            ("everAlive", JVal::B(ever)),
+        ])
+    };
+    cases.push(("st/done", stv(JVal::B(true), false, JVal::I(9999), JVal::I(9999), 1800, true)));
+    cases.push(("st/dead", stv(JVal::B(false), false, JVal::I(10), JVal::I(10), 1800, true)));
+    cases.push(("st/early", stv(JVal::B(false), false, JVal::I(9999), JVal::I(10), 1800, false)));
+    cases.push(("st/quiet", stv(JVal::B(false), true, JVal::I(9999), JVal::I(9999), 1800, true)));
+    cases.push(("st/asst-old", stv(JVal::B(false), true, JVal::I(9999), JVal::I(10), 1800, true)));
+    cases.push(("st/daily-old", stv(JVal::B(false), true, JVal::I(10), JVal::I(9999), 1800, true)));
+    cases.push(("st/edge", stv(JVal::B(false), true, JVal::I(1800), JVal::I(1800), 1800, true)));
+    cases.push(("st/just", stv(JVal::B(false), true, JVal::I(301), JVal::I(301), 300, true)));
+    cases.push(("st/nulls", stv(JVal::Null, true, JVal::Null, JVal::Null, 1800, true)));
+    cases.push(("st/decimal", stv(JVal::B(false), true, JVal::F(1810.5), JVal::F(3000.25), 1800, true)));
+    cases.push(("st/defaults", stv(JVal::B(false), true, JVal::I(2000), JVal::I(2000), 1800, true)));
+
+    // ---------- a/ 17 档：resolve-supervisor-action ----------
+    let act = |state: &str, qs: i64, scr: JVal, can: bool, intr: i64, maxi: i64, notif: bool| -> JVal {
+        jv_o(vec![
+            ("state", JVal::S(state.to_string())),
+            ("quietStreak", JVal::I(qs)),
+            ("screen", scr),
+            ("canRestart", JVal::B(can)),
+            ("interventions", JVal::I(intr)),
+            ("maxInterventions", JVal::I(maxi)),
+            ("alreadyNotified", JVal::B(notif)),
+        ])
+    };
+    let scr_clear = || jv_o(vec![("Ok", JVal::B(true)), ("Blocking", JVal::B(false)), ("What", jv_s("主界面"))]);
+    let scr_block = || jv_o(vec![("Ok", JVal::B(true)), ("Blocking", JVal::B(true)), ("What", jv_s("活动公告"))]);
+    let scr_fail_why = || jv_o(vec![("Ok", JVal::B(false)), ("Why", jv_s("截图没成功"))]);
+    let scr_fail_bare = || jv_o(vec![("Ok", JVal::B(false))]);
+    cases.push(("a/busy", act("busy", 0, JVal::Null, false, 0, 1, false)));
+    cases.push(("a/done", act("done", 0, JVal::Null, false, 0, 1, false)));
+    cases.push(("a/DONE", act("DONE", 0, JVal::Null, false, 0, 1, false)));
+    cases.push(("a/dead", act("dead", 0, JVal::Null, false, 0, 1, false)));
+    cases.push(("a/dead-notified", act("dead", 0, JVal::Null, false, 0, 1, true)));
+    cases.push(("a/quiet-1", act("quiet", 1, scr_clear(), true, 0, 1, false)));
+    cases.push(("a/blocking", act("quiet", 2, scr_block(), false, 0, 1, false)));
+    cases.push(("a/restart", act("quiet", 2, scr_clear(), true, 0, 1, false)));
+    cases.push(("a/quota", act("quiet", 2, scr_clear(), true, 1, 1, false)));
+    cases.push(("a/norestart", act("quiet", 2, scr_clear(), false, 0, 1, false)));
+    cases.push(("a/norestart-not", act("quiet", 2, scr_clear(), false, 0, 1, true)));
+    cases.push(("a/fail-why", act("quiet", 2, scr_fail_why(), true, 0, 1, false)));
+    cases.push(("a/fail-bare", act("quiet", 2, scr_fail_bare(), true, 0, 1, false)));
+    cases.push(("a/fail-notified", act("quiet", 3, scr_fail_why(), false, 0, 1, true)));
+    cases.push(("a/screen-null", act("quiet", 2, JVal::Null, false, 0, 1, false)));
+    cases.push(("a/unknown-fall", act("weird", 1, JVal::Null, false, 0, 1, false)));
+    cases.push(("a/unknown-fall2", act("unknown", 2, scr_fail_bare(), false, 0, 1, false)));
+
+    // ---------- d/ 8 档：compose-supervisor-detail ----------
+    let beat2 = jv_o(vec![
+        ("ts", jv_s("2026-09-26 13:05:00")),
+        (
+            "games",
+            JVal::A(vec![
+                jv_o(vec![
+                    ("game", jv_s("t1")),
+                    ("state", jv_s("quiet")),
+                    ("alive", JVal::B(true)),
+                    ("asst_age", JVal::I(1810)),
+                    ("done", JVal::B(false)),
+                    ("screen", jv_s("clear")),
+                    ("action", jv_s("notify")),
+                    ("why", jv_s("连续静止，额度用完")),
+                ]),
+                jv_o(vec![
+                    ("game", jv_s("t2")),
+                    ("state", jv_s("dead")),
+                    ("alive", JVal::B(false)),
+                    ("asst_age", JVal::I(-1)),
+                    ("done", JVal::B(true)),
+                    ("screen", JVal::Null),
+                    ("action", jv_s("none")),
+                    ("why", jv_s("")),
+                ]),
+            ]),
+        ),
+    ]);
+    let doc1 = jv_o(vec![
+        ("pid", JVal::I(4321)),
+        ("owner", JVal::I(1)),
+        ("started", jv_s("2026-09-26 13:00:00")),
+        ("games", jv_s("t1+t2")),
+        ("updated", jv_s("2026-09-26 13:05:00")),
+        ("stopped", jv_s("")),
+        ("beats", JVal::A(vec![beat2.clone()])),
+        ("actions", JVal::A(vec![])),
+    ]);
+    let doc_stopped = jv_o(vec![
+        ("pid", JVal::I(4321)),
+        ("owner", JVal::I(1)),
+        ("started", jv_s("2026-09-26 13:00:00")),
+        ("games", jv_s("t1+t2")),
+        ("updated", jv_s("2026-09-26 13:05:00")),
+        ("stopped", jv_s("2026-09-26 13:20:00")),
+        ("beats", JVal::A(vec![beat2.clone()])),
+        (
+            "actions",
+            JVal::A(vec![jv_o(vec![
+                ("ts", jv_s("13:06:00")),
+                ("game", jv_s("t1")),
+                ("kind", jv_s("restart_assistant")),
+                ("ok", JVal::B(false)),
+                ("why", jv_s("重启没成")),
+            ])]),
+        ),
+    ]);
+    // 刻意**没有** stopped / owner 键：旧侧属性缺失=$null 与新侧 JSON 缺键必须是同一句话
+    let doc_no_beats = jv_o(vec![
+        ("pid", JVal::I(1)),
+        ("games", jv_s("all")),
+        ("started", jv_s("x")),
+        ("updated", jv_s("")),
+        ("beats", JVal::A(vec![])),
+        (
+            "actions",
+            JVal::A(vec![jv_o(vec![
+                ("ts", jv_s("13:06:00")),
+                ("game", jv_s("t1")),
+                ("kind", jv_s("restart_assistant")),
+                ("ok", JVal::B(true)),
+                ("why", jv_s("已重启")),
+            ])]),
+        ),
+    ]);
+    // games 是单对象不是数组（5.1 的 ConvertTo-Json 就这样塌）—— 两侧 @() 语义必须一致
+    let doc_short = jv_o(vec![
+        ("pid", JVal::I(7)),
+        ("games", jv_s("t9")),
+        ("started", jv_s("s")),
+        ("updated", jv_s("u")),
+        ("stopped", jv_s("")),
+        (
+            "beats",
+            JVal::A(vec![jv_o(vec![
+                ("ts", jv_s("13:05")),
+                (
+                    "games",
+                    jv_o(vec![
+                        ("game", jv_s("t9")),
+                        ("state", jv_s("busy")),
+                        ("alive", JVal::B(true)),
+                        ("asst_age", JVal::I(5)),
+                        ("done", JVal::B(false)),
+                        ("screen", jv_s("")),
+                        ("action", jv_s("")),
+                        ("why", jv_s("")),
+                    ]),
+                ),
+            ])]),
+        ),
+        ("actions", JVal::A(vec![])),
+    ]);
+    let mk_b = |ts: &str, state: &str, age: i64| -> JVal {
+        jv_o(vec![
+            ("ts", JVal::S(ts.to_string())),
+            (
+                "games",
+                JVal::A(vec![jv_o(vec![
+                    ("game", jv_s("t1")),
+                    ("state", JVal::S(state.to_string())),
+                    ("alive", JVal::B(true)),
+                    ("asst_age", JVal::I(age)),
+                    ("done", JVal::B(false)),
+                    ("screen", jv_s("")),
+                    ("action", jv_s("none")),
+                    ("why", jv_s("")),
+                ])]),
+            ),
+        ])
+    };
+    let doc3 = jv_o(vec![
+        ("pid", JVal::I(1)),
+        ("games", jv_s("t1")),
+        ("started", jv_s("s")),
+        ("updated", jv_s("u")),
+        ("stopped", jv_s("")),
+        (
+            "beats",
+            JVal::A(vec![
+                mk_b("2026-09-26 13:01:00", "busy", 5),
+                mk_b("2026-09-26 13:02:00", "busy", 5),
+                mk_b("2026-09-26 13:03:00", "quiet", 30),
+            ]),
+        ),
+        ("actions", JVal::A(vec![])),
+    ]);
+    let det = |sv: JVal, mb: i64| -> JVal {
+        jv_o(vec![
+            ("sv", sv),
+            ("maxBeats", JVal::I(mb)),
+            ("date", JVal::S(date.to_string())),
+        ])
+    };
+    cases.push(("d/null", det(JVal::Null, 6)));
+    cases.push(("d/full", det(doc1, 6)));
+    cases.push(("d/stopped", det(doc_stopped, 6)));
+    cases.push(("d/nobeats", det(doc_no_beats, 6)));
+    cases.push(("d/shortts", det(doc_short, 6)));
+    cases.push(("d/max2", det(doc3.clone(), 2)));
+    cases.push(("d/max0", det(doc3.clone(), 0)));
+    cases.push(("d/max99", det(doc3, 99)));
+
+    cases
+}
+
+/// `--sv` 的信封装配（纯函数；`run_sv` 与 `--selftest` 共用同一处 —— 自检复现的就是真出口）。
+fn render_sv_json(date: &str) -> String {
+    let cases = sv_fixture_cases(date);
+    let items: Vec<String> = cases
+        .iter()
+        .map(|(name, inp)| {
+            let data = if name.starts_with("set/") {
+                sv_settings(inp)
+            } else if name.starts_with("st/") {
+                sv_state(inp)
+            } else if name.starts_with("a/") {
+                sv_action(inp)
+            } else {
+                sv_detail(inp)
+            };
+            format!("{{\"name\":{},\"data\":{}}}", jstr(name), jv_to_json(&data))
+        })
+        .collect();
+    format!(
+        "{{\"ok\":true,\"why\":\"只吃内联夹具的四段监督纯判定（48 档）；这不是对方行为的读数\",\"contract\":{},\"role\":\"R2-supervisor\",\"fixture\":\"supervisor\",\"date\":{},\"count\":{},\"cases\":[{}]}}",
+        jstr(CONTRACT),
+        jstr(date),
+        items.len(),
+        items.join(",")
+    )
+}
+
+/// `--sv` 那一档：同 `--events` 的出口纪律 —— 只吃内联夹具、不加载任何 DLL、不碰任何现场；
+/// 日期戳由 `--date` 注入（不给=空串，那是"没注入"的显式读数，探针永不读时钟）。
+fn run_sv(date: &str, out: &Option<String>) -> i32 {
+    let json = render_sv_json(date);
+    emit(&json, out);
     0
 }
 
@@ -2443,16 +3123,16 @@ fn selftest() -> i32 {
         &mut fails,
         &mut total,
     );
-    // --events 那一档必须并入同一条 emit 出口（否则 --out 出现"某一档默默忽略"的假口径），
-    // 且分派必须落在「--kind 那条必填」**之前**：这一档不需要装包，被必填拦死就等于没开。
+    // --events 与 --sv 两档都必须并入同一条 emit 出口（否则 --out 出现"某一档默默忽略"的假口径），
+    // 且各自的分派必须落在「--kind 那条必填」**之前**：这两档都不需要装包，被必填拦死就等于没开。
     // 这里数的是**整份** SRC 而不是 src_head：分派在 run() 里，而 run() 排在 selftest **之后**，
     // 用 src_head 会两处都找不到、双双退成 MAX 再判成红（这一族"针落在射程外"的坑本轮第二次踩）。
     // needle 一律运行期拼，**且失败文案里也不许把那串字面量原样写出来**：整份一起数时，
     // 自家标签先于 run() 命中，门就红在一句人话上（本轮真踩：文案里的 `--kind` 与那条必填连起来写，
     // SRC.find 先逮到的是这条文案自己 —— 同一族坑第四次，判据读的是自己就必须把自己排除在射程外）。
     chk(
-        SRC.matches(&["emit(&", "json"].concat()).count() == 1,
-        "事件流那一档没走 emit：--out 在这档上是空头承诺",
+        SRC.matches(&["emit(&", "json"].concat()).count() == 2,
+        "事件流/监督判定两档没同走一处 emit：--out 在其中一档上是空头承诺",
         &mut fails,
         &mut total,
     );
@@ -2461,6 +3141,425 @@ fn selftest() -> i32 {
     chk(
         dispatch_at < kind_gate_at,
         "--events 的分派落在那条必填拦路虎之后：这一档会被装包必填拦死，『只吃夹具』成了空话",
+        &mut fails,
+        &mut total,
+    );
+    let sv_dispatch_at = SRC.find(&["run_sv(", "&sv_date"].concat()).unwrap_or(usize::MAX);
+    chk(
+        sv_dispatch_at < kind_gate_at,
+        "--sv 的分派落在那条必填拦路虎之后：监督判定这一档会被装包必填拦死，『只吃夹具』成了空话",
+        &mut fails,
+        &mut total,
+    );
+
+    // 14. R2 监督四段：逐条转写 tools\panel-cs\Supervisor.SelfTest.cs（56 项 = 16+9+14+17）。
+    //     期望字面逐字抄自 lib\supervisor.ps1 的旧实现（四句 Why、现值头、拍行、"读不到/没问/none/原因"话术）——
+    //     这里红了就是移植走样，改 sv_*，不改期望（§7 同一条纪律）。不加载任何 DLL、不碰现场：
+    //     证据/状态/画面/文档全部由场景直接喂进来。
+    let sv_gi = |o: &JVal, k: &str| -> i64 { jv_int(&jv_get(o, k), -1) };
+    let sv_gb = |o: &JVal, k: &str| -> bool { jv_truthy(&jv_get(o, k)) };
+    let sv_gs = |o: &JVal, k: &str| -> String { jv_str(&jv_get(o, k)) };
+    let sv_lines = |r: &JVal| -> Vec<String> {
+        let lv = jv_get(r, "Lines");
+        jv_list(&lv).into_iter().map(|v| jv_str(v)).collect()
+    };
+    let sv_has = |ls: &Vec<String>, frag: &str| -> bool { ls.iter().any(|s| s.contains(frag)) };
+    let sv_cnt = |ls: &Vec<String>, frag: &str| -> usize { ls.iter().filter(|s| s.contains(frag)).count() };
+    let sv_ev = |done: JVal, alive: JVal, aa: JVal, da: JVal| -> JVal {
+        jv_o(vec![("Done", done), ("AssistantAlive", alive), ("AsstAgeSec", aa), ("DailyAgeSec", da)])
+    };
+    let sv_scr = |ok: JVal, blk: JVal, what: JVal, why: JVal| -> JVal {
+        jv_o(vec![("Ok", ok), ("Blocking", blk), ("What", what), ("Why", why)])
+    };
+
+    // —— settings（16）：没显式 false 就是开 + 三档钳制 ——
+    let r = sv_settings(&jv_o(vec![]));
+    chk(
+        sv_gb(&r, "Enabled") && sv_gi(&r, "IntervalSec") == 60 && sv_gi(&r, "QuietSec") == 1800 && sv_gi(&r, "MaxInterventions") == 1,
+        "监督设置：缺省：开/60s/30分/额度 1",
+        &mut fails,
+        &mut total,
+    );
+    let r = sv_settings(&jv_o(vec![("supervisor", JVal::B(false))]));
+    chk(!sv_gb(&r, "Enabled"), "监督设置：supervisor=false 才关", &mut fails, &mut total);
+    let r = sv_settings(&jv_o(vec![("supervisor", JVal::B(true))]));
+    chk(sv_gb(&r, "Enabled"), "监督设置：supervisor=true 是开", &mut fails, &mut total);
+    let r = sv_settings(&jv_o(vec![("supervisor", JVal::I(0))]));
+    chk(!sv_gb(&r, "Enabled"), "监督设置：数值 0 按 PS 等值(x -ne $false)算关", &mut fails, &mut total);
+    let r = sv_settings(&jv_o(vec![("supervisor", jv_s("False"))]));
+    chk(!sv_gb(&r, "Enabled"), "监督设置：字符串 'False' 是关", &mut fails, &mut total);
+    let r = sv_settings(&jv_o(vec![("supervisor", jv_s("false"))]));
+    chk(!sv_gb(&r, "Enabled"), "监督设置：字符串 'false' 大小写不敏感也是关", &mut fails, &mut total);
+    let r = sv_settings(&jv_o(vec![("supervisor", jv_s("yes"))]));
+    chk(sv_gb(&r, "Enabled"), "监督设置：其余字符串按 PS 等值算开(只认 \"False\")", &mut fails, &mut total);
+    let r = sv_settings(&jv_o(vec![("intervalSeconds", JVal::I(5))]));
+    chk(sv_gi(&r, "IntervalSec") == 60, "监督设置：间隔<15s 归 60(拍太快没意义)", &mut fails, &mut total);
+    let r = sv_settings(&jv_o(vec![("intervalSeconds", JVal::I(90))]));
+    chk(sv_gi(&r, "IntervalSec") == 90, "监督设置：间隔 90s 原样", &mut fails, &mut total);
+    let r = sv_settings(&jv_o(vec![("intervalSeconds", JVal::I(15))]));
+    chk(sv_gi(&r, "IntervalSec") == 15, "监督设置：间隔踩线 15s 不钳(<15 才钳)", &mut fails, &mut total);
+    let r = sv_settings(&jv_o(vec![("intervalSeconds", JVal::I(0))]));
+    chk(sv_gi(&r, "IntervalSec") == 60, "监督设置：间隔 0 是假值 → 走缺省 60", &mut fails, &mut total);
+    let r = sv_settings(&jv_o(vec![("quietMinutes", JVal::I(1))]));
+    chk(sv_gi(&r, "QuietSec") == 300, "监督设置：静止阈值下限 5 分钟(=300 秒)", &mut fails, &mut total);
+    let r = sv_settings(&jv_o(vec![("quietMinutes", JVal::I(45))]));
+    chk(sv_gi(&r, "QuietSec") == 2700, "监督设置：静止阈值 45 分 → 2700 秒", &mut fails, &mut total);
+    let r = sv_settings(&jv_o(vec![("maxInterventions", JVal::I(0))]));
+    chk(sv_gi(&r, "MaxInterventions") == 0, "监督设置：额度可为 0(纯报告模式，0 不是 null)", &mut fails, &mut total);
+    let r = sv_settings(&jv_o(vec![("maxInterventions", JVal::I(-3))]));
+    chk(sv_gi(&r, "MaxInterventions") == 0, "监督设置：负额度钳 0", &mut fails, &mut total);
+    let r = sv_settings(&jv_o(vec![("maxInterventions", JVal::I(2))]));
+    chk(sv_gi(&r, "MaxInterventions") == 2, "监督设置：额度 2 原样", &mut fails, &mut total);
+
+    // —— state（9）：done/dead/quiet/busy，判据顺序是认真的 ——
+    let r = sv_state(&jv_o(vec![
+        ("evidence", sv_ev(JVal::B(true), JVal::B(false), JVal::I(9999), JVal::I(9999))),
+        ("everAlive", JVal::B(true)),
+    ]));
+    chk(sv_gs(&r, "State") == "done", "监督状态：完成线压死一切：进程没了也判 done", &mut fails, &mut total);
+    let r = sv_state(&jv_o(vec![
+        ("evidence", sv_ev(JVal::B(false), JVal::B(false), JVal::I(10), JVal::I(10))),
+        ("everAlive", JVal::B(true)),
+    ]));
+    chk(sv_gs(&r, "State") == "dead", "监督状态：曾活着+现在没了+没完成 = dead", &mut fails, &mut total);
+    let r = sv_state(&jv_o(vec![
+        ("evidence", sv_ev(JVal::B(false), JVal::B(false), JVal::I(9999), JVal::I(10))),
+        ("everAlive", JVal::B(false)),
+    ]));
+    chk(sv_gs(&r, "State") == "busy", "监督状态：助手从没活着过 ≠ dead(开轮太早)", &mut fails, &mut total);
+    let r = sv_state(&jv_o(vec![
+        ("evidence", sv_ev(JVal::B(false), JVal::B(true), JVal::I(9999), JVal::I(9999))),
+        ("quietSec", JVal::I(1800)),
+    ]));
+    chk(sv_gs(&r, "State") == "quiet", "监督状态：两本日志都超阈值才 quiet", &mut fails, &mut total);
+    let r = sv_state(&jv_o(vec![
+        ("evidence", sv_ev(JVal::B(false), JVal::B(true), JVal::I(9999), JVal::I(10))),
+        ("quietSec", JVal::I(1800)),
+    ]));
+    chk(sv_gs(&r, "State") == "busy", "监督状态：只有助手日志老 = 不算静止", &mut fails, &mut total);
+    let r = sv_state(&jv_o(vec![
+        ("evidence", sv_ev(JVal::B(false), JVal::B(true), JVal::I(10), JVal::I(9999))),
+        ("quietSec", JVal::I(1800)),
+    ]));
+    chk(sv_gs(&r, "State") == "busy", "监督状态：只有主日志老 = 不算静止", &mut fails, &mut total);
+    let r = sv_state(&jv_o(vec![
+        ("evidence", sv_ev(JVal::B(false), JVal::B(true), JVal::I(1800), JVal::I(1800))),
+        ("quietSec", JVal::I(1800)),
+    ]));
+    chk(sv_gs(&r, "State") == "busy", "监督状态：刚好踩在阈值上不算静止(严格大于)", &mut fails, &mut total);
+    // 这一档刻意**不带** everAlive 键：C# 读法"缺键=null 是假"，与转发壳的缺省 $true 不同 ——
+    // 归一形状里它恒在，这条钉的是函数本体对缺键的读法。
+    let r = sv_state(&jv_o(vec![("evidence", sv_ev(JVal::B(false), JVal::B(true), JVal::Null, JVal::Null))]));
+    chk(sv_gs(&r, "State") == "busy", "监督状态：ages 缺失按 0 收 → busy", &mut fails, &mut total);
+    let r = sv_state(&jv_o(vec![
+        ("evidence", sv_ev(JVal::B(false), JVal::B(true), JVal::F(1800.5), JVal::F(1801.25))),
+        ("quietSec", JVal::I(1800)),
+    ]));
+    chk(sv_gs(&r, "State") == "quiet", "监督状态：Decimal 年龄(信封里小数)也参与比较", &mut fails, &mut total);
+
+    // —— action（14）：决策表 + 四句 Why 逐字 ——
+    let r = sv_action(&jv_o(vec![("state", jv_s("busy"))]));
+    chk(sv_gs(&r, "Kind") == "none", "监督动作：busy 不动", &mut fails, &mut total);
+    let r = sv_action(&jv_o(vec![("state", jv_s("done"))]));
+    chk(sv_gs(&r, "Kind") == "none", "监督动作：done 不动", &mut fails, &mut total);
+    let r = sv_action(&jv_o(vec![("state", jv_s("DONE"))]));
+    chk(sv_gs(&r, "Kind") == "none", "监督动作：DONE 大写也不动(PS -eq 大小写不敏感)", &mut fails, &mut total);
+    let r = sv_action(&jv_o(vec![("state", jv_s("dead"))]));
+    chk(
+        sv_gs(&r, "Kind") == "notify" && sv_gs(&r, "Why") == "助手进程不见了，而这一轮还没宣布完成",
+        "监督动作：dead 通知一次，话术逐字",
+        &mut fails,
+        &mut total,
+    );
+    let r = sv_action(&jv_o(vec![("state", jv_s("dead")), ("alreadyNotified", JVal::B(true))]));
+    chk(sv_gs(&r, "Kind") == "none", "监督动作：dead 通知过就闭嘴", &mut fails, &mut total);
+    let r = sv_action(&jv_o(vec![
+        ("state", jv_s("quiet")),
+        ("quietStreak", JVal::I(1)),
+        ("screen", sv_scr(JVal::B(true), JVal::B(false), jv_s("x"), jv_s(""))),
+        ("canRestart", JVal::B(true)),
+    ]));
+    chk(sv_gs(&r, "Kind") == "none", "监督动作：静止一拍不动手(可能是抖动)", &mut fails, &mut total);
+    let r = sv_action(&jv_o(vec![
+        ("state", jv_s("quiet")),
+        ("quietStreak", JVal::I(2)),
+        ("screen", sv_scr(JVal::B(true), JVal::B(true), jv_s("活动弹窗"), jv_s(""))),
+        ("canRestart", JVal::B(true)),
+    ]));
+    chk(
+        sv_gs(&r, "Kind") == "none" && sv_gs(&r, "Why") == "画面被「活动弹窗」挡着，交给主流程兜底",
+        "监督动作：blocking 交给主流程兜底，话术逐字",
+        &mut fails,
+        &mut total,
+    );
+    let r = sv_action(&jv_o(vec![
+        ("state", jv_s("quiet")),
+        ("quietStreak", JVal::I(2)),
+        ("screen", sv_scr(JVal::B(true), JVal::B(false), jv_s("日常界面"), jv_s(""))),
+        ("canRestart", JVal::B(true)),
+        ("interventions", JVal::I(0)),
+        ("maxInterventions", JVal::I(1)),
+    ]));
+    chk(
+        sv_gs(&r, "Kind") == "restart_assistant" && sv_gs(&r, "Why") == "连续静止且画面没有挡路的东西(日常界面)，判定层没醒，重启助手",
+        "监督动作：静止+画面干净+许重启 = restart_assistant，话术逐字",
+        &mut fails,
+        &mut total,
+    );
+    let r = sv_action(&jv_o(vec![
+        ("state", jv_s("quiet")),
+        ("quietStreak", JVal::I(2)),
+        ("screen", sv_scr(JVal::B(true), JVal::B(false), jv_s("日常界面"), jv_s(""))),
+        ("canRestart", JVal::B(true)),
+        ("interventions", JVal::I(1)),
+        ("maxInterventions", JVal::I(1)),
+    ]));
+    chk(
+        sv_gs(&r, "Kind") == "notify" && sv_gs(&r, "Why") == "连续静止、画面没有弹窗，但这一路不许自动重启(或额度用完)",
+        "监督动作：额度用完退回 notify，话术逐字",
+        &mut fails,
+        &mut total,
+    );
+    let r = sv_action(&jv_o(vec![
+        ("state", jv_s("quiet")),
+        ("quietStreak", JVal::I(2)),
+        ("screen", sv_scr(JVal::B(true), JVal::B(false), jv_s("日常界面"), jv_s(""))),
+        ("canRestart", JVal::B(false)),
+    ]));
+    chk(sv_gs(&r, "Kind") == "notify", "监督动作：这一路不许重启 → 只 notify", &mut fails, &mut total);
+    let r = sv_action(&jv_o(vec![
+        ("state", jv_s("quiet")),
+        ("quietStreak", JVal::I(2)),
+        ("screen", sv_scr(JVal::B(false), JVal::B(false), jv_s(""), jv_s("截图失败"))),
+    ]));
+    chk(
+        sv_gs(&r, "Kind") == "notify" && sv_gs(&r, "Why") == "连续静止，且看不清画面(截图失败)",
+        "监督动作：看不清画面只 notify，话术逐字带上下文",
+        &mut fails,
+        &mut total,
+    );
+    let r = sv_action(&jv_o(vec![
+        ("state", jv_s("quiet")),
+        ("quietStreak", JVal::I(2)),
+        ("screen", sv_scr(JVal::B(false), JVal::B(false), jv_s(""), jv_s(""))),
+    ]));
+    chk(
+        sv_gs(&r, "Kind") == "notify" && sv_gs(&r, "Why") == "连续静止，且看不清画面",
+        "监督动作：没上下文就不缀括号",
+        &mut fails,
+        &mut total,
+    );
+    let r = sv_action(&jv_o(vec![
+        ("state", jv_s("quiet")),
+        ("quietStreak", JVal::I(3)),
+        ("screen", sv_scr(JVal::B(false), JVal::B(false), jv_s(""), jv_s(""))),
+        ("alreadyNotified", JVal::B(true)),
+    ]));
+    chk(sv_gs(&r, "Kind") == "none", "监督动作：notify 说过不再重复轰炸", &mut fails, &mut total);
+    let r = sv_action(&jv_o(vec![("state", jv_s("whatever")), ("quietStreak", JVal::I(1))]));
+    chk(sv_gs(&r, "Kind") == "none", "监督动作：未知状态按旧实现 fall-through 走 quiet 流程(一拍仍不动)", &mut fails, &mut total);
+
+    // —— detail（17）：假文档钉整段话术 ——
+    let sv_det = |sv: JVal, mb: Option<i64>| -> JVal {
+        let mut kv: Vec<(&str, JVal)> = vec![("sv", sv), ("date", jv_s("20260926"))];
+        if let Some(m) = mb {
+            kv.push(("maxBeats", JVal::I(m)));
+        }
+        sv_detail(&jv_o(kv))
+    };
+    let r = sv_detail(&jv_o(vec![]));
+    chk(sv_lines(&r).is_empty(), "监督详情：喂 null(从没监督过)返回空数组而不是抛", &mut fails, &mut total);
+    let sv_g1 = jv_o(vec![
+        ("game", jv_s("t1")),
+        ("state", jv_s("quiet")),
+        ("alive", JVal::B(true)),
+        ("asst_age", JVal::I(1810)),
+        ("done", JVal::B(false)),
+        ("screen", jv_s("clear")),
+        ("action", jv_s("notify")),
+        ("why", jv_s("连续静止，额度用完")),
+    ]);
+    let sv_g2 = jv_o(vec![
+        ("game", jv_s("t2")),
+        ("state", jv_s("dead")),
+        ("alive", JVal::B(false)),
+        ("asst_age", JVal::I(-1)),
+        ("done", JVal::B(true)),
+        ("screen", JVal::Null),
+        ("action", jv_s("none")),
+        ("why", jv_s("")),
+    ]);
+    let sv_beat = jv_o(vec![
+        ("ts", jv_s("2026-09-26 13:05:00")),
+        ("games", JVal::A(vec![sv_g1, sv_g2])),
+    ]);
+    let sv_doc1 = jv_o(vec![
+        ("pid", JVal::I(4321)),
+        ("owner", JVal::I(1)),
+        ("started", jv_s("2026-09-26 13:00:00")),
+        ("games", jv_s("t1+t2")),
+        ("updated", jv_s("2026-09-26 13:05:00")),
+        ("stopped", jv_s("")),
+        ("beats", JVal::A(vec![sv_beat])),
+        ("actions", JVal::A(vec![])),
+    ]);
+    let ls = sv_lines(&sv_det(sv_doc1, None));
+    chk(
+        !ls.is_empty() && ls[0] == "现值：PID 4321 · 盯的路线 t1+t2 · 上岗 2026-09-26 13:00:00 · 最后一拍 2026-09-26 13:05:00",
+        "监督详情：现值头把 PID/路线/上岗/最后一拍念全",
+        &mut fails,
+        &mut total,
+    );
+    chk(!ls.join(" ").contains("收工"), "监督详情：没收工不许出现「收工」二字", &mut fails, &mut total);
+    chk(
+        sv_has(&ls, "流水：logs\\supervision-20260926.jsonl(一行一拍，留 7 天)"),
+        "监督详情：流水行走注入的日期戳",
+        &mut fails,
+        &mut total,
+    );
+    chk(sv_cnt(&ls, "  13:05:00 ") == 2, "监督详情：一拍两路 → 展开成两行(谁都没被合并)", &mut fails, &mut total);
+    chk(
+        sv_has(&ls, "t2=dead 助手日志静默 读不到") && !sv_has(&ls, "-1秒"),
+        "监督详情：asst_age=-1 说成\"读不到\"，不是\"-1秒\"",
+        &mut fails,
+        &mut total,
+    );
+    chk(sv_has(&ls, "画面 没问"), "监督详情：画面没问过说\"没问\"", &mut fails, &mut total);
+    chk(sv_has(&ls, "助手日志静默 1810秒"), "监督详情：数值 age 后缀\"秒\"", &mut fails, &mut total);
+    chk(sv_has(&ls, "动作 none") && sv_has(&ls, "动作 notify"), "监督详情：没动作说 none，有动作原样念", &mut fails, &mut total);
+    chk(sv_cnt(&ls, "原因 ") == 1, "监督详情：why 为空的那一路不缀\"原因 \"", &mut fails, &mut total);
+    chk(
+        sv_has(&ls, "这一轮没有介入过(它唯一的干预是重启助手，重启过会记在这里)。"),
+        "监督详情：没介入过 → 明说没有",
+        &mut fails,
+        &mut total,
+    );
+    chk(!ls.join("\n").contains("|"), "监督详情：整段输出不含 '|'(面板协议分隔符)", &mut fails, &mut total);
+    let sv_doc_stopped = jv_o(vec![
+        ("pid", JVal::I(4321)),
+        ("owner", JVal::I(1)),
+        ("started", jv_s("2026-09-26 13:00:00")),
+        ("games", jv_s("t1+t2")),
+        ("updated", jv_s("2026-09-26 13:05:00")),
+        ("stopped", jv_s("2026-09-26 13:20:00")),
+        ("beats", JVal::A(vec![])),
+        ("actions", JVal::A(vec![jv_o(vec![
+            ("ts", jv_s("13:06:00")),
+            ("game", jv_s("t1")),
+            ("kind", jv_s("restart_assistant")),
+            ("ok", JVal::B(false)),
+            ("why", jv_s("重启没成")),
+        ])])),
+    ]);
+    let ls = sv_lines(&sv_det(sv_doc_stopped, None));
+    chk(
+        !ls.is_empty() && ls[0].ends_with(" · 收工 2026-09-26 13:20:00"),
+        "监督详情：收工时间真收工时出现在头行",
+        &mut fails,
+        &mut total,
+    );
+    chk(
+        sv_has(&ls, "这一枚监督进程还没落下第一拍(起拍间隔默认 60 秒)。")
+            && sv_has(&ls, "介入记录(1 次)：")
+            && sv_has(&ls, "  13:06:00 t1 restart_assistant 没成 — 重启没成"),
+        "监督详情：拍被挤掉仍报\"还没落下第一拍\"，且不吞介入记录",
+        &mut fails,
+        &mut total,
+    );
+    let sv_mkb = |ts: &str, state: &str, age: i64| -> JVal {
+        jv_o(vec![
+            ("ts", jv_s(ts)),
+            ("games", JVal::A(vec![jv_o(vec![
+                ("game", jv_s("t1")),
+                ("state", jv_s(state)),
+                ("alive", JVal::B(true)),
+                ("asst_age", JVal::I(age)),
+                ("done", JVal::B(false)),
+                ("screen", jv_s("")),
+                ("action", jv_s("none")),
+                ("why", jv_s("")),
+            ])])),
+        ])
+    };
+    let sv_b1 = sv_mkb("2026-09-26 13:01:00", "busy", 5);
+    let sv_b2 = sv_mkb("2026-09-26 13:02:00", "busy", 5);
+    let sv_b3 = sv_mkb("2026-09-26 13:03:00", "quiet", 30);
+    let ls = sv_lines(&sv_det(
+        jv_o(vec![
+            ("pid", JVal::I(1)),
+            ("games", jv_s("t1")),
+            ("started", jv_s("s")),
+            ("updated", jv_s("u")),
+            ("beats", JVal::A(vec![sv_b1.clone(), sv_b2.clone(), sv_b3.clone()])),
+            ("actions", JVal::A(vec![])),
+        ]),
+        Some(2),
+    ));
+    chk(
+        sv_has(&ls, "最近 2 拍(字段：状态 / 助手日志静默 / 进程 / 完成线 / 画面 / 动作)：")
+            && sv_cnt(&ls, "  13:0") == 2
+            && sv_has(&ls, "13:02:00")
+            && sv_has(&ls, "13:03:00")
+            && !sv_has(&ls, "13:01:00"),
+        "监督详情：MaxBeats=2 → 只念最后两拍，头行说\"最近 2 拍\"",
+        &mut fails,
+        &mut total,
+    );
+    let ls = sv_lines(&sv_det(
+        jv_o(vec![
+            ("pid", JVal::I(1)),
+            ("games", jv_s("t1")),
+            ("started", jv_s("s")),
+            ("updated", jv_s("u")),
+            ("beats", JVal::A(vec![sv_b1])),
+            ("actions", JVal::A(vec![])),
+        ]),
+        Some(0),
+    ));
+    chk(sv_has(&ls, "最近 1 拍"), "监督详情：MaxBeats=0 钳到 1 拍", &mut fails, &mut total);
+    chk(sv_has(&ls, "画面 没问"), "监督详情：screen 空串也走\"没问\"", &mut fails, &mut total);
+
+    // —— 夹具与出口自指（5）：三侧对拍门按名做机器对账，档数/分家/唯一性与信封五格在这里钉死 ——
+    let sv_cases = sv_fixture_cases("20260926");
+    chk(
+        sv_cases.len() == 48,
+        "监督夹具的档数不是 48：三侧对拍门的场景清单与出口 count 都会跟着漂",
+        &mut fails,
+        &mut total,
+    );
+    let n_set = sv_cases.iter().filter(|(n, _)| n.starts_with("set/")).count();
+    let n_st = sv_cases.iter().filter(|(n, _)| n.starts_with("st/")).count();
+    let n_a = sv_cases.iter().filter(|(n, _)| n.starts_with("a/")).count();
+    let n_d = sv_cases.len() - n_set - n_st - n_a;
+    chk(
+        n_set == 12 && n_st == 11 && n_a == 17 && n_d == 8,
+        &format!("监督夹具四族分家不对（set/st/a/d = {}/{}/{}/{}，应 12/11/17/8）", n_set, n_st, n_a, n_d),
+        &mut fails,
+        &mut total,
+    );
+    let mut sv_names: Vec<&str> = sv_cases.iter().map(|(n, _)| *n).collect();
+    sv_names.sort();
+    sv_names.dedup();
+    chk(
+        sv_names.len() == 48,
+        "监督夹具出现重名档：三侧门按名对账会把漏档读成对齐",
+        &mut fails,
+        &mut total,
+    );
+    let sv_json = render_sv_json("20260926");
+    chk(
+        sv_json.contains(r#""ok":true"#)
+            && sv_json.contains(r#""role":"R2-supervisor""#)
+            && sv_json.contains(r#""fixture":"supervisor""#)
+            && sv_json.contains(r#""date":"20260926""#)
+            && sv_json.contains(r#""count":48"#),
+        "监督判定出口信封缺格：三侧对拍门靠 role/fixture/date/count 这几格判身份",
+        &mut fails,
+        &mut total,
+    );
+    chk(
+        sv_json.matches(r#""name":"#).count() == 48 && sv_json.contains("supervision-20260926.jsonl"),
+        "cases 条数或日期戳注入不可达：详情八档的日期没进信封（对拍靠它钉会话日期）",
         &mut fails,
         &mut total,
     );
@@ -2557,6 +3656,12 @@ fn usage() -> ! {
          \t  出口信封**不带** raw_len / raw_hash：实测它们是资源落点路径长度与原文指纹的直接读数，属本机事实。\n\
          \t  这一层是旁路对拍用的，按 ADR-2 那条硬门，它**不替换**任何生产判据。\n\
          \n\
+         监督纯判定档（R2）：gdprobe --sv [--date <yyyyMMdd>] [--out <文件>]\n\
+         \t  与事件流档同理**只吃内联夹具、不加载任何 DLL、不碰任何现场**，所以也不需要 --kind / --dir。\n\
+         \t  把监督四段纯判定（开关取值 / 证据→状态 / 状态→动作 / 详情拼句）从与生产同一条调用面\n\
+         \t  各过一遍（48 档场景），逐档结果装进一份信封，供三侧对拍门与 old/new 两侧逐字比对。\n\
+         \t  --date 是详情那八档的日期戳注入（不给=空串；探针不读时钟 —— C# 侧同口径，日期由壳注入）。\n\
+         \n\
          自检：gdprobe --selftest        无头，不加载任何 DLL、不碰任何现场\n\
          \n\
          机读出口：任意一档都可加 --out <文件>，把信封**只**写进该文件，stdout 只留一行 RESULT 指引。\n\
@@ -2637,6 +3742,8 @@ fn run(args: &[String]) -> i32 {
     let mut fixture = "both".to_string();
     let mut expected_raw = String::new();
     let mut drop_at = 0u64;
+    // --sv（R2）那档的日期戳注入：空 = 没注入，d/ 那八档就照空串念（显式读数，探针永不读时钟）。
+    let mut sv_date = String::new();
     let mut flags = GateFlags::default();
     let mut i = 0usize;
     while i < args.len() {
@@ -2691,6 +3798,14 @@ fn run(args: &[String]) -> i32 {
             "--events" => {
                 mode = "events";
                 i += 1;
+            }
+            "--sv" => {
+                mode = "sv";
+                i += 1;
+            }
+            "--date" => {
+                sv_date = need("--date", args, i);
+                i += 2;
             }
             "--fixture" => {
                 fixture = need("--fixture", args, i);
@@ -2788,6 +3903,13 @@ fn run(args: &[String]) -> i32 {
             Some(parse_u64("--expected", &expected_raw))
         };
         return run_events(&fixture, exp, drop_at, &out_file);
+    }
+
+    if mode == "sv" {
+        // 监督纯判定档与事件流档同理，也落在两必填**之前**返回：它只吃内联夹具、不加载任何 DLL，
+        // "要指哪枚装包"在这里同样没有意义；被必填拦死就等于这一档没开。
+        // （这段注释刻意不把那条必填的原话写出来 —— 自检的顺序门数整份源码，写出来先逮到的就是注释。）
+        return run_sv(&sv_date, &out_file);
     }
 
     if mode == "preflight" {

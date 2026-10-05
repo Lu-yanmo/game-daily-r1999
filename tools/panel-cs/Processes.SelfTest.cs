@@ -156,21 +156,19 @@ namespace GdPanel
         }
         static string FarmLines(string name, string tag, string dropCount, string invTarget)
         {
+            return FarmLines(name, tag, "3003", dropCount, "5", invTarget);
+        }
+        static string FarmLines(string name, string tag, string dropId, string dropCount, string timesLimit, string invTarget)
+        {
             return "\n" + name + " → EnableTargetDrop = True(" + tag + ")"
-                 + "\n" + name + " → DropId = 3003(" + tag + ")"
+                 + "\n" + name + " → DropId = " + dropId + "(" + tag + ")"
                  + "\n" + name + " → DropCount = " + dropCount + "(" + tag + ")"
                  + "\n" + name + " → IsInventoryTarget = " + invTarget + "(" + tag + ")"
                  + "\n" + name + " → EnableTimesLimit = True(" + tag + ")"
-                 + "\n" + name + " → TimesLimit = 5(" + tag + ")"
+                 + "\n" + name + " → TimesLimit = " + timesLimit + "(" + tag + ")"
                  + "\n" + name + " → UseMedicine = False(" + tag + ")"
                  + "\n" + name + " → UseStone = False(" + tag + ")"
                  + "\n" + name + " → UseExpiringMedicine = False(" + tag + ")";
-        }
-        static string PlainFlagLines(string name)
-        {
-            return "\n" + name + " → UseMedicine = false\n" + name + " → UseStone = false"
-                 + "\n" + name + " → UseExpiringMedicine = false\n" + name + " → EnableTargetDrop = false"
-                 + "\n" + name + " → EnableTimesLimit = false";
         }
 
         static void MaaGroup(Box b)
@@ -199,9 +197,9 @@ namespace GdPanel
             b.Chk("maa/plain无farm", delegate
             {
                 string want = Head
-                    + "\n00:00 刷战斗 → StagePlan = CE-5,SK-5" + PlainFlagLines("00:00 刷战斗")
+                    + "\n00:00 刷战斗 → StagePlan = CE-5,SK-5" + FarmLines("00:00 刷战斗", "默认档护甲", "4001", "999999", "20", "False")
                     + Mid
-                    + "\n剩余理智 → StagePlan = CE-5,SK-5" + PlainFlagLines("剩余理智")
+                    + "\n剩余理智 → StagePlan = CE-5,SK-5" + FarmLines("剩余理智", "默认档护甲", "4001", "999999", "20", "False")
                     + "\nStage=CE-5,SK-5\nChains=fight,StartUp,Fight";
                 return PlanStr(Plan(CfgJson, "CE-5,SK-5", "event", true, "")) == want;
             });

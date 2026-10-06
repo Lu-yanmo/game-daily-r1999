@@ -1190,7 +1190,28 @@ function Test-GdExportLeaks {
 # 所以二进制今天不受它保护 —— 文本门绿不等于包干净。下面两道件就是把这一格补上：
 # 期望契约号有一份(壳侧)、要扫的东西有一份(仍走 Get-GdLocalOnlyValues 这个唯一口径 + 从环境现推的短串)、
 # 逐字节扫法有一份(两副眼镜：cargo 产物里是 UTF-8/ASCII，csc 产物里是 UTF-16，只看一副就有半边盲区)。
-function Get-GdRustContract { 'RustCore-R2.0' }   # 与 tools\rustcore\src\main.rs 的 const CONTRACT 同改；同一轮内不许单侧动
+function Get-GdRustContract { 'RustCore-R3.0' }   # 与 tools\rustcore\src\main.rs 的 const CONTRACT 同改；同一轮内不许单侧动
+
+function Test-GdRustDailyPath {
+    <# R3③ 换头开关(2026-10-06)：判据三把，原文住 docs\r0-adrs.md §5.4 / 方案 §11.4 ——
+       ① $env:GD_RUST_OFF=1 优先于配置(出问题当场拨，沿 coreOff 那条既有习惯)；
+       ② settings.runtime.rustOff 字符串数组按件名屏蔽，含 'gdcore' 即关(读法照 Sync-GdCoreOff 的同族形状)；
+       ③ settings.runtime.rustEnabled **显式为 $true** 才开(默认 false = 进包但不上路径)。
+       缺键/形状坏一律当关(缺键宽容，同族语义见 Sync-GdCoreOff 与 Test-GdArkFightSkipMarkToday)；
+       默认关 = 一字不变走 PS 原身 Invoke-GdArkDailyLegacy。真接管那轮的留证口径见 R3③d。
+       判据只住这一处：ark-daily.ps1 的调度器与两门的强开覆盖版都从这里对齐(接线点唯一，ADR §5.4)。 #>
+    param($S)
+    try { if ($env:GD_RUST_OFF -eq '1') { return $false } } catch { }
+    try {
+        if ($S -and $S.runtime) {
+            $off = @()
+            if ($S.runtime.rustOff) { $off = @($S.runtime.rustOff | ForEach-Object { [string]$_ }) }
+            if ($off -contains 'gdcore') { return $false }
+            if ($S.runtime.rustEnabled -eq $true) { return $true }
+        }
+    } catch { }
+    return $false
+}
 
 function Get-GdBinaryLeakSet {
     <# 二进制门要扫的东西 = 文本门那一份(Get-GdLocalOnlyValues，唯一口径) + 三条**从环境变量现推**的短串/形状。

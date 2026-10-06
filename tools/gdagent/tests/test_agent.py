@@ -10,6 +10,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -19,6 +20,7 @@ from gdagent import engine as EN                       # noqa: E402
 from gdagent import live as LV                         # noqa: E402
 from gdagent import progression as PG                  # noqa: E402
 from gdagent import drops as DR                        # noqa: E402
+import kb_notices as KN                                # noqa: E402  tools 根同目录
 
 fake_spec_parser = EN.fake_spec_parser                  # 对拍/自检同一件：家只有一个（engine.py 顶部）
 
@@ -1222,6 +1224,61 @@ class TestTwoClickPlan(unittest.TestCase):
             sys.stdout = buf
         self.assertIn('了解', final)                      # 整轮没被炸掉
         self.assertEqual(self.verb_calls, [])             # 拿不到回答 = 没确认 = 绝不放行
+
+
+class TestNoticeParser(unittest.TestCase):
+    """公告抓取件(kb_notices)的纯函数夹具，10-05「让agent会读公告」。不碰网。"""
+
+    def _push(self, payload):
+        # 官网形状：payload 作为 JS 字符串塞进 __next_f.push，内层引号要转义
+        inner = payload.replace('\\', '\\\\').replace('"', '\\"')
+        return '<script>self.__next_f.push([1,"%s"])</script>' % inner
+
+    def _list_html(self):
+        seg_bad = '<script>self.__next_f.push([1,"bad \\u sequence "])</script>'  # \u 后非 4 hex → 真坏段
+        items = [{"cid": "1455", "tab": "1", "title": "[活动预告]矢量突破#3「拟生态」[未闭合",
+                  "author": "【明日方舟】运营组", "displayTime": 1790305200, "brief": "关卡开放时间：09月29日"},
+                 {"cid": "5101", "tab": "1", "title": "SideStory「昨日海」",
+                  "author": "【明日方舟】运营组", "displayTime": 1790996400, "brief": "10月09日 12:00"},
+                 {"cid": "0000", "tab": "0", "title": "", "displayTime": 1}]  # 缺 title → 弃
+        payload = 'e:{"initialData":{"LATEST":{"list":%s}}}' % json.dumps(items, ensure_ascii=False)
+        return seg_bad + self._push(payload)
+
+    def test_extract_items_skips_bad_segment_and_incomplete_rows(self):
+        got = KN.extract_notice_items(self._list_html())
+        self.assertEqual([it["cid"] for it in got], ["1455", "5101"])
+        self.assertEqual(got[0]["displayTime"], 1790305200)
+        self.assertIn("[未闭合", got[0]["title"])           # 字符串里的括号不打扰配对
+
+    def test_extract_items_anchor_absent_returns_empty(self):
+        self.assertEqual(KN.extract_notice_items("<html>页面形状变了</html>"), [])
+
+    def test_detail_body_cuts_head_date_and_nav_tail(self):
+        html = ('<html><head><style>.x{color:red}</style><script>var s="资源收集 不该出现";</script></head>'
+                '<body><h1>标题 - 明日方舟</h1><div>2026 // 09 / 25</div>'
+                '<p>二、<strong>&ldquo;资源收集&rdquo;</strong>关卡限时全天开放</p>'
+                '<p>活动时间： 09月29日 16:00 - 10月20日 03:59</p><p>【明日方舟】运营组</p>'
+                '<div>INFO</div><div>返回列表</div></body></html>')
+        body = KN.notice_body_text(html)
+        # 行内标签(</strong>)按口径替换成空格，只断言关键子串，不断整句连续
+        self.assertIn('“资源收集”', body)                    # 实体解码生效
+        self.assertIn('关卡限时全天开放', body)
+        self.assertIn('09月29日 16:00 - 10月20日 03:59', body)
+        self.assertNotIn('不该出现', body)                  # script 内容绝不进正文
+        self.assertNotIn('返回列表', body)                  # 导航锚起全弃
+        self.assertTrue(body.endswith('【明日方舟】运营组'))
+
+    def test_build_notice_md_front_matter_and_brief_fallback(self):
+        it = {"cid": "1455", "title": "[活动预告]矢量突破#3", "author": "运营组",
+              "displayTime": 1790305200, "brief": "关卡开放时间：09月29日", "tab": "1"}
+        md = KN.build_notice_md(it, "正文一行")
+        self.assertIn("game: ark", md)
+        self.assertIn("updated: %s" % time.strftime("%Y-%m-%d", time.localtime(1790305200)), md)
+        self.assertIn("source: web:https://ak.hypergryph.com/news/1455 官网公告", md)
+        self.assertIn("正文一行", md)
+        md2 = KN.build_notice_md(it, "")                    # 正文退化：如实标 + 保 brief
+        self.assertIn("正文未取到", md2)
+        self.assertIn(it["brief"], md2)
 
 
 if __name__ == '__main__':

@@ -33,7 +33,7 @@ use std::ffi::c_void;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::process::exit;
 
-const CONTRACT: &str = "RustCore-R2.0";
+const CONTRACT: &str = "RustCore-R3.0";
 const ROLE: &str = "R0-readonly";
 
 // ---------------------------------------------------------------- Win32 直调
@@ -1106,6 +1106,10 @@ fn render_events_json(fixture: &str, main_thread: u32, cb_panics: u32, events: &
 ///
 /// framework 那对故意把两条的 `details` 原文写成**一模一样**：两枚 hash 因此相同，
 /// 而终态必须一败一成判得开 —— 这就是"按 hash 判成败"的证伪样本。
+///
+/// R3①b 又加两档**终态负例**（`asst-stopped` / `asst-failed`）：都是"起始 + 终态"两枚，
+/// 只换终态那一条（TaskChainStopped / TaskChainError）—— 对应六类负例里"任务取消 / 任务失败"
+/// 在事件流面的最小样本，把 verdict 从"恒 succeeded"里拽出来。
 fn fixture_events(which: &str) -> Vec<(&'static str, String, String, String)> {
     let asst_three: Vec<(&'static str, String, String, String)> = vec![
         (
@@ -1141,6 +1145,34 @@ fn fixture_events(which: &str) -> Vec<(&'static str, String, String, String)> {
             r#"{"path":"<本机路径>","res_id":2096769248,"type":"file","count":1}"#.to_string(),
         ),
     ];
+    let asst_stopped: Vec<(&'static str, String, String, String)> = vec![
+        (
+            "asst",
+            "10001".to_string(),
+            ark_msg_name(10001).to_string(),
+            r#"{"chain":"MainLine"}"#.to_string(),
+        ),
+        (
+            "asst",
+            "10004".to_string(),
+            ark_msg_name(10004).to_string(),
+            r#"{"chain":"MainLine"}"#.to_string(),
+        ),
+    ];
+    let asst_failed: Vec<(&'static str, String, String, String)> = vec![
+        (
+            "asst",
+            "10001".to_string(),
+            ark_msg_name(10001).to_string(),
+            r#"{"chain":"MainLine"}"#.to_string(),
+        ),
+        (
+            "asst",
+            "10000".to_string(),
+            ark_msg_name(10000).to_string(),
+            r#"{"chain":"MainLine"}"#.to_string(),
+        ),
+    ];
     match which {
         "asst" => asst_three,
         "framework" => mf_pair,
@@ -1149,8 +1181,10 @@ fn fixture_events(which: &str) -> Vec<(&'static str, String, String, String)> {
             v.extend(mf_pair);
             v
         }
+        "asst-stopped" => asst_stopped,
+        "asst-failed" => asst_failed,
         other => {
-            eprintln!("未知 fixture：{}（只有 asst / framework / both）", other);
+            eprintln!("未知 fixture：{}（只有 asst / framework / both / asst-stopped / asst-failed）", other);
             exit(1);
         }
     }
@@ -1334,6 +1368,260 @@ fn jv_to_json(v: &JVal) -> String {
                 .collect::<Vec<_>>()
                 .join(",")
         ),
+    }
+}
+
+/// 迷你 JSON 解析器（只为本 crate 自用：读 panel-cs.exe 的 --out 信封，R3② 装配回放档要用）。
+/// 口径：RFC 8259 的常规子集 —— 对象 / 数组 / 字符串（含 \uXXXX 与代理对）/ 数字 / true / false / null；
+/// 顶层值后只许剩空白。失败带"第几个字符"，信封读不动时能把坏点说清楚。
+/// 手写而不是引 serde：零依赖是本 crate 的既有决定（见 Cargo.toml 头注），且面对的输入是
+/// 我们自家 C# 侧的输出，形状可控。
+fn jv_parse(s: &str) -> Result<JVal, String> {
+    let cs: Vec<char> = s.chars().collect();
+    let mut p = Jp { cs: &cs, i: 0 };
+    p.skip_ws();
+    let v = p.value()?;
+    p.skip_ws();
+    if p.i != p.cs.len() {
+        return Err(format!("第 {} 个字符起有多余内容", p.i + 1));
+    }
+    Ok(v)
+}
+
+struct Jp<'a> {
+    cs: &'a [char],
+    i: usize,
+}
+
+impl Jp<'_> {
+    fn peek(&self) -> Option<char> {
+        self.cs.get(self.i).copied()
+    }
+    fn skip_ws(&mut self) {
+        while let Some(c) = self.peek() {
+            if c == ' ' || c == '\t' || c == '\n' || c == '\r' {
+                self.i += 1;
+            } else {
+                break;
+            }
+        }
+    }
+    fn value(&mut self) -> Result<JVal, String> {
+        match self.peek() {
+            Some('{') => self.object(),
+            Some('[') => self.array(),
+            Some('"') => Ok(JVal::S(self.string()?)),
+            Some('t') => {
+                self.lit("true")?;
+                Ok(JVal::B(true))
+            }
+            Some('f') => {
+                self.lit("false")?;
+                Ok(JVal::B(false))
+            }
+            Some('n') => {
+                self.lit("null")?;
+                Ok(JVal::Null)
+            }
+            Some(c) if c == '-' || c.is_ascii_digit() => self.number(),
+            Some(c) => Err(format!("第 {} 个字符「{}」不是合法值开头", self.i + 1, c)),
+            None => Err("读到串尾，值还没出来".to_string()),
+        }
+    }
+    fn lit(&mut self, w: &str) -> Result<(), String> {
+        for c in w.chars() {
+            if self.peek() == Some(c) {
+                self.i += 1;
+            } else {
+                return Err(format!("第 {} 个字符：期望 `{}`", self.i + 1, w));
+            }
+        }
+        Ok(())
+    }
+    fn object(&mut self) -> Result<JVal, String> {
+        self.i += 1; // '{'
+        let mut kv = Vec::new();
+        self.skip_ws();
+        if self.peek() == Some('}') {
+            self.i += 1;
+            return Ok(JVal::O(kv));
+        }
+        loop {
+            self.skip_ws();
+            if self.peek() != Some('"') {
+                return Err(format!("第 {} 个字符：对象键必须是字符串", self.i + 1));
+            }
+            let k = self.string()?;
+            self.skip_ws();
+            if self.peek() != Some(':') {
+                return Err(format!("第 {} 个字符：键后缺冒号", self.i + 1));
+            }
+            self.i += 1;
+            self.skip_ws();
+            let v = self.value()?;
+            kv.push((k, v));
+            self.skip_ws();
+            match self.peek() {
+                Some(',') => self.i += 1,
+                Some('}') => {
+                    self.i += 1;
+                    return Ok(JVal::O(kv));
+                }
+                _ => return Err(format!("第 {} 个字符：对象里期望逗号或右花括号", self.i + 1)),
+            }
+        }
+    }
+    fn array(&mut self) -> Result<JVal, String> {
+        self.i += 1; // '['
+        let mut a = Vec::new();
+        self.skip_ws();
+        if self.peek() == Some(']') {
+            self.i += 1;
+            return Ok(JVal::A(a));
+        }
+        loop {
+            self.skip_ws();
+            a.push(self.value()?);
+            self.skip_ws();
+            match self.peek() {
+                Some(',') => self.i += 1,
+                Some(']') => {
+                    self.i += 1;
+                    return Ok(JVal::A(a));
+                }
+                _ => return Err(format!("第 {} 个字符：数组里期望逗号或右方括号", self.i + 1)),
+            }
+        }
+    }
+    fn string(&mut self) -> Result<String, String> {
+        self.i += 1; // '"'
+        let mut out = String::new();
+        loop {
+            match self.peek() {
+                None => return Err("字符串没闭合".to_string()),
+                Some('"') => {
+                    self.i += 1;
+                    return Ok(out);
+                }
+                Some('\\') => {
+                    self.i += 1;
+                    match self.peek() {
+                        Some('"') => {
+                            out.push('"');
+                            self.i += 1;
+                        }
+                        Some('\\') => {
+                            out.push('\\');
+                            self.i += 1;
+                        }
+                        Some('/') => {
+                            out.push('/');
+                            self.i += 1;
+                        }
+                        Some('b') => {
+                            out.push('\u{8}');
+                            self.i += 1;
+                        }
+                        Some('f') => {
+                            out.push('\u{c}');
+                            self.i += 1;
+                        }
+                        Some('n') => {
+                            out.push('\n');
+                            self.i += 1;
+                        }
+                        Some('r') => {
+                            out.push('\r');
+                            self.i += 1;
+                        }
+                        Some('t') => {
+                            out.push('\t');
+                            self.i += 1;
+                        }
+                        Some('u') => {
+                            self.i += 1;
+                            let u = self.hex4()?;
+                            if (0xD800..=0xDBFF).contains(&u) {
+                                // 高代理：后邻必须是 \uDC00-DFFF 的低代理，组合成一个字符
+                                if self.peek() == Some('\\') && self.cs.get(self.i + 1) == Some(&'u') {
+                                    self.i += 2;
+                                    let lo = self.hex4()?;
+                                    if (0xDC00..=0xDFFF).contains(&lo) {
+                                        let c = 0x10000 + ((u - 0xD800) << 10) + (lo - 0xDC00);
+                                        match char::from_u32(c) {
+                                            Some(ch) => out.push(ch),
+                                            None => return Err("代理对拼不出字符".to_string()),
+                                        }
+                                    } else {
+                                        return Err("高代理后面不是低代理".to_string());
+                                    }
+                                } else {
+                                    return Err("高代理没跟低代理".to_string());
+                                }
+                            } else if (0xDC00..=0xDFFF).contains(&u) {
+                                return Err("孤立低代理".to_string());
+                            } else {
+                                match char::from_u32(u) {
+                                    Some(ch) => out.push(ch),
+                                    None => return Err("\\u 值不是合法字符".to_string()),
+                                }
+                            }
+                        }
+                        _ => return Err(format!("第 {} 个字符：反斜杠后是不认识的转义", self.i + 1)),
+                    }
+                }
+                Some(c) => {
+                    out.push(c);
+                    self.i += 1;
+                }
+            }
+        }
+    }
+    fn hex4(&mut self) -> Result<u32, String> {
+        let mut v = 0u32;
+        for _ in 0..4 {
+            let c = self.peek().ok_or("\\u 后面不足 4 位")?;
+            let d = c
+                .to_digit(16)
+                .ok_or_else(|| format!("第 {} 个字符：「{}」不是十六进制位", self.i + 1, c))?;
+            v = v * 16 + d;
+            self.i += 1;
+        }
+        Ok(v)
+    }
+    fn number(&mut self) -> Result<JVal, String> {
+        let start = self.i;
+        if self.peek() == Some('-') {
+            self.i += 1;
+        }
+        let mut is_float = false;
+        while let Some(c) = self.peek() {
+            if c.is_ascii_digit() {
+                self.i += 1;
+            } else if c == '.' || c == 'e' || c == 'E' || c == '+' || c == '-' {
+                is_float = true;
+                self.i += 1;
+            } else {
+                break;
+            }
+        }
+        let text: String = self.cs[start..self.i].iter().collect();
+        if text.is_empty() || text == "-" {
+            return Err(format!("第 {} 个字符：数字是空的", start + 1));
+        }
+        if is_float {
+            text.parse::<f64>()
+                .map(JVal::F)
+                .map_err(|e| format!("数字「{}」读不动：{}", text, e))
+        } else {
+            match text.parse::<i64>() {
+                Ok(v) => Ok(JVal::I(v)),
+                Err(_) => text
+                    .parse::<f64>()
+                    .map(JVal::F)
+                    .map_err(|e| format!("数字「{}」读不动：{}", text, e)),
+            }
+        }
     }
 }
 
@@ -3060,6 +3348,1497 @@ fn run_farm_intent(out: &Option<String>) -> i32 {
     0
 }
 
+// ==================== ark 认关止损链装配回放（R3②：Start-GdArkDaily 整函数转写） ====================
+// 转写源 = lib\ark-daily.ps1 的 Start-GdArkDaily（基线 251bd3c 的 106-255；B 档观测采集段落码后
+// 该函数未再动，且此时壳已是"回放日志 + 落地活"的批 8 形态）。逐句转写、文案逐字，谁都不许在
+// 这一侧"顺手化简"（§7 同一条纪律：对拍红了回修这里，禁止改期望）。
+//
+// 活的判定不在本段：重试分流的跳过清单与两句文案住在 panel-cs.exe（Orchestration.cs 的
+// decide-daily-retry）——本档按生产同一条协议**真跑它**（--in/--out 信封，经 --panel-cs 注入路径，
+// 就是 Invoke-GdCli 的那套校验：verb / 退出码 / ok 三关）。"判定不重编第二份"在这一刀里靠的就是这个。
+// 其余外部调用（接管/写配置/拉端游/跑 MAA/认关读数/认栽标记/记账）都在桩世界里回放：
+// 与 tools\probe-live-golden.ps1 第六路同一套桩口径 —— 调用序与入参进 seq、队列消费、固定返回、
+// Test-GdAdmin 恒 false。8 档场景与 live 门第六路同源同量（arksk-1..8）。
+//
+// 对拍门在 tools\rustcore\probe-arkskip-rust-golden.ps1（三侧：旧 PS 真身转写 / 现树直调 / 本出口）。
+
+/// PS 的 `-split '[,，、;；\s]+'` 等价：按半角/全角逗号、顿号、分号与空白切分，滤掉空段
+/// （正则 `+` 合并连续分隔符，两端空段由调用处的 `if ($st …)` 滤除 —— 滤空后直接等价）。
+fn arksk_split_stages(s: &str) -> Vec<String> {
+    s.split(|c: char| c == ',' || c == '，' || c == '、' || c == ';' || c == '；' || c.is_whitespace())
+        .filter(|t| !t.is_empty())
+        .map(|t| t.to_string())
+        .collect()
+}
+
+/// PS 的 `-split ','` + `Where-Object { $_ }`（认栽标记的关卡串；非正则、只按半角逗号）。
+fn arksk_split_commas(s: &str) -> Vec<String> {
+    s.split(',').filter(|t| !t.is_empty()).map(|t| t.to_string()).collect()
+}
+
+/// 真身 191 行那句 `$farmStages -notcontains [string]$st` 的大小写口径复刻：PS 的 -notcontains
+/// **不区分大小写**（R3② 转写用的 Vec::contains 是区分大小写的——8 档拼写全同、投影没显形，
+/// 但混拼档位（'ce-5' vs 'CE-5'）会被漏剔/错剔）。剔关重试的关卡串就从这个函数出。
+fn arksk_lean_stages(stage: &str, farm: &[String]) -> Vec<String> {
+    arksk_split_stages(stage)
+        .into_iter()
+        .filter(|st| !farm.iter().any(|f| f.eq_ignore_ascii_case(st)))
+        .collect()
+}
+
+/// 记录行里"有没有这个键"——jv_get 把"缺键"与"值是 null"读成同一件事，而驱动档的
+/// journal/res 恰恰要靠"data 键在不在"（takeover 的 data 就是 null）来判行形态，所以单立一把。
+fn jv_has(v: &JVal, key: &str) -> bool {
+    if let JVal::O(o) = v {
+        return o.iter().any(|(k, _)| k == key);
+    }
+    false
+}
+
+/// 键名按 PS 阅读习惯取（`$ark.Mode` 对哈希键**不区分大小写**）：驱动档的 decision 从壳侧
+/// 序列化过来，键名拼写不能当契约读者，只有"这一格在不在"才是。
+fn jv_get_ci(v: &JVal, key: &str) -> JVal {
+    if let JVal::O(o) = v {
+        for (k, val) in o {
+            if k.eq_ignore_ascii_case(key) {
+                return val.clone();
+            }
+        }
+    }
+    JVal::Null
+}
+
+/// 一档的认关读数：`{Skipped;Plan;Evidence}` 或 `{Throw}`（与 live 门夹具同形）。
+enum ArkskSkipItem {
+    R {
+        skipped: bool,
+        plan: &'static [&'static str],
+        evidence: &'static [&'static str],
+    },
+    T(&'static str),
+}
+
+/// 一档的配置队列项：Set-MaaDailyConfig 桩的固定返回 `{Changes;ExpectedChains}`。
+struct ArkskCfg {
+    changes: &'static [&'static str],
+    chains: &'static [&'static str],
+}
+
+/// 一档场景（纯数据；对应 live 门第六路的 `@{}` 哈希表）。
+struct ArkskScen {
+    name: &'static str,
+    retry_once: bool,
+    launch: bool,
+    /// 合成 decision 的 Source（8 档恒 'auto'）。真身里这枚是 $Decision.Source —— 决定主支
+    /// 配置记账归属的那一格；驱动档腿长在壳侧（壳拿 ctx 里的原 $Decision），桩世界由本字段供。
+    dec_source: &'static str,
+    dec_mode: &'static str,
+    dec_stage: &'static str,
+    dec_farm: Option<&'static [&'static str]>,
+    run_q: &'static [(&'static str, &'static str)], // (Status, Detail)
+    skip_q: &'static [ArkskSkipItem],
+    cfg_q: &'static [ArkskCfg],
+    desk: &'static str,   // Get-GdInputDesktopName 桩返回（恒 'Default'；屏保支只在扩档时用）
+    sv_txt: &'static str, // 屏保读数夹具（恒空；同上）
+}
+
+/// 两枚固定配置桩（主轮 / 剔关轮）——用 const 而不是局部变量：`&[MAIN_CFG, …]` 是常量表达式，
+/// 会被常量提升成 'static 引用；局部变量则只能移动进一枚临时数组，装不进 `&'static [ArkskCfg]` 的字段。
+const MAIN_CFG: ArkskCfg = ArkskCfg { changes: &["chg-main"], chains: &["Fight", "Shop"] };
+const LEAN_CFG: ArkskCfg = ArkskCfg { changes: &["chg-lean"], chains: &["Fight"] };
+
+/// 8 档场景 —— 逐档抄自 tools\probe-live-golden.ps1 第六路的 Get-ArkSkipScenarios。
+fn arkskip_scenarios() -> Vec<ArkskScen> {
+    vec![
+        // 1) 跳过&剔关&恢复：check1 跳 → 剔 CE-5 重跑 → r2 ok、check2 没跳 → recovered
+        ArkskScen {
+            name: "arksk-1-recover",
+            retry_once: false,
+            launch: true,
+            dec_source: "auto",
+            dec_mode: "default",
+            dec_stage: "1-7,CE-5",
+            dec_farm: Some(&["CE-5"]),
+            run_q: &[("ok", "首轮收尾正常"), ("ok", "剔关轮收尾正常")],
+            skip_q: &[
+                ArkskSkipItem::R { skipped: true, plan: &["1-7"], evidence: &["计划修剪实录A"] },
+                ArkskSkipItem::R { skipped: false, plan: &["1-7"], evidence: &[] },
+            ],
+            cfg_q: &[MAIN_CFG, LEAN_CFG],
+            desk: "Default",
+            sv_txt: "",
+        },
+        // 2) 二查仍跳 → giveUp + 认栽标记 + Detail 拼 if 支(Detail 非空) + 二查计划'空'支
+        ArkskScen {
+            name: "arksk-2-still-skip",
+            retry_once: false,
+            launch: true,
+            dec_source: "auto",
+            dec_mode: "default",
+            dec_stage: "1-7,CE-5",
+            dec_farm: Some(&["CE-5"]),
+            run_q: &[("ok", "首轮收尾正常"), ("ok", "剔关后收尾正常")],
+            skip_q: &[
+                ArkskSkipItem::R { skipped: true, plan: &["1-7"], evidence: &["x"] },
+                ArkskSkipItem::R { skipped: true, plan: &[], evidence: &["y"] },
+            ],
+            cfg_q: &[MAIN_CFG, LEAN_CFG],
+            desk: "Default",
+            sv_txt: "",
+        },
+        // 3) 二查没跳但 r2 非 ok → "说不死关卡开没开"支，不记标记(本轮以该状态收场)
+        ArkskScen {
+            name: "arksk-3-r2-notok",
+            retry_once: false,
+            launch: true,
+            dec_source: "auto",
+            dec_mode: "default",
+            dec_stage: "1-7,CE-5",
+            dec_farm: Some(&["CE-5"]),
+            run_q: &[("ok", "首轮收尾正常"), ("stalled", "剔关轮卡住")],
+            skip_q: &[
+                ArkskSkipItem::R { skipped: true, plan: &["1-7"], evidence: &["x"] },
+                ArkskSkipItem::R { skipped: false, plan: &["1-7"], evidence: &[] },
+            ],
+            cfg_q: &[MAIN_CFG, LEAN_CFG],
+            desk: "Default",
+            sv_txt: "",
+        },
+        // 4) 无 Farm → 条件假 → 直接认栽；Detail 空串 → tailNote 走 else 支(独立成句)
+        ArkskScen {
+            name: "arksk-4-no-lean",
+            retry_once: false,
+            launch: true,
+            dec_source: "auto",
+            dec_mode: "default",
+            dec_stage: "CE-5",
+            dec_farm: None,
+            run_q: &[("ok", "")],
+            skip_q: &[ArkskSkipItem::R { skipped: true, plan: &["CE-5"], evidence: &["x"] }],
+            cfg_q: &[MAIN_CFG],
+            desk: "Default",
+            sv_txt: "",
+        },
+        // 5) 检查了但没跳 → 认关链整块不动
+        ArkskScen {
+            name: "arksk-5-not-skipped",
+            retry_once: false,
+            launch: true,
+            dec_source: "auto",
+            dec_mode: "default",
+            dec_stage: "1-7,CE-5",
+            dec_farm: Some(&["CE-5"]),
+            run_q: &[("ok", "一切正常")],
+            skip_q: &[ArkskSkipItem::R { skipped: false, plan: &["1-7"], evidence: &[] }],
+            cfg_q: &[MAIN_CFG],
+            desk: "Default",
+            sv_txt: "",
+        },
+        // 6) 首查抛 → WARN "认关检查没做起来：…(不影响本轮)"，链不进来
+        ArkskScen {
+            name: "arksk-6-check1-throw",
+            retry_once: false,
+            launch: true,
+            dec_source: "auto",
+            dec_mode: "default",
+            dec_stage: "1-7,CE-5",
+            dec_farm: Some(&["CE-5"]),
+            run_q: &[("ok", "一切正常")],
+            skip_q: &[ArkskSkipItem::T("读数没起来")],
+            cfg_q: &[MAIN_CFG],
+            desk: "Default",
+            sv_txt: "",
+        },
+        // 7) 二查抛 → WARN "第二次认关检查没做起来：…"，随后按 r2 ok 记 recovered
+        ArkskScen {
+            name: "arksk-7-check2-throw",
+            retry_once: false,
+            launch: true,
+            dec_source: "auto",
+            dec_mode: "default",
+            dec_stage: "1-7,CE-5",
+            dec_farm: Some(&["CE-5"]),
+            run_q: &[("ok", "首轮收尾正常"), ("ok", "剔关轮收尾")],
+            skip_q: &[
+                ArkskSkipItem::R { skipped: true, plan: &["1-7"], evidence: &["x"] },
+                ArkskSkipItem::T("第二次读数炸了"),
+            ],
+            cfg_q: &[MAIN_CFG, LEAN_CFG],
+            desk: "Default",
+            sv_txt: "",
+        },
+        // 8) r1 非 ok → 分流真动词(stalled+retryOnce → 重试) → 重试 ok → 进认关查(没跳) → 收尾
+        ArkskScen {
+            name: "arksk-8-retry-then-chain",
+            retry_once: true,
+            launch: true,
+            dec_source: "auto",
+            dec_mode: "default",
+            dec_stage: "1-7,CE-5",
+            dec_farm: Some(&["CE-5"]),
+            run_q: &[("stalled", "首轮卡住"), ("ok", "重试后正常")],
+            skip_q: &[ArkskSkipItem::R { skipped: false, plan: &["1-7"], evidence: &[] }],
+            cfg_q: &[MAIN_CFG],
+            desk: "Default",
+            sv_txt: "",
+        },
+    ]
+}
+
+// ---- R3③ 换头协议的类型面 ----
+// 三态各自的"接不接"：Fail=业务错，链体按真身的 try/catch 结构决定接不接（接住的点只
+// match 这一支）；Ask=驱动档暂停（冒泡到顶渲染 ask 信封）；Proto=协议/运输级故障（journal
+// 坏了、行对不上、夹具缺项）——**任何 catch 都不接**，一路冒到底。
+#[derive(Debug)]
+enum ArkAbort {
+    Fail(String),
+    Ask,
+    Proto(String),
+}
+
+/// `decide(...)?` 这类"旧式返回 Err(String)"的调用点自然转成 Fail（Proto 只能显式构造）。
+impl From<String> for ArkAbort {
+    fn from(m: String) -> Self {
+        ArkAbort::Fail(m)
+    }
+}
+
+/// 链体输入：驱动档从 ctx 文件来、夹具档从场景合成——两路的形状在这层归一。
+struct ArkDInput {
+    launch: bool,
+    retry_once: bool,
+    decision: JVal,
+}
+
+/// 链体输出（真身 @{Status;Detail;Duration}）：duration 无 = 真身 error 态没写 Duration 键。
+struct ArkDOut {
+    status: String,
+    detail: String,
+    duration: Option<f64>,
+}
+
+/// 配置动作的两种腿：主轮（用进程里的原 $Decision 对象）与剔关轮（链体给 stage、executor 照
+/// 真身 198-202 现构造 lean 哈希）。载荷长什么样是 executor 的事，链体只递"哪种腿"。
+enum ArkCfgKind {
+    Main,
+    Lean { stage: String },
+}
+
+/// Set-MaaDailyConfig 的返回里链体要的两格。
+struct ArkCfgOut {
+    changes: Vec<String>,
+    chains: Vec<String>,
+}
+
+/// Invoke-MaaRun 的返回里链体要的三格；duration 无 = 返回对象没带 Duration 键
+/// （Invoke-GdStep 原样透传 Body 返回，Duration 是 Invoke-MaaRun 自己算的那枚——common.ps1:718-727 已核）。
+struct ArkRunOut {
+    status: String,
+    detail: String,
+    duration: Option<f64>,
+}
+
+/// Get-GdMaaFightSkip 的读数：None 支 = 真身 $skip=$null（gui.log 不在/空时读数函数给 $null，
+/// `$skip -and $skip.Skipped` 整条短路——R3② 转写漏了这支，这刀补上）。
+struct ArkSkipData {
+    skipped: bool,
+    plan: Vec<String>,
+    evidence: Vec<String>,
+}
+
+/// 一步的终态（`Invoke-GdStep` 的返回：status/detail/duration；catch 支无 duration）。
+struct ArkStepOut {
+    status: String,
+    detail: String,
+    duration: Option<f64>,
+}
+
+/// 链体对宿主世界的全部需求（15 动作 + 日志 = 16 方法）。每个动作都是 Result：宿主侧一切皆可
+/// 抛，抛了就回 Err——"哪个点接住"是链体的判断（照真身 try/catch 逐点转写），不是宿主的。
+/// 无 catch 的调用点直接 `?` 冒泡（等价真身"整函数异常上抛"，换头后落成 fail 信封）。
+trait ArkDailyFx {
+    fn log(&mut self, level: &str, text: &str);
+    /// Get-GdInputDesktopName。
+    fn desk(&mut self) -> Result<String, ArkAbort>;
+    /// 屏保读数（真身那截 try/catch 全吞的注册表读法；吞的工作照旧住 executor）。
+    fn svdetail(&mut self) -> Result<String, ArkAbort>;
+    /// Invoke-GdTakeover（names 由 executor 现算：MAA 进程名 + 端游 exe 名）。
+    fn takeover(&mut self) -> Result<(), ArkAbort>;
+    /// Set-MaaDailyConfig -Apply。
+    fn cfg(&mut self, kind: ArkCfgKind) -> Result<ArkCfgOut, ArkAbort>;
+    /// Get-GdEntryVerb -Game -Verb。
+    fn entryverb(&mut self, game: &str, verb: &str) -> Result<String, ArkAbort>;
+    /// Start-GdArkClient。
+    fn launch(&mut self) -> Result<bool, ArkAbort>;
+    /// Invoke-MaaRun -ExpectedChains。
+    fn run(&mut self, chains: &[String]) -> Result<ArkRunOut, ArkAbort>;
+    /// Stop-MaaAndGame。
+    fn stop(&mut self) -> Result<(), ArkAbort>;
+    /// Start-Sleep -Seconds（秒数进参数面；夹具世界不进投影）。
+    fn sleep(&mut self, seconds: u32) -> Result<(), ArkAbort>;
+    /// Get-GdMaaFightSkip（Err=真身 catch 到的那侧；Ok(None)=$null 支）。
+    fn skip(&mut self) -> Result<Option<ArkSkipData>, ArkAbort>;
+    /// Set-GdArkFightSkipMark；返回 Date 串（夹具世界是固定桩值）。
+    fn mark(&mut self, stages: &[String], reason: &str) -> Result<String, ArkAbort>;
+    /// Update-GdArkFarmLedger（空串=没记账）。
+    fn ledger(&mut self) -> Result<String, ArkAbort>;
+    /// Get-GdMaaStageObservation（可为 null）。
+    fn obs(&mut self) -> Result<JVal, ArkAbort>;
+    /// Update-GdArkStageObs；None=读数函数没给计数。
+    fn obsrec(&mut self, obs: &JVal) -> Result<Option<i64>, ArkAbort>;
+    /// Test-GdAdmin 的裸态。短路：仅 not-started 时到。
+    fn admin(&mut self) -> Result<bool, ArkAbort>;
+}
+
+/// 夹具世界（8 档）的 Fx（把 live 门第六路/三侧门的桩语义原样平移进 trait 实现：调用序与入参
+/// 进 seq、队列消费、固定返回、admin 恒 false）——链体从真身抽出后，"8 档投影逐字不变"这一半
+/// 由它保。投影串里的动作裸名（DESK/CFG/RUN/SKIP/…）都是这一层的历史格式，链体不碰。
+struct FixtureFx<'a> {
+    sc: &'a ArkskScen,
+    seq: Vec<String>,
+    cfg_i: usize,
+    run_i: usize,
+    skip_i: usize,
+    skip_n: i32,
+}
+
+impl<'a> FixtureFx<'a> {
+    fn new(sc: &'a ArkskScen) -> Self {
+        FixtureFx { sc, seq: Vec::new(), cfg_i: 0, run_i: 0, skip_i: 0, skip_n: 0 }
+    }
+    /// Write-GdLog 桩：`$script:seq += "$Level|$Message"`。
+    fn w(&mut self, level: &str, msg: &str) {
+        self.seq.push(format!("{}|{}", level, msg));
+    }
+    /// 动作桩的裸串（TAKEOVER/CFG/RUN/SKIP/… 都不带 Level 前缀）。
+    fn raw(&mut self, s: String) {
+        self.seq.push(s);
+    }
+}
+
+impl ArkDailyFx for FixtureFx<'_> {
+    fn log(&mut self, level: &str, text: &str) {
+        self.w(level, text);
+    }
+    fn desk(&mut self) -> Result<String, ArkAbort> {
+        self.raw("DESK".to_string());
+        Ok(self.sc.desk.to_string())
+    }
+    /// 屏保读数在桩世界里落成夹具字段 sv_txt（真身处是探路 + try/catch 读注册表）。
+    fn svdetail(&mut self) -> Result<String, ArkAbort> {
+        Ok(self.sc.sv_txt.to_string())
+    }
+    fn takeover(&mut self) -> Result<(), ArkAbort> {
+        // 夹具世界：MAA 名与端游名（Arknights）都是桩值（真身=进程名 + exe 路径去扩展名）。
+        self.raw("TAKEOVER#MAA~Arknights#方舟/MAA".to_string());
+        Ok(())
+    }
+    /// 桩：先记 CFG，再消费队列（顺序与 PS 桩逐句一致）。主轮的 source/stage 取夹具字段
+    /// （真身=进程里那份 $Decision），剔关轮照真身 198-202 固定 'auto' + 链体现构造的 stage。
+    fn cfg(&mut self, kind: ArkCfgKind) -> Result<ArkCfgOut, ArkAbort> {
+        let (source, stage) = match kind {
+            ArkCfgKind::Main => (self.sc.dec_source.to_string(), self.sc.dec_stage.to_string()),
+            ArkCfgKind::Lean { stage } => ("auto".to_string(), stage),
+        };
+        self.raw(format!("CFG#{}#{}", source, stage));
+        let q = self.sc.cfg_q;
+        if self.cfg_i >= q.len() {
+            // 队列空=夹具缺项（开发期错误），走 Proto —— 不许被链体的 catch 吞成 WARN。
+            return Err(ArkAbort::Proto("CFG 夹具队列空了(场景缺项，开发期错误)".to_string()));
+        }
+        let it = &q[self.cfg_i];
+        self.cfg_i += 1;
+        Ok(ArkCfgOut {
+            changes: it.changes.iter().map(|s| s.to_string()).collect(),
+            chains: it.chains.iter().map(|s| s.to_string()).collect(),
+        })
+    }
+    /// 入口参数名桩恒 '-Ack'（8 档不触 event-pending 支；合体工程 Sync 后表给 -AckArk 是本刀外的事）。
+    fn entryverb(&mut self, _game: &str, _verb: &str) -> Result<String, ArkAbort> {
+        Ok("-Ack".to_string())
+    }
+    fn launch(&mut self) -> Result<bool, ArkAbort> {
+        // Start-GdArkClient 桩恒返回 true —— "窗口没等到"那句 WARN 在 8 档恒不触，形态照转（扩档用）。
+        self.raw("LAUNCH".to_string());
+        Ok(true)
+    }
+    fn run(&mut self, chains: &[String]) -> Result<ArkRunOut, ArkAbort> {
+        // Invoke-MaaRun 桩：消费 run 队列。
+        let q = self.sc.run_q;
+        if self.run_i >= q.len() {
+            // 队列空=夹具缺项（开发期错误）：Proto 直冒，防被 Invoke-GdStep 的 catch 吞成 error 态。
+            return Err(ArkAbort::Proto("RUN 夹具队列空了(场景缺项，开发期错误)".to_string()));
+        }
+        let (status, detail) = q[self.run_i];
+        self.run_i += 1;
+        self.raw(format!("RUN#{}#{}", chains.join("+"), status));
+        Ok(ArkRunOut { status: status.to_string(), detail: detail.to_string(), duration: None })
+    }
+    fn stop(&mut self) -> Result<(), ArkAbort> {
+        self.raw("STOP".to_string());
+        Ok(())
+    }
+    fn sleep(&mut self, _seconds: u32) -> Result<(), ArkAbort> {
+        self.raw("SLEEP".to_string());
+        Ok(())
+    }
+    /// 计数先记，再消费队列；Throw 项=真身 catch 到的那侧（Fail），队列空=夹具缺项（Proto）。
+    fn skip(&mut self) -> Result<Option<ArkSkipData>, ArkAbort> {
+        self.skip_n += 1;
+        self.raw(format!("SKIP#{}", self.skip_n));
+        let q = self.sc.skip_q;
+        if self.skip_i >= q.len() {
+            return Err(ArkAbort::Proto("SKIP 夹具队列空了(场景缺项，开发期错误)".to_string()));
+        }
+        let it = &q[self.skip_i];
+        self.skip_i += 1;
+        match it {
+            ArkskSkipItem::T(m) => Err(ArkAbort::Fail(m.to_string())),
+            ArkskSkipItem::R { skipped, plan, evidence } => Ok(Some(ArkSkipData {
+                skipped: *skipped,
+                plan: plan.iter().map(|s| s.to_string()).collect(),
+                evidence: evidence.iter().map(|s| s.to_string()).collect(),
+            })),
+        }
+    }
+    fn mark(&mut self, stages: &[String], reason: &str) -> Result<String, ArkAbort> {
+        self.raw(format!("MARK#{}#{}", stages.join("+"), reason));
+        // Set-GdArkFightSkipMark 桩的固定返回（不读时钟）。
+        Ok("2026-10-05".to_string())
+    }
+    fn ledger(&mut self) -> Result<String, ArkAbort> {
+        self.raw("LEDGER".to_string());
+        Ok("BN1".to_string())
+    }
+    fn obs(&mut self) -> Result<JVal, ArkAbort> {
+        self.raw("OBS".to_string());
+        Ok(JVal::Null)
+    }
+    fn obsrec(&mut self, _obs: &JVal) -> Result<Option<i64>, ArkAbort> {
+        self.raw("OBSREC".to_string());
+        Ok(Some(5))
+    }
+    /// Test-GdAdmin 恒 false（与 live 门第六路同桩）。
+    fn admin(&mut self) -> Result<bool, ArkAbort> {
+        Ok(false)
+    }
+}
+
+/// 按 Invoke-GdCli 的同一条协议真跑 decide-daily-retry：Body 写 --in 信封、读回 --out 信封、
+/// 校验 verb / 退出码 / ok —— 任一环对不上就 Err（不带着半截结论往下跑）。临时文件成败都删。
+/// 错误文案里"C# 侧(…)"的句式照 Invoke-GdCli 原话；起不来（exe 不在）这句是本档自己的补充。
+fn arksk_call_decide(
+    panel_cs: &str,
+    status: &str,
+    retry_once: bool,
+) -> Result<(bool, Vec<(String, String)>), String> {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let dir = std::env::temp_dir();
+    let in_path = dir.join(format!("gd-arkskip-{}-{}.in.json", std::process::id(), stamp));
+    let out_path = dir.join(format!("gd-arkskip-{}-{}.out.json", std::process::id(), stamp));
+    let body = jv_to_json(&jv_o(vec![
+        ("game", jv_s("ark")),
+        ("status", jv_s(status)),
+        ("retryOnce", JVal::B(retry_once)),
+    ]));
+    let r = (|| -> Result<(bool, Vec<(String, String)>), String> {
+        std::fs::write(&in_path, body.as_bytes()).map_err(|e| format!("Body 信封写不下去：{}", e))?;
+        let outp = std::process::Command::new(panel_cs)
+            .arg("decide-daily-retry")
+            .arg(format!("--in={}", in_path.display()))
+            .arg(format!("--out={}", out_path.display()))
+            .output()
+            .map_err(|e| format!("decide-daily-retry 起不来（{}）：{}", panel_cs, e))?;
+        let code = outp.status.code().unwrap_or(-1);
+        let text = match std::fs::read_to_string(&out_path) {
+            Ok(t) => t,
+            Err(_) => return Err(format!("C# 侧(decide-daily-retry)没吐出结果文件(退出码 {})", code)),
+        };
+        let env0 = jv_parse(&text).map_err(|e| format!("C# 侧(decide-daily-retry)信封读不动：{}", e))?;
+        if !jv_str(&jv_get(&env0, "verb")).eq_ignore_ascii_case("decide-daily-retry") {
+            return Err("C# 侧(decide-daily-retry)信封不对或缺 verb 字段".to_string());
+        }
+        let env_exit = jv_int(&jv_get(&env0, "exit"), 0);
+        if env_exit != code as i64 {
+            return Err(format!(
+                "C# 侧(decide-daily-retry)退出码({})与信封 exit({})不一致",
+                code, env_exit
+            ));
+        }
+        if !jv_truthy(&jv_get(&env0, "ok")) {
+            return Err(jv_str(&jv_get(&env0, "error")));
+        }
+        let data = jv_get(&env0, "data");
+        let retryable = jv_truthy(&jv_get(&data, "Retryable"));
+        let mut logs = Vec::new();
+        for l in jv_list(&jv_get(&data, "Logs")) {
+            logs.push((jv_str(&jv_get(l, "Level")), jv_str(&jv_get(l, "Text"))));
+        }
+        Ok((retryable, logs))
+    })();
+    let _ = std::fs::remove_file(&in_path);
+    let _ = std::fs::remove_file(&out_path);
+    r
+}
+
+/// 夹具 decision（从场景合成）：链体只经 jv_get_ci 读其中三格 —— Mode（event-pending 判）、
+/// Stage（剔关切分/认栽标记）、Farm.Stages（补刷关）；键名照 PS 原生对象（$ark.Mode 那套）。
+/// dec_farm=None 时**不放 Farm 键**（照真身"计划里没这格"的情形，测试空计划支）。
+fn arksk_fixture_decision(sc: &ArkskScen) -> JVal {
+    let mut kv: Vec<(String, JVal)> = vec![
+        ("Source".to_string(), jv_s(sc.dec_source)),
+        ("Mode".to_string(), jv_s(sc.dec_mode)),
+        ("Stage".to_string(), jv_s(sc.dec_stage)),
+    ];
+    if let Some(f) = sc.dec_farm {
+        kv.push((
+            "Farm".to_string(),
+            jv_o(vec![("Stages", JVal::A(f.iter().map(|s| jv_s(s)).collect()))]),
+        ));
+    }
+    JVal::O(kv)
+}
+
+/// `Invoke-GdStep -Name -Body { & $run … }` 的等价体：跑体 = 拉端游（按开关）+ 跑 MAA；体里任一步
+/// Fail 都被吞成 error 态、**不 rethrow**（Invoke-GdStep 的 catch 口径，common.ps1:718 已核）；
+/// 非 ok 打 WARN"结束状态"。`lean` 只决定"窗口没等到"那句的尾部变体（真身 $run/$runLean 闭包
+/// 的唯一差别就是这半句 + chains 来源）。Ask/Proto 不接、一路冒到顶。
+fn ark_daily_step(
+    fx: &mut dyn ArkDailyFx,
+    name: &str,
+    chains: &[String],
+    lean: bool,
+    launch: bool,
+) -> Result<ArkStepOut, ArkAbort> {
+    let body = (|| -> Result<ArkRunOut, ArkAbort> {
+        // 拉端游必须在体重：重试前 Stop-MaaAndGame 把端游和 MAA 一起关掉，放外面的话第二次只有
+        // MAA 起来、游戏没起来（真身 2026-09-24 06:00 血训注释）。
+        if launch {
+            if !fx.launch()? {
+                let t = if lean {
+                    "端游窗口没等到：MAA 大概会报\"未找到窗口\"，仍继续"
+                } else {
+                    "端游窗口没等到：MAA 大概会报\"未找到窗口\"，仍继续(会按 not-started 早退)"
+                };
+                fx.log("WARN", t);
+            }
+        }
+        fx.run(chains)
+    })();
+    let r = match body {
+        Ok(r) => r,
+        Err(ArkAbort::Fail(m)) => {
+            return Ok(ArkStepOut { status: "error".to_string(), detail: format!("{} 异常：{}", name, m), duration: None })
+        }
+        Err(e) => return Err(e),
+    };
+    if !r.status.eq_ignore_ascii_case("ok") {
+        fx.log("WARN", &format!("{} 结束状态：{} — {}", name, r.status, r.detail));
+    }
+    Ok(ArkStepOut { status: r.status, detail: r.detail, duration: r.duration })
+}
+
+/// 链体：`Start-GdArkDaily` 主体按句转写（真身 lib\ark-daily.ps1 106-255）。宿主差异全在 Fx
+/// （夹具记 seq / 驱动走 journal+ask），这里只管"做什么、什么顺序、哪句什么 Level、哪个点接不接
+/// 异常"——8 档投影与旧转写逐字节同源是硬门（probe-arkskip-rust-golden 咬的 316 行块）。
+fn ark_daily_chain(
+    input: &ArkDInput,
+    fx: &mut dyn ArkDailyFx,
+    decide: &mut dyn FnMut(&str, bool) -> Result<(bool, Vec<(String, String)>), String>,
+) -> Result<ArkDOut, ArkAbort> {
+    fx.log("STEP", "--- 方舟(端游 + MAA)---");
+    // 起跑前置判定（2026-09-26）：桌面不对就早退（读不到桌面名不会走这条），把原因写全。
+    let desk = fx.desk()?;
+    if !desk.is_empty() && !desk.eq_ignore_ascii_case("Default") {
+        let sv_txt = fx.svdetail()?;
+        fx.log(
+            "WARN",
+            &format!("跳过本轮：输入桌面={}(屏保/锁屏已接管会话，鼠标键盘进不来；读不到桌面名不会走这条)", desk),
+        );
+        if !sv_txt.is_empty() {
+            fx.log("WARN", &format!("  屏保读数：{}", sv_txt));
+        }
+        let mut detail = format!(
+            "起跑时会话在 {} 桌面(屏保/锁屏)，直接跳过；长期解法：把 Windows 屏保设为「(无)」——pwsh -File tools\\unarm-screensaver.ps1 -Apply，或 设置→个性化→锁屏界面→屏幕保护程序→(无)；夜间保持解锁也行",
+            desk
+        );
+        if !sv_txt.is_empty() {
+            detail.push_str(&format!("。{}", sv_txt));
+        }
+        return Ok(ArkDOut { status: "not-started".to_string(), detail, duration: Some(0.0) });
+    }
+    // $ark = $Decision（链体后面读它的 Mode / Stage / Farm.Stages，照 PS 命名不敏感口径）。
+    fx.takeover()?;
+    let cfg = fx.cfg(ArkCfgKind::Main)?;
+    for ch in &cfg.changes {
+        fx.log("INFO", &format!("  MAA：{}", ch));
+    }
+    if jv_str(&jv_get_ci(&input.decision, "Mode")).eq_ignore_ascii_case("event-pending") {
+        // 入口参数名：单游戏仓库未 Sync 过的表给短名；合体工程 Sync 后是 -AckArk —— 那是
+        // 装配输入（表状态），不在本刀范围，8 档也不触这支。
+        let ack = fx.entryverb("ark", "Ack")?;
+        fx.log(
+            "WARN",
+            &format!("本轮跳过理智作战(只跑公招/基建/信用/领奖)；自己打过活动图后跑 daily-clear.ps1 {}", ack),
+        );
+    }
+    let mut r = ark_daily_step(fx, "方舟", &cfg.chains, false, input.launch)?;
+    // ===== 批次 8：重试分流改问 decide-daily-retry(panel-cs.exe) =====
+    // 跳过清单、retryOnce 合取与两句文案住在 C#；链体只回放日志 + 落地"活"(收尾/重跑)。
+    let (retryable, logs) = decide(&r.status, input.retry_once)?;
+    for (lvl, text) in &logs {
+        let level = if lvl.is_empty() || lvl.eq_ignore_ascii_case("INFO") { "INFO" } else { lvl.as_str() };
+        fx.log(level, text);
+    }
+    if retryable {
+        fx.stop()?;
+        fx.sleep(25)?;
+        r = ark_daily_step(fx, "方舟重试", &cfg.chains, false, input.launch)?;
+    }
+    // ===== 认关止损（非冻结段；判定规则在 C# detect-maa-fight-skip） =====
+    if r.status.eq_ignore_ascii_case("ok") {
+        let skip1 = match fx.skip() {
+            Ok(v) => v,
+            Err(ArkAbort::Fail(m)) => {
+                fx.log("WARN", &format!("认关检查没做起来：{}(不影响本轮)", m));
+                None
+            }
+            Err(e) => return Err(e),
+        };
+        if let Some(sd) = skip1 {
+            if sd.skipped {
+                let farm_stages: Vec<String> =
+                    jv_list(&jv_get_ci(&jv_get_ci(&input.decision, "Farm"), "Stages")).into_iter().map(jv_str).collect();
+                let plan_txt = if !sd.plan.is_empty() { sd.plan.join(",") } else { "空".to_string() };
+                fx.log(
+                    "WARN",
+                    &format!(
+                        "MAA 认库后本轮的关计划实况是[{}]并判「关卡计划内没有当日开放的关卡」(证据：{}) → 整条 Fight 被跳过，这个 ok 是假的",
+                        plan_txt,
+                        sd.evidence.join(" / ")
+                    ),
+                );
+                let stage_str = jv_str(&jv_get_ci(&input.decision, "Stage"));
+                let lean_stages = arksk_lean_stages(&stage_str, &farm_stages);
+                let mut give_up = false;
+                if !farm_stages.is_empty() && !lean_stages.is_empty() {
+                    fx.log(
+                        "WARN",
+                        &format!(
+                            "剔掉补刷关({})后还剩 {} → 收尾后按纯长草计划重试一次(保长草理智)",
+                            farm_stages.join(","),
+                            lean_stages.join(",")
+                        ),
+                    );
+                    fx.stop()?;
+                    fx.sleep(25)?;
+                    let cfg2 = fx.cfg(ArkCfgKind::Lean { stage: lean_stages.join(",") })?;
+                    for ch in &cfg2.changes {
+                        fx.log("INFO", &format!("  MAA(剔关重试)：{}", ch));
+                    }
+                    r = ark_daily_step(fx, "方舟剔关重试", &cfg2.chains, true, input.launch)?;
+                    // PS 口径：catch 只记 WARN、$skip2 留在 $null，随后的 if/elseif 链**照常评估**
+                    // —— 二查抛 ∧ r2 ok 时仍落 recovered 支（arksk-7 档实锤）。评估整段只挂 Ok 支
+                    // 等于把 catch 当成"跳过整条链"，三侧门 H2 当场抓出。
+                    let skip2 = match fx.skip() {
+                        Ok(v) => v,
+                        Err(ArkAbort::Fail(m)) => {
+                            fx.log("WARN", &format!("第二次认关检查没做起来：{}", m));
+                            None
+                        }
+                        Err(e) => return Err(e),
+                    };
+                    let (skipped2, plan2) = match skip2 {
+                        None => (false, Vec::new()),
+                        Some(sd2) => (sd2.skipped, sd2.plan),
+                    };
+                    if skipped2 {
+                        give_up = true;
+                        let plan2_txt = if !plan2.is_empty() { plan2.join(",") } else { "空".to_string() };
+                        fx.log(
+                            "WARN",
+                            &format!("剔关重试仍被 MAA 判全关(计划实况：{}) → 今日理智关卡确认全关", plan2_txt),
+                        );
+                    } else if r.status.eq_ignore_ascii_case("ok") {
+                        fx.log("OK", "剔关重跑后 Fight 正常打了，长草理智保住 → 今天不记认栽标记");
+                    } else {
+                        fx.log(
+                            "WARN",
+                            &format!("剔关重试本轮以 {} 收场，说不死关卡开没开 → 不记认栽标记(明天照常)", r.status),
+                        );
+                    }
+                } else {
+                    give_up = true;
+                    fx.log("WARN", "本轮没有可剔的补刷关(或剔完计划就空了) → 直接认今日全关");
+                }
+                if give_up {
+                    let stages = arksk_split_commas(&stage_str);
+                    let mk_date = fx.mark(&stages, "MAA 判「关卡计划内没有当日开放的关卡」")?;
+                    fx.log(
+                        "WARN",
+                        &format!(
+                            "已记今日认栽标记({})：当天后续轮不再前置补刷关；若游戏里确有当日开放的图，可 -FarmArk 专用轮指定开放关补刷(专用轮不吃这条防线)",
+                            mk_date
+                        ),
+                    );
+                    let tail_note = "Fight 被 MAA 判全关(认栽，已记当日标记)";
+                    if !r.detail.is_empty() {
+                        r.detail = format!("{}；{}", r.detail, tail_note);
+                    } else {
+                        r.detail = tail_note.to_string();
+                    }
+                }
+            }
+        }
+    }
+    if r.status.eq_ignore_ascii_case("not-started") && !fx.admin()? {
+        fx.log("ERROR", "方舟这一路要管理员权限：去掉 -NoElevate(或用 run-daily.cmd / 计划任务)重跑即可自动提权");
+    }
+    fx.stop()?;
+    // 掉落记账放在收尾之后（真身注释：MAA 关门前还会补写 gui.log，偏移记在账本里，下轮会补上）。
+    // 这段抛任何错都只 WARN，绝不影响本轮结论 —— catch 边界照真身 try/catch。
+    let led = (|| -> Result<(), ArkAbort> {
+        let bn = fx.ledger()?;
+        if !bn.is_empty() {
+            fx.log("INFO", &format!("掉落记账：{}", bn));
+        }
+        Ok(())
+    })();
+    match led {
+        Ok(()) => {}
+        Err(ArkAbort::Fail(m)) => fx.log("WARN", &format!("掉落记账没做起来：{}(不影响本轮)", m)),
+        Err(e) => return Err(e),
+    }
+    // B 档观测（#21）：本轮 MAA 关卡开放读数抄进观测账本（只读日志+写账，不改配置、不影响结论）。
+    let ob = (|| -> Result<(), ArkAbort> {
+        let obs = fx.obs()?;
+        let on = fx.obsrec(&obs)?;
+        if let Some(n) = on {
+            if n != 0 {
+                fx.log("OK", &format!("关卡开放观测已记账(账本现 {} 条)", n));
+            }
+        }
+        Ok(())
+    })();
+    match ob {
+        Ok(()) => {}
+        Err(ArkAbort::Fail(m)) => fx.log("WARN", &format!("关卡开放观测没做起来：{}(不影响本轮)", m)),
+        Err(e) => return Err(e),
+    }
+    Ok(ArkDOut { status: r.status, detail: r.detail, duration: r.duration })
+}
+
+/// 一档的回放：夹具 Fx + 夹具 decision 走一遍链体，返回投影串（`L=…|S=…|D=…`，与 live 门同形）。
+/// `decide` 是重试分流处的注入点：真出口传 arksk_call_decide（真跑 panel-cs.exe），
+/// 自检传同语义的替身（自检不许要外部依赖）。Ask 只属于驱动档 —— 夹具世界冒出来就是内部错。
+fn arkskip_run_case(
+    sc: &ArkskScen,
+    decide: &mut dyn FnMut(&str, bool) -> Result<(bool, Vec<(String, String)>), String>,
+) -> Result<String, String> {
+    let input = ArkDInput {
+        launch: sc.launch,
+        retry_once: sc.retry_once,
+        decision: arksk_fixture_decision(sc),
+    };
+    let mut fx = FixtureFx::new(sc);
+    match ark_daily_chain(&input, &mut fx, decide) {
+        Ok(out) => Ok(format!("L={}|S={}|D={}", fx.seq.join("~"), out.status, out.detail)),
+        Err(ArkAbort::Fail(m)) => Err(m),
+        Err(ArkAbort::Ask) => Err("夹具世界不该冒出 Ask（Ask 只属于驱动档，出现即内部错）".to_string()),
+        Err(ArkAbort::Proto(m)) => Err(m),
+    }
+}
+
+// ==================== 驱动档（R3③：换头重入协议，Start-GdArkDaily 的 Rust 宿主） ====================
+// 换头形态：PS 壳起 gdcore **一次一动作一进程** —— 进程从 --journal 重放已办事项回到断点，
+// 把下一个要办的动作写成 ask 信封(seq/action/params)退出；壳照单执行完，把结果写 --res 回执，
+// 再起下一进程。三件文件：--ctx（壳写一遍：launch/retry_once/decision）、--journal（两端共写：
+// init 行 + 记录行 + 可选 done 行，NDJSON）、--res（壳写：单条回执，读后即删）。
+//
+// journal 是**唯一权威账**：重放时逐行校验"账上动作与链体要点的是不是同一件"（对不上 = journal
+// 与现树不同源 → Proto），新区才追加新行。写失败一切转为驱动协议错（rc=1），因为"断点记不住"
+// 这件事本身就该当场拒跑，不许静默继续。
+//
+// 退出码：0（ask/done）/ 2（缺旗标拒跑）/ 1（协议或内部错）；role 恒 "R3-drive-ark-daily"。
+
+const DRIVE_WHY: &str = "驱动档是换头专用口：本进程只推链与记账，现场动作全由 PS 侧照 ask 的 seq/action 执行后写 --res 回执再重入（缺 --i-drive 直接拒跑）";
+
+/// 五道拒跑闸（顺序即优先级）。五句都点名所缺旗标 —— 自检逐句咬字。
+fn drive_refusal(i_drive: bool, journal: &str, ctx: &str, res: &str, panel_cs: &str) -> Option<String> {
+    if !i_drive {
+        return Some("驱动档是换头专用口：缺 --i-drive / --drive-ark-daily 系列参数时直接拒跑（默认档不许启用它）".to_string());
+    }
+    if journal.is_empty() {
+        return Some("驱动档要 --journal 指到会话 journal 文件：重入状态没落点，断点记不住".to_string());
+    }
+    if ctx.is_empty() {
+        return Some("驱动档要 --ctx 指到上下文文件：launch/retry_once/decision 三格没来路".to_string());
+    }
+    if res.is_empty() {
+        return Some("驱动档要 --res 指到回执文件：PS 侧干完一头的落点没给".to_string());
+    }
+    if panel_cs.is_empty() {
+        return Some("驱动档要 --panel-cs 指到判定 exe：重试分流真跑 decide-daily-retry，缺它试不了".to_string());
+    }
+    None
+}
+
+/// 往 journal 尾追一行（NDJSON）。壳与核共用这一把 —— 行格式只此一处。
+fn drive_append_row(path: &str, row: &JVal) -> Result<(), String> {
+    use std::io::Write;
+    let mut f = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .map_err(|e| format!("打开 {} 失败：{}", path, e))?;
+    f.write_all(format!("{}\n", jv_to_json(row)).as_bytes())
+        .map_err(|e| format!("写入 {} 失败：{}", path, e))
+}
+
+/// 读整本 journal：返回（init 行内层, 记录行数组, 末行 done 内层）。行级校验全在这里，
+/// 读不过去 = 这轮不许跑（半截文件上继续写只会把账搅浑）。
+fn drive_load_journal(text: &str) -> Result<(JVal, Vec<JVal>, Option<JVal>), String> {
+    let mut init: Option<JVal> = None;
+    let mut rows: Vec<JVal> = Vec::new();
+    let mut done: Option<JVal> = None;
+    for (i, line) in text.lines().enumerate() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let row = jv_parse(line).map_err(|e| format!("第 {} 行不是合法 JSON：{}", i + 1, e))?;
+        if done.is_some() {
+            return Err(format!("第 {} 行：done 行之后还有内容", i + 1));
+        }
+        if jv_has(&row, "done") {
+            done = Some(row);
+            continue;
+        }
+        if jv_has(&row, "init") {
+            if init.is_some() {
+                return Err(format!("第 {} 行：init 行出现两次", i + 1));
+            }
+            init = Some(jv_get(&row, "init"));
+            continue;
+        }
+        if init.is_none() {
+            return Err(format!("第 {} 行：记录行出现在 init 之前（半截文件？）", i + 1));
+        }
+        let seq = jv_int(&jv_get(&row, "seq"), 0);
+        if seq != rows.len() as i64 + 1 {
+            return Err(format!("第 {} 行：seq={} 不连续（账上已有 {} 行）", i + 1, seq, rows.len()));
+        }
+        if jv_str(&jv_get(&row, "action")).is_empty() {
+            return Err(format!("第 {} 行：action 是空的", i + 1));
+        }
+        if jv_has(&row, "data") == jv_has(&row, "err") {
+            return Err(format!("第 {} 行：data 与 err 必须恰有一个", i + 1));
+        }
+        rows.push(row);
+    }
+    match init {
+        Some(v) => Ok((v, rows, done)),
+        None => Err("没有 init 行（半截文件？）".to_string()),
+    }
+}
+
+/// 合并一条 --res 回执：None=这条已并过（幂等，忽略）；Some(行)=新行（规范形）。
+/// seq 必须恰是账上下一行号 —— 落后是重放、超前是错位，两种都不许静默。
+fn drive_merge_res(text: &str, need_seq: i64) -> Result<Option<JVal>, String> {
+    let r = jv_parse(text).map_err(|e| format!("res 不是合法 JSON：{}", e))?;
+    let seq = jv_int(&jv_get(&r, "seq"), 0);
+    if seq < need_seq {
+        return Ok(None);
+    }
+    if seq > need_seq {
+        return Err(format!("seq={} 越界（账上下一行应是 {}）", seq, need_seq));
+    }
+    let action = jv_str(&jv_get(&r, "action"));
+    if action.is_empty() {
+        return Err("action 是空的".to_string());
+    }
+    let ok = match jv_get(&r, "ok") {
+        JVal::B(b) => b,
+        _ => return Err("ok 不是布尔".to_string()),
+    };
+    if ok {
+        if jv_has(&r, "err") {
+            return Err("ok 为真却带了 err".to_string());
+        }
+        let data = jv_get(&r, "data");
+        Ok(Some(jv_o(vec![("seq", JVal::I(seq)), ("action", jv_s(&action)), ("data", data)])))
+    } else {
+        if jv_has(&r, "data") {
+            return Err("ok 为假却带了 data".to_string());
+        }
+        let err = jv_str(&jv_get(&r, "err"));
+        if err.is_empty() {
+            return Err("ok 为假却没给 err".to_string());
+        }
+        Ok(Some(jv_o(vec![("seq", JVal::I(seq)), ("action", jv_s(&action)), ("err", jv_s(&err))])))
+    }
+}
+
+/// 重放一行的去路：Data=办成的结果（日志行也是），Fail=账上记着失败（重放为链体 Fail）。
+enum DriveTake {
+    Data(JVal),
+    Fail(String),
+}
+
+/// 驱动侧的 Fx：把链体的 16 个宿主需求翻译成"重放校验 / 新动作 ask"。缺口语义在这里：
+/// - 重放段动作对不上 = journal 与现树不同源 → io_err（Proto，任何 catch 都不接）；
+/// - 新区写 journal 失败 → io_err（同上，断点记不住不许继续）；
+/// - 新区动作 = 记 pending 断点 + Err(Ask) 冒泡（链体不 catch Ask —— 它就是本档的暂停信号）。
+struct DriveFx<'a> {
+    journal: &'a str,
+    rows: Vec<JVal>,
+    /// 启动时（load+merge 后）的记录行数：这之后的才是本轮新区。
+    replay_end: usize,
+    /// 已消费行数（重放推进与新区写入同步推进）。
+    consumed: usize,
+    /// 本轮已写新行数（seq 基准 = replay_end + written + 1）。
+    written: usize,
+    /// 新区日志收集（重放不收集 —— 那些行上一轮的信封里已经报过）。
+    logs: Vec<(String, String)>,
+    /// 新区动作的断点：ask 信封从这里渲染。
+    pending: Option<(i64, &'static str, JVal)>,
+    /// 驱动协议错。log 没有 Result 通道，只能落这里；下个动作 check_io 冒泡。
+    io_err: Option<String>,
+}
+
+impl<'a> DriveFx<'a> {
+    fn new(journal: &'a str, rows: Vec<JVal>) -> Self {
+        let replay_end = rows.len();
+        DriveFx { journal, rows, replay_end, consumed: 0, written: 0, logs: Vec::new(), pending: None, io_err: None }
+    }
+    fn replaying(&self) -> bool {
+        self.consumed < self.replay_end
+    }
+    fn check_io(&mut self) -> Result<(), ArkAbort> {
+        match &self.io_err {
+            Some(m) => Err(ArkAbort::Proto(m.clone())),
+            None => Ok(()),
+        }
+    }
+    /// 新区：把一行追加进 journal（成功才推进计数；失败落 io_err）。
+    fn append_soft(&mut self, action: &str, data: JVal) {
+        let seq = self.replay_end + self.written + 1;
+        let row = jv_o(vec![("seq", JVal::I(seq as i64)), ("action", jv_s(action)), ("data", data)]);
+        match drive_append_row(self.journal, &row) {
+            Ok(()) => {
+                self.rows.push(row);
+                self.written += 1;
+                self.consumed += 1;
+            }
+            Err(m) => {
+                self.io_err = Some(format!("journal 追加失败：{}", m));
+            }
+        }
+    }
+    /// 重放段取一行：动作名对不上 → Proto；err 形态 → Fail；否则 Data。
+    fn take_act(&mut self, expect: &'static str) -> Result<DriveTake, ArkAbort> {
+        let row = self.rows.get(self.consumed).cloned().unwrap_or(JVal::Null);
+        let act = jv_str(&jv_get(&row, "action"));
+        if act != expect {
+            return Err(ArkAbort::Proto(format!(
+                "journal 第 {} 行对不上：账上动作是 [{}]，链体要点的是 [{}]（journal 与现树不同源）",
+                jv_int(&jv_get(&row, "seq"), 0),
+                act,
+                expect
+            )));
+        }
+        self.consumed += 1;
+        if jv_has(&row, "err") {
+            Ok(DriveTake::Fail(jv_str(&jv_get(&row, "err"))))
+        } else {
+            Ok(DriveTake::Data(jv_get(&row, "data")))
+        }
+    }
+    /// 新区动作：记断点 + 暂停。
+    fn ask<T>(&mut self, action: &'static str, params: JVal) -> Result<T, ArkAbort> {
+        let seq = self.replay_end + self.written + 1;
+        self.pending = Some((seq as i64, action, params));
+        Err(ArkAbort::Ask)
+    }
+}
+
+impl ArkDailyFx for DriveFx<'_> {
+    fn log(&mut self, level: &str, text: &str) {
+        // log 没有 Result 通道：驱动协议错一律落 io_err，等动作面 check_io（或收口时）检查。
+        if self.io_err.is_some() {
+            return;
+        }
+        if self.replaying() {
+            match self.take_act("log") {
+                Ok(DriveTake::Data(d)) => {
+                    let lv = jv_str(&jv_get(&d, "level"));
+                    let tx = jv_str(&jv_get(&d, "text"));
+                    if lv != level || tx != text {
+                        self.io_err = Some(format!(
+                            "journal 对不上：账上 [{}|{}] vs 链体 [{}|{}]（journal 与现树不同源）",
+                            lv, tx, level, text
+                        ));
+                    }
+                }
+                Ok(DriveTake::Fail(_)) => {
+                    self.io_err = Some("journal 对不上：log 行带了 err（journal 与现树不同源）".to_string());
+                }
+                Err(ArkAbort::Proto(m)) => {
+                    self.io_err = Some(m);
+                }
+                Err(_) => {
+                    self.io_err = Some("journal 对不上：取记录行出了非 Proto 错（内部错）".to_string());
+                }
+            }
+        } else {
+            let d = jv_o(vec![("level", jv_s(level)), ("text", jv_s(text))]);
+            self.append_soft("log", d);
+            self.logs.push((level.to_string(), text.to_string()));
+        }
+    }
+    fn desk(&mut self) -> Result<String, ArkAbort> {
+        self.check_io()?;
+        if self.replaying() {
+            match self.take_act("desk")? {
+                DriveTake::Data(d) => Ok(jv_str(&d)),
+                DriveTake::Fail(m) => Err(ArkAbort::Fail(m)),
+            }
+        } else {
+            self.ask("desk", JVal::Null)
+        }
+    }
+    fn svdetail(&mut self) -> Result<String, ArkAbort> {
+        self.check_io()?;
+        if self.replaying() {
+            match self.take_act("svdetail")? {
+                DriveTake::Data(d) => Ok(jv_str(&d)),
+                DriveTake::Fail(m) => Err(ArkAbort::Fail(m)),
+            }
+        } else {
+            self.ask("svdetail", JVal::Null)
+        }
+    }
+    fn takeover(&mut self) -> Result<(), ArkAbort> {
+        self.check_io()?;
+        if self.replaying() {
+            match self.take_act("takeover")? {
+                DriveTake::Data(_) => Ok(()),
+                DriveTake::Fail(m) => Err(ArkAbort::Fail(m)),
+            }
+        } else {
+            self.ask("takeover", JVal::Null)
+        }
+    }
+    fn cfg(&mut self, kind: ArkCfgKind) -> Result<ArkCfgOut, ArkAbort> {
+        self.check_io()?;
+        let params = match &kind {
+            ArkCfgKind::Main => jv_o(vec![("kind", jv_s("main"))]),
+            ArkCfgKind::Lean { stage } => jv_o(vec![("kind", jv_s("lean")), ("stage", jv_s(stage))]),
+        };
+        if self.replaying() {
+            match self.take_act("cfg")? {
+                DriveTake::Data(d) => Ok(ArkCfgOut {
+                    changes: jv_list(&jv_get_ci(&d, "changes")).into_iter().map(jv_str).collect(),
+                    chains: jv_list(&jv_get_ci(&d, "chains")).into_iter().map(jv_str).collect(),
+                }),
+                DriveTake::Fail(m) => Err(ArkAbort::Fail(m)),
+            }
+        } else {
+            self.ask("cfg", params)
+        }
+    }
+    fn entryverb(&mut self, game: &str, verb: &str) -> Result<String, ArkAbort> {
+        self.check_io()?;
+        if self.replaying() {
+            match self.take_act("entryverb")? {
+                DriveTake::Data(d) => Ok(jv_str(&d)),
+                DriveTake::Fail(m) => Err(ArkAbort::Fail(m)),
+            }
+        } else {
+            self.ask("entryverb", jv_o(vec![("game", jv_s(game)), ("verb", jv_s(verb))]))
+        }
+    }
+    fn launch(&mut self) -> Result<bool, ArkAbort> {
+        self.check_io()?;
+        if self.replaying() {
+            match self.take_act("launch")? {
+                DriveTake::Data(d) => Ok(jv_truthy(&d)),
+                DriveTake::Fail(m) => Err(ArkAbort::Fail(m)),
+            }
+        } else {
+            self.ask("launch", JVal::Null)
+        }
+    }
+    fn run(&mut self, chains: &[String]) -> Result<ArkRunOut, ArkAbort> {
+        self.check_io()?;
+        if self.replaying() {
+            match self.take_act("run")? {
+                DriveTake::Data(d) => {
+                    let dur = jv_get_ci(&d, "duration");
+                    Ok(ArkRunOut {
+                        status: jv_str(&jv_get_ci(&d, "status")),
+                        detail: jv_str(&jv_get_ci(&d, "detail")),
+                        duration: if matches!(dur, JVal::Null) { None } else { Some(jv_to_d(&dur)) },
+                    })
+                }
+                DriveTake::Fail(m) => Err(ArkAbort::Fail(m)),
+            }
+        } else {
+            self.ask("run", JVal::A(chains.iter().map(|c| jv_s(c)).collect()))
+        }
+    }
+    fn stop(&mut self) -> Result<(), ArkAbort> {
+        self.check_io()?;
+        if self.replaying() {
+            match self.take_act("stop")? {
+                DriveTake::Data(_) => Ok(()),
+                DriveTake::Fail(m) => Err(ArkAbort::Fail(m)),
+            }
+        } else {
+            self.ask("stop", JVal::Null)
+        }
+    }
+    fn sleep(&mut self, seconds: u32) -> Result<(), ArkAbort> {
+        self.check_io()?;
+        if self.replaying() {
+            match self.take_act("sleep")? {
+                DriveTake::Data(_) => Ok(()),
+                DriveTake::Fail(m) => Err(ArkAbort::Fail(m)),
+            }
+        } else {
+            self.ask("sleep", JVal::I(seconds as i64))
+        }
+    }
+    fn skip(&mut self) -> Result<Option<ArkSkipData>, ArkAbort> {
+        self.check_io()?;
+        if self.replaying() {
+            match self.take_act("skip")? {
+                DriveTake::Data(d) => {
+                    if matches!(d, JVal::Null) {
+                        return Ok(None);
+                    }
+                    Ok(Some(ArkSkipData {
+                        skipped: jv_truthy(&jv_get_ci(&d, "skipped")),
+                        plan: jv_list(&jv_get_ci(&d, "plan")).into_iter().map(jv_str).collect(),
+                        evidence: jv_list(&jv_get_ci(&d, "evidence")).into_iter().map(jv_str).collect(),
+                    }))
+                }
+                DriveTake::Fail(m) => Err(ArkAbort::Fail(m)),
+            }
+        } else {
+            self.ask("skip", JVal::Null)
+        }
+    }
+    fn mark(&mut self, stages: &[String], reason: &str) -> Result<String, ArkAbort> {
+        self.check_io()?;
+        if self.replaying() {
+            match self.take_act("mark")? {
+                DriveTake::Data(d) => Ok(jv_str(&d)),
+                DriveTake::Fail(m) => Err(ArkAbort::Fail(m)),
+            }
+        } else {
+            self.ask(
+                "mark",
+                jv_o(vec![
+                    ("stages", JVal::A(stages.iter().map(|s| jv_s(s)).collect())),
+                    ("reason", jv_s(reason)),
+                ]),
+            )
+        }
+    }
+    fn ledger(&mut self) -> Result<String, ArkAbort> {
+        self.check_io()?;
+        if self.replaying() {
+            match self.take_act("ledger")? {
+                DriveTake::Data(d) => Ok(jv_str(&d)),
+                DriveTake::Fail(m) => Err(ArkAbort::Fail(m)),
+            }
+        } else {
+            self.ask("ledger", JVal::Null)
+        }
+    }
+    fn obs(&mut self) -> Result<JVal, ArkAbort> {
+        self.check_io()?;
+        if self.replaying() {
+            match self.take_act("obs")? {
+                DriveTake::Data(d) => Ok(d),
+                DriveTake::Fail(m) => Err(ArkAbort::Fail(m)),
+            }
+        } else {
+            self.ask("obs", JVal::Null)
+        }
+    }
+    fn obsrec(&mut self, obs: &JVal) -> Result<Option<i64>, ArkAbort> {
+        self.check_io()?;
+        if self.replaying() {
+            match self.take_act("obsrec")? {
+                DriveTake::Data(d) => {
+                    if matches!(d, JVal::Null) {
+                        return Ok(None);
+                    }
+                    Ok(Some(jv_int(&d, 0)))
+                }
+                DriveTake::Fail(m) => Err(ArkAbort::Fail(m)),
+            }
+        } else {
+            self.ask("obsrec", obs.clone())
+        }
+    }
+    fn admin(&mut self) -> Result<bool, ArkAbort> {
+        self.check_io()?;
+        if self.replaying() {
+            match self.take_act("admin")? {
+                DriveTake::Data(d) => Ok(jv_truthy(&d)),
+                DriveTake::Fail(m) => Err(ArkAbort::Fail(m)),
+            }
+        } else {
+            self.ask("admin", JVal::Null)
+        }
+    }
+}
+
+/// done 行的内层 → 出口 result（status/detail 恒在；duration 有才放）。
+fn drive_done_result(d: &JVal) -> JVal {
+    let status = jv_str(&jv_get_ci(d, "status"));
+    let detail = jv_str(&jv_get_ci(d, "detail"));
+    let mut kv: Vec<(&str, JVal)> = vec![("status", jv_s(&status)), ("detail", jv_s(&detail))];
+    let dur = jv_get_ci(d, "duration");
+    if !matches!(dur, JVal::Null) {
+        kv.push(("duration", JVal::F(jv_to_d(&dur))));
+    }
+    jv_o(kv)
+}
+
+fn drive_logs_json(logs: &[(String, String)]) -> String {
+    let items: Vec<String> =
+        logs.iter().map(|(l, t)| format!("{{\"level\":{},\"text\":{}}}", jstr(l), jstr(t))).collect();
+    format!("[{}]", items.join(","))
+}
+
+/// ask 信封：链体停在哪个动作上（seq/action/params），壳照单执行后写 res 回执再重入。
+fn render_drive_ask(seq: i64, action: &str, params: &JVal, logs: &[(String, String)]) -> String {
+    format!(
+        "{{\"ok\":true,\"why\":{},\"contract\":{},\"role\":\"R3-drive-ark-daily\",\"kind\":\"ask\",\"seq\":{},\"action\":{},\"params\":{},\"logs\":{}}}",
+        jstr(DRIVE_WHY),
+        jstr(CONTRACT),
+        seq,
+        jstr(action),
+        jv_to_json(params),
+        drive_logs_json(logs)
+    )
+}
+
+/// done 信封：链体整条走完（含 not-started 早退等一切终态），result 就是真身返回的
+/// @{Status;Detail;Duration?}。
+fn render_drive_done(result: &JVal, logs: &[(String, String)]) -> String {
+    format!(
+        "{{\"ok\":true,\"why\":{},\"contract\":{},\"role\":\"R3-drive-ark-daily\",\"kind\":\"done\",\"result\":{},\"logs\":{}}}",
+        jstr(DRIVE_WHY),
+        jstr(CONTRACT),
+        jv_to_json(result),
+        drive_logs_json(logs)
+    )
+}
+
+/// fail 信封：链体 Fail 与驱动协议错共用（后者 error 里带"驱动协议坏了："前缀）。
+fn render_drive_fail(error: &str, logs: &[(String, String)]) -> String {
+    format!(
+        "{{\"ok\":false,\"why\":{},\"contract\":{},\"role\":\"R3-drive-ark-daily\",\"kind\":\"fail\",\"error\":{},\"logs\":{}}}",
+        jstr(DRIVE_WHY),
+        jstr(CONTRACT),
+        jstr(error),
+        drive_logs_json(logs)
+    )
+}
+
+/// 驱动档一轮的信封装配（纯函数；`run_drive_ark_daily` 与 `--selftest` 共用同一处）。
+/// 一轮 = 从 journal 重放回断点 → 再走一步链体 → 落 ask / done / fail 三种收场之一。
+fn drive_ark_daily_envelope(
+    i_drive: bool,
+    journal: &str,
+    ctx: &str,
+    res: &str,
+    panel_cs: &str,
+) -> (i32, String) {
+    if let Some(m) = drive_refusal(i_drive, journal, ctx, res, panel_cs) {
+        return (2, render_drive_fail(&m, &[]));
+    }
+    // ---- ctx：壳写一遍的三格（launch/retry_once/decision） ----
+    let ctx_text = match std::fs::read_to_string(ctx) {
+        Ok(t) => t,
+        Err(e) => return (1, render_drive_fail(&format!("驱动协议坏了：ctx 读不动：{}", e), &[])),
+    };
+    let ctx_val = match jv_parse(&ctx_text) {
+        Ok(v) => v,
+        Err(e) => return (1, render_drive_fail(&format!("驱动协议坏了：ctx 不是合法 JSON：{}", e), &[])),
+    };
+    let launch = match jv_get_ci(&ctx_val, "launch") {
+        JVal::B(b) => b,
+        _ => return (1, render_drive_fail("驱动协议坏了：ctx 的 launch/retry_once 必须是布尔", &[])),
+    };
+    let retry_once = match jv_get_ci(&ctx_val, "retry_once") {
+        JVal::B(b) => b,
+        _ => return (1, render_drive_fail("驱动协议坏了：ctx 的 launch/retry_once 必须是布尔", &[])),
+    };
+    let decision = jv_get_ci(&ctx_val, "decision");
+    if !matches!(decision, JVal::O(_)) {
+        return (1, render_drive_fail("驱动协议坏了：ctx 的 decision 必须是对象", &[]));
+    }
+    // ---- journal：账本在手就重放，不在就现起一本 ----
+    let mut rows: Vec<JVal>;
+    match std::fs::read_to_string(journal) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            let init_row = jv_o(vec![("init", ctx_val.clone())]);
+            if let Err(m) = drive_append_row(journal, &init_row) {
+                return (1, render_drive_fail(&format!("驱动协议坏了：journal 建不起来：{}", m), &[]));
+            }
+            let _ = std::fs::remove_file(res);
+            rows = Vec::new();
+        }
+        Err(e) => return (1, render_drive_fail(&format!("驱动协议坏了：journal 读不动：{}", e), &[])),
+        Ok(text) => {
+            let (init, r, done) = match drive_load_journal(&text) {
+                Ok(t) => t,
+                Err(m) => return (1, render_drive_fail(&format!("驱动协议坏了：journal 读不动：{}", m), &[])),
+            };
+            if jv_to_json(&init) != jv_to_json(&ctx_val) {
+                return (
+                    1,
+                    render_drive_fail("驱动协议坏了：journal 的 init 与 ctx 不是同一份（换了 ctx 就得起新 journal）", &[]),
+                );
+            }
+            if let Some(drow) = done {
+                let _ = std::fs::remove_file(res);
+                return (0, render_drive_done(&drive_done_result(&jv_get(&drow, "done")), &[]));
+            }
+            rows = r;
+        }
+    }
+    // ---- res：上一轮壳的回执（读后即删；≤账上下一行的 seq 是幂等重放，忽略） ----
+    match std::fs::read_to_string(res) {
+        Ok(text) => {
+            let _ = std::fs::remove_file(res);
+            let need = rows.len() as i64 + 1;
+            match drive_merge_res(&text, need) {
+                Ok(Some(row)) => {
+                    if let Err(m) = drive_append_row(journal, &row) {
+                        return (1, render_drive_fail(&format!("驱动协议坏了：journal 追加失败：{}", m), &[]));
+                    }
+                    rows.push(row);
+                }
+                Ok(None) => {}
+                Err(m) => return (1, render_drive_fail(&format!("驱动协议坏了：res 对不上：{}", m), &[])),
+            }
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return (1, render_drive_fail(&format!("驱动协议坏了：res 读不动：{}", e), &[])),
+    }
+    // ---- 一轮：重放到断点，之后再走一步 ----
+    let input = ArkDInput { launch, retry_once, decision };
+    let mut fx = DriveFx::new(journal, rows);
+    let r = ark_daily_chain(&input, &mut fx, &mut |st: &str, ro: bool| arksk_call_decide(panel_cs, st, ro));
+    match r {
+        Ok(o) => {
+            if let Some(m) = fx.io_err.take() {
+                return (1, render_drive_fail(&format!("驱动协议坏了：{}", m), &fx.logs));
+            }
+            let mut kv: Vec<(&str, JVal)> = vec![("status", jv_s(&o.status)), ("detail", jv_s(&o.detail))];
+            if let Some(d) = o.duration {
+                kv.push(("duration", JVal::F(d)));
+            }
+            let result = jv_o(kv);
+            let done_row = jv_o(vec![("done", result.clone())]);
+            if let Err(m) = drive_append_row(journal, &done_row) {
+                return (1, render_drive_fail(&format!("驱动协议坏了：journal 追加失败：{}", m), &fx.logs));
+            }
+            (0, render_drive_done(&result, &fx.logs))
+        }
+        Err(ArkAbort::Ask) => {
+            if let Some(m) = fx.io_err.take() {
+                return (1, render_drive_fail(&format!("驱动协议坏了：{}", m), &fx.logs));
+            }
+            match fx.pending.take() {
+                Some((seq, action, params)) => (0, render_drive_ask(seq, action, &params, &fx.logs)),
+                None => (1, render_drive_fail("驱动协议坏了：Ask 出档却没记断点（内部错）", &fx.logs)),
+            }
+        }
+        Err(ArkAbort::Fail(m)) => (1, render_drive_fail(&m, &fx.logs)),
+        Err(ArkAbort::Proto(m)) => (1, render_drive_fail(&format!("驱动协议坏了：{}", m), &fx.logs)),
+    }
+}
+
+/// 驱动档那一档的出口（`--drive-ark-daily`）。
+fn run_drive_ark_daily(
+    i_drive: bool,
+    journal: &str,
+    ctx: &str,
+    res: &str,
+    panel_cs: &str,
+    out: &Option<String>,
+) -> i32 {
+    let (rc, json) = drive_ark_daily_envelope(i_drive, journal, ctx, res, panel_cs);
+    emit(&json, out);
+    rc
+}
+
+/// `--arkskip` 的信封装配（纯函数；`run_arkskip` 与对拍门共用同一处 —— 门拿到的就是真出口）。
+fn render_arkskip_json(items: &[(String, String)]) -> String {
+    let cases: Vec<String> = items
+        .iter()
+        .map(|(name, data)| format!("{{\"name\":{},\"data\":{}}}", jstr(name), jstr(data)))
+        .collect();
+    format!(
+        "{{\"ok\":true,\"why\":\"只吃内联夹具的 ark 认关止损链装配回放（8 档）；这不是对方行为的读数\",\"contract\":{},\"role\":\"R3-arkskip\",\"fixture\":\"arkskip\",\"count\":{},\"cases\":[{}]}}",
+        jstr(CONTRACT),
+        cases.len(),
+        cases.join(",")
+    )
+}
+
+/// `--arkskip` 那一档：同前几档的出口纪律 —— 只吃内联夹具、不加载任何 DLL、不碰任何现场。
+/// **唯一外部调用** = `--panel-cs` 指的那枚判定 exe（装配真身在这一步就是真跑 decide-daily-retry）；
+/// 缺它 / 跑挂 / 信封对不上 → ok:false 信封 + 非 0 码。8 档全过 → 0。
+fn run_arkskip(panel_cs: &str, out: &Option<String>) -> i32 {
+    let mut rc = 0;
+    let json = if panel_cs.is_empty() {
+        rc = 2;
+        format!(
+            "{{\"ok\":false,\"why\":\"装配回放档要 --panel-cs 指到判定 exe：这一档的装配真身本就真跑 decide-daily-retry，缺它试不了\",\"contract\":{},\"role\":\"R3-arkskip\"}}",
+            jstr(CONTRACT)
+        )
+    } else {
+        let scens = arkskip_scenarios();
+        let mut items: Vec<(String, String)> = Vec::new();
+        let mut bad: Option<String> = None;
+        for sc in &scens {
+            let mut dec = |st: &str, ro: bool| arksk_call_decide(panel_cs, st, ro);
+            match arkskip_run_case(sc, &mut dec) {
+                Ok(proj) => items.push((sc.name.to_string(), proj)),
+                Err(e) => {
+                    bad = Some(format!("装配回放档第 {} 档没跑完：{}", sc.name, e));
+                    break;
+                }
+            }
+        }
+        match bad {
+            Some(e) => {
+                rc = 1;
+                format!(
+                    "{{\"ok\":false,\"why\":{},\"contract\":{},\"role\":\"R3-arkskip\"}}",
+                    jstr(&e),
+                    jstr(CONTRACT)
+                )
+            }
+            None => render_arkskip_json(&items),
+        }
+    };
+    emit(&json, out);
+    rc
+}
+
 // ---- 环境闸（纯判据，可无头自检）
 
 #[derive(Clone, Default)]
@@ -4236,7 +6015,11 @@ fn selftest() -> i32 {
     //        code 又恒为空串，判据仍然要把"起始 / 终态"分开 —— 这就是那条判读错的证伪样本。
     let fe = fixture_events("framework");
     chk(
-        fixture_events("asst").len() == 3 && fe.len() == 2 && fixture_events("both").len() == 5,
+        fixture_events("asst").len() == 3
+            && fe.len() == 2
+            && fixture_events("both").len() == 5
+            && fixture_events("asst-stopped").len() == 2
+            && fixture_events("asst-failed").len() == 2,
         "夹具条数变了：--expected 的示例读数与旁路对拍门的基线都会跟着漂",
         &mut fails,
         &mut total,
@@ -4274,6 +6057,32 @@ fn selftest() -> i32 {
             && terminal_of("TaskChainError") == Some("failed")
             && terminal_of("TaskChainStopped") == Some("stopped"),
         "遗留侧三个终态名判错",
+        &mut fails,
+        &mut total,
+    );
+    // R3①b：任务取消 / 任务失败两档负例走完整链（夹具 → 归一 → 终态判据），verdict 必须跟着翻，
+    // 而不是被"起始 + 成功终态"那种正例盖出来的恒 succeeded 蒙混过去。
+    let fs_stop: Vec<NormEvent> = fixture_events("asst-stopped")
+        .iter()
+        .enumerate()
+        .map(|(i, t)| normalize(&mk_event(i as u64 + 1, t.0, t.1.as_str(), t.2.as_str(), 111), 111))
+        .collect();
+    let fs_fail: Vec<NormEvent> = fixture_events("asst-failed")
+        .iter()
+        .enumerate()
+        .map(|(i, t)| normalize(&mk_event(i as u64 + 1, t.0, t.1.as_str(), t.2.as_str(), 111), 111))
+        .collect();
+    let v_stop = event_verdict(&fs_stop);
+    let v_fail = event_verdict(&fs_fail);
+    chk(
+        v_stop.0 == "stopped" && v_stop.1.contains("TaskChainStopped"),
+        "任务取消样本没判成 stopped：负例在事件流面没有出口",
+        &mut fails,
+        &mut total,
+    );
+    chk(
+        v_fail.0 == "failed" && v_fail.1.contains("TaskChainError"),
+        "任务失败样本没判成 failed：负例在事件流面没有出口",
         &mut fails,
         &mut total,
     );
@@ -4320,16 +6129,19 @@ fn selftest() -> i32 {
         &mut fails,
         &mut total,
     );
-    // --events、--sv 与 --farm-intent 三档都必须并入同一条 emit 出口（否则 --out 出现"某一档默默忽略"的假口径），
-    // 且各自的分派必须落在「--kind 那条必填」**之前**：这三档都不需要装包，被必填拦死就等于没开。
+    // --events、--sv、--farm-intent、--arkskip 与 --drive-ark-daily 五档都必须并入同一条 emit 出口（否则 --out 出现"某一档默默忽略"的假口径），
+    // 且各自的分派必须落在「--kind 那条必填」**之前**：这五档都不需要装包，被必填拦死就等于没开。
+    // （驱动档 R3③ 是第五档：它同样不装包 —— 现场动作全由壳侧照 ask 执行，探针侧只推链与记账。）
     // 这里数的是**整份** SRC 而不是 src_head：分派在 run() 里，而 run() 排在 selftest **之后**，
     // 用 src_head 会两处都找不到、双双退成 MAX 再判成红（这一族"针落在射程外"的坑本轮第二次踩）。
     // needle 一律运行期拼，**且失败文案里也不许把那串字面量原样写出来**：整份一起数时，
     // 自家标签先于 run() 命中，门就红在一句人话上（本轮真踩：文案里的 `--kind` 与那条必填连起来写，
     // SRC.find 先逮到的是这条文案自己 —— 同一族坑第四次，判据读的是自己就必须把自己排除在射程外）。
+    // 装配回放档同理只保留**一处** emit 调用（错误路径用局部 rc + 单出口收束）：计数断言本身就
+    // 是"出口唯一"的守门人，多开一处它先红。驱动档同理 —— 它的唯一 emit 收在 run_drive_ark_daily 里。
     chk(
-        SRC.matches(&["emit(&", "json"].concat()).count() == 3,
-        "事件流/监督判定/farm-intent 三档没同走一处 emit：--out 在其中一档上是空头承诺",
+        SRC.matches(&["emit(&", "json"].concat()).count() == 5,
+        "事件流/监督判定/farm-intent/装配回放/驱动五档没同走一处 emit：--out 在其中一档上是空头承诺",
         &mut fails,
         &mut total,
     );
@@ -4345,6 +6157,20 @@ fn selftest() -> i32 {
     chk(
         sv_dispatch_at < kind_gate_at,
         "--sv 的分派落在那条必填拦路虎之后：监督判定这一档会被装包必填拦死，『只吃夹具』成了空话",
+        &mut fails,
+        &mut total,
+    );
+    let ak_dispatch_at = SRC.find(&["run_arkskip(", "&panel_cs"].concat()).unwrap_or(usize::MAX);
+    chk(
+        ak_dispatch_at < kind_gate_at,
+        "--arkskip 的分派落在那条必填拦路虎之后：装配回放这一档会被装包必填拦死，『只吃夹具』成了空话",
+        &mut fails,
+        &mut total,
+    );
+    let dr_dispatch_at = SRC.find(&["run_drive_ark_daily(", "i_drive"].concat()).unwrap_or(usize::MAX);
+    chk(
+        dr_dispatch_at < kind_gate_at,
+        "--drive-ark-daily 的分派落在那条必填拦路虎之后：换头调度器起步即断（这一档同样不装包）",
         &mut fails,
         &mut total,
     );
@@ -5392,6 +7218,441 @@ fn selftest() -> i32 {
         &mut total,
     );
 
+    // 16. R3② ark 认关止损链装配回放（8 档 = live 门第六路同源同量，arksk-1..8）。
+    //     出档形状：每档一行投影串 `L=…~…|S=…|D=…`（seq 用 ~ 连接）——三侧对拍门
+    //     （tools\rustcore\probe-arkskip-rust-golden.ps1）拿 old/new/rust 三侧逐字比它。
+    //     真出口在这 8 档上照生产协议真跑 decide-daily-retry（外部 exe）；自检不许要外部依赖，
+    //     这里喂一枚只复刻 Orchestration ark 支语义的替身（跳过清单三值 / retryOnce 合取 /
+    //     unknown-format 的 ERROR 句）——替身接错先红，否则后面逐档断言全是假绿。
+    //     期望串逐字对的是转写体与 251bd3c 里那一段（106-255）的同一套话术与顺序；
+    //     这一节红了先怀疑实现走样，再对着转写源核（§7 同一条纪律：改实现、不改期望）。
+    let pj_ok = jv_parse(
+        r#"{"ok":true,"exit":0,"verb":"decide-daily-retry","data":{"Retryable":false,"Logs":[{"Level":"WARN","Text":"\u4e2d\u6587\u5e26\"引号\""}],"N":-1,"F":2.5,"E":1e3,"Big":9007199254740993}}"#,
+    );
+    let pj_good = match &pj_ok {
+        Ok(pj) => {
+            let data = jv_get(pj, "data");
+            let logs_v = jv_get(&data, "Logs");
+            let logs = jv_list(&logs_v);
+            let lvl0 = logs.first().map(|v| jv_str(&jv_get(v, "Level"))).unwrap_or_default();
+            let txt0 = logs.first().map(|v| jv_str(&jv_get(v, "Text"))).unwrap_or_default();
+            jv_str(&jv_get(pj, "verb")) == "decide-daily-retry"
+                && jv_int(&jv_get(pj, "exit"), -9) == 0
+                && !jv_truthy(&jv_get(&data, "Retryable"))
+                && lvl0 == "WARN"
+                && txt0 == "中文带\"引号\""
+                && matches!(jv_get(&data, "N"), JVal::I(-1))
+                && matches!(jv_get(&data, "F"), JVal::F(f) if (f - 2.5).abs() < 1e-9)
+                && jv_to_d(&jv_get(&data, "E")) == 1000.0
+                && matches!(jv_get(&data, "Big"), JVal::I(9007199254740993))
+        }
+        Err(_) => false,
+    };
+    chk(
+        pj_good,
+        "jv_parse 读信封核的常规格不对（verb/exit/布尔/数组/数字面/转义）：--arkskip 真出口的判定回读会跟着错",
+        &mut fails,
+        &mut total,
+    );
+    let pj_emoji = jv_parse(r#"{"s":"\ud83d\ude00"}"#);
+    chk(
+        matches!(&pj_emoji, Ok(v) if jv_str(&jv_get(v, "s")) == "😀"),
+        "jv_parse 的代理对（高\\u+低\\u）没拼成一枚字符：面板信封里带代理对的读数会被读坏",
+        &mut fails,
+        &mut total,
+    );
+    let pj_rt = r#"{"a":[1,2,{"b":"x"}],"c":true,"d":null}"#;
+    chk(
+        jv_parse(pj_rt).map(|v| jv_to_json(&v)).unwrap_or_default() == pj_rt,
+        "jv_parse → jv_to_json 的往返不逐字：嵌套结构（数组/对象/布尔/null）有一类没接住",
+        &mut fails,
+        &mut total,
+    );
+    chk(
+        jv_parse(r#"{"a":"#).is_err()
+            && jv_parse(r#"{"a":1} x"#).is_err()
+            && jv_parse(r#"{"a":tru}"#).is_err()
+            && jv_parse(r#"{"a":1,}"#).is_err()
+            && jv_parse(r#"[1,2,]"#).is_err(),
+        "jv_parse 把截断/尾随垃圾/坏字面量/尾逗号当成了合法信封：坏输入会被读成读数",
+        &mut fails,
+        &mut total,
+    );
+    chk(
+        arksk_split_stages("1-7,CE-5").join("|") == "1-7|CE-5"
+            && arksk_split_stages("1-7,,CE-5").join("|") == "1-7|CE-5"
+            && arksk_split_stages(" 1-7 ，CE-5、S4-1；MT-6 ").join("|") == "1-7|CE-5|S4-1|MT-6"
+            && arksk_split_stages("").join("|") == ""
+            && arksk_split_commas(",1-7,").join("|") == "1-7"
+            && arksk_split_commas("1-7，CE-5").join("|") == "1-7，CE-5",
+        "arksk_split 两把切分刀与 PS 语义不一致（多分隔符正则 vs 单半角逗号）：剔关/认栽的档位面会静默错",
+        &mut fails,
+        &mut total,
+    );
+    chk(
+        arksk_lean_stages("1-7,CE-5", &["CE-5".to_string()]).join("|") == "1-7"
+            && arksk_lean_stages("1-7,ce-5", &["CE-5".to_string()]).join("|") == "1-7"
+            && arksk_lean_stages("ce-5", &["CE-5".to_string()]).join("|") == ""
+            && arksk_lean_stages("1-7,CE-5", &[]).join("|") == "1-7|CE-5",
+        "arksk_lean_stages 的大小写口径歪了（PS -notcontains 不区分大小写）：混拼档位会被漏剔/错剔",
+        &mut fails,
+        &mut total,
+    );
+    let scens = arkskip_scenarios();
+    let names: Vec<&str> = scens.iter().map(|s| s.name).collect();
+    chk(
+        names
+            == vec![
+                "arksk-1-recover",
+                "arksk-2-still-skip",
+                "arksk-3-r2-notok",
+                "arksk-4-no-lean",
+                "arksk-5-not-skipped",
+                "arksk-6-check1-throw",
+                "arksk-7-check2-throw",
+                "arksk-8-retry-then-chain",
+            ],
+        "arkskip 夹具名册与 live 门第六路脱钩（8 档 arksk-1..8）：三侧门按名对账会把漏档读成对齐",
+        &mut fails,
+        &mut total,
+    );
+    // 替身的三个负例面：不重试的两类（inSkip 三值 / retryOnce 没开）+ 不重试但有 ERROR 句的一类。
+    let mut fake_decide = |st: &str, ro: bool| -> Result<(bool, Vec<(String, String)>), String> {
+        let in_skip = st.eq_ignore_ascii_case("ok")
+            || st.eq_ignore_ascii_case("not-started")
+            || st.eq_ignore_ascii_case("unknown-format");
+        if !in_skip && ro {
+            Ok((true, vec![("WARN".to_string(), "方舟本轮未成功 → 收尾后重试一次".to_string())]))
+        } else if st.eq_ignore_ascii_case("unknown-format") {
+            Ok((
+                false,
+                vec![(
+                    "ERROR".to_string(),
+                    "方舟日志标志一条都没认出来 → 重试同样看不懂，直接记入本轮告警(见下面的处理建议)".to_string(),
+                )],
+            ))
+        } else {
+            Ok((false, Vec::new()))
+        }
+    };
+    let (fd_rb1, fd_lg1) = fake_decide("stalled", true).unwrap();
+    chk(
+        fd_rb1 && fd_lg1.len() == 1 && fd_lg1[0].0 == "WARN" && fd_lg1[0].1 == "方舟本轮未成功 → 收尾后重试一次",
+        "替身分流与 Orchestration 的 ark 支不一致（该重试侧）：后面的档位断言跟着失真",
+        &mut fails,
+        &mut total,
+    );
+    let (fd_rb2, fd_lg2) = fake_decide("stalled", false).unwrap();
+    let (fd_rb3, fd_lg3) = fake_decide("ok", true).unwrap();
+    let (fd_rb4, fd_lg4) = fake_decide("not-started", true).unwrap();
+    chk(
+        !fd_rb2 && fd_lg2.is_empty() && !fd_rb3 && fd_lg3.is_empty() && !fd_rb4 && fd_lg4.is_empty(),
+        "替身分流与 Orchestration 的 ark 支不一致（不该重试的三侧：单 stalled / ok / not-started）：后面的档位断言跟着失真",
+        &mut fails,
+        &mut total,
+    );
+    let (fd_rb5, fd_lg5) = fake_decide("unknown-format", false).unwrap();
+    let (fd_rb6, fd_lg6) = fake_decide("unknown-format", true).unwrap();
+    chk(
+        !fd_rb5
+            && fd_lg5.len() == 1
+            && fd_lg5[0].0 == "ERROR"
+            && fd_lg5[0].1.contains("方舟日志标志一条都没认出来")
+            && !fd_rb6
+            && fd_lg6 == fd_lg5,
+        "替身分流与 Orchestration 的 ark 支不一致（unknown-format 的 ERROR 句与合取）：后面的档位断言跟着失真",
+        &mut fails,
+        &mut total,
+    );
+    let mut l8v: Vec<String> = Vec::new();
+    let mut ak_run_err: Option<String> = None;
+    for (i, sc) in scens.iter().enumerate() {
+        match arkskip_run_case(sc, &mut fake_decide) {
+            Ok(p) => l8v.push(p),
+            Err(e) => {
+                ak_run_err = Some(format!("第 {} 档({}) 没跑完：{}", i + 1, sc.name, e));
+                break;
+            }
+        }
+    }
+    if l8v.len() == 8 {
+        let (l1, l2, l3, l4, l5, l6, l7, l8) =
+            (&l8v[0], &l8v[1], &l8v[2], &l8v[3], &l8v[4], &l8v[5], &l8v[6], &l8v[7]);
+        chk(
+            l1.ends_with("S=ok|D=剔关轮收尾正常")
+                && l1.matches("CFG#auto#").count() == 2
+                && l1.contains("~CFG#auto#1-7~INFO|  MAA(剔关重试)：chg-lean")
+                && l1.contains("RUN#Fight+Shop#ok")
+                && l1.contains("~RUN#Fight#ok~SKIP#2~")
+                && l1.contains("OK|剔关重跑后 Fight 正常打了，长草理智保住 → 今天不记认栽标记")
+                && l1.contains("STOP~LEDGER~INFO|掉落记账：BN1~OBS~OBSREC")
+                && !l1.contains("MARK#"),
+            "arkskip 档1(跳过&剔关&恢复)：两段配置/两轮链/恢复句/收尾记账序 —— 有一处没照转写走",
+            &mut fails,
+            &mut total,
+        );
+        chk(
+            l2.contains("剔关重试仍被 MAA 判全关(计划实况：空) → 今日理智关卡确认全关")
+                && l2.contains("MARK#1-7+CE-5#MAA 判「关卡计划内没有当日开放的关卡」")
+                && l2.contains("已记今日认栽标记(2026-10-05)：当天后续轮不再前置补刷关")
+                && l2.ends_with("S=ok|D=剔关后收尾正常；Fight 被 MAA 判全关(认栽，已记当日标记)"),
+            "arkskip 档2(二查仍跳)：认栽支（计划'空'话术/标记档位串/Detail 拼句）有一处没照转写走",
+            &mut fails,
+            &mut total,
+        );
+        chk(
+            l3.contains(
+                "~RUN#Fight#stalled~WARN|方舟剔关重试 结束状态：stalled — 剔关轮卡住~SKIP#2~WARN|剔关重试本轮以 stalled 收场，说不死关卡开没开 → 不记认栽标记(明天照常)",
+            ) && l3.ends_with("S=stalled|D=剔关轮卡住")
+                && !l3.contains("MARK#"),
+            "arkskip 档3(二查没跳但 r2 非 ok)：『说不死关卡开没开』支或终态有一处没照转写走",
+            &mut fails,
+            &mut total,
+        );
+        chk(
+            l4.contains("WARN|本轮没有可剔的补刷关(或剔完计划就空了) → 直接认今日全关")
+                && l4.contains("MARK#CE-5#MAA 判「关卡计划内没有当日开放的关卡」")
+                && l4.matches("SKIP#").count() == 1
+                && l4.ends_with("S=ok|D=Fight 被 MAA 判全关(认栽，已记当日标记)"),
+            "arkskip 档4(无 Farm)：直接认栽支/单查次数/tailNote 的 else 支（Detail 空）有一处没照转写走",
+            &mut fails,
+            &mut total,
+        );
+        chk(
+            l5.matches("SKIP#").count() == 1
+                && !l5.contains("这个 ok 是假的")
+                && !l5.contains("MARK#")
+                && l5.ends_with("S=ok|D=一切正常"),
+            "arkskip 档5(没跳)：认关链不该动（不剔关/不标记）—— 有一处动过头了",
+            &mut fails,
+            &mut total,
+        );
+        chk(
+            l6.contains("WARN|认关检查没做起来：读数没起来(不影响本轮)")
+                && l6.matches("SKIP#").count() == 1
+                && l6.ends_with("S=ok|D=一切正常"),
+            "arkskip 档6(首查抛)：WARN 后缀/链不入/终态有一处没照转写走",
+            &mut fails,
+            &mut total,
+        );
+        chk(
+            l7.contains("WARN|第二次认关检查没做起来：第二次读数炸了~OK|剔关重跑后 Fight 正常打了，长草理智保住 → 今天不记认栽标记~STOP")
+                && !l7.contains("第二次读数炸了(不影响本轮)")
+                && !l7.contains("MARK#")
+                && l7.ends_with("S=ok|D=剔关轮收尾"),
+            "arkskip 档7(二查抛)：WARN 形状（无「不影响本轮」后缀）、catch 后链照常评估（r2 ok ⇒ recovered 那记 OK）或终态有一处没照转写走",
+            &mut fails,
+            &mut total,
+        );
+        chk(
+            l8.contains(
+                "RUN#Fight+Shop#stalled~WARN|方舟 结束状态：stalled — 首轮卡住~WARN|方舟本轮未成功 → 收尾后重试一次~STOP~SLEEP~LAUNCH~RUN#Fight+Shop#ok",
+            ) && l8.matches("LAUNCH").count() == 2
+                && l8.contains("~SKIP#1~")
+                && l8.ends_with("S=ok|D=重试后正常"),
+            "arkskip 档8(先重试后认关)：分流回放序/重试重拉端游/重试后照样认关查 —— 有一处没照转写走",
+            &mut fails,
+            &mut total,
+        );
+    } else {
+        chk(
+            false,
+            &format!(
+                "arkskip 8 档回放没跑全（{} 档为止，后续逐档断言整体跳过）",
+                ak_run_err.unwrap_or_else(|| format!("只跑出 {}", l8v.len()))
+            ),
+            &mut fails,
+            &mut total,
+        );
+    }
+
+    // 17. R3③ 驱动档（--drive-ark-daily = 换头重入协议：journal 重放 + ask/res 往返）。
+    //     协议五件（拒跑五闸 / journal 装载 / res 合并）先钉死，再走十连真往返：
+    //     临时目录里起新账 → 逐动作重入（六轮 ask、一轮 fail、一轮 done、两轮拒跑收场）。
+    //     只碰 %TEMP% 下自己的目录，不加载 DLL、不碰任何现场；收尾连目录一起删。
+    chk(
+        drive_refusal(false, "j", "c", "r", "p").map_or(false, |m| m.contains("--i-drive")),
+        "驱动档拒跑闸①走样：缺 --i-drive 没被点名拒跑（默认档可能把换头专用口当普通出口用）",
+        &mut fails,
+        &mut total,
+    );
+    chk(
+        drive_refusal(true, "", "c", "r", "p").map_or(false, |m| m.contains("--journal")),
+        "驱动档拒跑闸②走样：journal 没落点没被拒（断点记不住的会话会被放行）",
+        &mut fails,
+        &mut total,
+    );
+    chk(
+        drive_refusal(true, "j", "", "r", "p").map_or(false, |m| m.contains("--ctx")),
+        "驱动档拒跑闸③走样：上下文文件没给没被拒（launch/retry_once/decision 没来路）",
+        &mut fails,
+        &mut total,
+    );
+    chk(
+        drive_refusal(true, "j", "c", "", "p").map_or(false, |m| m.contains("--res")),
+        "驱动档拒跑闸④走样：回执落点没给没被拒（PS 侧干完一头的落点没处写）",
+        &mut fails,
+        &mut total,
+    );
+    chk(
+        drive_refusal(true, "j", "c", "r", "").map_or(false, |m| m.contains("--panel-cs")),
+        "驱动档拒跑闸⑤走样：判定 exe 没指没被拒（重试分流试不了）",
+        &mut fails,
+        &mut total,
+    );
+    chk(
+        drive_refusal(true, "j", "c", "r", "p").is_none(),
+        "驱动档五样齐时仍被拒跑：换头调度器根本起不来（拒跑闸的合取写反了）",
+        &mut fails,
+        &mut total,
+    );
+    let dr_j_text = "{\"init\":{\"launch\":true}}\n{\"seq\":1,\"action\":\"log\",\"data\":{\"level\":\"INFO\",\"text\":\"x\"}}\n{\"seq\":2,\"action\":\"desk\",\"data\":\"Default\"}\n";
+    match drive_load_journal(dr_j_text) {
+        Ok((j_init, j_rows, j_done)) => chk(
+            jv_to_json(&j_init) == "{\"launch\":true}" && j_rows.len() == 2 && j_done.is_none(),
+            "drive_load_journal 把好账读歪了：init 内层/记录行数/done 三格有一格不对",
+            &mut fails,
+            &mut total,
+        ),
+        Err(m) => chk(
+            false,
+            &format!("drive_load_journal 把好账读成坏账：{}", m),
+            &mut fails,
+            &mut total,
+        ),
+    }
+    chk(
+        drive_load_journal("{\"init\":{}}\n{\"seq\":2,\"action\":\"desk\",\"data\":null}\n").is_err()
+            && drive_load_journal("{\"init\":{}}\n{\"seq\":1,\"action\":\"desk\",\"data\":null}\n{\"done\":{}}\n{\"seq\":2,\"action\":\"desk\",\"data\":null}\n").is_err()
+            && drive_load_journal("{\"init\":{}}\n{\"seq\":1,\"action\":\"desk\",\"data\":null,\"err\":\"x\"}\n").is_err()
+            && drive_load_journal("{\"seq\":1,\"action\":\"desk\",\"data\":null}\n").is_err(),
+        "drive_load_journal 把四类坏账放行了（seq 跳号/done 后有行/data+err 并存/无 init）：半截账上继续写只会越写越浑",
+        &mut fails,
+        &mut total,
+    );
+    let dr_m_ok = drive_merge_res("{\"seq\":1,\"action\":\"desk\",\"ok\":true,\"data\":\"Default\"}", 1).ok().flatten();
+    let dr_m_dn = drive_merge_res("{\"seq\":1,\"action\":\"desk\",\"ok\":true}", 1).ok().flatten();
+    chk(
+        dr_m_ok.as_ref().map_or(false, |row| jv_str(&jv_get(row, "data")) == "Default" && jv_str(&jv_get(row, "action")) == "desk")
+            && dr_m_dn.as_ref().map_or(false, |row| matches!(jv_get(row, "data"), JVal::Null)),
+        "drive_merge_res 正例走样（data 回读 / 缺 data 补 Null）：好回执被读坏，重入链会当场断",
+        &mut fails,
+        &mut total,
+    );
+    chk(
+        matches!(drive_merge_res("{\"seq\":3,\"action\":\"desk\",\"ok\":true,\"data\":\"x\"}", 5), Ok(None))
+            && drive_merge_res("{\"seq\":7,\"action\":\"desk\",\"ok\":true,\"data\":\"x\"}", 3).is_err(),
+        "drive_merge_res 的 seq 口径歪了（落后=幂等忽略、超前=越界报错）：旧回执会被当新断点、错位会被静默吞掉",
+        &mut fails,
+        &mut total,
+    );
+    chk(
+        drive_merge_res("{\"seq\":1,\"action\":\"desk\",\"ok\":\"true\",\"data\":\"x\"}", 1).is_err()
+            && drive_merge_res("{\"seq\":1,\"action\":\"desk\",\"ok\":false,\"data\":\"x\",\"err\":\"m\"}", 1).is_err()
+            && drive_merge_res("{\"seq\":1,\"action\":\"desk\",\"ok\":false}", 1).is_err(),
+        "drive_merge_res 把三类坏回执放行了（ok 非布尔 / 假却带 data / 假却没给 err）：坏回执会被当断点落进账",
+        &mut fails,
+        &mut total,
+    );
+    // —— 十连真往返：%TEMP% 里起一根真会话，逐动作重入 ——
+    let dr_dir = std::env::temp_dir().join(format!("gd-drive-selftest-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dr_dir);
+    let _ = std::fs::create_dir_all(&dr_dir);
+    let dr_j = dr_dir.join("journal.ndjson").to_str().unwrap().to_string();
+    let dr_c = dr_dir.join("ctx.json").to_str().unwrap().to_string();
+    let dr_r = dr_dir.join("res.json").to_str().unwrap().to_string();
+    let dr_p = "unused-panel-cs";
+    let _ = std::fs::write(&dr_c, "{\"launch\":true,\"retry_once\":false,\"decision\":{\"Mode\":\"plain\",\"Stage\":\"1-7,CE-5\"}}");
+    let (dr_rc1, dr_e1) = drive_ark_daily_envelope(true, &dr_j, &dr_c, &dr_r, dr_p);
+    chk(
+        dr_rc1 == 0
+            && dr_e1.contains("\"kind\":\"ask\"")
+            && dr_e1.contains("\"role\":\"R3-drive-ark-daily\"")
+            && dr_e1.contains("\"seq\":2")
+            && dr_e1.contains("\"action\":\"desk\"")
+            && dr_e1.contains("--- 方舟(端游 + MAA)---"),
+        "驱动档第一轮没停在 desk：起新账（init+首行日志）或 ask 信封装错（换头调度器第一步就接不下去）",
+        &mut fails,
+        &mut total,
+    );
+    let _ = std::fs::write(&dr_r, "{\"seq\":2,\"action\":\"desk\",\"ok\":true,\"data\":\"Default\"}");
+    let (dr_rc2, dr_e2) = drive_ark_daily_envelope(true, &dr_j, &dr_c, &dr_r, dr_p);
+    chk(
+        dr_rc2 == 0 && dr_e2.contains("\"seq\":3") && dr_e2.contains("\"action\":\"takeover\""),
+        "驱动档第二轮没把 desk 回执并账后停在 takeover：重放推进或新区衔接错",
+        &mut fails,
+        &mut total,
+    );
+    let _ = std::fs::write(&dr_r, "{\"seq\":3,\"action\":\"takeover\",\"ok\":true}");
+    let (dr_rc3, dr_e3) = drive_ark_daily_envelope(true, &dr_j, &dr_c, &dr_r, dr_p);
+    chk(
+        dr_rc3 == 0 && dr_e3.contains("\"seq\":4") && dr_e3.contains("\"params\":{\"kind\":\"main\"}"),
+        "驱动档第三轮没停在 cfg(main)：takeover 回执并账或 cfg ask 的 params 装错",
+        &mut fails,
+        &mut total,
+    );
+    let _ = std::fs::write(&dr_r, "{\"seq\":4,\"action\":\"cfg\",\"ok\":true,\"data\":{\"changes\":[\"chg-main\"],\"chains\":[\"Fight\",\"Shop\"]}}");
+    let (dr_rc4, dr_e4) = drive_ark_daily_envelope(true, &dr_j, &dr_c, &dr_r, dr_p);
+    chk(
+        dr_rc4 == 0
+            && dr_e4.contains("\"seq\":6")
+            && dr_e4.contains("\"action\":\"launch\"")
+            && dr_e4.contains("  MAA：chg-main"),
+        "驱动档第四轮没停在 launch 或 MAA 变更日志没带上：cfg 回执的 changes 渲染或 seq 基准错（日志占号）",
+        &mut fails,
+        &mut total,
+    );
+    let _ = std::fs::write(&dr_r, "{\"seq\":6,\"action\":\"launch\",\"ok\":true,\"data\":true}");
+    let (dr_rc5, dr_e5) = drive_ark_daily_envelope(true, &dr_j, &dr_c, &dr_r, dr_p);
+    chk(
+        dr_rc5 == 0 && dr_e5.contains("\"seq\":7") && dr_e5.contains("\"action\":\"run\"") && dr_e5.contains("[\"Fight\",\"Shop\"]"),
+        "驱动档第五轮没停在 run 或 chains 参数面丢了：launch 回执并账或 run ask 的 params 装错",
+        &mut fails,
+        &mut total,
+    );
+    let _ = std::fs::write(&dr_r, "{\"seq\":7,\"action\":\"run\",\"ok\":true,\"data\":{\"status\":\"ok\",\"detail\":\"一切正常\"}}");
+    let (dr_rc6, dr_e6) = drive_ark_daily_envelope(true, &dr_j, &dr_c, &dr_r, dr_p);
+    chk(
+        dr_rc6 == 1 && dr_e6.contains("\"kind\":\"fail\"") && dr_e6.contains("decide-daily-retry 起不来"),
+        "驱动档第六轮没在坏判定 exe 处当场断（唯一外部调用）：真跑 decide-daily-retry 的失败会被静默吞掉",
+        &mut fails,
+        &mut total,
+    );
+    let dr_done_row = jv_o(vec![("done", jv_o(vec![("status", jv_s("ok")), ("detail", jv_s("x")), ("duration", JVal::F(1.5))]))]);
+    let _ = drive_append_row(&dr_j, &dr_done_row);
+    let (dr_rc7, dr_e7) = drive_ark_daily_envelope(true, &dr_j, &dr_c, &dr_r, dr_p);
+    chk(
+        dr_rc7 == 0
+            && dr_e7.contains("\"kind\":\"done\"")
+            && dr_e7.contains("{\"status\":\"ok\",\"detail\":\"x\",\"duration\":1.5}")
+            && dr_e7.contains("\"logs\":[]"),
+        "驱动档第七轮没把末行 done 直接收成 done 信封：重入到已完成会话应原样报结（result 三格/logs 空）",
+        &mut fails,
+        &mut total,
+    );
+    let _ = std::fs::write(&dr_c, "{\"launch\":false,\"retry_once\":false,\"decision\":{}}");
+    let (dr_rc8, dr_e8) = drive_ark_daily_envelope(true, &dr_j, &dr_c, &dr_r, dr_p);
+    chk(
+        dr_rc8 == 1 && dr_e8.contains("驱动协议坏了") && dr_e8.contains("不是同一份"),
+        "驱动档第八轮没拒掉换 ctx 续旧账：init/ctx 不同源的会话会被静默接续",
+        &mut fails,
+        &mut total,
+    );
+    let (dr_rc9, dr_e9) = drive_ark_daily_envelope(false, &dr_j, &dr_c, &dr_r, dr_p);
+    chk(
+        dr_rc9 == 2 && dr_e9.contains("--i-drive"),
+        "驱动档第九轮没在缺 --i-drive 时拒跑（rc2）：默认档能把换头专用口当普通出口用",
+        &mut fails,
+        &mut total,
+    );
+    let _ = std::fs::remove_dir_all(&dr_dir);
+    chk(
+        !dr_dir.exists(),
+        "驱动档自检的临时目录没收干净：自检会在 %TEMP% 里留垃圾",
+        &mut fails,
+        &mut total,
+    );
+
     if fails.is_empty() {
         println!("RESULT SELFTEST-PASS checks={} contract={}", total, CONTRACT);
         return 0;
@@ -5496,6 +7757,23 @@ fn usage() -> ! {
          \t  各过一遍（46 档场景），逐档结果装进一份信封，供三侧对拍门与 old/new 两侧逐字比对。\n\
          \t  **没有日期注入** —— 信封里不带 date 格：这一档不吃时钟，对应门也不做日期对账。\n\
          \n\
+         装配回放档（R3②）：gdprobe --arkskip --panel-cs <panel-cs.exe 路径> [--out <文件>]\n\
+         \t  与上面三档同理**只吃内联夹具、不加载任何 DLL、不碰任何现场**，所以也不需要 --kind / --dir。\n\
+         \t  把 ark 认关止损链（Start-GdArkDaily 整函数）的装配逐句回放一遍（8 档场景）：\n\
+         \t  日志/桩序列逐条落进投影串，供三侧对拍门逐字比对（old 转写 / new 现壳 / 本出口）。\n\
+         \t  **唯一外部调用** = --panel-cs 指的那枚判定 exe：装配真身在这一步就是真跑 decide-daily-retry\n\
+         \t  （照生产同一条 --in/--out 信封协议），所以缺它这一档直接拒跑；不喂它任何本机事实。\n\
+         \n\
+         驱动档（R3③，换头专用）：gdprobe --drive-ark-daily --i-drive --journal <journal 文件> --ctx <上下文文件> --res <回执文件> --panel-cs <判定 exe 路径> [--out <文件>]\n\
+         \t  gdcore.exe 出厂即带的本档（同一份 main.rs 编两枚 bin，gdprobe 与 gdcore 同体）：PS 侧换头后由调度器起它，\n\
+         \t  一次一动作一进程 —— 进程从 journal 重放已办事项回到断点，把下一个要办的动作写成 ask 信封（seq/action/params）退出；\n\
+         \t  壳照单执行完，把结果写 --res 回执，再起下一进程续推。\n\
+         \t  三件文件 = 一根会话：journal 是唯一权威账（init 行 + 记录行 + 末行 done），ctx 只在起新账时吞成 init；\n\
+         \t  缺 --i-drive 一律拒跑（默认档不许启用它），三件文件缺一同样拒跑 —— 断点记不住的会话不许开。\n\
+         \t  与上面四档同理**不加载任何 DLL、不碰任何现场**，所以也不需要 --kind / --dir。\n\
+         \t  **唯一外部调用** = --panel-cs 指的那枚判定 exe：链体重试分流真跑 decide-daily-retry\n\
+         \t  （照生产同一条 --in/--out 信封协议），所以缺它这一档直接拒跑；不喂它任何本机事实。\n\
+         \n\
          自检：gdprobe --selftest        无头，不加载任何 DLL、不碰任何现场\n\
          \n\
          机读出口：任意一档都可加 --out <文件>，把信封**只**写进该文件，stdout 只留一行 RESULT 指引。\n\
@@ -5509,7 +7787,10 @@ fn usage() -> ! {
     exit(1);
 }
 
-fn main() {
+// 之所以是 `pub`：R3 起这枚源码同时喂两个 bin —— gdprobe(本文件当 crate root)与
+// gdcore(src\bin\gdcore.rs 用 #[path] 把它当模块加载、从模块外调 `imp::main()`)。原因与另两条
+// 备选(include! / 同 path 双 bin)的实测结果都写在 src\bin\gdcore.rs 头注里。
+pub fn main() {
     let args: Vec<String> = env::args().skip(1).collect();
 
     let code = match catch_unwind(AssertUnwindSafe(|| run(&args))) {
@@ -5578,6 +7859,13 @@ fn run(args: &[String]) -> i32 {
     let mut drop_at = 0u64;
     // --sv（R2）那档的日期戳注入：空 = 没注入，d/ 那八档就照空串念（显式读数，探针永不读时钟）。
     let mut sv_date = String::new();
+    // --arkskip（R3②）那档的判定 exe 路径注入：空 = 没给 → 该档直接拒跑（详见 run_arkskip 的头注）。
+    let mut panel_cs = String::new();
+    // 驱动档（R3③）的开关与三件文件：缺一拒跑（见 drive_refusal 五道闸）；全空 = 这一档没被启用。
+    let mut i_drive = false;
+    let mut drive_journal = String::new();
+    let mut drive_ctx = String::new();
+    let mut drive_res = String::new();
     let mut flags = GateFlags::default();
     let mut i = 0usize;
     while i < args.len() {
@@ -5641,8 +7929,36 @@ fn run(args: &[String]) -> i32 {
                 mode = "farm-intent";
                 i += 1;
             }
+            "--arkskip" => {
+                mode = "arkskip";
+                i += 1;
+            }
+            "--drive-ark-daily" => {
+                mode = "drive-ark-daily";
+                i += 1;
+            }
+            "--i-drive" => {
+                i_drive = true;
+                i += 1;
+            }
+            "--journal" => {
+                drive_journal = need("--journal", args, i);
+                i += 2;
+            }
+            "--ctx" => {
+                drive_ctx = need("--ctx", args, i);
+                i += 2;
+            }
+            "--res" => {
+                drive_res = need("--res", args, i);
+                i += 2;
+            }
             "--date" => {
                 sv_date = need("--date", args, i);
+                i += 2;
+            }
+            "--panel-cs" => {
+                panel_cs = need("--panel-cs", args, i);
                 i += 2;
             }
             "--fixture" => {
@@ -5755,6 +8071,21 @@ fn run(args: &[String]) -> i32 {
         // 不加载任何 DLL，"要指哪枚装包"在这里没有意义；被必填拦死就等于这一档没开。
         // （照 sv 的样式，这条注释刻意不把那条必填的原话写出来 —— 自检的顺序门数整份源码。）
         return run_farm_intent(&out_file);
+    }
+
+    if mode == "arkskip" {
+        // ark 认关止损链的装配回放档与上面三档同理，同样落在两必填**之前**返回：只吃内联夹具、
+        // 不加载任何 DLL，"要指哪枚装包"在这里没有意义。与前三档的唯一不同：这一档的装配真身
+        // 本就真跑 decide-daily-retry，所以要 --panel-cs 指到那枚判定 exe（缺它该档自己拒跑，
+        // 不是被装包必填拦死）。注释照 sv/farm-intent 的样式，刻意不把那条必填的原话写出来。
+        return run_arkskip(&panel_cs, &out_file);
+    }
+
+    if mode == "drive-ark-daily" {
+        // 驱动档与上面四档同理，同样落在两必填**之前**返回：它只推链与记账、不加载任何 DLL、
+        // 不碰任何现场，"要指哪枚装包"在这里没有意义；被必填拦死就等于换头调度器起步即断。
+        // （照 sv/farm-intent 的样式，这条注释刻意不把那条必填的原话写出来 —— 自检的顺序门数整份源码。）
+        return run_drive_ark_daily(i_drive, &drive_journal, &drive_ctx, &drive_res, &panel_cs, &out_file);
     }
 
     if mode == "preflight" {

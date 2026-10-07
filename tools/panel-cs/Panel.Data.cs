@@ -45,7 +45,12 @@ namespace GdPanel
         {
             // 面板起的每个子进程都要一个 PowerShell。本仓库只支持 PowerShell 7(2026-10-06 C 轮退役 5.1)：
             // 这里只找 pwsh.exe，全落空了回空串(调用点各自把"没引擎"报成一句人话 NoEngineHint，不再静默回落 5.1)。
-            // 旧版把商店版(WindowsApps 别名)整个跳过 —— 那套是跟着 panel.ps1 的 RunAs 顾虑抄来的；
+            // exe 出货链(A0「零依赖」，2026-10-07)：启动器起本面板前会注入 GD_PWSH=自带引擎的路径 ——
+            // 认它一个就够了(玩家机器装没装 PowerShell 与本程序无关)。没有(从源码树直接跑本面板、
+            // 或别的入口拉起)才回到下面的老路。命名风格跟着已有的 GD_PYTHON 走。
+            string fromEnv = Environment.GetEnvironmentVariable("GD_PWSH");
+            if (!string.IsNullOrEmpty(fromEnv) && File.Exists(fromEnv)) return fromEnv;
+            // 老路：旧版把商店版(WindowsApps 别名)整个跳过 —— 那套是跟着 panel.ps1 的 RunAs 顾虑抄来的；
             // 但面板自己从不 RunAs(全是读状态 / dry-run / 触发计划任务)，而本机实测(2026-10-06)只有商店版，
             // 照跳等于这台机器直接没引擎 —— 所以只保留"安装版优先"，商店版进末档。
             string path = Environment.GetEnvironmentVariable("PATH") ?? "";

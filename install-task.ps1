@@ -55,17 +55,22 @@ if ($Uninstall) {
     exit 0
 }
 
-$pwsh = (Get-Command pwsh.exe -ErrorAction SilentlyContinue)
-if (-not $pwsh) { throw 'PATH 里找不到 pwsh.exe(PowerShell 7)。先装 PowerShell 7：winget install Microsoft.PowerShell（装完新开一个终端再跑）' }
+# 找"用哪个 pwsh.exe 注册任务"：当前引擎优先(Get-GdLocalPwsh = $PSHOME → 装机版，且排除不能直接
+# Execute 的 WindowsApps 别名)。exe 自带的引擎跑这一步时，任务就指向 <安装目录>\engine\pwsh.exe ——
+# 每天到点跑的还是它自己，这正是"零依赖"能持续的原因(引擎随 exe 更新、路径不变，任务不用重注册)。
+# 仓库直跑时它就是你命令行里那个 pwsh；系统的 PATH 照旧当末档兜底(此前唯一来源)，全落了才报错。
+$pwshPath = Get-GdLocalPwsh
+if (-not $pwshPath) { $pwshPath = (Get-Command pwsh.exe -ErrorAction SilentlyContinue).Source }
+if (-not $pwshPath) { throw '找不到 pwsh.exe(PowerShell 7)。先装 PowerShell 7：winget install Microsoft.PowerShell（装完新开一个终端再跑）' }
 $actionArgs = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$script`" -Tag auto"
 
-Write-GdLog "pwsh：$($pwsh.Source)"
+Write-GdLog "pwsh：$pwshPath"
 Write-GdLog "脚本：$script"
 Write-GdLog "时间点：$($Times -join ', ')"
 
 foreach ($t in $Times) {
     $name = "$taskPrefix-$($t -replace ':', '')"
-    $action = New-ScheduledTaskAction -Execute $pwsh.Source -Argument $actionArgs -WorkingDirectory $PSScriptRoot
+    $action = New-ScheduledTaskAction -Execute $pwshPath -Argument $actionArgs -WorkingDirectory $PSScriptRoot
     $trigger = New-ScheduledTaskTrigger -Daily -At $t
     $principal = New-ScheduledTaskPrincipal -UserId "$($env:USERDOMAIN)\$($env:USERNAME)" -LogonType Interactive -RunLevel Highest
     $settings = New-ScheduledTaskSettingsSet `
@@ -90,7 +95,7 @@ foreach ($t in $Times) {
 
 $manualName = "$taskPrefix-Manual"
 if (-not $NoManual) {
-    $mAction = New-ScheduledTaskAction -Execute $pwsh.Source `
+    $mAction = New-ScheduledTaskAction -Execute $pwshPath `
         -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$script`" -Tag manual" `
         -WorkingDirectory $PSScriptRoot
     $mPrincipal = New-ScheduledTaskPrincipal -UserId "$($env:USERDOMAIN)\$($env:USERNAME)" -LogonType Interactive -RunLevel Highest

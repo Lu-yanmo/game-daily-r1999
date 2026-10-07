@@ -291,7 +291,9 @@ pwsh -File install-task.ps1 -Uninstall
 ```
 
 依赖：MuMu 模拟器 12（自带 `MuMuManager.exe` 和 `adb.exe`，不需要你另装 adb）。
-PowerShell 用 7（`pwsh`）——本仓库只支持 7。`run-daily.cmd` 会自己找 pwsh（PATH 或装机版），一个都找不到会提示装法：
+**下载页的 exe 零依赖** —— 自带官方 PowerShell 运行时（跟 exe 一对的那枚 `game-daily-r1999-engine.zip` 附件；
+两枚放同一文件夹，首次双击自动释放到本机用户目录；机器上装没装 PowerShell、装的哪个版本，都不影响）。
+**从这份仓库直接跑**（双击 `.cmd`、或 `pwsh -File …`）要 PowerShell 7（`pwsh`）——本仓库只支持 7。`run-daily.cmd` 会自己找 pwsh（PATH 或装机版），一个都找不到会提示装法：
 `winget install Microsoft.PowerShell`（或到官网下载装上）。下文命令一律用 `pwsh`。
 编码与行尾守卫：`pwsh -File tools\check-ps51.ps1`。
 

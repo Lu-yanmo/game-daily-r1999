@@ -2,8 +2,10 @@
 // no prebuilt dll, no shipping artifact). Contract docs: docs\gd-core-contract.md (Chinese).
 // HARD CONSTRAINTS (pinned by K0 probes, do not break):
 //   * C# 5 syntax ceiling -- Windows PowerShell 5.1 CodeDom must compile this file.
+//     (5.1 support retired 2026-10-06 batch C; the ceiling itself is retained as-is by decision.)
 //   * Pure BCL references only -- NO System.Web.Extensions (pwsh7: JSS.DeserializeObject explodes at first use).
 //   * Pure ASCII source (5.1 reads BOM-less UTF-8 as GBK; comments here stay English on purpose).
+//     (5.1 motivation retired with 5.1 on 2026-10-06; the ASCII rule itself is kept.)
 //   * Case-insensitive dictionaries only for PS-facing returns (Hashtable index is case-sensitive,
 //     PSCustomObject property access is not -- contract section 2.3).
 //   * No business failures via exceptions (PS wraps them into MethodInvocationException with English shell;

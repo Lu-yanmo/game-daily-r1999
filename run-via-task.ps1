@@ -8,7 +8,7 @@
   pwsh -File run-via-task.ps1 -Direct         # 强制本机直跑
   (单游戏发布仓库里只装得下一路的代码，-Games 这个参数就是空转：不用管它)
 #>
-# 双引擎兼容：Windows PowerShell 5.1(系统自带) 与 PowerShell 7 都要能跑，别再加 #Requires 版本门把访客挡在门外。
+# 运行环境：PowerShell 7(pwsh)。本仓库只支持 7，不再为系统自带的 Windows PowerShell 5.1 留兼容退路。
 [CmdletBinding()]
 param(
     [ValidateSet('all', 'ark', 'r1999')][string]$Games = 'all',

@@ -10,7 +10,7 @@
   pwsh -File install-task.ps1 -NoManual            # 不建手动触发的 GameDaily-Manual
   pwsh -File install-task.ps1 -Uninstall           # 全部删除
 #>
-# 双引擎兼容：Windows PowerShell 5.1(系统自带) 与 PowerShell 7 都要能跑，别再加 #Requires 版本门把访客挡在门外。
+# 运行环境：PowerShell 7(pwsh)。本仓库只支持 7，不再为系统自带的 Windows PowerShell 5.1 留兼容退路。
 [CmdletBinding()]
 param(
     [switch]$Uninstall,
@@ -56,7 +56,7 @@ if ($Uninstall) {
 }
 
 $pwsh = (Get-Command pwsh.exe -ErrorAction SilentlyContinue)
-if (-not $pwsh) { throw 'PATH 里找不到 pwsh.exe(PowerShell 7)。先装 PowerShell 7 或把 daily-clear 改成 powershell.exe + UTF-8 BOM' }
+if (-not $pwsh) { throw 'PATH 里找不到 pwsh.exe(PowerShell 7)。先装 PowerShell 7：winget install Microsoft.PowerShell（装完新开一个终端再跑）' }
 $actionArgs = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$script`" -Tag auto"
 
 Write-GdLog "pwsh：$($pwsh.Source)"

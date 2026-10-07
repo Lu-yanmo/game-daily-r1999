@@ -38,24 +38,38 @@ namespace GdPanel
     sealed partial class PanelForm : Form
     {
         // ---------- 引擎 / 数据源 ----------
+        // engine 为空(=这台机器没有 pwsh 7)时子进程全起不来：这句话给各调用点拼错误消息用。
+        const string NoEngineHint = "这台机器上没有 pwsh.exe(PowerShell 7)——本程序只支持 PowerShell 7，请先安装：winget install Microsoft.PowerShell";
+
         static string PickEngine()
         {
-            // 和 panel.ps1 同一套优先级：安装版 pwsh 优先，商店版(WindowsApps)不能提权直接 RunAs；没有就用系统 powershell
+            // 面板起的每个子进程都要一个 PowerShell。本仓库只支持 PowerShell 7(2026-10-06 C 轮退役 5.1)：
+            // 这里只找 pwsh.exe，全落空了回空串(调用点各自把"没引擎"报成一句人话 NoEngineHint，不再静默回落 5.1)。
+            // 旧版把商店版(WindowsApps 别名)整个跳过 —— 那套是跟着 panel.ps1 的 RunAs 顾虑抄来的；
+            // 但面板自己从不 RunAs(全是读状态 / dry-run / 触发计划任务)，而本机实测(2026-10-06)只有商店版，
+            // 照跳等于这台机器直接没引擎 —— 所以只保留"安装版优先"，商店版进末档。
             string path = Environment.GetEnvironmentVariable("PATH") ?? "";
+            string storeAlias = null;
             foreach (string dir in path.Split(';'))
             {
                 if (dir.Trim().Length == 0) continue;
                 string cand;
                 try { cand = Path.Combine(dir.Trim(), "pwsh.exe"); } catch { continue; }
                 if (!File.Exists(cand)) continue;
-                if (cand.IndexOf("WindowsApps", StringComparison.OrdinalIgnoreCase) >= 0) continue;
-                return cand;
+                if (cand.IndexOf("WindowsApps", StringComparison.OrdinalIgnoreCase) >= 0) { if (storeAlias == null) storeAlias = cand; continue; }
+                return cand;   // PATH 里的安装版：正统(和面板 PS 侧的"安装版优先"同口径)
             }
-            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "WindowsPowerShell\\v1.0\\powershell.exe");
+            if (storeAlias == null)
+                storeAlias = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"Microsoft\WindowsApps\pwsh.exe");
+            if (File.Exists(storeAlias)) return storeAlias;
+            string prog = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), @"PowerShell\7\pwsh.exe");
+            if (File.Exists(prog)) return prog;
+            return "";
         }
 
         string RunDumpSummary()
         {
+            if (engine.Length == 0) throw new InvalidOperationException(NoEngineHint);
             ProcessStartInfo psi = new ProcessStartInfo();
             psi.FileName = engine;
             psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -File \"" + Path.Combine(root, @"tools\panel.ps1") + "\" -DumpSummary";

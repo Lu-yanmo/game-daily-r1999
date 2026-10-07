@@ -10,9 +10,10 @@
   * run-verb 就是起子进程跑 daily-clear.ps1 —— 与 Invoke-GdAgentVerb 同源：900 秒封顶、
     只留关键日志行([STEP|WARN|OK|ERROR|INFO]/结果/方案/计划/补刷)、末 18 行、剥掉行首 [xx] 标签。
 
-解释器查找与 Get-GdAgentChildPwsh 的对应：PS 侧顺序是"装机 7 → 当前进程 → PSHOME → 系统 5.1"；
-Python 侧没有"当前 PowerShell 进程"可借，等价顺序 = PATH 上的 pwsh → Program Files\\PowerShell\\* →
-PATH 上的 powershell → System32 5.1 全路径。本机 pwsh 是 Store 版这一事实不变(2026-09-26 在案)。
+解释器查找与 Get-GdAgentChildPwsh 的对应：PS 侧顺序是"装机 7 → 当前进程 → PSHOME"；
+Python 侧没有"当前 PowerShell 进程"可借，等价顺序 = PATH 上的 pwsh → Program Files\\PowerShell\\*。
+两边都只找 pwsh 7 —— C 轮(2026-10-06)退役 5.1 后，"PATH 上的 powershell → System32 5.1"两档已删；
+本机 pwsh 是 Store 版这一事实不变(2026-09-26 在案)。
 """
 import json
 import os
@@ -52,11 +53,7 @@ def find_pwsh():
         for exe in sorted(base.glob('*/pwsh.exe'), reverse=True):     # 高版本目录优先
             if exe.is_file():
                 return str(exe)
-    which = shutil.which('powershell')
-    if which:
-        return which
-    sys32 = Path(os.environ.get('WINDIR') or r'C:\Windows') / 'System32' / 'WindowsPowerShell' / 'v1.0' / 'powershell.exe'
-    return str(sys32) if sys32.is_file() else None
+    return None
 
 
 def _run(cmd, timeout):
@@ -182,7 +179,7 @@ def make_verb_fn(root, known_stages, spec_parser):
             return {'Ran': False, 'Exit': -1, 'Detail': '这一步要真跑(会烧理智)，等玩家当面确认'}
         exe = find_pwsh()
         if not exe:
-            return {'Ran': False, 'Exit': -1, 'Detail': '找不到任何 PowerShell 解释器(装机 7/当前进程/系统 5.1 全落了)'}
+            return {'Ran': False, 'Exit': -1, 'Detail': '找不到 pwsh.exe(PowerShell 7)——PATH/Program Files 全落了，请先安装：winget install Microsoft.PowerShell'}
         cmd = [exe, '-NoProfile', '-ExecutionPolicy', 'Bypass',
                '-File', str(Path(root) / 'daily-clear.ps1')] + args
         try:
@@ -219,12 +216,18 @@ def kb_game_override(env):
     """P5 补刀：跑批的单游戏域隔离改走环境变量 GDAGENT_KB_GAME —— 设了就**优先于 settings 两键**
     (kb-search 域=[X]、progression 也查 X)。决策题跑批曾用字节级 regex 切 settings 的 kbAgentGame，
     P5 起列表键优先会静默盖掉单值(混合域跑分判据漂移)，且写 settings 本身有并行会话覆写竞态(在案)；
-    env 注入零写盘、进程死了自然失效。未设/空白 → None(照走 settings，日常对话行为不变)。"""
+    env 注入零写盘、进程死了自然失效。未设/空白 → None(照走 settings，日常对话行为不变)。
+    10-06 跨游戏训练轮扩：**吃逗号列表**('ark,r1999') —— 对比题必须让检索域同时含两游戏才谈得上比较；
+    查表(progression/farm)照旧只认第一枚(查表按当前游戏收窄是 P5 定案，不随这条变)。"""
     raw = (env or {}).get('GDAGENT_KB_GAME')
     if raw is None:
         return None
-    s = str(raw).strip()
-    return [s] if s else None
+    parts = []
+    for p in str(raw).split(','):
+        p = p.strip()
+        if p and p not in parts:      # 去重保序：'ark,ark' 与 'ark' 同一个域集合
+            parts.append(p)
+    return parts or None
 
 
 def make_kb_fn(root):

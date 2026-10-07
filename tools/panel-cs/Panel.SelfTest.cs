@@ -650,12 +650,15 @@ namespace GdPanel
         // 为什么不能只信 JsonShapeOk：那是自家写的"引号配对 + 括号配平"近似判断，而判定层(lib\common.ps1 的 Read-GdJson)
         // 是 $text | ConvertFrom-Json。面板补出来的这一行只要让它报错，结果就是"界面上说写好了、整份配置其实已经读不出来"，
         // 那是最坏的一种假成功 —— 所以这一步必须由**真正的读方**开口，而不是自家再猜一遍形状。
-        // 用 5.1(powershell.exe)而不是 pwsh 7：这台机器出厂就有它，而且它对编码更挑。
+        // 引擎用 PickEngine()(面板自己挑的那枚 pwsh 7)：判定层跑在哪个引擎上，探针就用同一个，
+        // "面板读得回来、命令行读不回来"这类跨引擎差异才有机会在这条自检里露出来。
+        // (旧版刻意挑系统 5.1——"它对编码更挑"能多抓一档毛病；C 轮退役 5.1 后换成同引擎口径，
+        //  当年的老坑照旧留在下面的守则里。)
         // 读文件那一行必须照抄 lib\common.ps1 的 Read-GdJson([IO.File]::ReadAllText + 剥 BOM)，
         // **不能用 Get-Content -Raw**：那份 settings.json 是无 BOM 的 UTF-8(Write-GdJson 明确用 UTF8Encoding($false) 写的)，
-        // 5.1 的 Get-Content 没有 BOM 就按机器 ANSI 码页猜，中文注释里的字节能猜出 0x5C(反斜杠)，
+        // 当年 5.1 的 Get-Content 没有 BOM 就按机器 ANSI 码页猜，中文注释里的字节能猜出 0x5C(反斜杠)，
         // 于是 JSON 字符串的转义被弄乱、ConvertFrom-Json 报"传入的数组无效" —— 探针就红了，但文件其实没坏(2026-09-26 实测踩过)。
-        // 探针脚本内容全 ASCII：5.1 读无 BOM 的非 ASCII .ps1 同样会按码页猜中文。
+        // 探针脚本内容仍保持全 ASCII：这是从"5.1 读无 BOM 非 ASCII .ps1 会按码页猜中文"那会儿留下的习惯，留着不碍事。
         bool RunJsonProbe(string file, string key, bool want, out string note)
         {
             note = "";
@@ -663,8 +666,8 @@ namespace GdPanel
             try
             {
                 File.WriteAllText(ps1, ProbeScript, new UTF8Encoding(false));
-                string exe = Path.Combine(Environment.SystemDirectory, @"WindowsPowerShell\v1.0\powershell.exe");
-                if (!File.Exists(exe)) { note = "这台机器没有 " + exe; return false; }
+                string exe = PickEngine();
+                if (exe.Length == 0) { note = NoEngineHint; return false; }
                 ProcessStartInfo psi = new ProcessStartInfo(exe);
                 psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -File \"" + ps1 + "\" -Path \"" + file +
                                 "\" -Key " + key + " -Want " + (want ? "True" : "False");

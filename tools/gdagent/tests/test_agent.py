@@ -1023,6 +1023,14 @@ class TestPickKbGames(unittest.TestCase):
         self.assertIsNone(LV.kb_game_override({'GDAGENT_KB_GAME': '  '}))
         self.assertIsNone(LV.kb_game_override(None))
 
+    def test_env_override_accepts_list(self):
+        """10-06 跨游戏训练轮：逗号列表扩成多域(对比题要两游戏同时在检索域里)；
+        单值行为逐字不变，空白段丢弃，全空=None。"""
+        self.assertEqual(LV.kb_game_override({'GDAGENT_KB_GAME': 'ark,r1999'}), ['ark', 'r1999'])
+        self.assertEqual(LV.kb_game_override({'GDAGENT_KB_GAME': ' ark , r1999 , '}), ['ark', 'r1999'])
+        self.assertEqual(LV.kb_game_override({'GDAGENT_KB_GAME': 'ark,ark'}), ['ark'])
+        self.assertIsNone(LV.kb_game_override({'GDAGENT_KB_GAME': ' , '}))
+
 
 # ---------- 活层里可离线钉的两件：降级快照 / 假件装配 ----------
 

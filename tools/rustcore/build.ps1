@@ -85,8 +85,9 @@ $lines = @()
 foreach ($b in $bins) {
     $exe = Join-Path $releaseDir ($b + '.exe')
     if (-not (Test-Path -LiteralPath $exe)) { throw "cargo 退出码 0 但没有 $exe —— 产物对不上名字，不打包" }
-    # 收流走 Invoke-GdNativeCapture：5.1 下 `2>&1` + Stop 会把 stderr 的一行(那枚**故意**的 --out 负对照)
-    # 炸成终止错误 —— 双引擎对拍实测抓到，判据仍在这里自己判，函数只负责把两股流收成文本与退出码。
+    # 收流走 Invoke-GdNativeCapture：判据仍在这里自己判，函数只负责把两股流收成文本与退出码。
+    # (5.1 时代实测：`2>&1` + Stop 会把 stderr 的一行 —— 那枚**故意**的 --out 负对照 —— 炸成终止错误；
+    #  5.1 已退役(2026-10-06)，收流函数照旧用。)
     $stRun = Invoke-GdNativeCapture -Exe $exe -Arguments @('--selftest')
     $stCode = [int]$stRun.ExitCode
     $tail = @($stRun.Lines | Where-Object { $_.Trim() })

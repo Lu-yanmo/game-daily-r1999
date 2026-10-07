@@ -18,7 +18,7 @@
   整轮流程跑的是 lib\modules.ps1 里那一份实现。要不要管理员这件事由清单的 RequiresAdmin 说了算，
   所以这个入口连 -NoElevate 参数都没有(它那一路根本提不了什么权)。
 #>
-# 双引擎兼容：Windows PowerShell 5.1(系统自带) 与 PowerShell 7 都要能跑，别再加 #Requires 版本门把访客挡在门外。
+# 运行环境：PowerShell 7(pwsh)。本仓库只支持 7，不再为系统自带的 Windows PowerShell 5.1 留兼容退路。
 [CmdletBinding()]
 param(
     [ValidateSet('auto', 'manual')][string]$Tag = 'manual',

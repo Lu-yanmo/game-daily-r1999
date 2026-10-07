@@ -1,5 +1,5 @@
 ﻿# tools/test-modules.ps1 — 框架层自检：模块清单齐不齐、注册表对不对、框架有没有掺进游戏知识
-# 用法: pwsh -NoProfile -File tools\test-modules.ps1        (powershell.exe 5.1 同样能跑)
+# 用法: pwsh -NoProfile -File tools\test-modules.ps1
 #       只读：不改配置、不启动任何程序、不点鼠标。判定钩子会读 state，所以照样存/还原。
 #
 # 为什么要单独一份：lib\modules.ps1 是"少写一项不会立刻报错"的那类代码 ——

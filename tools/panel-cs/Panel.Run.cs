@@ -68,6 +68,7 @@ namespace GdPanel
             }
             if (busy) CompleteTask();
             if (!File.Exists(script)) { AppendLog("找不到要跑的脚本：" + script); return; }
+            if (engine.Length == 0) { AppendLog(NoEngineHint); return; }
 
             StringBuilder sb = new StringBuilder();
             sb.Append("-NoProfile -ExecutionPolicy Bypass -File \"").Append(script).Append('"');

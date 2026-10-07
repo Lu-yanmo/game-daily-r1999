@@ -1,7 +1,7 @@
 """embed HTTP 客户端：OpenAI 兼容 POST {base}/embeddings，batch + 退避重试（对齐 tools/vision/ask.py）。
 
 - key 只从环境变量（config.api_key()），不落命令行/文件。
-- 依赖 stdlib urllib：跨 5.1/7 与无 requests 的机器都能跑（本机虽有 requests，仍不引，
+- 依赖 stdlib urllib：不引第三方包，有 Python 的机器就能跑（本机虽有 requests，仍不引，
   少一个环境假设）。transport() 可注入，自检喂假响应、不联网。
 - 一切网络/额度失败都归成 EmbedError(中文那句)，由 manager 决定是降级还是中止整批。
 """

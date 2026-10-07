@@ -83,7 +83,7 @@ function Start-GdR1999Daily {
     param([Parameter(Mandatory)]$S, [Parameter(Mandatory)]$Instance)
     $inst = $Instance
     Write-GdLog '--- 重返未来：1999(MuMu + M9A)---' -Level STEP
-    $selfEngine = (Get-Process -Id $PID).Path   # 起子进程用当前引擎自己(5.1→powershell.exe / 7→pwsh.exe)，两处外挂共用
+    $selfEngine = (Get-Process -Id $PID).Path   # 起子进程用当前引擎自己(pwsh 7 —— 本仓库只支持 7)，两处外挂共用
     <# M9A 自动更新闸(2026-09-30 用户口径「检查到更新自己更就行了」)：必须放在起 M9A 之前 ——
        更新器见 m9a 进程在跑就拒动(且永不硬杀)。整链(备份/下载/覆盖/校验)最坏十几分钟，
        但任何失败只 WARN 不挡当日轮；已是最新时子进程秒退，日常不拖节奏。契约在 tools\m9a-update.ps1 头注。 #>

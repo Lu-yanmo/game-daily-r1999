@@ -1,6 +1,6 @@
 ﻿# tools/vision-ask.ps1 — 只问不点：把画面交给视觉模型看一眼，把它说的话原样打出来
 # 用法: pwsh -NoProfile -File tools\vision-ask.ps1 [-Game ark|r1999] [-Image 某张.png] [-Context "一句话"]
-#       powershell.exe 5.1 同样能跑；要 -Image 的那张图自己给路径，本文件不替你找。
+#       需要 PowerShell 7；要 -Image 的那张图自己给路径，本文件不替你找。
 #
 # 为什么要有这一份：lib\vision-rescue.ps1 那条链是"卡住了才兜一次"，一次只留一句结论
 # (Detail 那一行)，问得不满意也没地方补问。排查时真正想要的是**同一个画面反复问、看模型到底怎么说**，

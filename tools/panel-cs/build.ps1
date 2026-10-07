@@ -2,7 +2,7 @@
 # 不依赖 dotnet SDK：玩家机器只要有 .NET Framework 4(Win10/11 出厂自带)就能跑产物。
 # 源码从 2026-09-26 起是一个 partial class 的多份(Panel.cs + Panel.*.cs)，这里**按目录扫 *.cs 全给 csc**，
 # 新加一份就自动进编译，不需要回来改这条命令行。
-# 用法： powershell -File tools\panel-cs\build.ps1 [-Verify] [-ConsoleTest] [-Quiet]
+# 用法： pwsh -File tools\panel-cs\build.ps1 [-Verify] [-ConsoleTest] [-Quiet]
 #   -Verify      = 编完顺手跑 --selftest(布局/主题链)
 #   -ConsoleTest = 再跑一遍 --consoletest(主控台四页：取数、写配置的转义与备份、代跑参数、诊断包不含 key)
 #   -ExpTest     = 再跑一遍 --exptest(「实验功能」三个布尔键的读写回环，只打在 %TEMP% 副本上)

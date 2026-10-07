@@ -1,6 +1,6 @@
 @echo off
 rem panel.cmd —— 双击打开图形状态面板(tools\panel.ps1)，给不想碰命令行的人。
-rem 引擎挑选：优先 PowerShell 7，没有就用系统自带的 Windows PowerShell 5.1(面板只用 WinForms，两边都能跑)。
+rem 引擎挑选：优先 PATH 里的 pwsh，其次 Program Files 装机版；缺了会提示装 PowerShell 7。
 rem 面板只是外壳：所有动作都转调 daily-clear.ps1 / status.ps1 / run-via-task.ps1，判定逻辑一份都不重复。
 rem 所以「面板里看到的结论」和命令行跑同一套脚本得到的结论是同一个 —— 它不自己算。
 rem 注意：本文件必须是 CRLF 行尾、且不能带 UTF-8 BOM(cmd.exe 两样都不认)。
@@ -10,7 +10,10 @@ title 每日清体力 状态面板
 set "PS="
 where pwsh.exe >nul 2>nul && set "PS=pwsh.exe"
 if not defined PS if exist "%ProgramFiles%\PowerShell\7\pwsh.exe" set "PS=%ProgramFiles%\PowerShell\7\pwsh.exe"
-if not defined PS set "PS=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
+if not defined PS echo 没找到 PowerShell 7（pwsh）。本仓库只支持 PowerShell 7，请先安装：winget install Microsoft.PowerShell
+if not defined PS echo 装好后重新双击本文件。
+if not defined PS pause
+if not defined PS exit /b 1
 rem 裸开(没带 -SelfTest 之类参数)默认就是 C# 面板：没有 exe 就先用 Windows 自带的 csc 现编一份(几秒钟，不用装任何东西)。
 rem 编不出来(极精简系统删了 .NET Framework)才回落 PowerShell 面板；带参数照旧走 PowerShell 面板，验收链不受影响。
 if not "%~1"=="" goto pspanel

@@ -9,7 +9,7 @@
   所以将来只发布一款的仓库里，同一个 status.ps1 自动只长那一款的样子；再加第三款游戏也不用改这个文件 ——
   只要它的 <id>-module.ps1 里带上 StatusRows / StatusPlan 这几个钩子。
 #>
-# 双引擎兼容：Windows PowerShell 5.1(系统自带) 与 PowerShell 7 都要能跑，别再加 #Requires 版本门把访客挡在门外。
+# 运行环境：PowerShell 7(pwsh)。本仓库只支持 7，不再为系统自带的 Windows PowerShell 5.1 留兼容退路。
 [CmdletBinding()]
 param([switch]$Offline)
 

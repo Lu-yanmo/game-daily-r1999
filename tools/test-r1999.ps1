@@ -1,5 +1,5 @@
 ﻿# tools/test-r1999.ps1 — 重返未来1999 那一路的纯逻辑自检(只读：不改配置、不启动任何程序)
-# 用法: pwsh -NoProfile -File tools\test-r1999.ps1 [-History]      (powershell.exe 5.1 同样能跑)
+# 用法: pwsh -NoProfile -File tools\test-r1999.ps1 [-History]
 #       -History 追加"回放本机某天的真实 M9A 日志"那 7 条(断言的是那次真跑的内容，换机器不适用，故默认不跑)。
 # 方舟那一路在 tools\test-ark.ps1；两边都跑用 tools\test-decisions.ps1。
 # 公共那半套(计数器、临时 state 的存与取、[t1]/[t11])在 tools\test-lib.ps1。

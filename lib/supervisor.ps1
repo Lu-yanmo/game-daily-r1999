@@ -308,7 +308,7 @@ function Start-GdSupervisor {
     $script = Join-Path (Get-GdRoot) 'tools\supervise.ps1'
     if (-not (Test-Path -LiteralPath $script)) { Write-GdLog '没有 tools\supervise.ps1，这一轮没人监督' -Level WARN; return $false }
     $exe = (Get-Process -Id $PID).Path
-    if (-not $exe) { $exe = (Get-Command powershell.exe).Source }
+    if (-not $exe) { $exe = (Get-Command pwsh.exe).Source }
     $meta = [ordered]@{
         pid     = 0
         owner   = $PID

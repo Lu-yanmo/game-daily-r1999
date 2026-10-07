@@ -41,7 +41,7 @@
 //   panel-cs.exe --agenttest     不显示窗口：对话小窗那条链的纯规则段(Agent.cs) —— 找解释器的顺序、CRT 命令行转义、
 //                                信封投影。不起进程、不联网、不要求这台机器装了 Python(喂的是假尺子和手写 JSON)。
 //
-// 编译：powershell -File tools\panel-cs\build.ps1   (用 C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe)
+// 编译：pwsh -File tools\panel-cs\build.ps1   (用 C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe)
 
 using System;
 using System.Collections.Generic;

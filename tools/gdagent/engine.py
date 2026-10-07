@@ -3,7 +3,7 @@
 分工铁律(和 PS→C# 十批同一口径)：
   * 本文件的**纯段**(kinds 表/取值校验/verb 规则/动作总闸/回复解析/消息组装/回滚计划/回执拼装)
     与 lib\\agent.ps1 的语义**逐字对齐**，由 tools\\probe-agent-golden.ps1 双跑对拍钉住
-    —— 对拍只喂确定性 fixture(纯 ASCII 值，绕开 5.1 转义差)，模型回复走假队列不真联网。
+    —— 对拍只喂确定性 fixture(纯 ASCII 值，绕开编码转义差)，模型回复走假队列不真联网。
   * 活层(读写 settings/journal、起 daily-clear、问模型)全部走**注入缝**
     (send_exchange 的 model_fn/verb_fn/apply_fn/confirm/snapshot_fn)，自检喂假件即可全链路断言。
   * lib\\agent.ps1 自此冻结：函数体原样留着当对拍基准，新功能一律进这里。

@@ -1,5 +1,5 @@
 ﻿<#
-  tools/panel.ps1 —— 每日清体力的图形状态面板(Windows Forms；不装任何东西，5.1 和 7 都能跑)。
+  tools/panel.ps1 —— 每日清体力的图形状态面板(Windows Forms；不装任何东西，依赖 PowerShell 7)。
 
   和菜单的分工：菜单适合"我知道要干哪一件事"，面板适合"瞟一眼今天怎么样"。
   一屏显示：今天会刷什么、两道确认门的状态、定时任务下次几点跑、上一轮结果；
@@ -22,7 +22,6 @@
   用法：
     双击 panel.cmd                        # 推荐，自动挑可用引擎
     pwsh -File tools\panel.ps1
-    powershell -File tools\panel.ps1      # 只有系统自带 PowerShell 的机器
     pwsh -File tools\panel.ps1 -SelfTest       # 不显示窗口：只渲染一次，把状态摘要/帮助行/布局/参数探测打出来，有红项就退出码 1
     pwsh -File tools\panel.ps1 -HeadlessCheck  # 窗口挪到屏幕外，自己起一次预演，验"重定向→定时器泵→忙碌状态"这条链后自动关(零弹窗、零点击)
     game-daily-ark.exe --panel                 # 打包成 exe 后同样能开面板(其它动词见 --help)
@@ -129,13 +128,13 @@ elseif ($script:games.Count -eq 1) {
 else { $panelTail = '全部' }
 $script:idleRunText = '开始跑一轮(' + $panelTail + ')'
 
-# ---------- 子进程用哪个引擎：面板跑在哪个引擎上就用哪个(5.1 的机器不会凭空长出 pwsh) ----------
+# ---------- 子进程用哪个引擎：面板跑在哪个引擎上就用哪个(本仓库只支持 PowerShell 7，5.1 已随 C 轮退役) ----------
 $script:engine = $null
 try { $script:engine = [string](Get-Process -Id $PID).Path } catch { $script:engine = $null }
-if (-not $script:engine -and $PSVersionTable.PSVersion.Major -ge 6) {
+if (-not $script:engine) {
     try { $script:engine = (Get-Command pwsh.exe -ErrorAction Stop).Source } catch { $script:engine = $null }
 }
-if (-not $script:engine) { $script:engine = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe' }
+if (-not $script:engine) { throw '找不到 pwsh.exe(PowerShell 7)——本仓库只支持 PowerShell 7，请先安装：winget install Microsoft.PowerShell' }
 if ($script:engine -like '*\WindowsApps\*') {
     <# 商店版(WindowsApps)的 pwsh 不能直接 RunAs，个别机器上连 Start-Process 都会被拦一口；
        有安装版就换成安装版，没有就照旧(跑 dry-run / 触发计划任务都不需要提权)。 #>
@@ -785,7 +784,7 @@ function Get-PanelHeadlessStats {
              绿=就绪、黄=还没就绪(未注册·未确认·会弹 UAC)、红=已经出过问题(上一轮 stalled/配置没填全)
     动作区分两档：实心蓝=唯一那个会真开跑的；描边白=只读或改状态的；小片=两道门和开目录
     日志区：深色，逐行按 Write-GdLog 自带的级别上色(时间戳刷灰，级别标签隐去——颜色就是它)
-  只用 System.Windows.Forms + System.Drawing，不引任何外部依赖，5.1 和 7 同一份代码。
+  只用 System.Windows.Forms + System.Drawing，不引任何外部依赖，只在 PowerShell 7 上跑。
   布局仍然全部写死坐标 + Anchor(不引 TableLayout)：-SelfTest 那条"控件不许互相压住、不许越出父容器"
   的检查要靠 Bounds 判定，绝对坐标才判得准。
 #>
@@ -1308,7 +1307,7 @@ function Add-PanelHelpRow {
     $script:helpRows += @{ Label = $Label; Cmd = $Cmd }
 }
 function Get-PanelHelpText {
-    $out = @('这些按钮对应的命令行(在 ' + $root + ' 下执行，powershell.exe 换成 pwsh 也一样能跑)：')
+    $out = @('这些按钮对应的命令行(在 ' + $root + ' 下执行，一律用 pwsh)：')
     foreach ($r in $script:helpRows) { $out += ('  ' + (Set-PanelLabelWidth $r.Label 16) + $r.Cmd) }
     $out += '完整参数说明看 README.md。'
     return $out

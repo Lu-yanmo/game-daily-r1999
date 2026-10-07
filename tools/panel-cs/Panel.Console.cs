@@ -442,6 +442,8 @@ namespace GdPanel
             string stage = "";
             try
             {
+                // 没引擎这台机器连子进程都起不来(见 PickEngine)：先报人话，别让玩家看 Process.Start 的裸错误。
+                if (engine.Length == 0) { lastPackError = NoEngineHint; if (tell) AppendLog("打包失败：" + NoEngineHint); return ""; }
                 stage = Path.Combine(Path.GetTempPath(), "gd-diag-" + DateTime.Now.ToString("yyyyMMdd-HHmmss"));
                 Directory.CreateDirectory(Path.Combine(stage, "logs"));
                 if (lastDump != null && lastDump.Length > 0) File.WriteAllText(Path.Combine(stage, "读数.txt"), lastDump, new UTF8Encoding(true));
@@ -555,6 +557,7 @@ namespace GdPanel
         // 同步等最多 60 秒：面板会短暂无响应，所以点按钮时先在日志里预告了。
         string RunStatusOffline()
         {
+            if (engine.Length == 0) return "(" + NoEngineHint + ")";
             try
             {
                 ProcessStartInfo psi = new ProcessStartInfo();

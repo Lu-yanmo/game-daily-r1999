@@ -7,7 +7,7 @@
 #   监督要防的就是**它自己挂住** —— 同一条线程上的旁观者不算旁观者。
 #
 # 手动用法(排查/自检)：
-#   powershell -NoProfile -File tools\supervise.ps1 -OwnerPid <活进程pid> -Games all -Once
+#   pwsh -NoProfile -File tools\supervise.ps1 -OwnerPid <活进程pid> -Games all -Once
 #   -Once 只拍一拍就退，用来验"采集/记账这条链通不通"，不长期驻留。
 # 退出码：0=正常收工(停拍标记/owner 消失/-Once/到达存活上限)；3=起不来(没配置/没有可监督的路线)。
 [CmdletBinding()]

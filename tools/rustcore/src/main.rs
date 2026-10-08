@@ -33,7 +33,7 @@ use std::ffi::c_void;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::process::exit;
 
-const CONTRACT: &str = "RustCore-R3.0";
+const CONTRACT: &str = "RustCore-R4.0";
 const ROLE: &str = "R0-readonly";
 
 // ---------------------------------------------------------------- Win32 直调
@@ -50,6 +50,46 @@ extern "system" {
     fn Process32FirstW(h_snapshot: *mut c_void, lp_entry: *mut ProcessEntry32W) -> i32;
     fn Process32NextW(h_snapshot: *mut c_void, lp_entry: *mut ProcessEntry32W) -> i32;
     fn CloseHandle(h_object: *mut c_void) -> i32;
+    fn GetLocalTime(lp_system_time: *mut SystemTime);
+}
+
+/// 本地时间戳（B-1a 已搬动作 mark/obsrec 用）——GetLocalTime 的 SYSTEMTIME 布局。
+#[repr(C)]
+struct SystemTime {
+    w_year: u16,
+    w_month: u16,
+    w_day_of_week: u16,
+    w_day: u16,
+    w_hour: u16,
+    w_minute: u16,
+    w_second: u16,
+    w_milliseconds: u16,
+}
+
+// 管理员判定（B-1a 已搬动作 admin 用）——advapi32 的 SID/令牌三件套。
+// 照 PS 真身（Test-GdAdmin）语义：任何一步失败 → false，绝不抛。
+#[link(name = "advapi32")]
+extern "system" {
+    fn AllocateAndInitializeSid(
+        p_identifier_authority: *const SidIdentifierAuthority,
+        n_sub_authority_count: u8,
+        dw_sub_authority0: u32,
+        dw_sub_authority1: u32,
+        dw_sub_authority2: u32,
+        dw_sub_authority3: u32,
+        dw_sub_authority4: u32,
+        dw_sub_authority5: u32,
+        dw_sub_authority6: u32,
+        dw_sub_authority7: u32,
+        p_sid: *mut *mut c_void,
+    ) -> i32;
+    fn FreeSid(p_sid: *mut c_void) -> *mut c_void;
+    fn CheckTokenMembership(token_handle: *mut c_void, sid_to_check: *mut c_void, is_member: *mut i32) -> i32;
+}
+
+#[repr(C)]
+struct SidIdentifierAuthority {
+    value: [u8; 6],
 }
 
 /// 进程快照用（连接段的环境闸）。INVALID_HANDLE 用 -1 的位型判。
@@ -1369,6 +1409,128 @@ fn jv_to_json(v: &JVal) -> String {
                 .join(",")
         ),
     }
+}
+
+/// pwsh 7 `ConvertTo-Json` 的字符串转义口径（B-1a 已搬动作写出的文件要与 PS 真身逐字节同）：
+/// 短五枚走名字转义（\b \t \n \f \r）；C0 其余 27 枚 + U+0085/U+2028/U+2029 → `\u` 四位小写；
+/// 0x7F、C1 其余、U+00A0、U+FEFF、非 BMP 一律原样。口径来源=实测读数表（state\gd-b1a-probe-out.txt）。
+fn ps_str(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\u{08}' => out.push_str("\\b"),
+            '\t' => out.push_str("\\t"),
+            '\n' => out.push_str("\\n"),
+            '\u{0c}' => out.push_str("\\f"),
+            '\r' => out.push_str("\\r"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            '\u{85}' | '\u{2028}' | '\u{2029}' => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
+/// pwsh 7 `ConvertTo-Json` 的美化输出（`-Depth 100` 下对象/数组全展开）。形状口径：
+/// CRLF 换行、**尾无换行**、缩进 2 空格一层、`"key": value`；**单元素数组仍多行**；
+/// 空数组 `[]` / 空对象 `{}` 内联。写文件时编码 UTF-8 无 BOM（调用方负责）。
+fn ps_to_json_pretty(v: &JVal) -> String {
+    let mut out = String::new();
+    ps_write_pretty(v, 0, &mut out);
+    out
+}
+
+fn ps_write_pretty(v: &JVal, indent: usize, out: &mut String) {
+    match v {
+        JVal::Null => out.push_str("null"),
+        JVal::B(b) => out.push_str(if *b { "true" } else { "false" }),
+        JVal::I(i) => out.push_str(&i.to_string()),
+        JVal::F(f) => out.push_str(&format!("{}", f)),
+        JVal::S(s) => out.push_str(&ps_str(s)),
+        JVal::A(a) => {
+            if a.is_empty() {
+                out.push_str("[]");
+            } else {
+                out.push_str("[\r\n");
+                for (i, item) in a.iter().enumerate() {
+                    if i > 0 {
+                        out.push_str(",\r\n");
+                    }
+                    out.push_str(&"  ".repeat(indent + 1));
+                    ps_write_pretty(item, indent + 1, out);
+                }
+                out.push_str("\r\n");
+                out.push_str(&"  ".repeat(indent));
+                out.push(']');
+            }
+        }
+        JVal::O(o) => {
+            if o.is_empty() {
+                out.push_str("{}");
+            } else {
+                out.push_str("{\r\n");
+                for (i, (k, val)) in o.iter().enumerate() {
+                    if i > 0 {
+                        out.push_str(",\r\n");
+                    }
+                    out.push_str(&"  ".repeat(indent + 1));
+                    out.push_str(&ps_str(k));
+                    out.push_str(": ");
+                    ps_write_pretty(val, indent + 1, out);
+                }
+                out.push_str("\r\n");
+                out.push_str(&"  ".repeat(indent));
+                out.push('}');
+            }
+        }
+    }
+}
+
+/// 本地日期串 `yyyy-MM-dd`（GetLocalTime）——PS 真身 `(Get-Date).ToString('yyyy-MM-dd')` 的同机同日口径。
+fn gd_local_date() -> String {
+    let mut st = SystemTime {
+        w_year: 0,
+        w_month: 0,
+        w_day_of_week: 0,
+        w_day: 0,
+        w_hour: 0,
+        w_minute: 0,
+        w_second: 0,
+        w_milliseconds: 0,
+    };
+    unsafe {
+        GetLocalTime(&mut st);
+    }
+    format!("{:04}-{:02}-{:02}", st.w_year, st.w_month, st.w_day)
+}
+
+/// 从 `yyyy-M-d`（月/日可一位或两位）解星期几，0=周日 .. 6=周六（Sakamoto）。
+/// 照 PS 真身 `Get-Date ([string]$Obs.Date)` 的口径：解不动/日期不存在 → None（调用侧当失败处理）。
+/// 只认 `yyyy-M-d` 一种形状 —— 观测账本里的 Date 是 PS 侧自己按这个形状写进去的。
+fn gd_dow_from_date(s: &str) -> Option<u32> {
+    let parts: Vec<&str> = s.trim().split('-').collect();
+    if parts.len() != 3 {
+        return None;
+    }
+    let y: i64 = parts[0].parse().ok()?;
+    let m: i64 = parts[1].parse().ok()?;
+    let d: i64 = parts[2].parse().ok()?;
+    if y < 1 || !(1..=12).contains(&m) || d < 1 {
+        return None;
+    }
+    let leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
+    let mdays = [31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    if d > mdays[(m - 1) as usize] {
+        return None;
+    }
+    let t = [0i64, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4];
+    let yy = if m < 3 { y - 1 } else { y };
+    let w = (yy + yy / 4 - yy / 100 + yy / 400 + t[(m - 1) as usize] + d) % 7;
+    Some(w as u32)
 }
 
 /// 迷你 JSON 解析器（只为本 crate 自用：读 panel-cs.exe 的 --out 信封，R3② 装配回放档要用）。
@@ -3693,6 +3855,8 @@ trait ArkDailyFx {
 /// 夹具世界（8 档）的 Fx（把 live 门第六路/三侧门的桩语义原样平移进 trait 实现：调用序与入参
 /// 进 seq、队列消费、固定返回、admin 恒 false）——链体从真身抽出后，"8 档投影逐字不变"这一半
 /// 由它保。投影串里的动作裸名（DESK/CFG/RUN/SKIP/…）都是这一层的历史格式，链体不碰。
+/// B-1a 起：mark/obsrec 的读数取真值（今日日期/递增计数），与"新侧进程内真做"的日志逐字对齐；
+/// 三侧门的投影过滤（#321）负责把 MARK#/OBSREC 裸段与 ask 侧的对齐。
 struct FixtureFx<'a> {
     sc: &'a ArkskScen,
     seq: Vec<String>,
@@ -3700,11 +3864,12 @@ struct FixtureFx<'a> {
     run_i: usize,
     skip_i: usize,
     skip_n: i32,
+    obs_n: &'a mut i64,
 }
 
 impl<'a> FixtureFx<'a> {
-    fn new(sc: &'a ArkskScen) -> Self {
-        FixtureFx { sc, seq: Vec::new(), cfg_i: 0, run_i: 0, skip_i: 0, skip_n: 0 }
+    fn new(sc: &'a ArkskScen, obs_n: &'a mut i64) -> Self {
+        FixtureFx { sc, seq: Vec::new(), cfg_i: 0, run_i: 0, skip_i: 0, skip_n: 0, obs_n }
     }
     /// Write-GdLog 桩：`$script:seq += "$Level|$Message"`。
     fn w(&mut self, level: &str, msg: &str) {
@@ -3803,8 +3968,8 @@ impl ArkDailyFx for FixtureFx<'_> {
     }
     fn mark(&mut self, stages: &[String], reason: &str) -> Result<String, ArkAbort> {
         self.raw(format!("MARK#{}#{}", stages.join("+"), reason));
-        // Set-GdArkFightSkipMark 桩的固定返回（不读时钟）。
-        Ok("2026-10-05".to_string())
+        // B-1a：桩与"新侧进程内真做"对齐 —— 返回真今日（两侧日志日期同字；投影侧由 #321 过滤 MARK# 段）。
+        Ok(gd_local_date())
     }
     fn ledger(&mut self) -> Result<String, ArkAbort> {
         self.raw("LEDGER".to_string());
@@ -3812,11 +3977,22 @@ impl ArkDailyFx for FixtureFx<'_> {
     }
     fn obs(&mut self) -> Result<JVal, ArkAbort> {
         self.raw("OBS".to_string());
-        Ok(JVal::Null)
+        // B-1a：桩载荷升级为全形 7 字段（新侧 obsrec 进程内真写账本读它；固定值照门侧夹具字面）。
+        Ok(jv_o(vec![
+            ("Found", JVal::B(true)),
+            ("Date", jv_s("2026-10-04")),
+            ("Stage", jv_s("1-7")),
+            ("LastBattle", JVal::B(true)),
+            ("SawGuiPlan", JVal::B(false)),
+            ("Survivors", JVal::A(vec![jv_s("72"), jv_s("30012")])),
+            ("Selected", jv_s("1-7")),
+        ]))
     }
     fn obsrec(&mut self, _obs: &JVal) -> Result<Option<i64>, ArkAbort> {
         self.raw("OBSREC".to_string());
-        Ok(Some(5))
+        // B-1a：计数器替固定 5 —— 与新侧真账本净计数 1..N 对齐（投影侧由 #321 过滤 OBSREC 裸段）。
+        *self.obs_n += 1;
+        Ok(Some(*self.obs_n))
     }
     /// Test-GdAdmin 恒 false（与 live 门第六路同桩）。
     fn admin(&mut self) -> Result<bool, ArkAbort> {
@@ -4133,17 +4309,19 @@ fn ark_daily_chain(
 
 /// 一档的回放：夹具 Fx + 夹具 decision 走一遍链体，返回投影串（`L=…|S=…|D=…`，与 live 门同形）。
 /// `decide` 是重试分流处的注入点：真出口传 arksk_call_decide（真跑 panel-cs.exe），
-/// 自检传同语义的替身（自检不许要外部依赖）。Ask 只属于驱动档 —— 夹具世界冒出来就是内部错。
+/// 自检传同语义的替身（自检不许要外部依赖）。`obs_n` 是 obsrec 桩的账本净计数（B-1a 起跨档连续，
+/// 与新侧真账本对齐）。Ask 只属于驱动档 —— 夹具世界冒出来就是内部错。
 fn arkskip_run_case(
     sc: &ArkskScen,
     decide: &mut dyn FnMut(&str, bool) -> Result<(bool, Vec<(String, String)>), String>,
+    obs_n: &mut i64,
 ) -> Result<String, String> {
     let input = ArkDInput {
         launch: sc.launch,
         retry_once: sc.retry_once,
         decision: arksk_fixture_decision(sc),
     };
-    let mut fx = FixtureFx::new(sc);
+    let mut fx = FixtureFx::new(sc, obs_n);
     match ark_daily_chain(&input, &mut fx, decide) {
         Ok(out) => Ok(format!("L={}|S={}|D={}", fx.seq.join("~"), out.status, out.detail)),
         Err(ArkAbort::Fail(m)) => Err(m),
@@ -4164,10 +4342,10 @@ fn arkskip_run_case(
 //
 // 退出码：0（ask/done）/ 2（缺旗标拒跑）/ 1（协议或内部错）；role 恒 "R3-drive-ark-daily"。
 
-const DRIVE_WHY: &str = "驱动档是换头专用口：本进程只推链与记账，现场动作全由 PS 侧照 ask 的 seq/action 执行后写 --res 回执再重入（缺 --i-drive 直接拒跑）";
+const DRIVE_WHY: &str = "驱动档是换头专用口：本进程只推链与记账，链体与已搬动作（mark/obsrec/admin）在本进程内跑，其余现场动作由 PS 侧照 ask 的 seq/action 执行后写 --res 回执再重入（缺 --i-drive 直接拒跑）";
 
-/// 五道拒跑闸（顺序即优先级）。五句都点名所缺旗标 —— 自检逐句咬字。
-fn drive_refusal(i_drive: bool, journal: &str, ctx: &str, res: &str, panel_cs: &str) -> Option<String> {
+/// 六道拒跑闸（顺序即优先级）。六句都点名所缺旗标 —— 自检逐句咬字。
+fn drive_refusal(i_drive: bool, journal: &str, ctx: &str, res: &str, panel_cs: &str, state: &str) -> Option<String> {
     if !i_drive {
         return Some("驱动档是换头专用口：缺 --i-drive / --drive-ark-daily 系列参数时直接拒跑（默认档不许启用它）".to_string());
     }
@@ -4182,6 +4360,9 @@ fn drive_refusal(i_drive: bool, journal: &str, ctx: &str, res: &str, panel_cs: &
     }
     if panel_cs.is_empty() {
         return Some("驱动档要 --panel-cs 指到判定 exe：重试分流真跑 decide-daily-retry，缺它试不了".to_string());
+    }
+    if state.is_empty() {
+        return Some("驱动档要 --state 指到 state 目录：已搬动作（mark/obsrec/admin）的账要落到生产同一处".to_string());
     }
     None
 }
@@ -4288,12 +4469,15 @@ enum DriveTake {
     Fail(String),
 }
 
-/// 驱动侧的 Fx：把链体的 16 个宿主需求翻译成"重放校验 / 新动作 ask"。缺口语义在这里：
+/// 驱动侧的 Fx：把链体的 16 个宿主需求翻译成"重放校验 / 新动作执行"。缺口语义在这里：
 /// - 重放段动作对不上 = journal 与现树不同源 → io_err（Proto，任何 catch 都不接）；
 /// - 新区写 journal 失败 → io_err（同上，断点记不住不许继续）；
-/// - 新区动作 = 记 pending 断点 + Err(Ask) 冒泡（链体不 catch Ask —— 它就是本档的暂停信号）。
+/// - 新区动作：已搬集合（mark/obsrec/admin）在本进程内真做并记 journal 成功行；
+///   其余动作 = 记 pending 断点 + Err(Ask) 冒泡（链体不 catch Ask —— 它就是本档的暂停信号）。
 struct DriveFx<'a> {
     journal: &'a str,
+    /// state 目录（已搬动作的账与生产落同一处；write 前不建目录 —— 写不成就是 Fail，照 PS 真身）。
+    state_dir: &'a str,
     rows: Vec<JVal>,
     /// 启动时（load+merge 后）的记录行数：这之后的才是本轮新区。
     replay_end: usize,
@@ -4310,9 +4494,19 @@ struct DriveFx<'a> {
 }
 
 impl<'a> DriveFx<'a> {
-    fn new(journal: &'a str, rows: Vec<JVal>) -> Self {
+    fn new(journal: &'a str, state_dir: &'a str, rows: Vec<JVal>) -> Self {
         let replay_end = rows.len();
-        DriveFx { journal, rows, replay_end, consumed: 0, written: 0, logs: Vec::new(), pending: None, io_err: None }
+        DriveFx {
+            journal,
+            state_dir,
+            rows,
+            replay_end,
+            consumed: 0,
+            written: 0,
+            logs: Vec::new(),
+            pending: None,
+            io_err: None,
+        }
     }
     fn replaying(&self) -> bool {
         self.consumed < self.replay_end
@@ -4327,6 +4521,22 @@ impl<'a> DriveFx<'a> {
     fn append_soft(&mut self, action: &str, data: JVal) {
         let seq = self.replay_end + self.written + 1;
         let row = jv_o(vec![("seq", JVal::I(seq as i64)), ("action", jv_s(action)), ("data", data)]);
+        match drive_append_row(self.journal, &row) {
+            Ok(()) => {
+                self.rows.push(row);
+                self.written += 1;
+                self.consumed += 1;
+            }
+            Err(m) => {
+                self.io_err = Some(format!("journal 追加失败：{}", m));
+            }
+        }
+    }
+    /// 新区：把一行**失败**追加进 journal（{seq,action,err}——重放时 take_act 会还原成 Fail）。
+    /// 与 append_soft 同账同序，成功/失败只差有没有 data。写失败同样落 io_err。
+    fn append_err(&mut self, action: &str, err: &str) {
+        let seq = self.replay_end + self.written + 1;
+        let row = jv_o(vec![("seq", JVal::I(seq as i64)), ("action", jv_s(action)), ("err", jv_s(err))]);
         match drive_append_row(self.journal, &row) {
             Ok(()) => {
                 self.rows.push(row);
@@ -4540,13 +4750,19 @@ impl ArkDailyFx for DriveFx<'_> {
                 DriveTake::Fail(m) => Err(ArkAbort::Fail(m)),
             }
         } else {
-            self.ask(
-                "mark",
-                jv_o(vec![
-                    ("stages", JVal::A(stages.iter().map(|s| jv_s(s)).collect())),
-                    ("reason", jv_s(reason)),
-                ]),
-            )
+            // 已搬动作（B-1a）：进程内真做，不再 ask —— 账行照写（重放段与 ask 时代逐字节等价）。
+            match drive_mark(self.state_dir, stages, reason) {
+                Ok(date) => {
+                    self.append_soft("mark", jv_s(&date));
+                    self.check_io()?;
+                    Ok(date)
+                }
+                Err(m) => {
+                    self.append_err("mark", &m);
+                    self.check_io()?;
+                    Err(ArkAbort::Fail(m))
+                }
+            }
         }
     }
     fn ledger(&mut self) -> Result<String, ArkAbort> {
@@ -4584,7 +4800,23 @@ impl ArkDailyFx for DriveFx<'_> {
                 DriveTake::Fail(m) => Err(ArkAbort::Fail(m)),
             }
         } else {
-            self.ask("obsrec", obs.clone())
+            // 已搬动作（B-1a）：观测账本进程内写。
+            match drive_obsrec(self.state_dir, obs) {
+                Ok(n) => {
+                    let d = match n {
+                        Some(v) => JVal::I(v),
+                        None => JVal::Null,
+                    };
+                    self.append_soft("obsrec", d);
+                    self.check_io()?;
+                    Ok(n)
+                }
+                Err(m) => {
+                    self.append_err("obsrec", &m);
+                    self.check_io()?;
+                    Err(ArkAbort::Fail(m))
+                }
+            }
         }
     }
     fn admin(&mut self) -> Result<bool, ArkAbort> {
@@ -4595,8 +4827,95 @@ impl ArkDailyFx for DriveFx<'_> {
                 DriveTake::Fail(m) => Err(ArkAbort::Fail(m)),
             }
         } else {
-            self.ask("admin", JVal::Null)
+            // 已搬动作（B-1a）：当前令牌进程内查（fail-closed，绝不抛）。
+            let b = drive_is_admin();
+            self.append_soft("admin", JVal::B(b));
+            self.check_io()?;
+            Ok(b)
         }
+    }
+}
+
+/// 已搬动作 mark（B-1a）：写 state\ark-fight-skip-mark.json，返回日期串。
+/// 文件字节 = PS 真身 Set-GdArkFightSkipMark 经 pwsh 7 ConvertTo-Json 的输出（形状口径见 ps_to_json_pretty）。
+/// 不建目录：写不成 → Err（照真身：Write-GdJson 抛 → 链体侧 WARN）。
+fn drive_mark(state_dir: &str, stages: &[String], reason: &str) -> Result<String, String> {
+    let date = gd_local_date();
+    let doc = jv_o(vec![
+        ("Date", jv_s(&date)),
+        ("Stages", JVal::A(stages.iter().map(|s| jv_s(s)).collect())),
+        ("Reason", jv_s(reason)),
+    ]);
+    let path = std::path::Path::new(state_dir).join("ark-fight-skip-mark.json");
+    std::fs::write(&path, ps_to_json_pretty(&doc).as_bytes())
+        .map_err(|e| format!("写 {} 失败：{}", path.display(), e))?;
+    Ok(date)
+}
+
+/// 已搬动作 obsrec（B-1a）：观测账本进程内写，返回账本条数（Found 假 → None，不落文件）。
+/// 语义逐句照 PS 真身 Update-GdArkStageObs（lib\ark-farm.ps1）：
+/// - 读账：文件不在/读不出/解析坏 → 空账；Records 缺/null → [null]（@($null) 单元素占位，实测语义：
+///   探针 json3 把 @($null) 序列化成 [null]）；空数组摊平为空；标量按单个元素。
+/// - Dow：日期解不出 → Err（照真身 Get-Date 抛）；周日 0 → 7。
+/// - Survivors：管道语义 —— 缺/null → [""]（$null 过管道恰一次，探针 obsrec-d 实测）；数组逐项 [string]。
+/// - 滑窗：>60 条留尾 60。写不成 → Err。
+fn drive_obsrec(state_dir: &str, obs: &JVal) -> Result<Option<i64>, String> {
+    if !jv_truthy(&jv_get_ci(obs, "Found")) {
+        return Ok(None);
+    }
+    let path = std::path::Path::new(state_dir).join("ark-stage-weekday-obs.json");
+    let mut records: Vec<JVal> = Vec::new();
+    if path.exists() {
+        if let Ok(text) = std::fs::read_to_string(&path) {
+            let text = text.trim_start_matches('\u{feff}');
+            if let Ok(doc) = jv_parse(text) {
+                records = match jv_get(&doc, "Records") {
+                    JVal::A(a) => a,
+                    other => vec![other],
+                };
+            }
+        }
+    }
+    let date = jv_str(&jv_get_ci(obs, "Date"));
+    let dow0 = gd_dow_from_date(&date).ok_or_else(|| format!("日期解析不了：{}", date))?;
+    let dow = if dow0 == 0 { 7 } else { dow0 };
+    let survivors: Vec<JVal> = match jv_get_ci(obs, "Survivors") {
+        JVal::A(a) => a.iter().map(|v| jv_s(&jv_str(v))).collect(),
+        JVal::Null => vec![jv_s("")],
+        other => vec![jv_s(&jv_str(&other))],
+    };
+    records.push(jv_o(vec![
+        ("Date", jv_s(&date)),
+        ("Dow", JVal::I(dow as i64)),
+        ("Stage", jv_s(&jv_str(&jv_get_ci(obs, "Stage")))),
+        ("LastBattle", JVal::B(jv_truthy(&jv_get_ci(obs, "LastBattle")))),
+        ("SawGuiPlan", JVal::B(jv_truthy(&jv_get_ci(obs, "SawGuiPlan")))),
+        ("Survivors", JVal::A(survivors)),
+        ("Selected", jv_s(&jv_str(&jv_get_ci(obs, "Selected")))),
+    ]));
+    if records.len() > 60 {
+        let cut = records.len() - 60;
+        records.drain(0..cut);
+    }
+    let doc = jv_o(vec![("Records", JVal::A(records.clone()))]);
+    std::fs::write(&path, ps_to_json_pretty(&doc).as_bytes())
+        .map_err(|e| format!("写 {} 失败：{}", path.display(), e))?;
+    Ok(Some(records.len() as i64))
+}
+
+/// 已搬动作 admin（B-1a）：当前有效令牌是否 BUILTIN\Administrators（S-1-5-32-544）。
+/// 照 PS 真身 Test-GdAdmin 语义：任何一步失败 → false（fail-closed），绝不抛。
+fn drive_is_admin() -> bool {
+    unsafe {
+        let authority = SidIdentifierAuthority { value: [0, 0, 0, 0, 0, 5] };
+        let mut sid: *mut c_void = std::ptr::null_mut();
+        if AllocateAndInitializeSid(&authority, 2, 32, 544, 0, 0, 0, 0, 0, 0, &mut sid) == 0 {
+            return false;
+        }
+        let mut is_member: i32 = 0;
+        let ok = CheckTokenMembership(std::ptr::null_mut(), sid, &mut is_member);
+        FreeSid(sid);
+        ok != 0 && is_member != 0
     }
 }
 
@@ -4656,14 +4975,17 @@ fn render_drive_fail(error: &str, logs: &[(String, String)]) -> String {
 
 /// 驱动档一轮的信封装配（纯函数；`run_drive_ark_daily` 与 `--selftest` 共用同一处）。
 /// 一轮 = 从 journal 重放回断点 → 再走一步链体 → 落 ask / done / fail 三种收场之一。
+/// `decide` = 重试分流真跑 decide-daily-retry 的注入点（生产=调 panel-cs；自检=闭包假身，不依赖外部件）。
 fn drive_ark_daily_envelope(
     i_drive: bool,
     journal: &str,
     ctx: &str,
     res: &str,
     panel_cs: &str,
+    state: &str,
+    decide: &mut dyn FnMut(&str, bool) -> Result<(bool, Vec<(String, String)>), String>,
 ) -> (i32, String) {
-    if let Some(m) = drive_refusal(i_drive, journal, ctx, res, panel_cs) {
+    if let Some(m) = drive_refusal(i_drive, journal, ctx, res, panel_cs, state) {
         return (2, render_drive_fail(&m, &[]));
     }
     // ---- ctx：壳写一遍的三格（launch/retry_once/decision） ----
@@ -4738,8 +5060,8 @@ fn drive_ark_daily_envelope(
     }
     // ---- 一轮：重放到断点，之后再走一步 ----
     let input = ArkDInput { launch, retry_once, decision };
-    let mut fx = DriveFx::new(journal, rows);
-    let r = ark_daily_chain(&input, &mut fx, &mut |st: &str, ro: bool| arksk_call_decide(panel_cs, st, ro));
+    let mut fx = DriveFx::new(journal, state, rows);
+    let r = ark_daily_chain(&input, &mut fx, decide);
     match r {
         Ok(o) => {
             if let Some(m) = fx.io_err.take() {
@@ -4777,11 +5099,121 @@ fn run_drive_ark_daily(
     ctx: &str,
     res: &str,
     panel_cs: &str,
+    state: &str,
     out: &Option<String>,
 ) -> i32 {
-    let (rc, json) = drive_ark_daily_envelope(i_drive, journal, ctx, res, panel_cs);
+    let mut dec = |st: &str, ro: bool| arksk_call_decide(panel_cs, st, ro);
+    let (rc, json) = drive_ark_daily_envelope(i_drive, journal, ctx, res, panel_cs, state, &mut dec);
     emit(&json, out);
     rc
+}
+
+/// B-1a 自检配套（仅供 --selftest）：迷你驱动器 —— 照生产壳 Invoke-GdArkDailyRust 的口径起轮：
+/// 一轮一进程 → 读信封 → ask 就替它办（responder 出回执）并写 res → 再起一轮，直到 done/fail。
+/// 返回（ask 动作序, 新面日志 "级别|文本", 终 kind, done 的 result（无则 Null）, 错一句话）。
+fn drive_selftest_session(
+    journal: &str,
+    ctx: &str,
+    res: &str,
+    state: &str,
+    responder: &mut dyn FnMut(&str, &JVal) -> Result<Option<JVal>, String>,
+) -> (Vec<String>, Vec<String>, String, JVal, Option<String>) {
+    let mut asked: Vec<String> = Vec::new();
+    let mut logs: Vec<String> = Vec::new();
+    let mut kind = String::new();
+    let mut result = JVal::Null;
+    let mut err: Option<String> = None;
+    // 分流替身：自检不真跑 panel-cs（重试分流本身不在本组射程 —— 十连往返那组已钉"坏 exe 当场断"）。
+    let mut dec =
+        |_st: &str, _ro: bool| -> Result<(bool, Vec<(String, String)>), String> { Ok((false, Vec::new())) };
+    for _ in 0..64 {
+        let (rc, env) = drive_ark_daily_envelope(true, journal, ctx, res, "unused-panel-cs", state, &mut dec);
+        let ev = match jv_parse(&env) {
+            Ok(v) => v,
+            Err(e) => {
+                err = Some(format!("信封不是合法 JSON：{}", e));
+                break;
+            }
+        };
+        let log_rows = jv_get(&ev, "logs");
+        for l in jv_list(&log_rows) {
+            logs.push(format!("{}|{}", jv_str(&jv_get_ci(l, "level")), jv_str(&jv_get_ci(l, "text"))));
+        }
+        kind = jv_str(&jv_get(&ev, "kind"));
+        if kind == "done" {
+            if rc != 0 {
+                err = Some(format!("done 信封却非 0 码：{}", rc));
+                break;
+            }
+            result = jv_get(&ev, "result");
+            break;
+        }
+        if kind == "fail" {
+            err = Some(jv_str(&jv_get(&ev, "error")));
+            break;
+        }
+        if kind != "ask" {
+            err = Some(format!("没见过的 kind：[{}]", kind));
+            break;
+        }
+        if rc != 0 {
+            err = Some(format!("ask 信封却非 0 码：{}", rc));
+            break;
+        }
+        let act = jv_str(&jv_get(&ev, "action"));
+        let seq = jv_int(&jv_get(&ev, "seq"), 0);
+        let prm = jv_get(&ev, "params");
+        asked.push(act.clone());
+        let row = match responder(&act, &prm) {
+            Ok(Some(d)) => {
+                jv_o(vec![("seq", JVal::I(seq)), ("action", jv_s(&act)), ("ok", JVal::B(true)), ("data", d)])
+            }
+            Ok(None) => jv_o(vec![("seq", JVal::I(seq)), ("action", jv_s(&act)), ("ok", JVal::B(true))]),
+            Err(m) => {
+                jv_o(vec![("seq", JVal::I(seq)), ("action", jv_s(&act)), ("ok", JVal::B(false)), ("err", jv_s(&m))])
+            }
+        };
+        if let Err(e) = std::fs::write(res, jv_to_json(&row)) {
+            err = Some(format!("res 写不动：{}", e));
+            break;
+        }
+    }
+    if err.is_none() && kind != "done" {
+        err = Some("会话没推到 done（迷你驱动器轮次打完了）".to_string());
+    }
+    (asked, logs, kind, result, err)
+}
+
+/// B-1a 自检配套：迷你驱动器的回执桩（会话 A/B 共用；run 的终态与明细按参注入）。
+/// 桩面覆盖链体全序（desk…obs）—— 已搬动作（mark/obsrec/admin）不该出现在这里，出现即分派没接上。
+fn drive_selftest_respond(act: &str, _prm: &JVal, run_status: &str, run_detail: &str) -> Result<Option<JVal>, String> {
+    match act {
+        "desk" => Ok(Some(jv_s("Default"))),
+        "takeover" => Ok(None),
+        "cfg" => Ok(Some(jv_o(vec![
+            ("changes", JVal::A(vec![jv_s("chg-main")])),
+            ("chains", JVal::A(vec![jv_s("Fight"), jv_s("Shop")])),
+        ]))),
+        "launch" => Ok(Some(JVal::B(true))),
+        "run" => Ok(Some(jv_o(vec![("status", jv_s(run_status)), ("detail", jv_s(run_detail))]))),
+        "skip" => Ok(Some(jv_o(vec![
+            ("skipped", JVal::B(true)),
+            ("plan", JVal::A(vec![jv_s("CE-5")])),
+            ("evidence", JVal::A(vec![jv_s("x")])),
+        ]))),
+        "stop" => Ok(None),
+        "ledger" => Ok(Some(jv_s("BN1"))),
+        "obs" => Ok(Some(jv_o(vec![
+            ("Found", JVal::B(true)),
+            ("Date", jv_s("2026-10-04")),
+            ("Stage", jv_s("1-7")),
+            ("LastBattle", JVal::B(true)),
+            ("SawGuiPlan", JVal::B(false)),
+            ("Survivors", JVal::A(vec![jv_s("72"), jv_s("30012")])),
+            ("Selected", jv_s("1-7")),
+        ]))),
+        other => Err(format!("迷你驱动器没有这号动作的桩：{}", other)),
+    }
 }
 
 /// `--arkskip` 的信封装配（纯函数；`run_arkskip` 与对拍门共用同一处 —— 门拿到的就是真出口）。
@@ -4813,9 +5245,11 @@ fn run_arkskip(panel_cs: &str, out: &Option<String>) -> i32 {
         let scens = arkskip_scenarios();
         let mut items: Vec<(String, String)> = Vec::new();
         let mut bad: Option<String> = None;
+        // B-1a：obsrec 桩的账本净计数跨档连续（与"新侧真账本净计数"同口径；三侧门只比投影）。
+        let mut obs_n: i64 = 0;
         for sc in &scens {
             let mut dec = |st: &str, ro: bool| arksk_call_decide(panel_cs, st, ro);
-            match arkskip_run_case(sc, &mut dec) {
+            match arkskip_run_case(sc, &mut dec, &mut obs_n) {
                 Ok(proj) => items.push((sc.name.to_string(), proj)),
                 Err(e) => {
                     bad = Some(format!("装配回放档第 {} 档没跑完：{}", sc.name, e));
@@ -7366,8 +7800,10 @@ fn selftest() -> i32 {
     );
     let mut l8v: Vec<String> = Vec::new();
     let mut ak_run_err: Option<String> = None;
+    // B-1a：obsrec 桩的账本净计数跨档连续（与 run_arkskip 同口径）。
+    let mut obs_n: i64 = 0;
     for (i, sc) in scens.iter().enumerate() {
-        match arkskip_run_case(sc, &mut fake_decide) {
+        match arkskip_run_case(sc, &mut fake_decide, &mut obs_n) {
             Ok(p) => l8v.push(p),
             Err(e) => {
                 ak_run_err = Some(format!("第 {} 档({}) 没跑完：{}", i + 1, sc.name, e));
@@ -7391,10 +7827,11 @@ fn selftest() -> i32 {
             &mut fails,
             &mut total,
         );
+        // B-1a：mark 桩改真今日（FixtureFx 与"新侧进程内真做"对齐）—— 断言随之动态化。
         chk(
             l2.contains("剔关重试仍被 MAA 判全关(计划实况：空) → 今日理智关卡确认全关")
                 && l2.contains("MARK#1-7+CE-5#MAA 判「关卡计划内没有当日开放的关卡」")
-                && l2.contains("已记今日认栽标记(2026-10-05)：当天后续轮不再前置补刷关")
+                && l2.contains(&format!("已记今日认栽标记({})：当天后续轮不再前置补刷关", gd_local_date()))
                 && l2.ends_with("S=ok|D=剔关后收尾正常；Fight 被 MAA 判全关(认栽，已记当日标记)"),
             "arkskip 档2(二查仍跳)：认栽支（计划'空'话术/标记档位串/Detail 拼句）有一处没照转写走",
             &mut fails,
@@ -7467,42 +7904,48 @@ fn selftest() -> i32 {
     }
 
     // 17. R3③ 驱动档（--drive-ark-daily = 换头重入协议：journal 重放 + ask/res 往返）。
-    //     协议五件（拒跑五闸 / journal 装载 / res 合并）先钉死，再走十连真往返：
+    //     协议六件（拒跑六闸 / journal 装载 / res 合并）先钉死，再走十连真往返：
     //     临时目录里起新账 → 逐动作重入（六轮 ask、一轮 fail、一轮 done、两轮拒跑收场）。
     //     只碰 %TEMP% 下自己的目录，不加载 DLL、不碰任何现场；收尾连目录一起删。
     chk(
-        drive_refusal(false, "j", "c", "r", "p").map_or(false, |m| m.contains("--i-drive")),
+        drive_refusal(false, "j", "c", "r", "p", "s").map_or(false, |m| m.contains("--i-drive")),
         "驱动档拒跑闸①走样：缺 --i-drive 没被点名拒跑（默认档可能把换头专用口当普通出口用）",
         &mut fails,
         &mut total,
     );
     chk(
-        drive_refusal(true, "", "c", "r", "p").map_or(false, |m| m.contains("--journal")),
+        drive_refusal(true, "", "c", "r", "p", "s").map_or(false, |m| m.contains("--journal")),
         "驱动档拒跑闸②走样：journal 没落点没被拒（断点记不住的会话会被放行）",
         &mut fails,
         &mut total,
     );
     chk(
-        drive_refusal(true, "j", "", "r", "p").map_or(false, |m| m.contains("--ctx")),
+        drive_refusal(true, "j", "", "r", "p", "s").map_or(false, |m| m.contains("--ctx")),
         "驱动档拒跑闸③走样：上下文文件没给没被拒（launch/retry_once/decision 没来路）",
         &mut fails,
         &mut total,
     );
     chk(
-        drive_refusal(true, "j", "c", "", "p").map_or(false, |m| m.contains("--res")),
+        drive_refusal(true, "j", "c", "", "p", "s").map_or(false, |m| m.contains("--res")),
         "驱动档拒跑闸④走样：回执落点没给没被拒（PS 侧干完一头的落点没处写）",
         &mut fails,
         &mut total,
     );
     chk(
-        drive_refusal(true, "j", "c", "r", "").map_or(false, |m| m.contains("--panel-cs")),
+        drive_refusal(true, "j", "c", "r", "", "s").map_or(false, |m| m.contains("--panel-cs")),
         "驱动档拒跑闸⑤走样：判定 exe 没指没被拒（重试分流试不了）",
         &mut fails,
         &mut total,
     );
     chk(
-        drive_refusal(true, "j", "c", "r", "p").is_none(),
-        "驱动档五样齐时仍被拒跑：换头调度器根本起不来（拒跑闸的合取写反了）",
+        drive_refusal(true, "j", "c", "r", "p", "").map_or(false, |m| m.contains("--state")),
+        "驱动档拒跑闸⑥走样：state 目录没指没被拒（已搬动作的账会写到没处、静默假绿）",
+        &mut fails,
+        &mut total,
+    );
+    chk(
+        drive_refusal(true, "j", "c", "r", "p", "s").is_none(),
+        "驱动档六样齐时仍被拒跑：换头调度器根本起不来（拒跑闸的合取写反了）",
         &mut fails,
         &mut total,
     );
@@ -7561,9 +8004,14 @@ fn selftest() -> i32 {
     let dr_j = dr_dir.join("journal.ndjson").to_str().unwrap().to_string();
     let dr_c = dr_dir.join("ctx.json").to_str().unwrap().to_string();
     let dr_r = dr_dir.join("res.json").to_str().unwrap().to_string();
+    let dr_s = dr_dir.join("state").to_str().unwrap().to_string();
+    let _ = std::fs::create_dir_all(&dr_s);
     let dr_p = "unused-panel-cs";
+    // B-1a：decide 改成注入点 —— 自检照样传"坏路径真跑"，第六轮的"起不来当场断"断言不变，
+    // 但自检从此不依赖 envelope 内部硬连 panel-cs。
+    let mut dr_dec = |st: &str, ro: bool| arksk_call_decide(dr_p, st, ro);
     let _ = std::fs::write(&dr_c, "{\"launch\":true,\"retry_once\":false,\"decision\":{\"Mode\":\"plain\",\"Stage\":\"1-7,CE-5\"}}");
-    let (dr_rc1, dr_e1) = drive_ark_daily_envelope(true, &dr_j, &dr_c, &dr_r, dr_p);
+    let (dr_rc1, dr_e1) = drive_ark_daily_envelope(true, &dr_j, &dr_c, &dr_r, dr_p, &dr_s, &mut dr_dec);
     chk(
         dr_rc1 == 0
             && dr_e1.contains("\"kind\":\"ask\"")
@@ -7576,7 +8024,7 @@ fn selftest() -> i32 {
         &mut total,
     );
     let _ = std::fs::write(&dr_r, "{\"seq\":2,\"action\":\"desk\",\"ok\":true,\"data\":\"Default\"}");
-    let (dr_rc2, dr_e2) = drive_ark_daily_envelope(true, &dr_j, &dr_c, &dr_r, dr_p);
+    let (dr_rc2, dr_e2) = drive_ark_daily_envelope(true, &dr_j, &dr_c, &dr_r, dr_p, &dr_s, &mut dr_dec);
     chk(
         dr_rc2 == 0 && dr_e2.contains("\"seq\":3") && dr_e2.contains("\"action\":\"takeover\""),
         "驱动档第二轮没把 desk 回执并账后停在 takeover：重放推进或新区衔接错",
@@ -7584,7 +8032,7 @@ fn selftest() -> i32 {
         &mut total,
     );
     let _ = std::fs::write(&dr_r, "{\"seq\":3,\"action\":\"takeover\",\"ok\":true}");
-    let (dr_rc3, dr_e3) = drive_ark_daily_envelope(true, &dr_j, &dr_c, &dr_r, dr_p);
+    let (dr_rc3, dr_e3) = drive_ark_daily_envelope(true, &dr_j, &dr_c, &dr_r, dr_p, &dr_s, &mut dr_dec);
     chk(
         dr_rc3 == 0 && dr_e3.contains("\"seq\":4") && dr_e3.contains("\"params\":{\"kind\":\"main\"}"),
         "驱动档第三轮没停在 cfg(main)：takeover 回执并账或 cfg ask 的 params 装错",
@@ -7592,7 +8040,7 @@ fn selftest() -> i32 {
         &mut total,
     );
     let _ = std::fs::write(&dr_r, "{\"seq\":4,\"action\":\"cfg\",\"ok\":true,\"data\":{\"changes\":[\"chg-main\"],\"chains\":[\"Fight\",\"Shop\"]}}");
-    let (dr_rc4, dr_e4) = drive_ark_daily_envelope(true, &dr_j, &dr_c, &dr_r, dr_p);
+    let (dr_rc4, dr_e4) = drive_ark_daily_envelope(true, &dr_j, &dr_c, &dr_r, dr_p, &dr_s, &mut dr_dec);
     chk(
         dr_rc4 == 0
             && dr_e4.contains("\"seq\":6")
@@ -7603,7 +8051,7 @@ fn selftest() -> i32 {
         &mut total,
     );
     let _ = std::fs::write(&dr_r, "{\"seq\":6,\"action\":\"launch\",\"ok\":true,\"data\":true}");
-    let (dr_rc5, dr_e5) = drive_ark_daily_envelope(true, &dr_j, &dr_c, &dr_r, dr_p);
+    let (dr_rc5, dr_e5) = drive_ark_daily_envelope(true, &dr_j, &dr_c, &dr_r, dr_p, &dr_s, &mut dr_dec);
     chk(
         dr_rc5 == 0 && dr_e5.contains("\"seq\":7") && dr_e5.contains("\"action\":\"run\"") && dr_e5.contains("[\"Fight\",\"Shop\"]"),
         "驱动档第五轮没停在 run 或 chains 参数面丢了：launch 回执并账或 run ask 的 params 装错",
@@ -7611,7 +8059,7 @@ fn selftest() -> i32 {
         &mut total,
     );
     let _ = std::fs::write(&dr_r, "{\"seq\":7,\"action\":\"run\",\"ok\":true,\"data\":{\"status\":\"ok\",\"detail\":\"一切正常\"}}");
-    let (dr_rc6, dr_e6) = drive_ark_daily_envelope(true, &dr_j, &dr_c, &dr_r, dr_p);
+    let (dr_rc6, dr_e6) = drive_ark_daily_envelope(true, &dr_j, &dr_c, &dr_r, dr_p, &dr_s, &mut dr_dec);
     chk(
         dr_rc6 == 1 && dr_e6.contains("\"kind\":\"fail\"") && dr_e6.contains("decide-daily-retry 起不来"),
         "驱动档第六轮没在坏判定 exe 处当场断（唯一外部调用）：真跑 decide-daily-retry 的失败会被静默吞掉",
@@ -7620,7 +8068,7 @@ fn selftest() -> i32 {
     );
     let dr_done_row = jv_o(vec![("done", jv_o(vec![("status", jv_s("ok")), ("detail", jv_s("x")), ("duration", JVal::F(1.5))]))]);
     let _ = drive_append_row(&dr_j, &dr_done_row);
-    let (dr_rc7, dr_e7) = drive_ark_daily_envelope(true, &dr_j, &dr_c, &dr_r, dr_p);
+    let (dr_rc7, dr_e7) = drive_ark_daily_envelope(true, &dr_j, &dr_c, &dr_r, dr_p, &dr_s, &mut dr_dec);
     chk(
         dr_rc7 == 0
             && dr_e7.contains("\"kind\":\"done\"")
@@ -7631,14 +8079,14 @@ fn selftest() -> i32 {
         &mut total,
     );
     let _ = std::fs::write(&dr_c, "{\"launch\":false,\"retry_once\":false,\"decision\":{}}");
-    let (dr_rc8, dr_e8) = drive_ark_daily_envelope(true, &dr_j, &dr_c, &dr_r, dr_p);
+    let (dr_rc8, dr_e8) = drive_ark_daily_envelope(true, &dr_j, &dr_c, &dr_r, dr_p, &dr_s, &mut dr_dec);
     chk(
         dr_rc8 == 1 && dr_e8.contains("驱动协议坏了") && dr_e8.contains("不是同一份"),
         "驱动档第八轮没拒掉换 ctx 续旧账：init/ctx 不同源的会话会被静默接续",
         &mut fails,
         &mut total,
     );
-    let (dr_rc9, dr_e9) = drive_ark_daily_envelope(false, &dr_j, &dr_c, &dr_r, dr_p);
+    let (dr_rc9, dr_e9) = drive_ark_daily_envelope(false, &dr_j, &dr_c, &dr_r, dr_p, &dr_s, &mut dr_dec);
     chk(
         dr_rc9 == 2 && dr_e9.contains("--i-drive"),
         "驱动档第九轮没在缺 --i-drive 时拒跑（rc2）：默认档能把换头专用口当普通出口用",
@@ -7649,6 +8097,169 @@ fn selftest() -> i32 {
     chk(
         !dr_dir.exists(),
         "驱动档自检的临时目录没收干净：自检会在 %TEMP% 里留垃圾",
+        &mut fails,
+        &mut total,
+    );
+
+    // 18. B-1a 混合执行器：已搬动作（mark/obsrec/admin）进程内真做，其余照旧 ask 重放。
+    //     两会话各自独立 journal/state：A=ok 全链（认栽 mark + 观测 obsrec 真写两文件）；
+    //     B=not-started 早退（admin 进程内真查、ERROR 句与回执值互反）。迷你驱动器照生产壳
+    //     口径起轮、替办 ask、写 res。只碰 %TEMP% 下自己的目录；收尾连目录一起删。
+    let d18 = std::env::temp_dir().join(format!("gd-b1a-selftest-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&d18);
+    let _ = std::fs::create_dir_all(&d18);
+    // —— 会话 A：ok 全链（skip 跳→无 Farm→直接认栽 mark；收尾 ledger/obs/obsrec）——
+    let a_j = d18.join("a-journal.ndjson").to_str().unwrap().to_string();
+    let a_c = d18.join("a-ctx.json").to_str().unwrap().to_string();
+    let a_r = d18.join("a-res.json").to_str().unwrap().to_string();
+    let a_st = d18.join("a-state").to_str().unwrap().to_string();
+    let _ = std::fs::create_dir_all(&a_st);
+    let _ = std::fs::write(&a_c, "{\"launch\":true,\"retry_once\":false,\"decision\":{\"Mode\":\"plain\",\"Stage\":\"CE-5\"}}");
+    let mut resp_a = |act: &str, prm: &JVal| drive_selftest_respond(act, prm, "ok", "一切正常");
+    let (a_asked, a_logs, a_kind, a_result, a_err) = drive_selftest_session(&a_j, &a_c, &a_r, &a_st, &mut resp_a);
+    let a_asked_want = vec!["desk", "takeover", "cfg", "launch", "run", "skip", "stop", "ledger", "obs"];
+    chk(
+        a_err.is_none() && a_kind == "done" && a_asked == a_asked_want,
+        &format!(
+            "B-1a 会话 A 没走到 done 或 ask 序不对：kind={} asked={:?} err={:?}（已搬动作还出现在 ask 里=分派没接上；序漂=链体转写走样）",
+            a_kind, a_asked, a_err
+        ),
+        &mut fails,
+        &mut total,
+    );
+    let a_status = jv_str(&jv_get_ci(&a_result, "status"));
+    let a_detail = jv_str(&jv_get_ci(&a_result, "detail"));
+    chk(
+        a_status == "ok" && a_detail == "一切正常；Fight 被 MAA 判全关(认栽，已记当日标记)",
+        &format!("B-1a 会话 A 终态不对：[{}|{}]（认栽尾注该拼上；进程内 mark 的日期没回填）", a_status, a_detail),
+        &mut fails,
+        &mut total,
+    );
+    chk(
+        a_logs.iter().any(|l| l.contains("已记今日认栽标记("))
+            && a_logs.iter().any(|l| l.contains("关卡开放观测已记账(账本现 1 条)")),
+        "B-1a 会话 A 的收尾两句话没带上（认栽标记句/观测记账句 —— 进程内动作的回读值没回填进链体日志）",
+        &mut fails,
+        &mut total,
+    );
+    let a_text = std::fs::read_to_string(&a_j).unwrap_or_default();
+    let (_, a_rows, a_done) = match drive_load_journal(&a_text) {
+        Ok(t) => t,
+        Err(m) => {
+            chk(false, &format!("B-1a 会话 A 的 journal 读不过去：{}", m), &mut fails, &mut total);
+            (JVal::Null, Vec::new(), None)
+        }
+    };
+    let a_row = |name: &str| a_rows.iter().find(|r| jv_str(&jv_get(r, "action")) == name);
+    chk(
+        a_row("mark").map_or(false, |r| jv_get(r, "data") == jv_s(&gd_local_date()))
+            && a_row("obsrec").map_or(false, |r| jv_get(r, "data") == JVal::I(1))
+            && a_row("admin").is_none()
+            && a_done.is_some(),
+        "B-1a 会话 A 的 journal 软行不对：mark 该记真今日、obsrec 该记 1、ok 轮不该叫 admin、done 行该在（软行=重放的唯一依据）",
+        &mut fails,
+        &mut total,
+    );
+    let a_mk_path = std::path::Path::new(&a_st).join("ark-fight-skip-mark.json");
+    let a_mk_got = std::fs::read_to_string(&a_mk_path).unwrap_or_default();
+    let a_mk_want = format!(
+        "{{\r\n  \"Date\": \"{}\",\r\n  \"Stages\": [\r\n    \"CE-5\"\r\n  ],\r\n  \"Reason\": \"MAA 判「关卡计划内没有当日开放的关卡」\"\r\n}}",
+        gd_local_date()
+    );
+    chk(
+        a_mk_got == a_mk_want && a_mk_got.len() == 133,
+        "B-1a 会话 A 的认栽标记字节与探针模板不符（Date 应为本机今日；\\r\\n/两空格缩进/尾无换行都要逐字节对）",
+        &mut fails,
+        &mut total,
+    );
+    let a_ob_path = std::path::Path::new(&a_st).join("ark-stage-weekday-obs.json");
+    let a_ob_got = std::fs::read_to_string(&a_ob_path).unwrap_or_default();
+    let a_ob_want = "{\r\n  \"Records\": [\r\n    {\r\n      \"Date\": \"2026-10-04\",\r\n      \"Dow\": 7,\r\n      \"Stage\": \"1-7\",\r\n      \"LastBattle\": true,\r\n      \"SawGuiPlan\": false,\r\n      \"Survivors\": [\r\n        \"72\",\r\n        \"30012\"\r\n      ],\r\n      \"Selected\": \"1-7\"\r\n    }\r\n  ]\r\n}";
+    chk(
+        a_ob_got == a_ob_want && a_ob_got.len() == 252,
+        "B-1a 会话 A 的观测账本字节与探针 obsrec-a 模板不符（周日归一到 Dow=7/七键序/两空格缩进）",
+        &mut fails,
+        &mut total,
+    );
+    // —— 重放：删两文件 + 截掉末行 done 再推一轮 —— 重放=消费账行，不许重演动作、不许重写文件 ——
+    let _ = std::fs::remove_file(&a_mk_path);
+    let _ = std::fs::remove_file(&a_ob_path);
+    let a_lines: Vec<&str> = a_text.lines().collect();
+    let a_keep = if a_lines.is_empty() { 0 } else { a_lines.len() - 1 };
+    let mut a_cut = String::new();
+    for l in &a_lines[..a_keep] {
+        a_cut.push_str(l);
+        a_cut.push('\n');
+    }
+    let _ = std::fs::write(&a_j, &a_cut);
+    let mut resp_a2 = |act: &str, prm: &JVal| drive_selftest_respond(act, prm, "ok", "一切正常");
+    let (a2_asked, _, a2_kind, a2_result, a2_err) = drive_selftest_session(&a_j, &a_c, &a_r, &a_st, &mut resp_a2);
+    chk(
+        a2_err.is_none()
+            && a2_kind == "done"
+            && a2_asked.is_empty()
+            && !a_mk_path.exists()
+            && !a_ob_path.exists()
+            && jv_str(&jv_get_ci(&a2_result, "detail")) == "一切正常；Fight 被 MAA 判全关(认栽，已记当日标记)",
+        &format!(
+            "B-1a 截 done 重放不对：kind={} asked={:?} err={:?}（重放该一路消费到 done：不重问、不重写两文件）",
+            a2_kind, a2_asked, a2_err
+        ),
+        &mut fails,
+        &mut total,
+    );
+    // —— 会话 B：not-started 早退（admin 进程内真查；ERROR 句与回执值互反，升不升权都判得动）——
+    let b_j = d18.join("b-journal.ndjson").to_str().unwrap().to_string();
+    let b_c = d18.join("b-ctx.json").to_str().unwrap().to_string();
+    let b_r = d18.join("b-res.json").to_str().unwrap().to_string();
+    let b_st = d18.join("b-state").to_str().unwrap().to_string();
+    let _ = std::fs::create_dir_all(&b_st);
+    let _ = std::fs::write(&b_c, "{\"launch\":true,\"retry_once\":false,\"decision\":{\"Mode\":\"plain\",\"Stage\":\"CE-5\"}}");
+    let mut resp_b = |act: &str, prm: &JVal| drive_selftest_respond(act, prm, "not-started", "没起得来");
+    let (b_asked, b_logs, b_kind, b_result, b_err) = drive_selftest_session(&b_j, &b_c, &b_r, &b_st, &mut resp_b);
+    let b_asked_want = vec!["desk", "takeover", "cfg", "launch", "run", "stop", "ledger", "obs"];
+    chk(
+        b_err.is_none()
+            && b_kind == "done"
+            && b_asked == b_asked_want
+            && jv_str(&jv_get_ci(&b_result, "status")) == "not-started"
+            && jv_str(&jv_get_ci(&b_result, "detail")) == "没起得来",
+        &format!(
+            "B-1a 会话 B 的 ask 序或终态不对：kind={} asked={:?} err={:?}（not-started 轮不许叫 skip——skip 只挂 ok 支）",
+            b_kind, b_asked, b_err
+        ),
+        &mut fails,
+        &mut total,
+    );
+    let b_text = std::fs::read_to_string(&b_j).unwrap_or_default();
+    let (_, b_rows, _) = match drive_load_journal(&b_text) {
+        Ok(t) => t,
+        Err(_) => (JVal::Null, Vec::new(), None),
+    };
+    let b_admin = b_rows.iter().find_map(|r| {
+        if jv_str(&jv_get(r, "action")) == "admin" {
+            match jv_get(r, "data") {
+                JVal::B(v) => Some(v),
+                _ => None,
+            }
+        } else {
+            None
+        }
+    });
+    let b_has_line = b_logs.iter().any(|l| l.contains("方舟这一路要管理员权限"));
+    chk(
+        b_admin.is_some() && b_has_line == (b_admin == Some(false)),
+        &format!(
+            "B-1a 会话 B 的 admin 互反不对：回执值={:?}、ERROR 句在场={}（进程内真查的值与该不该打 ERROR 句必须互为补）",
+            b_admin, b_has_line
+        ),
+        &mut fails,
+        &mut total,
+    );
+    let _ = std::fs::remove_dir_all(&d18);
+    chk(
+        !d18.exists(),
+        "B-1a 自检的临时目录没收干净：自检会在 %TEMP% 里留垃圾",
         &mut fails,
         &mut total,
     );
@@ -7764,12 +8375,14 @@ fn usage() -> ! {
          \t  **唯一外部调用** = --panel-cs 指的那枚判定 exe：装配真身在这一步就是真跑 decide-daily-retry\n\
          \t  （照生产同一条 --in/--out 信封协议），所以缺它这一档直接拒跑；不喂它任何本机事实。\n\
          \n\
-         驱动档（R3③，换头专用）：gdprobe --drive-ark-daily --i-drive --journal <journal 文件> --ctx <上下文文件> --res <回执文件> --panel-cs <判定 exe 路径> [--out <文件>]\n\
+         驱动档（R3③，换头专用）：gdprobe --drive-ark-daily --i-drive --journal <journal 文件> --ctx <上下文文件> --res <回执文件> --panel-cs <判定 exe 路径> --state <state 目录> [--out <文件>]\n\
          \t  gdcore.exe 出厂即带的本档（同一份 main.rs 编两枚 bin，gdprobe 与 gdcore 同体）：PS 侧换头后由调度器起它，\n\
          \t  一次一动作一进程 —— 进程从 journal 重放已办事项回到断点，把下一个要办的动作写成 ask 信封（seq/action/params）退出；\n\
          \t  壳照单执行完，把结果写 --res 回执，再起下一进程续推。\n\
-         \t  三件文件 = 一根会话：journal 是唯一权威账（init 行 + 记录行 + 末行 done），ctx 只在起新账时吞成 init；\n\
-         \t  缺 --i-drive 一律拒跑（默认档不许启用它），三件文件缺一同样拒跑 —— 断点记不住的会话不许开。\n\
+         \t  已搬动作（B-1a 起：mark/obsrec/admin）不再走 ask —— 在本进程内真做（写 state 目录下的认栽标记/观测账本、查管理员令牌）并记账。\n\
+         \t  四样 = 一根会话：journal 是唯一权威账（init 行 + 记录行 + 末行 done），ctx 只在起新账时吞成 init，\n\
+         \t  res 是单条回执（读后即删），--state 指到生产同一处 state 目录（已搬动作的账要落回生产落点）。\n\
+         \t  缺 --i-drive 一律拒跑（默认档不许启用它），四样缺一同样拒跑 —— 断点记不住的会话不许开。\n\
          \t  与上面四档同理**不加载任何 DLL、不碰任何现场**，所以也不需要 --kind / --dir。\n\
          \t  **唯一外部调用** = --panel-cs 指的那枚判定 exe：链体重试分流真跑 decide-daily-retry\n\
          \t  （照生产同一条 --in/--out 信封协议），所以缺它这一档直接拒跑；不喂它任何本机事实。\n\
@@ -7866,6 +8479,7 @@ fn run(args: &[String]) -> i32 {
     let mut drive_journal = String::new();
     let mut drive_ctx = String::new();
     let mut drive_res = String::new();
+    let mut drive_state = String::new();
     let mut flags = GateFlags::default();
     let mut i = 0usize;
     while i < args.len() {
@@ -7951,6 +8565,10 @@ fn run(args: &[String]) -> i32 {
             }
             "--res" => {
                 drive_res = need("--res", args, i);
+                i += 2;
+            }
+            "--state" => {
+                drive_state = need("--state", args, i);
                 i += 2;
             }
             "--date" => {
@@ -8085,7 +8703,7 @@ fn run(args: &[String]) -> i32 {
         // 驱动档与上面四档同理，同样落在两必填**之前**返回：它只推链与记账、不加载任何 DLL、
         // 不碰任何现场，"要指哪枚装包"在这里没有意义；被必填拦死就等于换头调度器起步即断。
         // （照 sv/farm-intent 的样式，这条注释刻意不把那条必填的原话写出来 —— 自检的顺序门数整份源码。）
-        return run_drive_ark_daily(i_drive, &drive_journal, &drive_ctx, &drive_res, &panel_cs, &out_file);
+        return run_drive_ark_daily(i_drive, &drive_journal, &drive_ctx, &drive_res, &panel_cs, &drive_state, &out_file);
     }
 
     if mode == "preflight" {

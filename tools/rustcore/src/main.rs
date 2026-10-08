@@ -4000,64 +4000,71 @@ impl ArkDailyFx for FixtureFx<'_> {
     }
 }
 
-/// 按 Invoke-GdCli 的同一条协议真跑 decide-daily-retry：Body 写 --in 信封、读回 --out 信封、
+/// 按 Invoke-GdCli 的同一条协议真跑一枚 verb：Body 写 --in 信封、读回 --out 信封、
 /// 校验 verb / 退出码 / ok —— 任一环对不上就 Err（不带着半截结论往下跑）。临时文件成败都删。
-/// 错误文案里"C# 侧(…)"的句式照 Invoke-GdCli 原话；起不来（exe 不在）这句是本档自己的补充。
-fn arksk_call_decide(
-    panel_cs: &str,
-    status: &str,
-    retry_once: bool,
-) -> Result<(bool, Vec<(String, String)>), String> {
+/// 错误文案里"C# 侧(…)"的句式照 Invoke-GdCli 原话，verb 名参数化后逐字不变；
+/// 起不来（exe 不在）这句是本档自己的补充。B-2a 起 --arkskip 与 --maa-run 两档共用这一处。
+fn call_panel_verb(panel_cs: &str, verb: &str, body: &JVal) -> Result<JVal, String> {
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
     let dir = std::env::temp_dir();
-    let in_path = dir.join(format!("gd-arkskip-{}-{}.in.json", std::process::id(), stamp));
-    let out_path = dir.join(format!("gd-arkskip-{}-{}.out.json", std::process::id(), stamp));
-    let body = jv_to_json(&jv_o(vec![
-        ("game", jv_s("ark")),
-        ("status", jv_s(status)),
-        ("retryOnce", JVal::B(retry_once)),
-    ]));
-    let r = (|| -> Result<(bool, Vec<(String, String)>), String> {
-        std::fs::write(&in_path, body.as_bytes()).map_err(|e| format!("Body 信封写不下去：{}", e))?;
+    let in_path = dir.join(format!("gd-verb-{}-{}.in.json", std::process::id(), stamp));
+    let out_path = dir.join(format!("gd-verb-{}-{}.out.json", std::process::id(), stamp));
+    let text_body = jv_to_json(body);
+    let r = (|| -> Result<JVal, String> {
+        std::fs::write(&in_path, text_body.as_bytes()).map_err(|e| format!("Body 信封写不下去：{}", e))?;
         let outp = std::process::Command::new(panel_cs)
-            .arg("decide-daily-retry")
+            .arg(verb)
             .arg(format!("--in={}", in_path.display()))
             .arg(format!("--out={}", out_path.display()))
             .output()
-            .map_err(|e| format!("decide-daily-retry 起不来（{}）：{}", panel_cs, e))?;
+            .map_err(|e| format!("{} 起不来（{}）：{}", verb, panel_cs, e))?;
         let code = outp.status.code().unwrap_or(-1);
         let text = match std::fs::read_to_string(&out_path) {
             Ok(t) => t,
-            Err(_) => return Err(format!("C# 侧(decide-daily-retry)没吐出结果文件(退出码 {})", code)),
+            Err(_) => return Err(format!("C# 侧({})没吐出结果文件(退出码 {})", verb, code)),
         };
-        let env0 = jv_parse(&text).map_err(|e| format!("C# 侧(decide-daily-retry)信封读不动：{}", e))?;
-        if !jv_str(&jv_get(&env0, "verb")).eq_ignore_ascii_case("decide-daily-retry") {
-            return Err("C# 侧(decide-daily-retry)信封不对或缺 verb 字段".to_string());
+        let env0 = jv_parse(&text).map_err(|e| format!("C# 侧({})信封读不动：{}", verb, e))?;
+        if !jv_str(&jv_get(&env0, "verb")).eq_ignore_ascii_case(verb) {
+            return Err(format!("C# 侧({})信封不对或缺 verb 字段", verb));
         }
         let env_exit = jv_int(&jv_get(&env0, "exit"), 0);
         if env_exit != code as i64 {
             return Err(format!(
-                "C# 侧(decide-daily-retry)退出码({})与信封 exit({})不一致",
-                code, env_exit
+                "C# 侧({})退出码({})与信封 exit({})不一致",
+                verb, code, env_exit
             ));
         }
         if !jv_truthy(&jv_get(&env0, "ok")) {
             return Err(jv_str(&jv_get(&env0, "error")));
         }
-        let data = jv_get(&env0, "data");
-        let retryable = jv_truthy(&jv_get(&data, "Retryable"));
-        let mut logs = Vec::new();
-        for l in jv_list(&jv_get(&data, "Logs")) {
-            logs.push((jv_str(&jv_get(l, "Level")), jv_str(&jv_get(l, "Text"))));
-        }
-        Ok((retryable, logs))
+        Ok(jv_get(&env0, "data"))
     })();
     let _ = std::fs::remove_file(&in_path);
     let _ = std::fs::remove_file(&out_path);
     r
+}
+
+/// decide-daily-retry 的那一枚调用点：形状拆成 (Retryable, Logs) 两格，其余全在 call_panel_verb。
+fn arksk_call_decide(
+    panel_cs: &str,
+    status: &str,
+    retry_once: bool,
+) -> Result<(bool, Vec<(String, String)>), String> {
+    let body = jv_o(vec![
+        ("game", jv_s("ark")),
+        ("status", jv_s(status)),
+        ("retryOnce", JVal::B(retry_once)),
+    ]);
+    let data = call_panel_verb(panel_cs, "decide-daily-retry", &body)?;
+    let retryable = jv_truthy(&jv_get(&data, "Retryable"));
+    let mut logs = Vec::new();
+    for l in jv_list(&jv_get(&data, "Logs")) {
+        logs.push((jv_str(&jv_get(l, "Level")), jv_str(&jv_get(l, "Text"))));
+    }
+    Ok((retryable, logs))
 }
 
 /// 夹具 decision（从场景合成）：链体只经 jv_get_ci 读其中三格 —— Mode（event-pending 判）、
@@ -5271,6 +5278,1040 @@ fn run_arkskip(panel_cs: &str, out: &Option<String>) -> i32 {
     };
     emit(&json, out);
     rc
+}
+
+// ==================== B-2a：运行面宿主（Invoke-MaaRun 的循环骨架进核） ====================
+//
+// 这一层一条判据都不写：十档梯子、话术整句、兜底预算扣数、RecordTag 错位一格全都住在
+// tools\panel-cs\RunLoops.cs(verb：decide-maa-run-tick)，本层只做「采集 → 喂 verb → 回灌状态 →
+// 落地 Directives」，与 lib\maa.ps1:220-620（批次 7/9 冻结的现壳真身）逐行对照。
+// 对拍门 tools\rustcore\probe-arkrun-rust-golden.ps1 比的是**可见行为序列**（日志/睡眠/起进程/
+// 读文件/verb 调用序/返回值），不是内部变量 —— 两侧真跑同一枚 panel-cs，判据本身不在射程里。
+//
+// B-2a 刻意不落的两块（都不是"漏"，是登记过的批次切分，见 plan §11.32）：
+//   1) 点击环境探测（maa.ps1:251-261）：两朵探测函数在两侧的世界里都不在场（old 侧桩浴不加载
+//      那份 lib，new 侧宿主没有这条采集），逐字复刻一段永远不进的分支等于搬死代码；
+//   2) 三枚 effect 执行块（stuck/drain/quiet）：两枚可用性恒 false ⇒ C# 不挂 effect，执行块
+//      按构造不可达。真身那句"effect 没落到执行块，本 tick 作废"照抄保留在下面。
+// 两块随 B-2b 落（真兜底链 + panel-cs 新 verb + 两枚可用性转真）。
+
+/// 运行面对宿主世界的全部需求（十件），每一件对应 lib\maa.ps1 里的一行现场动作。
+/// 两个宿主：`ScriptHost`=剧本夹具（B-2a 的对拍面，虚拟钟 + 事件时间线 + 投影），
+/// `RealHost`=生产现场（B-2c 接线时才启用；本刀不接生产，`run` 仍走 ask）。
+trait MaaHost {
+    /// Write-GdLog。level 归一：真身裸调用（不带 -Level）在两侧都落成显式 INFO。
+    fn log(&mut self, level: &str, text: &str);
+    /// Get-Date（秒）。剧本世界是整数虚拟钟、只在睡眠时走；真身世界是 Unix epoch 秒。
+    fn clock(&mut self) -> f64;
+    /// Start-Sleep -Seconds。剧本世界里这一步同时推钟并落该时刻的事件。
+    fn sleep(&mut self, seconds: u32);
+    /// `Test-Path` + `(Get-Item).Length` 合成一件：None = 文件不在（真身那两行总是成对出现）。
+    fn file_len(&mut self, path: &str) -> Option<u64>;
+    /// Get-GdFileTail（common.ps1:1033-1048）：返回（新增文本, 新偏移）。口径含"偏移越界 → 归零全读"。
+    fn file_tail(&mut self, path: &str, offset: u64) -> (String, u64);
+    /// Test-GdProcessRunning（Get-Process -Name：不分大小写、名字不带扩展名）。
+    fn proc_running(&mut self, name: &str) -> bool;
+    /// Start-Process -FilePath -WorkingDirectory。真身不 try/catch：起不来就整函数上抛。
+    fn start_process(&mut self, exe: &str, dir: &str) -> Result<(), String>;
+    /// Invoke-GdCli：唯一转发通道，verb 的 data 原样交回（本层不解释其内容）。
+    fn verb(&mut self, name: &str, body: &JVal) -> Result<JVal, String>;
+    /// `Get-Command Invoke-GdVisionRescue`。B-2a 恒 false（真兜底链随 B-2b 落）。
+    fn rescue_available(&self) -> bool;
+    /// `Get-Command Invoke-GdArkForegroundGrab`。同上。
+    fn grab_available(&self) -> bool;
+}
+
+/// 一条剧本事件：`at`=发生的钟点（秒，睡眠推进到该值时落地，同值按剧本先后），
+/// `kind`=append|grow|truncate|up|down，`target`=gui|asst（文件）或进程名，`text`/`bytes` 按 kind 取用。
+#[derive(Clone, Default)]
+struct MaaEv {
+    at: f64,
+    kind: &'static str,
+    target: String,
+    text: String,
+    bytes: i64,
+}
+
+/// 一档剧本 = 一次 Invoke-MaaRun 的全部现场输入（lib\maa.ps1 那边读 $S/$P/期望链路/时钟环境，
+/// 这里读这一份）。两侧（old 桩浴 / new 内核）吃同一份 JSON，投影才可比。
+#[derive(Clone, Default)]
+struct MaaScen {
+    name: String,
+    dry_run: bool,
+    expected: Vec<String>,
+    maa_dir: String,
+    maa_exe: String,
+    maa_config: String,
+    gui_log: String,
+    asst_log: String,
+    ark_exe: String,
+    start_min: i64,
+    timeout_min: i64,
+    stall_min: i64,
+    idle_sec: i64,
+    abort_stall: bool,
+    vision_max: i64,
+    benign: Vec<String>,
+    seed_gui: Option<String>,
+    seed_asst: Option<String>,
+    procs: Vec<(String, bool)>,
+    events: Vec<MaaEv>,
+}
+
+/// `Get-MaaPaths`(lib\maa.ps1:46-58) 的复刻：六格照真身一个不少 —— Config 那格循环本身用不上，
+/// 但真身 maa.ps1:228 的 dry-run 话术里写的是 `$P.Exe`(不是 `$($P.Exe)`)，PS 会把整个 $P 渲染成
+/// `@{Dir=…; Exe=…; Config=…; GuiLog=…; AsstLog=…; Name=…}` 再补一个字面 `.Exe`，
+/// 于是那一行日志里六格全都要露面。缺 Config 就没法逐字复刻这句原话，故按契约照算。
+struct MaaPaths {
+    dir: String,
+    exe: String,
+    config: String,
+    gui_log: String,
+    asst_log: String,
+    name: String,
+}
+
+impl MaaPaths {
+    fn of(sc: &MaaScen) -> MaaPaths {
+        // asst.log 缺省 'debug\asst.log'（老配置里可能没有这一项，它只是线索不是判据）；
+        // Name = maaExe 去扩展名。两条都是真身原话，Join-GdPath 的口径见 gd_join_path。
+        let asst_rel = if sc.asst_log.is_empty() {
+            "debug\\asst.log".to_string()
+        } else {
+            sc.asst_log.clone()
+        };
+        MaaPaths {
+            dir: sc.maa_dir.clone(),
+            exe: gd_join_path(&sc.maa_dir, &[&sc.maa_exe]),
+            config: gd_join_path(&sc.maa_dir, &[&sc.maa_config]),
+            gui_log: gd_join_path(&sc.maa_dir, &[&sc.gui_log]),
+            asst_log: gd_join_path(&sc.maa_dir, &[&asst_rel]),
+            name: file_stem(&sc.maa_exe),
+        }
+    }
+
+    /// PowerShell 把 `[pscustomobject]` 当字符串用时的渲染（属性顺序 = 真身字面量顺序，分隔符 `; `）。
+    /// 不是随便挑的写法：maa.ps1:228 那一行日志吃的就是这个形状，门(new vs rust)逐字符比它。
+    fn ps_to_string(&self) -> String {
+        format!(
+            "@{{Dir={}; Exe={}; Config={}; GuiLog={}; AsstLog={}; Name={}}}",
+            self.dir, self.exe, self.config, self.gui_log, self.asst_log, self.name
+        )
+    }
+}
+
+/// `Join-GdPath`(common.ps1:294-315) 的原身支复刻：空 base → 空串；空段跳过；逐段 Join-Path。
+fn gd_join_path(base: &str, parts: &[&str]) -> String {
+    if base.is_empty() {
+        return String::new();
+    }
+    let mut p = base.to_string();
+    for part in parts {
+        if part.is_empty() {
+            continue;
+        }
+        p = ps_join_path(&p, part);
+    }
+    p
+}
+
+/// .NET `Path::Combine` 在本门射程内的两支持：第二段是 rooted（盘符或 UNC）就整段替换，
+/// 否则用单个反斜杠接上。夹具只用反斜杠相对段与绝对段，两种都在这里，不走三分支。
+fn ps_join_path(base: &str, rel: &str) -> String {
+    if is_rooted_path(rel) {
+        return rel.to_string();
+    }
+    let bytes: Vec<char> = base.chars().collect();
+    if let Some(&last) = bytes.last() {
+        if last == '\\' || last == '/' {
+            return format!("{}{}", base, rel);
+        }
+    }
+    format!("{}\\{}", base, rel)
+}
+
+fn is_rooted_path(p: &str) -> bool {
+    let c: Vec<char> = p.chars().collect();
+    if c.is_empty() {
+        return false;
+    }
+    if c[0] == '\\' || c[0] == '/' {
+        return true;
+    }
+    c.len() >= 2 && c[1] == ':' && (c[0].is_ascii_alphabetic())
+}
+
+/// `[System.IO.Path]::GetFileNameWithoutExtension`：取最后一段路径，再去掉最后一个点之后的部分。
+fn file_stem(p: &str) -> String {
+    let cut = p.rfind(['\\', '/']).map(|i| i + 1).unwrap_or(0);
+    let last = &p[cut..];
+    match last.rfind('.') {
+        Some(d) if d > 0 => last[..d].to_string(),
+        _ => last.to_string(),
+    }
+}
+
+/// `[System.IO.Path]::GetFileName`（投影里给 TAIL 事件打标签用）。
+fn file_name(p: &str) -> String {
+    let cut = p.rfind(['\\', '/']).map(|i| i + 1).unwrap_or(0);
+    p[cut..].to_string()
+}
+
+/// Invoke-MaaRun 的返回：Status/Detail 恒有，Duration 只在挂钟收尾那一路有，
+/// Errors 在 dry-run 那一路根本没有这个键（真身 `@{ Status='dryrun'; Detail='' }`）。
+struct MaaRet {
+    status: String,
+    detail: String,
+    duration: Option<f64>,
+    errors: Option<Vec<String>>,
+}
+
+impl MaaRet {
+    /// 投影末行：`Z|status|detail|dur|errors`。没给的键分别落成 "-"，空数组落成 ""（两侧同一口径）。
+    fn proj_line(&self) -> String {
+        let dur = match self.duration {
+            None => "-".to_string(),
+            Some(d) => format!("{}", d),
+        };
+        let errs = match &self.errors {
+            None => "-".to_string(),
+            Some(v) => v.join("\u{1e}"),
+        };
+        format!("Z|{}|{}|{}|{}", self.status, self.detail, dur, errs)
+    }
+}
+
+/// completed 的容器：PS 侧是大小写不敏感的 hashtable（重复键**保留首个拼写**、覆盖值），
+/// 键序不是不变量 ⇒ 投影前一律 Ordinal 排序（与 RunLoops.cs:403 同口径；链名只可能是 [A-Za-z]+，
+/// 夹具面不混大小写是门纪律，见 probe-live-golden 头注那条同源规矩）。
+fn cmap_set(m: &mut Vec<(String, i64)>, k: &str, v: i64) {
+    for (ek, ev) in m.iter_mut() {
+        if ek.eq_ignore_ascii_case(k) {
+            *ev = v;
+            return;
+        }
+    }
+    m.push((k.to_string(), v));
+}
+
+fn cmap_to_jv(m: &[(String, i64)]) -> JVal {
+    JVal::O(m.iter().map(|(k, v)| (k.clone(), JVal::I(*v))).collect())
+}
+
+fn cmap_keys(m: &[(String, i64)]) -> Vec<String> {
+    let mut ks: Vec<String> = m.iter().map(|(k, _)| k.clone()).collect();
+    ks.sort();
+    ks
+}
+
+fn vstr_list(v: &JVal) -> Vec<String> {
+    jv_list(v).iter().map(|e| jv_str(e)).collect()
+}
+
+/// `[string]::IsNullOrWhiteSpace`（Get-MaaAsstStuckState/Hint 的壳内早退判据，maa.ps1:117-138）。
+fn is_null_or_white(s: &str) -> bool {
+    s.trim().is_empty()
+}
+
+/// `Wait-GdCondition`(common.ps1:1017-1031) 的复刻：先测后睡、`now < deadline` 才继续，
+/// 超时那句 WARN 的整句与参数面（秒数是 [int] 原样）逐字对齐。
+fn wait_condition<H: MaaHost, F: FnMut(&mut H) -> bool>(
+    h: &mut H,
+    timeout_seconds: i64,
+    poll_seconds: u32,
+    what: &str,
+    mut test: F,
+) -> bool {
+    let deadline = h.clock() + timeout_seconds as f64;
+    while h.clock() < deadline {
+        if test(h) {
+            return true;
+        }
+        h.sleep(poll_seconds);
+    }
+    h.log(
+        "WARN",
+        &format!("等待超时({}s)：{}", timeout_seconds, what),
+    );
+    false
+}
+
+/// 把一帧 verb 回的 Logs 落进宿主：真身那两句"有 Level 且不是 INFO 就带 -Level，否则裸调"
+/// 归一化成同一个显式 INFO（maa.ps1:317-320 / 467-470 同款）。
+fn replay_logs<H: MaaHost>(h: &mut H, logs: &JVal) {
+    for l in jv_list(logs) {
+        let lvl = jv_str(&jv_get(l, "Level"));
+        let text = jv_str(&jv_get(l, "Text"));
+        if !lvl.is_empty() && lvl != "INFO" {
+            h.log(&lvl, &text);
+        } else {
+            h.log("INFO", &text);
+        }
+    }
+}
+
+/// `Invoke-MaaRun` 的循环骨架（lib\maa.ps1:220-620）逐行进核。
+/// Err = 真身没有 try/catch 的那几处上抛（起进程、除 asst 段以外的所有 verb 调用）。
+fn maa_run<H: MaaHost>(h: &mut H, sc: &MaaScen) -> Result<MaaRet, String> {
+    let p = MaaPaths::of(sc);
+    // 228：DryRun 只打一行 STEP 就回（Detail 是空串、Errors 这个键根本不存在）。
+    // 话术里那串 `@{Dir=…}.Exe` 不是笔误复刻、是**真身就这么印**：maa.ps1 写的是 `$P.Exe`，
+    // PS 按 `$P` 整体插值 + 字面 `.Exe` 处理 ⇒ 打印的是对象渲染而不是 exe 路径。
+    // 搬家批不改文案(改了就与 old 侧钉的 251bd3c 分岔)，这处显示缺陷已登记待修(见 docs 的 B-2a 实录)。
+    if sc.dry_run {
+        h.log(
+            "STEP",
+            &format!(
+                "[dry-run] 将启动 {}.Exe(自动开始队列：{})",
+                p.ps_to_string(),
+                sc.expected.join(", ")
+            ),
+        );
+        return Ok(MaaRet {
+            status: "dryrun".to_string(),
+            detail: String::new(),
+            duration: None,
+            errors: None,
+        });
+    }
+
+    // 230-231 的 $expectedCount（去重、每条恒 1）与 410-417 的镜像段（$doneCount/$allDone/
+    // $chainText/$detail）自批次 7 起只喂"现场复核守卫"，守卫块随 B-2b 才落 —— 这一段在真身里
+    // 不可观测（没有一条日志、也没有一个返回值吃它），不搬：搬过来就是死代码。
+    let mut offset: u64 = h.file_len(&p.gui_log).unwrap_or(0);
+    let mut asst_offset: u64 = 0;
+    let mut asst_hint = String::new();
+    let mut rescue_left = sc.vision_max;
+    if rescue_left <= 0 {
+        rescue_left = 2;
+    }
+    if !p.asst_log.is_empty() {
+        if let Some(l) = h.file_len(&p.asst_log) {
+            asst_offset = l;
+        }
+    }
+    let started = h.clock();
+    h.log("STEP", &format!("启动 MAA：{}", p.exe));
+    h.start_process(&p.exe, &p.dir)?;
+    if !wait_condition(h, 90, 3, "MAA 进程启动", |hh| hh.proc_running(&p.name)) {
+        return Ok(MaaRet {
+            status: "error".to_string(),
+            detail: "MAA 未能启动(进程未出现)".to_string(),
+            duration: None,
+            errors: None,
+        });
+    }
+
+    let mut last_growth = h.clock();
+    let mut completed: Vec<(String, i64)> = Vec::new();
+    let mut errors: Vec<String> = Vec::new();
+    let mut chan_clicks: i64 = 0;
+    let mut stuck_task = String::new();
+    let mut stuck_exec: i64 = 0;
+    let mut chan_grab_at: Option<f64> = None;
+    let mut benign_seen: Vec<String> = Vec::new();
+    let mut markers: i64 = 0;
+    let mut log_chars: i64 = 0;
+    let mut finished = false;
+    let mut drained = false;
+    let mut stall_warn = String::new();
+    let start_timeout = sc.start_min * 60;
+    let timeout = sc.timeout_min * 60;
+    let stall = sc.stall_min * 60;
+    let idle_confirm = sc.idle_sec;
+    let ark_name = file_stem(&sc.ark_exe);
+    let mut seen_game = h.proc_running(&ark_name);
+
+    loop {
+        h.sleep(10);
+        if !seen_game && h.proc_running(&ark_name) {
+            seen_game = true;
+            h.log("INFO", &format!("端游客户端已被拉起来({})", ark_name));
+        }
+        let (ttext, toff) = h.file_tail(&p.gui_log, offset);
+        offset = toff;
+        if !ttext.is_empty() {
+            last_growth = h.clock();
+            // 分类规则在 C#(parse-maa-gui-lines)，六档回灌也在 C#(apply-maa-gui-events)；
+            // 这里只做真身那三件事：喂 → 按档重印日志 → 拿回执重建本地量。
+            let benign_jv = JVal::A(sc.benign.iter().map(|s| jv_s(s)).collect());
+            let g = h.verb(
+                "parse-maa-gui-lines",
+                &jv_o(vec![("text", jv_s(&ttext)), ("benign", benign_jv)]),
+            )?;
+            markers += jv_int(&jv_get(&g, "Markers"), 0);
+            log_chars += jv_int(&jv_get(&g, "LogChars"), 0);
+            let events = jv_get(&g, "Events");
+            let ge = h.verb(
+                "apply-maa-gui-events",
+                &jv_o(vec![
+                    ("events", events),
+                    (
+                        "state",
+                        jv_o(vec![
+                            ("completed", cmap_to_jv(&completed)),
+                            ("errors", JVal::A(errors.iter().map(|s| jv_s(s)).collect())),
+                            (
+                                "benignPatterns",
+                                JVal::A(benign_seen.iter().map(|s| jv_s(s)).collect()),
+                            ),
+                            ("finished", JVal::B(finished)),
+                            ("drained", JVal::B(drained)),
+                            ("stallWarn", jv_s(&stall_warn)),
+                        ]),
+                    ),
+                ]),
+            )?;
+            replay_logs(h, &jv_get(&ge, "Logs"));
+            let st = jv_get(&ge, "State");
+            completed.clear();
+            if let JVal::O(cm) = jv_get(&st, "completed") {
+                for (k, v) in cm.iter() {
+                    cmap_set(&mut completed, k, jv_int(v, 0));
+                }
+            }
+            errors = vstr_list(&jv_get(&st, "errors"));
+            benign_seen = Vec::new();
+            for bp in jv_list(&jv_get(&st, "benignPatterns")) {
+                let k = jv_str(bp);
+                if !benign_seen.iter().any(|e| e.eq_ignore_ascii_case(&k)) {
+                    benign_seen.push(k);
+                }
+            }
+            finished = jv_truthy(&jv_get(&st, "finished"));
+            drained = jv_truthy(&jv_get(&st, "drained"));
+            stall_warn = jv_str(&jv_get(&st, "stallWarn"));
+        }
+
+        // asst.log 只取线索、不参与"日志有没有在动"；整段 try/catch，读不动就 asstOffset=0。
+        if !p.asst_log.is_empty() {
+            let r: Result<(), String> = (|| -> Result<(), String> {
+                let len = match h.file_len(&p.asst_log) {
+                    None => return Ok(()),
+                    Some(l) => l,
+                };
+                // 4MB 闸用有符号差：被原地清空/轮转后 len-offset 是负数，落进"跳末尾"那一支。
+                if (len as i64 - asst_offset as i64) > 4_194_304 {
+                    asst_offset = len;
+                } else if len > asst_offset {
+                    let (at, ao) = h.file_tail(&p.asst_log, asst_offset);
+                    asst_offset = ao;
+                    if !at.is_empty() {
+                        // 两枚转发壳的"空文本壳内早退"（别为空串起进程）照 maa.ps1:117-138 复刻。
+                        let white = is_null_or_white(&at);
+                        let (task, exec, clicks) = if white {
+                            (String::new(), 0i64, 0i64)
+                        } else {
+                            let sv = h.verb("parse-asst-state", &jv_o(vec![("text", jv_s(&at))]))?;
+                            (
+                                jv_str(&jv_get(&sv, "Task")),
+                                jv_int(&jv_get(&sv, "Exec"), 0),
+                                jv_int(&jv_get(&sv, "Clicks"), 0),
+                            )
+                        };
+                        chan_clicks += clicks;
+                        if !task.is_empty() {
+                            stuck_task = task;
+                            stuck_exec = exec;
+                        }
+                        let hint = if white {
+                            String::new()
+                        } else {
+                            let hv = h.verb("parse-asst-hint", &jv_o(vec![("text", jv_s(&at))]))?;
+                            jv_str(&jv_get(&hv, "Hint"))
+                        };
+                        if !hint.is_empty() {
+                            asst_hint = hint;
+                        }
+                    }
+                } else {
+                    asst_offset = len;
+                }
+                Ok(())
+            })();
+            if r.is_err() {
+                asst_offset = 0;
+            }
+        }
+
+        let elapsed = h.clock() - started;
+        let quiet = h.clock() - last_growth;
+        if finished {
+            break;
+        }
+
+        // ===== 迷你循环：同一 tick 内「喂 verb → 执行 effect → 带回执重入」=====
+        // B-2a 里两枚可用性恒 false ⇒ C# 不挂 effect ⇒ 这个循环每 tick 只转一圈。
+        // $st/$effx 两个跨圈中继照真身(maa.ps1:431-433)留在**外层 tick 之内**：真身每 tick 从 $null 起步，
+        // state 不跨 tick —— 别把它挪到外层循环外面，挪了就改了语义。
+        let mut state: JVal = JVal::Null;
+        let effx: Vec<JVal> = Vec::new(); // 回执累加器：B-2b 落执行块时它才需要 push(那时改回 mut)
+        let mut tail_now = false;
+        // B-2a 里没有执行块 ⇒ 这个循环必然一圈就出，state 的重读点(下一圈的 Body.state)按构造到不了；
+        // 中继形状照真身留着，B-2b 落执行块后它自然变成必读 —— 所以只压这一条 lint，不删这一路。
+        #[allow(unused_assignments)]
+        loop {
+            // 真身建 Body 的求值序：now(含 grabAgo 取钟) → live(探活 → 两枚 Get-Command) → ...
+            let grab_ago = chan_grab_at.map(|t| h.clock() - t);
+            // 三次现场采集先落本地：借用检查只认这个 —— 真身里它们是 Body 里的三个子表达式，
+            // 但同一 tick 内没有别的东西读它们，先算后拼不改语义（探活/两枚可用性各一次）。
+            let maa_running = h.proc_running(&p.name);
+            let rescue_avail = h.rescue_available();
+            let grab_avail = h.grab_available();
+            let d = h.verb(
+                "decide-maa-run-tick",
+                &jv_o(vec![
+                    (
+                        "now",
+                        jv_o(vec![
+                            ("elapsedSec", JVal::F(elapsed)),
+                            ("quietSec", JVal::F(quiet)),
+                            ("grabAgoSec", grab_ago.map_or(JVal::Null, JVal::F)),
+                        ]),
+                    ),
+                    (
+                        "live",
+                        jv_o(vec![
+                            ("maaRunning", JVal::B(maa_running)),
+                            ("rescueAvailable", JVal::B(rescue_avail)),
+                            ("grabAvailable", JVal::B(grab_avail)),
+                        ]),
+                    ),
+                    (
+                        "flags",
+                        jv_o(vec![
+                            ("seenGame", JVal::B(seen_game)),
+                            ("markers", JVal::I(markers)),
+                            ("logChars", JVal::I(log_chars)),
+                            ("finished", JVal::B(finished)),
+                            ("drained", JVal::B(drained)),
+                            ("stallWarn", jv_s(&stall_warn)),
+                            ("completed", cmap_to_jv(&completed)),
+                            ("errors", JVal::A(errors.iter().map(|s| jv_s(s)).collect())),
+                            ("expectedChains", JVal::A(sc.expected.iter().map(|s| jv_s(s)).collect())),
+                            ("asstHint", jv_s(&asst_hint)),
+                            ("stuckTask", jv_s(&stuck_task)),
+                            ("stuckExec", JVal::I(stuck_exec)),
+                            ("chanClicks", JVal::I(chan_clicks)),
+                        ]),
+                    ),
+                    (
+                        "cfg",
+                        jv_o(vec![
+                            ("startTimeoutSec", JVal::I(start_timeout)),
+                            ("timeoutSec", JVal::I(timeout)),
+                            ("stallSec", JVal::I(stall)),
+                            ("idleConfirmSec", JVal::I(idle_confirm)),
+                            ("startTimeoutMin", JVal::I(sc.start_min)),
+                            ("timeoutMin", JVal::I(sc.timeout_min)),
+                            ("abortOnMaaStallWarning", JVal::B(sc.abort_stall)),
+                            ("guiLogPath", jv_s(&p.gui_log)),
+                            ("rescueMaxRaw", JVal::I(rescue_left)),
+                        ]),
+                    ),
+                    ("state", state.clone()),
+                    ("effectsResolved", JVal::A(effx.clone())),
+                ]),
+            )?;
+            state = jv_get(&d, "State");
+            // Directives：计时重置的下令时机在 C#（连"树上没有抢前台的函数"那一档也要打点）。
+            let dirs = jv_get(&d, "Directives");
+            if jv_truthy(&jv_get(&dirs, "GrabNow")) {
+                chan_grab_at = Some(h.clock());
+            }
+            if jv_truthy(&jv_get(&dirs, "ResetLastGrowth")) {
+                last_growth = h.clock();
+            }
+            if jv_truthy(&jv_get(&dirs, "ClearStallWarn")) {
+                stall_warn = String::new();
+            }
+            replay_logs(h, &jv_get(&d, "Logs"));
+
+            let effs = jv_get(&d, "Effects");
+            let ef = jv_list(&effs);
+            if ef.is_empty() {
+                if jv_str(&jv_get(&d, "Action")) == "return" {
+                    // 真身是五支 switch 各写一遍同名键（unknown-format/not-started/timeout/stalled/
+                    // 其余落 error）；档位字面串照 maa.ps1:479-485。
+                    let st = jv_str(&jv_get(&d, "Status"));
+                    let status = match st.as_str() {
+                        "unknown-format" | "not-started" | "timeout" | "stalled" => st,
+                        _ => "error".to_string(),
+                    };
+                    return Ok(MaaRet {
+                        status,
+                        detail: jv_str(&jv_get(&d, "Detail")),
+                        duration: None,
+                        errors: Some(vstr_list(&jv_get(&d, "Errors"))),
+                    });
+                }
+                tail_now = jv_str(&jv_get(&d, "Action")) == "tail";
+                break;
+            }
+            let e = &ef[0];
+            // 判据挂了 effect 可没有执行块接手：宁可作废这一 tick（真身 maa.ps1:597-602 原话，
+            // 整句照抄 —— 执行块随 B-2b 落，落之前这条路按构造不可达，但话术得在这儿）。
+            h.log(
+                "WARN",
+                &format!(
+                    "MAA tick：effect(kind={}，tag={})没有落到执行块，本 tick 作废(下一轮按新读数重判)",
+                    jv_str(&jv_get(e, "Kind")),
+                    jv_str(&jv_get(e, "Tag"))
+                ),
+            );
+            break;
+        }
+        if tail_now {
+            break;
+        }
+    }
+
+    // 挂钟收尾（maa.ps1:612-616）：$dur 与排序链表是现场量，算好喂 finish-maa-run。
+    let dur = h.clock() - started;
+    let chain_text = cmap_keys(&completed).join(", ");
+    let fin = h.verb(
+        "finish-maa-run",
+        &jv_o(vec![("durSec", JVal::F(dur)), ("chainText", jv_s(&chain_text))]),
+    )?;
+    for l in jv_list(&jv_get(&fin, "Logs")) {
+        h.log(&jv_str(&jv_get(l, "Level")), &jv_str(&jv_get(l, "Text")));
+    }
+    Ok(MaaRet {
+        status: jv_str(&jv_get(&fin, "Status")),
+        detail: jv_str(&jv_get(&fin, "Detail")),
+        duration: Some(jv_to_d(&jv_get(&fin, "Duration"))),
+        errors: Some(errors.clone()),
+    })
+}
+
+// ---- ScriptHost：剧本世界 ----
+
+/// 剧本宿主：虚拟钟（只在睡眠时走）＋ 真文件（与 old 侧桩浴读写的是同一批临时文件）
+/// ＋ 真 verb 外调（判据不在射程里的前提）。每一步都往 `proj` 里落一条事件，投影即门的面。
+struct ScriptHost {
+    panel_cs: String,
+    paths: MaaPaths,
+    procs: Vec<(String, bool)>,
+    events: Vec<MaaEv>,
+    next_ev: usize,
+    clock: f64,
+    proj: Vec<String>,
+}
+
+impl ScriptHost {
+    fn new(panel_cs: &str, sc: &MaaScen) -> ScriptHost {
+        ScriptHost {
+            panel_cs: panel_cs.to_string(),
+            paths: MaaPaths::of(sc),
+            procs: sc.procs.clone(),
+            events: sc.events.clone(),
+            next_ev: 0,
+            clock: 0.0,
+            proj: Vec::new(),
+        }
+    }
+
+    /// 睡眠推钟并把 `at <= 新钟` 的事件按剧本先后落完（同一 at 的先后 = 数组先后，两侧一致）。
+    fn advance(&mut self, seconds: u32) {
+        let until = self.clock + seconds as f64;
+        while self.next_ev < self.events.len() && self.events[self.next_ev].at <= until {
+            let ev = self.events[self.next_ev].clone();
+            self.next_ev += 1;
+            self.apply_ev(&ev);
+        }
+        self.clock = until;
+    }
+
+    fn file_of(&self, target: &str) -> Option<String> {
+        match target {
+            "gui" => Some(self.paths.gui_log.clone()),
+            "asst" => Some(self.paths.asst_log.clone()),
+            _ => None,
+        }
+    }
+
+    fn apply_ev(&mut self, ev: &MaaEv) {
+        match ev.kind {
+            "up" | "down" => {
+                let on = ev.kind == "up";
+                let mut hit = false;
+                for (n, v) in self.procs.iter_mut() {
+                    if n.eq_ignore_ascii_case(&ev.target) {
+                        *v = on;
+                        hit = true;
+                    }
+                }
+                if !hit {
+                    self.procs.push((ev.target.clone(), on));
+                }
+            }
+            "append" | "grow" | "truncate" => {
+                let path = match self.file_of(&ev.target) {
+                    Some(p) => p,
+                    None => return,
+                };
+                let bytes: Vec<u8> = if ev.kind == "grow" {
+                    vec![b'A'; ev.bytes.max(0) as usize]
+                } else if ev.kind == "append" {
+                    ev.text.as_bytes().to_vec()
+                } else {
+                    Vec::new()
+                };
+                let _ = write_at(&path, &bytes, ev.kind == "append");
+            }
+            _ => {}
+        }
+    }
+}
+
+/// 落盘一件：append=true 追加、否则整写（等价 old 侧的 AppendAllText / WriteAllText，UTF-8 无 BOM）。
+fn write_at(path: &str, bytes: &[u8], append: bool) -> Result<(), String> {
+    if let Some(parent) = std::path::Path::new(path).parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if append {
+        use std::io::Write;
+        let mut f = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .map_err(|e| format!("写不进 {}：{}", path, e))?;
+        f.write_all(bytes).map_err(|e| format!("写不进 {}：{}", path, e))
+    } else {
+        std::fs::write(path, bytes).map_err(|e| format!("写不进 {}：{}", path, e))
+    }
+}
+
+impl MaaHost for ScriptHost {
+    fn log(&mut self, level: &str, text: &str) {
+        self.proj.push(format!("W|{}|{}", level, text));
+    }
+    fn clock(&mut self) -> f64 {
+        self.clock
+    }
+    fn sleep(&mut self, seconds: u32) {
+        self.proj.push(format!("S|{}", seconds));
+        self.advance(seconds);
+    }
+    fn file_len(&mut self, path: &str) -> Option<u64> {
+        std::fs::metadata(path).ok().map(|m| m.len())
+    }
+    fn file_tail(&mut self, path: &str, offset: u64) -> (String, u64) {
+        let (text, after) = real_file_tail(path, offset);
+        self.proj.push(format!(
+            "T|{}|{}|{}|{}",
+            file_name(path),
+            offset,
+            after,
+            text.chars().count()
+        ));
+        (text, after)
+    }
+    fn proc_running(&mut self, name: &str) -> bool {
+        let on = self
+            .procs
+            .iter()
+            .find(|(n, _)| n.eq_ignore_ascii_case(name))
+            .map(|(_, v)| *v)
+            .unwrap_or(false);
+        self.proj.push(format!("P|{}|{}", name, if on { 1 } else { 0 }));
+        on
+    }
+    fn start_process(&mut self, exe: &str, dir: &str) -> Result<(), String> {
+        self.proj.push(format!("R|{}|{}", exe, dir));
+        Ok(())
+    }
+    fn verb(&mut self, name: &str, body: &JVal) -> Result<JVal, String> {
+        self.proj.push(format!("V|{}", name));
+        call_panel_verb(&self.panel_cs, name, body)
+    }
+    fn rescue_available(&self) -> bool {
+        false
+    }
+    fn grab_available(&self) -> bool {
+        false
+    }
+}
+
+// ---- RealHost：生产现场（B-2c 接线才启用；本刀不进生产） ----
+
+struct RealHost {
+    panel_cs: String,
+}
+
+/// `Get-GdFileTail` 的现场口径：不在 → ('',0)；offset 越界 → 归零全读；偏移 = 读时的文件总长。
+fn real_file_tail(path: &str, offset: u64) -> (String, u64) {
+    let Ok(meta) = std::fs::metadata(path) else {
+        return (String::new(), 0);
+    };
+    let len = meta.len();
+    let mut f = match std::fs::File::open(path) {
+        Ok(f) => f,
+        Err(_) => return (String::new(), 0),
+    };
+    let start = if offset > len { 0 } else { offset };
+    if std::io::Seek::seek(&mut f, std::io::SeekFrom::Start(start)).is_err() {
+        return (String::new(), len);
+    }
+    let mut buf = Vec::new();
+    if std::io::Read::read_to_end(&mut f, &mut buf).is_err() {
+        return (String::new(), len);
+    }
+    (String::from_utf8_lossy(&buf).to_string(), len)
+}
+
+/// 进程名（不带扩展名）在不在场：Get-Process -Name 的口径。读不出来按"不在"（调用方据此走
+/// "进程没起来"那一档，与真身 SilentlyContinue 给假同形）。
+fn real_proc_running(name: &str) -> bool {
+    let snap = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
+    if snap.is_null() || snap as isize == INVALID_HANDLE_ISIZE {
+        return false;
+    }
+    let mut entry: ProcessEntry32W = unsafe { std::mem::zeroed() };
+    entry.dw_size = std::mem::size_of::<ProcessEntry32W>() as u32;
+    let mut found = false;
+    let mut ok = unsafe { Process32FirstW(snap, &mut entry) } != 0;
+    while ok {
+        let raw = String::from_utf16_lossy(&entry.sz_exe_file);
+        let raw = raw.trim_end_matches('\0').to_string();
+        if file_stem(&raw).eq_ignore_ascii_case(name) {
+            found = true;
+            break;
+        }
+        ok = unsafe { Process32NextW(snap, &mut entry) } != 0;
+    }
+    unsafe { CloseHandle(snap) };
+    found
+}
+
+impl MaaHost for RealHost {
+    fn log(&mut self, level: &str, text: &str) {
+        // 落点（控制台 + run 日志）由 B-2c 的宿主策略定，本刀先按探针纪律走 stderr：
+        // stdout 是机读面，一条都不许被日志占了（R0 实测对方 DLL 往 stdout 喷噪声）。
+        eprintln!("[{}] {}", level, text);
+    }
+    fn clock(&mut self) -> f64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs_f64())
+            .unwrap_or(0.0)
+    }
+    fn sleep(&mut self, seconds: u32) {
+        std::thread::sleep(std::time::Duration::from_secs(seconds as u64));
+    }
+    fn file_len(&mut self, path: &str) -> Option<u64> {
+        std::fs::metadata(path).ok().map(|m| m.len())
+    }
+    fn file_tail(&mut self, path: &str, offset: u64) -> (String, u64) {
+        real_file_tail(path, offset)
+    }
+    fn proc_running(&mut self, name: &str) -> bool {
+        real_proc_running(name)
+    }
+    fn start_process(&mut self, exe: &str, dir: &str) -> Result<(), String> {
+        std::process::Command::new(exe)
+            .current_dir(dir)
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| format!("Start-Process {} 失败：{}", exe, e))
+    }
+    fn verb(&mut self, name: &str, body: &JVal) -> Result<JVal, String> {
+        call_panel_verb(&self.panel_cs, name, body)
+    }
+    fn rescue_available(&self) -> bool {
+        false
+    }
+    fn grab_available(&self) -> bool {
+        false
+    }
+}
+
+// ---- 剧本 JSON 的读取与 --maa-run 出口 ----
+
+/// 一档剧本的读法：缺键一律按"没填"取值（0 / 空串 / 空数组），不替夹具猜默认值。
+fn maarun_parse(v: &JVal) -> Result<MaaScen, String> {
+    let mut sc = MaaScen::default();
+    sc.name = jv_str(&jv_get(v, "name"));
+    sc.dry_run = jv_truthy(&jv_get(v, "dryRun"));
+    sc.expected = vstr_list(&jv_get(v, "expectedChains"));
+    let paths = jv_get(v, "paths");
+    sc.maa_dir = jv_str(&jv_get(&paths, "maaDir"));
+    sc.maa_exe = jv_str(&jv_get(&paths, "maaExe"));
+    sc.maa_config = jv_str(&jv_get(&paths, "maaConfig"));
+    sc.gui_log = jv_str(&jv_get(&paths, "maaGuiLog"));
+    sc.asst_log = jv_str(&jv_get(&paths, "maaAsstLog"));
+    sc.ark_exe = jv_str(&jv_get(&paths, "arknightsExe"));
+    let rt = jv_get(v, "runtime");
+    sc.start_min = jv_int(&jv_get(&rt, "arkStartTimeoutMinutes"), 0);
+    sc.timeout_min = jv_int(&jv_get(&rt, "arkTimeoutMinutes"), 0);
+    sc.stall_min = jv_int(&jv_get(&rt, "stallTimeoutMinutes"), 0);
+    sc.idle_sec = jv_int(&jv_get(&rt, "idleConfirmSeconds"), 0);
+    sc.abort_stall = jv_truthy(&jv_get(&rt, "abortOnMaaStallWarning"));
+    sc.vision_max = jv_int(&jv_get(&rt, "visionMaxRescue"), 0);
+    sc.benign = vstr_list(&jv_get(&rt, "benignMaaErrors"));
+    let seed_gui = jv_get(v, "seedGui");
+    if !matches!(seed_gui, JVal::Null) {
+        sc.seed_gui = Some(jv_str(&seed_gui));
+    }
+    let seed_asst = jv_get(v, "seedAsst");
+    if !matches!(seed_asst, JVal::Null) {
+        sc.seed_asst = Some(jv_str(&seed_asst));
+    }
+    for pr in jv_list(&jv_get(v, "procs")) {
+        sc.procs.push((jv_str(&jv_get(pr, "name")), jv_truthy(&jv_get(pr, "up"))));
+    }
+    for ev in jv_list(&jv_get(v, "events")) {
+        let kind = jv_str(&jv_get(&ev, "kind"));
+        if !matches!(kind.as_str(), "append" | "grow" | "truncate" | "up" | "down") {
+            return Err(format!("剧本里认不出的事件 kind：{}（只有 append/grow/truncate/up/down）", kind));
+        }
+        let target = {
+            let t = jv_str(&jv_get(&ev, "target"));
+            if t.is_empty() {
+                jv_str(&jv_get(&ev, "proc"))
+            } else {
+                t
+            }
+        };
+        sc.events.push(MaaEv {
+            at: jv_to_d(&jv_get(&ev, "at")),
+            kind: match kind.as_str() {
+                "append" => "append",
+                "grow" => "grow",
+                "truncate" => "truncate",
+                "up" => "up",
+                _ => "down",
+            },
+            target,
+            text: jv_str(&jv_get(&ev, "text")),
+            bytes: jv_int(&jv_get(&ev, "bytes"), 0),
+        });
+    }
+    Ok(sc)
+}
+
+/// 每档开跑前把两份日志摆回剧本起点：给了 seed 就整写（空串也算"文件在、零字节"），
+/// 没给就删掉（"日志压根不在场"是单独一档）。old 侧桩浴做同一件事，两侧起点才相同。
+/// 落点用 MaaPaths 解出来的那两条（asst 缺省 debug\asst.log 也一起吃到）。
+fn maarun_seed(sc: &MaaScen) -> Result<(), String> {
+    let p = MaaPaths::of(sc);
+    for (path, seed) in [(&p.gui_log, &sc.seed_gui), (&p.asst_log, &sc.seed_asst)] {
+        match seed {
+            None => {
+                let _ = std::fs::remove_file(path);
+            }
+            Some(s) => write_at(path, s.as_bytes(), false)?,
+        }
+    }
+    Ok(())
+}
+
+fn render_maarun_json(items: &[(String, String)]) -> String {
+    let cases: Vec<String> = items
+        .iter()
+        .map(|(name, data)| format!("{{\"name\":{},\"data\":{}}}", jstr(name), jstr(data)))
+        .collect();
+    format!(
+        "{{\"ok\":true,\"why\":\"运行面宿主的剧本回放：循环骨架在内核里跑，判据照旧真跑 panel-cs；这不是对方行为的读数\",\"contract\":{},\"role\":\"B2-maa-run\",\"fixture\":\"maa-run\",\"count\":{},\"cases\":[{}]}}",
+        jstr(CONTRACT),
+        cases.len(),
+        cases.join(",")
+    )
+}
+
+/// `--maa-run --script <剧本文件> --panel-cs <判定 exe>`：一文件多档（JSON 数组），逐档回放，
+/// 出口 = 每档一行投影（`cases[{name,data}]`，与 --arkskip 同形）。
+/// 与前面五档同理落在两必填**之前**返回；缺 --script / 缺 --panel-cs 自己拒跑（不是被必填拦死）。
+fn run_maa_run(script_path: &str, panel_cs: &str, out: &Option<String>) -> i32 {
+    let missing = if script_path.is_empty() {
+        Some("--script：剧本文件（JSON 数组，一档一项）没给")
+    } else if panel_cs.is_empty() {
+        Some("--panel-cs：循环骨架每 tick 真跑 decide-maa-run-tick，缺判定 exe 这一档跑不了")
+    } else {
+        None
+    };
+    if let Some(m) = missing {
+        emit(
+            &format!(
+                "{{\"ok\":false,\"why\":{},\"contract\":{},\"role\":\"B2-maa-run\"}}",
+                jstr(&format!("运行面宿主回放档拒跑：{} —— 缺它这一档没开", m)),
+                jstr(CONTRACT)
+            ),
+            out,
+        );
+        return 2;
+    }
+    let text = match std::fs::read_to_string(script_path) {
+        Ok(t) => t,
+        Err(e) => {
+            emit(
+                &format!(
+                    "{{\"ok\":false,\"why\":{},\"contract\":{},\"role\":\"B2-maa-run\"}}",
+                    jstr(&format!("剧本读不动（{}）：{}", script_path, e)),
+                    jstr(CONTRACT)
+                ),
+                out,
+            );
+            return 1;
+        }
+    };
+    let root = match jv_parse(&text) {
+        Ok(v) => v,
+        Err(e) => {
+            emit(
+                &format!(
+                    "{{\"ok\":false,\"why\":{},\"contract\":{},\"role\":\"B2-maa-run\"}}",
+                    jstr(&format!("剧本不是合法 JSON：{}", e)),
+                    jstr(CONTRACT)
+                ),
+                out,
+            );
+            return 1;
+        }
+    };
+    let mut items: Vec<(String, String)> = Vec::new();
+    let mut bad: Option<String> = None;
+    for raw in jv_list(&root) {
+        let sc = match maarun_parse(raw) {
+            Ok(s) => s,
+            Err(e) => {
+                bad = Some(format!("剧本第 {} 档读不动：{}", items.len() + 1, e));
+                break;
+            }
+        };
+        if let Err(e) = maarun_seed(&sc) {
+            bad = Some(format!("剧本第 {} 档的日志摆不回起点：{}", items.len() + 1, e));
+            break;
+        }
+        let mut host = ScriptHost::new(panel_cs, &sc);
+        match maa_run(&mut host, &sc) {
+            Ok(r) => {
+                let mut proj = host.proj.clone();
+                proj.push(r.proj_line());
+                items.push((sc.name.clone(), proj.join("\u{1f}")));
+            }
+            Err(e) => {
+                bad = Some(format!("剧本第 {} 档没跑完：{}", sc.name, e));
+                break;
+            }
+        }
+    }
+    let json = match bad {
+        Some(e) => {
+            emit(
+                &format!(
+                    "{{\"ok\":false,\"why\":{},\"contract\":{},\"role\":\"B2-maa-run\"}}",
+                    jstr(&e),
+                    jstr(CONTRACT)
+                ),
+                out,
+            );
+            return 1;
+        }
+        None => render_maarun_json(&items),
+    };
+    emit(&json, out);
+    0
 }
 
 // ---- 环境闸（纯判据，可无头自检）
@@ -6563,9 +7604,10 @@ fn selftest() -> i32 {
         &mut fails,
         &mut total,
     );
-    // --events、--sv、--farm-intent、--arkskip 与 --drive-ark-daily 五档都必须并入同一条 emit 出口（否则 --out 出现"某一档默默忽略"的假口径），
-    // 且各自的分派必须落在「--kind 那条必填」**之前**：这五档都不需要装包，被必填拦死就等于没开。
-    // （驱动档 R3③ 是第五档：它同样不装包 —— 现场动作全由壳侧照 ask 执行，探针侧只推链与记账。）
+    // --events、--sv、--farm-intent、--arkskip、--drive-ark-daily 与 --maa-run 六档都必须并入同一条 emit 出口（否则 --out 出现"某一档默默忽略"的假口径），
+    // 且各自的分派必须落在「--kind 那条必填」**之前**：这六档都不需要装包，被必填拦死就等于没开。
+    // （驱动档 R3③ 是第五档：它同样不装包 —— 现场动作全由壳侧照 ask 执行，探针侧只推链与记账。
+    //   运行面回放档 B-2a 是第六档：它也不装包、不碰现场，现场动作全落成投影事件。）
     // 这里数的是**整份** SRC 而不是 src_head：分派在 run() 里，而 run() 排在 selftest **之后**，
     // 用 src_head 会两处都找不到、双双退成 MAX 再判成红（这一族"针落在射程外"的坑本轮第二次踩）。
     // needle 一律运行期拼，**且失败文案里也不许把那串字面量原样写出来**：整份一起数时，
@@ -6574,8 +7616,8 @@ fn selftest() -> i32 {
     // 装配回放档同理只保留**一处** emit 调用（错误路径用局部 rc + 单出口收束）：计数断言本身就
     // 是"出口唯一"的守门人，多开一处它先红。驱动档同理 —— 它的唯一 emit 收在 run_drive_ark_daily 里。
     chk(
-        SRC.matches(&["emit(&", "json"].concat()).count() == 5,
-        "事件流/监督判定/farm-intent/装配回放/驱动五档没同走一处 emit：--out 在其中一档上是空头承诺",
+        SRC.matches(&["emit(&", "json"].concat()).count() == 6,
+        "事件流/监督判定/farm-intent/装配回放/驱动/运行面回放六档没同走一处 emit：--out 在其中一档上是空头承诺",
         &mut fails,
         &mut total,
     );
@@ -6605,6 +7647,13 @@ fn selftest() -> i32 {
     chk(
         dr_dispatch_at < kind_gate_at,
         "--drive-ark-daily 的分派落在那条必填拦路虎之后：换头调度器起步即断（这一档同样不装包）",
+        &mut fails,
+        &mut total,
+    );
+    let mr_dispatch_at = SRC.find(&["run_maa_run(", "&maa_script"].concat()).unwrap_or(usize::MAX);
+    chk(
+        mr_dispatch_at < kind_gate_at,
+        "--maa-run 的分派落在那条必填拦路虎之后：运行面回放这一档会被装包必填拦死，对拍门根本起不了它",
         &mut fails,
         &mut total,
     );
@@ -8264,6 +9313,317 @@ fn selftest() -> i32 {
         &mut total,
     );
 
+    // 19. B-2a 运行面宿主（--maa-run 那一档的地基）：这一组只钉"采集件 + 骨架 + 投影"自己 ——
+    //     六枚判定 verb 真跑 panel-cs 是 probe-arkrun-rust-golden 的活，这里一律把判定 exe 指到
+    //     不存在的桩路径；正因为挑的两档走到头都不该碰判定，"投影里没有 V| 事件"本身就是断言。
+    //     不加载 DLL、不碰现场：文件只写 %TEMP% 下自己的目录，收尾连目录一起删。
+    let d19 = std::env::temp_dir().join(format!("gd-b2a-selftest-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&d19);
+    let _ = std::fs::create_dir_all(&d19);
+    let d19s = d19.to_str().unwrap_or("").to_string();
+    let t19 = |n: &str| format!("{}\\{}", d19s, n);
+    chk(
+        gd_join_path("", &["a", "b"]).is_empty()
+            && gd_join_path("C:\\maa", &["gui.log"]) == "C:\\maa\\gui.log"
+            && gd_join_path("C:\\maa", &["", "gui.log"]) == "C:\\maa\\gui.log"
+            && gd_join_path("C:\\maa\\", &["gui.log"]) == "C:\\maa\\gui.log"
+            && ps_join_path("C:\\maa", "D:\\abs.log") == "D:\\abs.log",
+        "B-2a 的 Join-GdPath 复刻走样（空 base / 空段跳过 / 尾分隔符不重复 / 绝对段整替换）：两份日志的落点会和壳侧不一样",
+        &mut fails,
+        &mut total,
+    );
+    chk(
+        file_stem("MAA.exe") == "MAA"
+            && file_stem("C:\\d\\MaaAria2.dll") == "MaaAria2"
+            && file_stem("debug.asst.log") == "debug.asst"
+            && file_stem("noext") == "noext"
+            && file_name("C:\\d\\gui.log") == "gui.log",
+        "B-2a 的去扩展名复刻走样：探活用的进程名会认错（ark.exe→ark 与 MAA.exe→MAA 是同一条口径）",
+        &mut fails,
+        &mut total,
+    );
+    let mut sc19p = MaaScen {
+        name: "paths".to_string(),
+        maa_dir: "C:\\maa".to_string(),
+        maa_exe: "MAA.exe".to_string(),
+        maa_config: "configuration.json".to_string(),
+        gui_log: "debug\\gui.log".to_string(),
+        ..Default::default()
+    };
+    let p19 = MaaPaths::of(&sc19p);
+    chk(
+        p19.exe == "C:\\maa\\MAA.exe"
+            && p19.config == "C:\\maa\\configuration.json"
+            && p19.gui_log == "C:\\maa\\debug\\gui.log"
+            && p19.asst_log == "C:\\maa\\debug\\asst.log"
+            && p19.name == "MAA"
+            && p19.dir == "C:\\maa",
+        "B-2a 的 Get-MaaPaths 复刻走样（asst 缺省 debug\\asst.log / Name 去扩展名 / Config 那格也照算）：读错日志、探错进程",
+        &mut fails,
+        &mut total,
+    );
+    chk(
+        p19.ps_to_string()
+            == "@{Dir=C:\\maa; Exe=C:\\maa\\MAA.exe; Config=C:\\maa\\configuration.json; GuiLog=C:\\maa\\debug\\gui.log; AsstLog=C:\\maa\\debug\\asst.log; Name=MAA}",
+        "PS 对象串渲染复刻走样（真身 maa.ps1:228 的 dry-run 话术吃的就是这个形状，属性顺序与 '; ' 分隔都是原话）",
+        &mut fails,
+        &mut total,
+    );
+    sc19p.asst_log = "my\\asst.log".to_string();
+    chk(
+        MaaPaths::of(&sc19p).asst_log == "C:\\maa\\my\\asst.log",
+        "配置里给了 maaAsstLog 却没被吃进来：老配置换了落点会读错文件",
+        &mut fails,
+        &mut total,
+    );
+    chk(
+        is_null_or_white("") && is_null_or_white("   ") && is_null_or_white("\t\r\n") && !is_null_or_white("x"),
+        "IsNullOrWhiteSpace 的早退判据走样：会为空文本起一次判定进程（真身两枚转发壳明确不许，maa.ps1:117-138）",
+        &mut fails,
+        &mut total,
+    );
+    let mut cm19: Vec<(String, i64)> = Vec::new();
+    cmap_set(&mut cm19, "Fight", 1);
+    cmap_set(&mut cm19, "fight", 2);
+    cmap_set(&mut cm19, "Shop", 1);
+    let cm19j = cmap_to_jv(&cm19);
+    chk(
+        cm19.len() == 2
+            && cmap_keys(&cm19).join(",") == "Fight,Shop"
+            && jv_int(&jv_get(&cm19j, "Fight"), 0) == 2,
+        "completed 容器的 hashtable 语义没复刻（重复键保留首个拼写、覆盖值，投影前 Ordinal 排序）：收尾那句「完成链路：」会拼错",
+        &mut fails,
+        &mut total,
+    );
+    let g19 = t19("tail-gui.log");
+    chk(
+        real_file_tail(&g19, 0) == (String::new(), 0),
+        "日志不在场时 Get-GdFileTail 的复刻没给 ('',0)：会把「没日志」读成「读了但看不懂」",
+        &mut fails,
+        &mut total,
+    );
+    let _ = write_at(&g19, "abc中文\n".as_bytes(), false);
+    let (t19a, o19a) = real_file_tail(&g19, 0);
+    let _ = write_at(&g19, "def".as_bytes(), true);
+    let (t19b, o19b) = real_file_tail(&g19, o19a);
+    let (t19c, o19c) = real_file_tail(&g19, 999999);
+    chk(
+        t19a == "abc中文\n" && o19a == 10 && t19b == "def" && o19b == 13 && t19c == "abc中文\ndef" && o19c == 13,
+        "Get-GdFileTail 的现场口径走样（新偏移=读时总长 / 越界归零全读=轮转那一支 / 增量只取新段）：轮转后的日志会被当成空",
+        &mut fails,
+        &mut total,
+    );
+    let sc19t = MaaScen {
+        name: "timeline".to_string(),
+        maa_dir: d19s.clone(),
+        maa_exe: "MAA.exe".to_string(),
+        gui_log: "tl-gui.log".to_string(),
+        asst_log: "tl-asst.log".to_string(),
+        seed_gui: Some("seed\n".to_string()),
+        procs: vec![("MAA".to_string(), false)],
+        events: vec![
+            MaaEv { at: 10.0, kind: "append", target: "gui".to_string(), text: "A\n".to_string(), bytes: 0 },
+            MaaEv { at: 10.0, kind: "up", target: "MAA".to_string(), text: String::new(), bytes: 0 },
+            MaaEv { at: 25.0, kind: "truncate", target: "gui".to_string(), text: String::new(), bytes: 0 },
+        ],
+        ..Default::default()
+    };
+    let _ = maarun_seed(&sc19t);
+    let tl_gui = sc19t.gui_log.clone();
+    let tl_asst = sc19t.asst_log.clone();
+    let mut h19t = ScriptHost::new("gd-no-such-panel", &sc19t);
+    h19t.log("STEP", "x");
+    h19t.advance(10);
+    let grew19 = std::fs::read_to_string(t19(&tl_gui)).unwrap_or_default();
+    let up19 = h19t.proc_running("maa");
+    let _ = write_at(&t19(&tl_asst), "zz".as_bytes(), false);
+    let ap19 = h19t.paths.asst_log.clone();
+    let _ = h19t.file_tail(&ap19, 0);
+    h19t.sleep(15);
+    let trunc19 = std::fs::read_to_string(t19(&tl_gui)).unwrap_or_default();
+    let start19 = h19t.start_process("C:\\maa\\MAA.exe", "C:\\maa");
+    let verb19 = h19t.verb("parse-asst-state", &JVal::Null);
+    let proj19t = h19t.proj.clone();
+    chk(
+        grew19 == "seed\nA\n" && up19 && trunc19.is_empty(),
+        "剧本时间线走样（append 追加 / 同一时刻按剧本先后 / 睡眠推到才落 / truncate 原地清空）：两侧的起点会不一样",
+        &mut fails,
+        &mut total,
+    );
+    chk(
+        proj19t.iter().any(|l| l == "W|STEP|x")
+            && proj19t.iter().any(|l| l == "P|maa|1")
+            && proj19t.iter().any(|l| l == "S|15")
+            && proj19t.iter().any(|l| l == "T|tl-asst.log|0|2|2")
+            && proj19t.iter().any(|l| l == "R|C:\\maa\\MAA.exe|C:\\maa")
+            && proj19t.last().map_or(false, |l| l == "V|parse-asst-state"),
+        "ScriptHost 的投影形状走样（W/P/S/T/R/V 六类各钉一条）：门的可见行为面就是这一串，形状漂了整个对拍没意义",
+        &mut fails,
+        &mut total,
+    );
+    chk(
+        start19.is_ok() && verb19.err().map_or(false, |e| e.contains("起不来")),
+        "verb 外调在判定 exe 不在场时没给出「起不来」这句：调用器把「进程起不来」和「判定挂了」混成一谈",
+        &mut fails,
+        &mut total,
+    );
+    let sc19d = MaaScen {
+        name: "dry".to_string(),
+        dry_run: true,
+        expected: vec!["Fight".to_string(), "Shop".to_string()],
+        maa_dir: "C:\\maa".to_string(),
+        maa_exe: "MAA.exe".to_string(),
+        maa_config: "configuration.json".to_string(),
+        gui_log: "debug\\gui.log".to_string(),
+        ..Default::default()
+    };
+    let mut h19d = ScriptHost::new("gd-no-such-panel", &sc19d);
+    let r19d = maa_run(&mut h19d, &sc19d);
+    let mut pd19: Vec<String> = h19d.proj.clone();
+    if let Ok(rt) = r19d.as_ref() {
+        pd19.push(rt.proj_line());
+    }
+    chk(
+        r19d.is_ok()
+            && pd19.len() == 2
+            && pd19[0] == "W|STEP|[dry-run] 将启动 @{Dir=C:\\maa; Exe=C:\\maa\\MAA.exe; Config=C:\\maa\\configuration.json; GuiLog=C:\\maa\\debug\\gui.log; AsstLog=C:\\maa\\debug\\asst.log; Name=MAA}.Exe(自动开始队列：Fight, Shop)"
+            && pd19[1] == "Z|dryrun||-|-",
+        "dry-run 那一档的形状走样（只一行 STEP、Detail 空串、Errors 这个键根本不该在）：真身 maa.ps1:228 就这三件事，话术里的对象串也照原样",
+        &mut fails,
+        &mut total,
+    );
+    let sc19n = MaaScen {
+        name: "nostart".to_string(),
+        maa_dir: d19s.clone(),
+        maa_exe: "MAA.exe".to_string(),
+        gui_log: "ns-gui.log".to_string(),
+        ark_exe: "Ak.exe".to_string(),
+        ..Default::default()
+    };
+    let _ = maarun_seed(&sc19n);
+    let mut h19n = ScriptHost::new("gd-no-such-panel", &sc19n);
+    let r19n = maa_run(&mut h19n, &sc19n);
+    let mut pn19: Vec<String> = h19n.proj.clone();
+    if let Ok(rt) = r19n.as_ref() {
+        pn19.push(rt.proj_line());
+    }
+    let n_probe = pn19.iter().filter(|l| l.starts_with("P|MAA|0")).count();
+    let n_sleep = pn19.iter().filter(|l| l.as_str() == "S|3").count();
+    let n_verb = pn19.iter().filter(|l| l.starts_with("V|")).count();
+    let msg19n = format!(
+        "B-2a「进程起不来」那一档的形状走样：探活={} 睡眠={} 判定调用={} 末行={:?}（90 秒闸按 3 秒一轮该探满 30 次，且这一路一次判定都不该调）",
+        n_probe, n_sleep, n_verb, pn19.last()
+    );
+    chk(
+        r19n.is_ok()
+            && n_probe == 30
+            && n_sleep == 30
+            && n_verb == 0
+            && pn19.iter().any(|l| l == "W|WARN|等待超时(90s)：MAA 进程启动")
+            && pn19.last().map_or(false, |l| l == "Z|error|MAA 未能启动(进程未出现)|-|-"),
+        &msg19n,
+        &mut fails,
+        &mut total,
+    );
+    let out19 = t19("env.json");
+    let rc19s = run_maa_run("", "gd-no-such-panel", &Some(out19.clone()));
+    let j19s = std::fs::read_to_string(&out19).unwrap_or_default();
+    chk(
+        rc19s == 2 && j19s.contains(r#""ok":false"#) && j19s.contains("--script"),
+        "--maa-run 缺剧本没被拒跑（该是 rc 2 加一句 ok:false）：这一档会哑到把空剧本集当成跑通了",
+        &mut fails,
+        &mut total,
+    );
+    let miss19 = t19("no-such-script.json");
+    let rc19p = run_maa_run(&miss19, "", &Some(out19.clone()));
+    let j19p = std::fs::read_to_string(&out19).unwrap_or_default();
+    chk(
+        rc19p == 2 && j19p.contains("--panel-cs"),
+        "--maa-run 缺判定 exe 没被拒跑：循环骨架每 tick 都要真跑 decide-maa-run-tick，缺它这一档没开",
+        &mut fails,
+        &mut total,
+    );
+    let rc19f = run_maa_run(&miss19, "gd-no-such-panel", &Some(out19.clone()));
+    let j19f = std::fs::read_to_string(&out19).unwrap_or_default();
+    chk(
+        rc19f == 1 && j19f.contains(r#""ok":false"#),
+        "剧本文件不在场时没按「读不动」报错（rc 1）：门会拿到一份没有 cases 的假出口",
+        &mut fails,
+        &mut total,
+    );
+    let sc19ok = t19("script-ok.json");
+    let _ = std::fs::write(
+        &sc19ok,
+        "[{\"name\":\"b2-dry\",\"dryRun\":true,\"expectedChains\":[\"Fight\",\"Shop\"],\"paths\":{\"maaDir\":\"C:\\\\maa\",\"maaExe\":\"MAA.exe\"}}]",
+    );
+    let rc19ok = run_maa_run(&sc19ok, "gd-no-such-panel", &Some(out19.clone()));
+    let j19ok = std::fs::read_to_string(&out19).unwrap_or_default();
+    chk(
+        rc19ok == 0
+            && j19ok.contains(r#""ok":true"#)
+            && j19ok.contains("\"count\":1")
+            && j19ok.contains("b2-dry")
+            && j19ok.contains("\\u001f"),
+        "剧本全过的出口形状走样（ok/count/档名/投影分隔符四格）：门的两侧对账拿不到同一份形状",
+        &mut fails,
+        &mut total,
+    );
+    let sc19r = t19("script-nopanel.json");
+    let _ = std::fs::write(
+        &sc19r,
+        &format!("[{{\"name\":\"b2-dry\",\"dryRun\":true,\"paths\":{{\"maaDir\":\"C:\\\\\\\\maa\",\"maaExe\":\"MAA.exe\"}}}},{{\"name\":\"b2-nopanel\",\"procs\":[{{\"name\":\"MAA\",\"up\":true}}],\"paths\":{{\"maaDir\":\"{}\",\"maaExe\":\"MAA.exe\",\"maaGuiLog\":\"np-gui.log\",\"arkExe\":\"Ak.exe\"}}}}]", d19s.replace('\\', "\\\\")),
+    );
+    let rc19r = run_maa_run(&sc19r, "gd-no-such-panel", &Some(out19.clone()));
+    let j19r = std::fs::read_to_string(&out19).unwrap_or_default();
+    chk(
+        rc19r == 1 && j19r.contains("b2-nopanel") && j19r.contains("decide-maa-run-tick"),
+        "有一档没跑完时没按档名 + 那枚判定 verb 报出去：判定 exe 不在场时这一档会假装跑通",
+        &mut fails,
+        &mut total,
+    );
+    let sc19k = t19("script-badkind.json");
+    let _ = std::fs::write(
+        &sc19k,
+        "[{\"name\":\"b2-bad\",\"events\":[{\"at\":1,\"kind\":\"bogus\",\"target\":\"gui\"}]}]",
+    );
+    let rc19k = run_maa_run(&sc19k, "gd-no-such-panel", &Some(out19.clone()));
+    let j19k = std::fs::read_to_string(&out19).unwrap_or_default();
+    chk(
+        rc19k == 1 && j19k.contains("bogus"),
+        "剧本里认不出的事件 kind 被放行了：夹具打错一个词会让整档读数变得没法解释",
+        &mut fails,
+        &mut total,
+    );
+    let root19q = jv_parse("[{\"name\":\"only-name\"}]").unwrap_or(JVal::Null);
+    let lst19q = jv_list(&root19q);
+    let q19 = lst19q.first().and_then(|v| maarun_parse(v).ok());
+    chk(
+        q19.map_or(false, |s| {
+            s.name == "only-name"
+                && s.start_min == 0
+                && s.expected.is_empty()
+                && s.procs.is_empty()
+                && s.seed_gui.is_none()
+        }),
+        "剧本缺键没按「没填」取值（或反过来替夹具猜了默认值）：档与档之间的起点会被猜成不一样",
+        &mut fails,
+        &mut total,
+    );
+    let mut rh19 = RealHost { panel_cs: "gd-no-such-panel".to_string() };
+    chk(
+        !rh19.proc_running("gd-definitely-not-running") && !rh19.rescue_available() && !rh19.grab_available(),
+        "RealHost 的现场读法走样（不存在的进程名 / 两枚兜底可用性）：B-2a 两枚恒 false 是拍过的口径，别在这里悄悄当真",
+        &mut fails,
+        &mut total,
+    );
+    let _ = std::fs::remove_dir_all(&d19);
+    chk(
+        !d19.exists(),
+        "B-2a 自检的临时目录没收干净：自检会在 %TEMP% 里留垃圾",
+        &mut fails,
+        &mut total,
+    );
+
     if fails.is_empty() {
         println!("RESULT SELFTEST-PASS checks={} contract={}", total, CONTRACT);
         return 0;
@@ -8387,6 +9747,14 @@ fn usage() -> ! {
          \t  **唯一外部调用** = --panel-cs 指的那枚判定 exe：链体重试分流真跑 decide-daily-retry\n\
          \t  （照生产同一条 --in/--out 信封协议），所以缺它这一档直接拒跑；不喂它任何本机事实。\n\
          \n\
+         运行面回放档（B-2a，只给对拍门用）：gdcore --maa-run --script <剧本文件> --panel-cs <判定 exe 路径> [--out <文件>]\n\
+         \t  与上面五档同理**不加载任何 DLL、不碰任何现场**，所以也不需要 --kind / --dir；生产不接线（这一档不是换头入口）。\n\
+         \t  它把 Invoke-MaaRun 的**循环骨架**（启动等待 → 读两份日志 → 喂判定 verb → 回灌状态 → 挂钟收尾）逐行复刻在内核里跑，\n\
+         \t  现场动作（睡眠 / 起进程 / 探活 / 读文件尾 / 写日志）全部落成投影事件，不真执行；剧本一档一项（JSON 数组）。\n\
+         \t  判据一条都不在这里 —— 六枚 verb 每 tick 真跑 --panel-cs 那枚判定 exe（与 arkskip 档共用同一条 --in/--out 协议），\n\
+         \t  所以缺它这一档直接拒跑；两枚兜底可用性本批恒按**不可用**喂，识别到的 effect 一律走真身那句作废话术。\n\
+         \t  出口 = 每档一行投影串（动作序列 + 末行状态），供 probe-arkrun-rust-golden 与 PS 真身侧逐字比对。\n\
+         \n\
          自检：gdprobe --selftest        无头，不加载任何 DLL、不碰任何现场\n\
          \n\
          机读出口：任意一档都可加 --out <文件>，把信封**只**写进该文件，stdout 只留一行 RESULT 指引。\n\
@@ -8480,6 +9848,8 @@ fn run(args: &[String]) -> i32 {
     let mut drive_ctx = String::new();
     let mut drive_res = String::new();
     let mut drive_state = String::new();
+    // --maa-run（B-2a）那档的剧本文件：空 = 没给 → 该档自己拒跑（与 --arkskip 缺 --panel-cs 同一口径）。
+    let mut maa_script = String::new();
     let mut flags = GateFlags::default();
     let mut i = 0usize;
     while i < args.len() {
@@ -8550,6 +9920,14 @@ fn run(args: &[String]) -> i32 {
             "--drive-ark-daily" => {
                 mode = "drive-ark-daily";
                 i += 1;
+            }
+            "--maa-run" => {
+                mode = "maa-run";
+                i += 1;
+            }
+            "--script" => {
+                maa_script = need("--script", args, i);
+                i += 2;
             }
             "--i-drive" => {
                 i_drive = true;
@@ -8704,6 +10082,14 @@ fn run(args: &[String]) -> i32 {
         // 不碰任何现场，"要指哪枚装包"在这里没有意义；被必填拦死就等于换头调度器起步即断。
         // （照 sv/farm-intent 的样式，这条注释刻意不把那条必填的原话写出来 —— 自检的顺序门数整份源码。）
         return run_drive_ark_daily(i_drive, &drive_journal, &drive_ctx, &drive_res, &panel_cs, &drive_state, &out_file);
+    }
+
+    if mode == "maa-run" {
+        // 运行面宿主的剧本回放档（B-2a）与上面五档同理，同样落在两必填**之前**返回：这一档不加载
+        // 任何 DLL、不碰任何真装包现场，"要指哪枚装包"在这里没有意义；被必填拦死就等于这一档没开。
+        // 与 ark 认关止损那档一样，循环骨架每 tick 真跑 panel-cs 的判定 verb，所以缺 --panel-cs
+        // 由这一档自己拒跑（口径同上两档注释，刻意不把那条必填的原话写出来）。
+        return run_maa_run(&maa_script, &panel_cs, &out_file);
     }
 
     if mode == "preflight" {

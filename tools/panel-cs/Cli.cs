@@ -25,6 +25,11 @@
 // 两个 verb(见 Decisions.cs 屏保段：注册表读数由壳注入，屏保根因文案在这边拼)与 build-relaunch-args
 // (见 Processes.cs 提权段：-Force/-Omit/$Bound 分类全部由壳组装成值进来，只出参数数组)。
 // Get-GdScreensaverConfig(真读注册表)与 Get-GdElevateBatchLine(四行小拼接)留壳。
+// B-2b(2026-10-08)：视觉兜底的**现场件**七枚(见 Live.cs 头注，切分 docs\rust-core-plan.md §11.34)——
+// resolve-rescue-context / ark-find-window / ark-window-shot / ark-window-click / ark-grab-foreground /
+// ark-desktop-state / vision-ask-model。这批和上面十批不一样：**它们要碰这台机器**(user32 拍窗口、枚举进程、
+// System.Drawing、起 Python 子进程)，Rust 核只做编排。API key 只在这七枚内部取值并写进子进程环境变量，
+// 不进命令行/请求文件/日志/信封，更不进核。兜底编排、rescue.json 落盘、黑屏之后的重试仍在那一侧(B-2b③)。
 //
 // 三通道铁律：
 //   * 机读结果 **只走 --out 文件**(winexe 的 stdout 从控制台启动本来就不可靠，见 Panel.cs 头注)；
@@ -137,7 +142,14 @@ namespace GdPanel
                 else if (verb == "apply-m9a-events") r = Decide(a, RunLoops.M9aEvents);
                 else if (verb == "detect-maa-fight-skip") r = Decide(a, Orchestration.MaaFightSkip);
                 else if (verb == "observe-maa-stage-open") r = Decide(a, Orchestration.MaaStageObserve);
-                else throw new GdUsageException("未知子命令：" + verb + "(现有：echo + 批次 1 判定四件 + 批次 2 探测/状态行 + 批次 3 的 parse-asst-*/plan-maa-queue/m9a-launch-args/parse-m9a-lines/resolve-m9a-status/parse-mumu-*/parse-adb-* + 批次 4 的 build-vision-prompt/parse-vision-verdict/vision-click-point/resolve-vision-endpoint/shot-changed/parse-vision-reply/rescue-entry/compose-ark-desktop-state + 批次 5 的 parse-farm-target-spec/parse-ark-drop-text/resolve-ark-farm-plan/apply-ark-daily-intent/apply-r1999-daily-intent/parse-maa-gui-lines/split-task-args + 批次 6 的 eval-supervisor-settings/parse-supervisor-state/resolve-supervisor-action/compose-supervisor-detail + 批次 7 的 decide-maa-run-tick + 批次 8 的 decide-m9a-run-tick/decide-daily-retry + 批次 9 的 apply-maa-gui-events/finish-maa-run/apply-m9a-events + detect-maa-fight-skip(09-28 认关) + observe-maa-stage-open(10-05 只读观测)；后续批次见 docs\\ps-migration-batch0.md 与 docs\\ps-migration-live-caliber.md)");
+                else if (verb == "resolve-rescue-context") r = Decide(a, Live.RescueContext);
+                else if (verb == "ark-find-window") r = Decide(a, Live.ArkFindWindow);
+                else if (verb == "ark-window-shot") r = Decide(a, Live.WindowShot);
+                else if (verb == "ark-window-click") r = Decide(a, Live.WindowClick);
+                else if (verb == "ark-grab-foreground") r = Decide(a, Live.ArkGrab);
+                else if (verb == "ark-desktop-state") r = Decide(a, Live.ArkDesktopState);
+                else if (verb == "vision-ask-model") r = Decide(a, Live.VisionAsk);
+                else throw new GdUsageException("未知子命令：" + verb + "(现有：echo + 批次 1 判定四件 + 批次 2 探测/状态行 + 批次 3 的 parse-asst-*/plan-maa-queue/m9a-launch-args/parse-m9a-lines/resolve-m9a-status/parse-mumu-*/parse-adb-* + 批次 4 的 build-vision-prompt/parse-vision-verdict/vision-click-point/resolve-vision-endpoint/shot-changed/parse-vision-reply/rescue-entry/compose-ark-desktop-state + 批次 5 的 parse-farm-target-spec/parse-ark-drop-text/resolve-ark-farm-plan/apply-ark-daily-intent/apply-r1999-daily-intent/parse-maa-gui-lines/split-task-args + 批次 6 的 eval-supervisor-settings/parse-supervisor-state/resolve-supervisor-action/compose-supervisor-detail + 批次 7 的 decide-maa-run-tick + 批次 8 的 decide-m9a-run-tick/decide-daily-retry + 批次 9 的 apply-maa-gui-events/finish-maa-run/apply-m9a-events + detect-maa-fight-skip(09-28 认关) + observe-maa-stage-open(10-05 只读观测) + B-2b 现场七枚的 resolve-rescue-context/ark-find-window/ark-window-shot/ark-window-click/ark-grab-foreground/ark-desktop-state/vision-ask-model；后续批次见 docs\\ps-migration-batch0.md 与 docs\\ps-migration-live-caliber.md)");
             }
             catch (GdUsageException ex)
             {

@@ -40,6 +40,9 @@
 //   panel-cs.exe --looptest      不显示窗口：批次 7 活段判据(RunLoops.cs)tick 剧本回环 —— 同上，读数/回执全由场景直喂
 //   panel-cs.exe --agenttest     不显示窗口：对话小窗那条链的纯规则段(Agent.cs) —— 找解释器的顺序、CRT 命令行转义、
 //                                信封投影。不起进程、不联网、不要求这台机器装了 Python(喂的是假尺子和手写 JSON)。
+//   panel-cs.exe --livetest      不显示窗口：B-2b 现场件(Live.cs)七枚 verb 的纯规则段回环 —— 尺寸闸两分支、
+//                                六道闸门话术、请求装配九字段、子进程 stdout 回扫五档、内存位图跑亮度签名、
+//                                请求目录裁剪。真窗口与真 HTTP 一律不进门(只读自检不许要求机器现场状态)。
 //
 // 编译：pwsh -File tools\panel-cs\build.ps1   (用 C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe)
 
@@ -274,7 +277,7 @@ namespace GdPanel
                 Environment.Exit(GdCli.Run(argv[0], tail));
             }
             bool selftest = false, headless = false, dump = false, exptest = false, exttest = false, whytest = false, consoletest = false;
-            bool coretest = false, echotest = false, dectest = false, statetest = false, proctest = false, visiontest = false, orchtest = false, svtest = false, looptest = false, agenttest = false;
+            bool coretest = false, echotest = false, dectest = false, statetest = false, proctest = false, visiontest = false, orchtest = false, svtest = false, looptest = false, agenttest = false, livetest = false;
             foreach (string a in argv)
             {
                 string l = a.ToLowerInvariant();
@@ -295,6 +298,7 @@ namespace GdPanel
                 if (l == "--svtest") svtest = true;
                 if (l == "--looptest") looptest = true;
                 if (l == "--agenttest") agenttest = true;
+                if (l == "--livetest") livetest = true;
                 if (l == "--no-beat") PanelForm.AutoBeatDefault = false;
             }
             // Core/契约自检同理走无头早退：它们只喂临时树，不需要(也不该)把面板整副构造起来。
@@ -308,6 +312,7 @@ namespace GdPanel
             if (svtest) Environment.Exit(GdSvSelfTest.SvTest());
             if (looptest) Environment.Exit(GdLoopSelfTest.LoopTest());
             if (agenttest) Environment.Exit(GdAgentSelfTest.AgentTest());
+            if (livetest) Environment.Exit(LiveSelfTest.LiveTest());
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             PanelForm f = new PanelForm(headless);

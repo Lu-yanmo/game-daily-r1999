@@ -1490,8 +1490,10 @@ fn ps_write_pretty(v: &JVal, indent: usize, out: &mut String) {
     }
 }
 
-/// 本地日期串 `yyyy-MM-dd`（GetLocalTime）——PS 真身 `(Get-Date).ToString('yyyy-MM-dd')` 的同机同日口径。
-fn gd_local_date() -> String {
+/// 本地时刻一次取全（GetLocalTime）——下面几枚格式串都从这一枚出，保证同一进程里
+/// 相邻两次取名义上同一秒（真身 `Get-Date` 每次调用自己取，这也是它两侧能逐字对拍的原因：
+/// 对拍时两侧喂的是同一个现取值，而不是各取各的时钟）。
+fn gd_now() -> SystemTime {
     let mut st = SystemTime {
         w_year: 0,
         w_month: 0,
@@ -1505,7 +1507,37 @@ fn gd_local_date() -> String {
     unsafe {
         GetLocalTime(&mut st);
     }
+    st
+}
+
+/// 本地日期串 `yyyy-MM-dd`（GetLocalTime）——PS 真身 `(Get-Date).ToString('yyyy-MM-dd')` 的同机同日口径。
+fn gd_local_date() -> String {
+    let st = gd_now();
     format!("{:04}-{:02}-{:02}", st.w_year, st.w_month, st.w_day)
+}
+
+/// `Get-Date -Format 'MMdd-HHmmss'` —— 兜底截图的文件名后缀用（真身 vision-rescue.ps1 里那枚 `$stamp`）。
+/// 注意月在前、横线后是时分秒，`H` 是 24 小时制且补零，跟通用的 `yyyy-MM-dd HH:mm:ss` 不是一套。
+/// 命名刻意不叫 stamp：connect_run 那枚形状门数的是全文里那个词根带左括号的出现次数
+/// （8 = 定义 1 + 出口 7），兜底这层借用同一个词会把那条计数顶成假红 —— 形状门只当辅助镜，
+/// 但既然能避让就避让，别让它变成"看见红先怀疑门"的那种红。
+fn gd_shot_suffix() -> String {
+    let st = gd_now();
+    format!(
+        "{:02}{:02}-{:02}{:02}{:02}",
+        st.w_month, st.w_day, st.w_hour, st.w_minute, st.w_second
+    )
+}
+
+/// `Get-Date -Format 'yyyy-MM-dd HH:mm:ss'` —— 救火账本里 `time`／`updated` 两格的形状。
+/// 真身在 `Add-GdRescueRecord` 里取两次（一次给事件、一次给账本头），所以同一轮里这两格
+/// 可以差一秒；这边照样各取各的，别"顺手"合并成一次。
+fn gd_ledger_time() -> String {
+    let st = gd_now();
+    format!(
+        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+        st.w_year, st.w_month, st.w_day, st.w_hour, st.w_minute, st.w_second
+    )
 }
 
 /// 从 `yyyy-M-d`（月/日可一位或两位）解星期几，0=周日 .. 6=周六（Sakamoto）。
@@ -5293,7 +5325,15 @@ fn run_arkskip(panel_cs: &str, out: &Option<String>) -> i32 {
 //      那份 lib，new 侧宿主没有这条采集），逐字复刻一段永远不进的分支等于搬死代码；
 //   2) 三枚 effect 执行块（stuck/drain/quiet）：两枚可用性恒 false ⇒ C# 不挂 effect，执行块
 //      按构造不可达。真身那句"effect 没落到执行块，本 tick 作废"照抄保留在下面。
-// 两块随 B-2b 落（真兜底链 + panel-cs 新 verb + 两枚可用性转真）。
+// 两块的原话是「随 B-2b 落」—— 就地补记（B-2b③ 实际只落了一块，另一块至今不落核，如实分说）：
+//   · 第 2 块「effect 三执行块 + 真兜底链」：B-2b③ 已落。三枚执行块照 maa.ps1:502-596 逐字进核，
+//     兜底链住在 vision_rescue()（七道闸只消费、话术全由 verb 整句给出），七枚现场 verb 一律
+//     经 verb 通道外调 panel-cs ⇒ key 不进核：它只落子进程环境变量，那条通道整个在 panel-cs，
+//     Rust 侧连取值都不做（见 plan §11.34 ④-1）。
+//     回执仍然当场 push 进 effx、带 effectsResolved 重入 C#，同进程同 tick 内闭环、不进 journal。
+//   · 第 1 块「点击环境探测」：**仍不进核**，且不是漏 —— §11.34 ② 的"进 Rust"清单里没有这一格。
+//     现场量那半已由 ark-desktop-state 落到 panel-cs（verb 就位），核内没有调用点 ⇒ 那一档采集
+//     在 Rust 侧仍是空白；接线时机与归属跟着 B-2c 的生产面一起定，别当成已经搬完。
 
 /// 运行面对宿主世界的全部需求（十件），每一件对应 lib\maa.ps1 里的一行现场动作。
 /// 两个宿主：`ScriptHost`=剧本夹具（B-2a 的对拍面，虚拟钟 + 事件时间线 + 投影），
@@ -5315,9 +5355,12 @@ trait MaaHost {
     fn start_process(&mut self, exe: &str, dir: &str) -> Result<(), String>;
     /// Invoke-GdCli：唯一转发通道，verb 的 data 原样交回（本层不解释其内容）。
     fn verb(&mut self, name: &str, body: &JVal) -> Result<JVal, String>;
-    /// `Get-Command Invoke-GdVisionRescue`。B-2a 恒 false（真兜底链随 B-2b 落）。
+    /// `Get-Command Invoke-GdVisionRescue`。B-2a 恒 false；B-2b③ 起转真，但**真身那句问不出**
+    /// —— 树上有没有这枚函数属装载期事实，不属判据：剧本侧由 `rescueAvailable` 喂（门里由夹具说，
+    /// 不许核自己猜），生产侧按 game 给常量（ark/m9a 都带 vision-rescue.ps1 ⇒ 恒 true）。
     fn rescue_available(&self) -> bool;
-    /// `Get-Command Invoke-GdArkForegroundGrab`。同上。
+    /// `Get-Command Invoke-GdArkForegroundGrab`。同上，但**按场景分**：抢前台那枚住 vision-ark.ps1，
+    /// 只有端游一路的 Libs 带着它 ⇒ ark 可 true，m9a 那一路结构上就是 false（剧本侧喂 `grabAvailable`）。
     fn grab_available(&self) -> bool;
 }
 
@@ -5356,6 +5399,20 @@ struct MaaScen {
     seed_asst: Option<String>,
     procs: Vec<(String, bool)>,
     events: Vec<MaaEv>,
+    // ===== B-2b：兜底编排要吃的六格 =====
+    // game/target 是 `Add-GdRescueRecord -Game/-Target` 与靶子名（真身 maa.ps1 五处调用点写死 'ark'）；
+    // 两枚 *_available 取代 B-2a 的恒 false —— 剧本给什么就用什么，`Get-Command` 那两问的真身在
+    // lib\ark-module.ps1 / lib\r1999-module.ps1 的 Libs 清单里（ark 两枚都在场；r1999 只有 rescue 在场，
+    // 抢前台那枚住 lib\vision-ark.ps1，只有 ark 一路点它）。
+    game: String,
+    target: String,
+    rescue_available: bool,
+    grab_available: bool,
+    // state_dir = `$global:GD.State`：rescue.json 与 state\rescue\ 那本账、那堆截图的落点。
+    state_dir: String,
+    // live = 现场 verb 的夹具队列（按名 FIFO）：有夹具就用夹具、没夹具就真跑 panel-cs。
+    // 门(④)只喂七枚现场 verb 的夹具 ⇒ 判定与纯规则仍真跑；自检可以连纯规则一起喂 ⇒ 全链不碰 panel-cs。
+    live: Vec<(String, JVal)>,
 }
 
 /// `Get-MaaPaths`(lib\maa.ps1:46-58) 的复刻：六格照真身一个不少 —— Config 那格循环本身用不上，
@@ -5550,8 +5607,512 @@ fn replay_logs<H: MaaHost>(h: &mut H, logs: &JVal) {
     }
 }
 
+// ==================== B-2b：兜底编排进核（lib\vision-rescue.ps1 的 Invoke-GdVisionRescue）====================
+// 分工照 plan §11.34 ②：Rust 这层只搬"七道闸的消费顺序 + 候选循环 + 三种结论话术 + 两本账的落盘"，
+// 凡要动这台机器的（拍窗口、点客户区、抢前台、起 Python 问模型、读 key/管理员/解释器）一律经 verb 外调。
+// key 因此进不了核：它只在 panel-cs 侧进子进程环境变量（Live.cs 的 RunChild），核里一个字节都摸不到，
+// 也不经命令行、不进请求文件、不进日志（§11.34 里"必答"的那一条，MaaHost 十件签名因此一字未动）。
+
+/// `tag -like 'stuck*'` 这类"前缀通配"：PS 的 -like 不分大小写。三种 tag 前缀（stuck/drain/stall）
+/// 加 grab 那枚空 tag 用得上，别处的 -like 形状（带 [] ?）在本射程里不存在。
+/// 字节级比较不返 UTF-8 边界 panic（tag 只可能是 C# 拼的 ASCII 前缀 + 数字）。
+fn tag_like(tag: &str, prefix: &str) -> bool {
+    let t = tag.as_bytes();
+    let p = prefix.as_bytes();
+    t.len() >= p.len() && t[..p.len()].eq_ignore_ascii_case(p)
+}
+
+/// `kind -eq 'grab'`：PS 的 -eq 比字符串不分大小写（C# 出的 kind 恒小写，这里同形而不是裸 ==）。
+fn kind_eq(kind: &str, want: &str) -> bool {
+    kind.eq_ignore_ascii_case(want)
+}
+
+/// 真身 maa.ps1:230-231 的 `$expectedCount`：大小写不敏感去重、重复键留首个拼写、值恒 1。
+/// （容器语义与 completed 同一把尺：`$expectedCount[$c] = 1` 落在 PS hashtable 上。）
+fn expected_dedup(chains: &[String]) -> Vec<(String, i64)> {
+    let mut m: Vec<(String, i64)> = Vec::new();
+    for c in chains {
+        cmap_set(&mut m, c, 1);
+    }
+    m
+}
+
+fn cmap_get(m: &[(String, i64)], k: &str) -> Option<i64> {
+    m.iter()
+        .find(|(ek, _)| ek.eq_ignore_ascii_case(k))
+        .map(|(_, ev)| *ev)
+}
+
+/// maa.ps1:411 的 `$doneCount`：每条期望链最多算 1（`[Math]::Min([int]$completed[$k], 1)`，键不在场按 0）。
+fn done_count(expected: &[(String, i64)], completed: &[(String, i64)]) -> i64 {
+    expected
+        .iter()
+        .filter(|(k, _)| cmap_get(completed, k).unwrap_or(0) >= 1)
+        .count() as i64
+}
+
+/// maa.ps1:412 的 `$allDone`（期望链数为 0 时恒假：没有期望链就谈不上"跑齐"）。
+/// 只在 drain 档执行块的现场复核守卫里用（判据本体在 RunLoops.cs:398，两处同口径）。
+fn all_done(expected: &[(String, i64)], completed: &[(String, i64)]) -> bool {
+    !expected.is_empty() && done_count(expected, completed) >= expected.len() as i64
+}
+
+/// `Get-GdRescueShotDir`(vision-rescue.ps1:64) = `<GD.State>\rescue`。
+fn rescue_shot_dir(sc: &MaaScen) -> String {
+    gd_join_path(&sc.state_dir, &["rescue"])
+}
+
+/// `Get-GdRescueLedgerPath`(:411) = `<GD.State>\rescue.json`。
+fn rescue_ledger_path(sc: &MaaScen) -> String {
+    gd_join_path(&sc.state_dir, &["rescue.json"])
+}
+
+/// `Clear-GdVisionFiles`(:399-407) 的"留哪几枚"那半，抽成纯函数：mtime 在自检里造不出可信次序，
+/// 判据只能单独钉。同刻并列按输入先后（Rust sort_by 稳定；PS 的 Sort-Object 对同键不保证次序，
+/// 这一格两侧都不作判据 —— 门④的账本/截图比对口径因此不碰文件名顺序）。
+fn pick_stale(items: Vec<(String, u64)>, keep: usize) -> Vec<String> {
+    let mut v = items;
+    v.sort_by(|a, b| b.1.cmp(&a.1));
+    if v.len() > keep {
+        v.split_off(keep).into_iter().map(|(p, _)| p).collect()
+    } else {
+        Vec::new()
+    }
+}
+
+/// 真跑那半：列目录、只收 *.png（`-Filter '*.png'` 在不分大小写的文件系统上等价于 endswith ".png"）、
+/// 删掉 pick_stale 给的那批。删除失败逐枚吞掉（真身 -ErrorAction SilentlyContinue 同形）；
+/// 目录不在场就当没事（真身那句 `if (-not (Test-Path ...)) { return }`）。
+fn trim_shot_dir(dir: &str, keep: usize) {
+    let rd = match std::fs::read_dir(dir) {
+        Ok(r) => r,
+        Err(_) => return,
+    };
+    let mut items: Vec<(String, u64)> = Vec::new();
+    for entry in rd.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if !name.to_lowercase().ends_with(".png") {
+            continue;
+        }
+        let secs = entry
+            .metadata()
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        items.push((entry.path().to_string_lossy().to_string(), secs));
+    }
+    for p in pick_stale(items, keep) {
+        let _ = std::fs::remove_file(&p);
+    }
+}
+
+/// `$ledger.events = @($ledger.events) + @{…}` 再 `-gt $Keep → Select -Last $Keep`（:450-461）。
+/// 也抽成纯函数给自检钉"第 61 条挤掉第 1 条"这一格。
+fn ledger_push(events: Vec<JVal>, entry: JVal, keep: i64) -> Vec<JVal> {
+    let mut v = events;
+    v.push(entry);
+    if keep > 0 && v.len() > keep as usize {
+        v.split_off(v.len() - keep as usize)
+    } else {
+        v
+    }
+}
+
+/// `Invoke-GdVisionRescue` 的返回形状（真身：`@{Tried;Done;Detail}`）。
+struct VisionRc {
+    tried: bool,
+    done: bool,
+    detail: String,
+}
+
+/// `New-GdRescueSkip`(:66-70)："这次没救成，原因是……"的统一出口 = 一次点击都没发出去。
+fn rescue_skip<D: Into<String>>(why: D) -> VisionRc {
+    VisionRc {
+        tried: false,
+        done: false,
+        detail: why.into(),
+    }
+}
+
+/// 兜底总入口的复刻（vision-rescue.ps1:305-397）。七道闸的顺序不许调换（真身头注原话），
+/// 前六道合成一次 `resolve-rescue-context` 外调（闸序在那边逐条落着），第七道"截图"与黑屏闸在
+/// `ark-window-shot`。**Err = 真身没罩 try 的那些调用**（截图/点位换算/点击/比签名），
+/// 它们会一路冒到调用方的 catch ⇒ 回执 `{kind:'rescue',exception:true,message}`；
+/// 唯独"问模型"这一处真身自己罩了 catch，所以它的 verb 错在本地降级成一句 skip（见下面那条注释）。
+fn vision_rescue<H: MaaHost>(
+    h: &mut H,
+    sc: &MaaScen,
+    tag: &str,
+    context: &str,
+) -> Result<VisionRc, String> {
+    // 闸 1..6（后端在场 / 开关 / 管理员 / key / Python / 对象在场）。skip 话术全部出自 verb，
+    // 编排侧一个字不改 —— 关开关那句必须带 settings 的键名，t13 按那几个字断言"关了确实一次都不试"。
+    let ctx = h.verb(
+        "resolve-rescue-context",
+        &jv_o(vec![("target", jv_s(&sc.target))]),
+    )?;
+    if !jv_truthy(&jv_get(&ctx, "CanAsk")) {
+        return Ok(rescue_skip(jv_str(&jv_get(&ctx, "Skip"))));
+    }
+    let kind = jv_str(&jv_get(&ctx, "Kind"));
+    let name = jv_str(&jv_get(&ctx, "Name"));
+    // 靶子 kinds 与现场 verb 的对应：ark 一路拍窗/点窗两枚**已随 B-2b③ 进核**（就是下面这两枚），
+    // mumu(adb) 一路仍留给 B-2d —— 那一档的现场件在 vision-mumu 侧，本刀不起它。
+    // 走不到 else：resolve-rescue-context 对认不出的 kind 第一道闸就回 CanAsk=false（`known` 判据），
+    // 真到这儿说明夹具撒了谎，宁可当场 Err 让上面落成 exception 回执，也不编一句真身没有的话术。
+    let (shot_verb, click_verb) = match kind.as_str() {
+        "ark" => ("ark-window-shot", "ark-window-click"),
+        other => return Err(format!("vision_rescue：这一路的现场 verb 还没进核：{}", other)),
+    };
+
+    let dir = rescue_shot_dir(sc);
+    let suffix = gd_shot_suffix();
+    // 闸 7：先拍到东西才判得了黑屏。文件名 `<kind>-<tag>-<MMdd-HHmmss>-before.png` 是编排侧的现场量，
+    // verb 只管往这个路径落图（Live.cs 那句"路径属现场量，由编排侧拼"就是对着这里写的）。
+    let before_path = gd_join_path(&dir, &[&format!("{}-{}-{}-before.png", kind, tag, suffix)]);
+    let before = h.verb(
+        shot_verb,
+        &jv_o(vec![("path", jv_s(&before_path)), ("name", jv_s(&name))]),
+    )?;
+    if !jv_truthy(&jv_get(&before, "Ok")) {
+        // verb 的 Skip 已是"截图失败：<Why>"整句；异常路径上 Why 自带前缀 ⇒ 双前缀那处原样怪癖在这复刻。
+        return Ok(rescue_skip(jv_str(&jv_get(&before, "Skip"))));
+    }
+    if !jv_truthy(&jv_get(&before, "CanContinue")) {
+        // 真身这一道写作 `[int]$before.AvgLum -lt 8`；判据与那句"截图几乎是全黑(平均亮度 N)"随 B-2b②
+        // 落进 ark-window-shot 的 CanContinue/Skip 两格，这里照字面消费，不再回核里重拼一遍。
+        return Ok(rescue_skip(jv_str(&jv_get(&before, "Skip"))));
+    }
+    h.log("WARN", &jv_str(&jv_get(&before, "LogLine")));
+
+    // 问模型：scene/userText 取自靶子（ark 一路两格都是空串 = 用 C# 那两份默认文案，逐字不许变），
+    // context 是"为什么要问这一句"，截 200 字的规矩在 Live.cs AskUserText 里。
+    // 真身 try/catch 罩的是整次问模型（含转发壳自己起不来），所以 verb 的 Err 也归"模型调用失败"那一句 ——
+    // 这是三处 catch 里唯一把 verb 错吃掉的一处，照抄。
+    let ask = match h.verb(
+        "vision-ask-model",
+        &jv_o(vec![
+            ("imagePath", jv_get(&before, "Path")),
+            ("scene", jv_get(&ctx, "Scene")),
+            ("userText", jv_get(&ctx, "UserText")),
+            ("context", jv_s(context)),
+        ]),
+    ) {
+        Ok(d) => d,
+        Err(e) => return Ok(rescue_skip(format!("模型调用失败：{}", e))),
+    };
+    // 真身的 Invoke-GdVisionAsk 对 raw.Ok=false 是 throw（消息就是 Error），罩它的 catch 拼成下面这句。
+    if !jv_truthy(&jv_get(&ask, "Ok")) {
+        return Ok(rescue_skip(format!(
+            "模型调用失败：{}",
+            jv_str(&jv_get(&ask, "Error"))
+        )));
+    }
+    let v = jv_get(&ask, "Verdict");
+    // 空文本 verb 直接给 Null；文本有但抠不出 JSON 时 verb 仍回一个 Found=false 的对象
+    // —— 真身那边 Get-GdVisionVerdictFromText 两种都塌成 $null，所以 Found 也归"没按格式回 JSON"。
+    if matches!(&v, JVal::Null) || !jv_truthy(&jv_get(&v, "Found")) {
+        return Ok(rescue_skip("模型没按格式回 JSON，不拿它的话当依据"));
+    }
+    let what = jv_str(&jv_get(&v, "What"));
+    if !jv_truthy(&jv_get(&v, "Blocking")) {
+        return Ok(rescue_skip(format!("模型认为没有弹窗挡路({})", what)));
+    }
+    // 换算 + 越界拒绝都在 vision-click-point（C# 那一层连"右下角最后一个像素也算越界"都钉过）；
+    // 这里先把落不到画面里的剔掉：宁可"一个可用点位都没有"直接放弃，也不要在真点击时才发现点在标题栏上。
+    let mut points: Vec<JVal> = Vec::new();
+    for c in jv_list(&jv_get(&v, "Clicks")) {
+        let nx = jv_get(c, "X");
+        let ny = jv_get(c, "Y");
+        // 转发壳的壳内早退（vision-rescue.ps1:149）：两个坐标有一个没给就不必外调。
+        if matches!(&nx, JVal::Null) || matches!(&ny, JVal::Null) {
+            continue;
+        }
+        let p = h.verb(
+            "vision-click-point",
+            &jv_o(vec![
+                ("nx", nx),
+                ("ny", ny),
+                ("imgW", jv_get(&before, "ImgW")),
+                ("imgH", jv_get(&before, "ImgH")),
+                ("clientLeft", jv_get(&before, "ClientLeft")),
+                ("clientTop", jv_get(&before, "ClientTop")),
+                ("clientW", jv_get(&before, "ClientW")),
+                ("clientH", jv_get(&before, "ClientH")),
+                ("max", JVal::I(1000)),
+                ("why", jv_get(c, "Why")),
+            ]),
+        )?;
+        if jv_truthy(&jv_get(&p, "Found")) {
+            points.push(p);
+        }
+    }
+    if points.is_empty() {
+        // 那句坐标吃的是 verdict 对象上的 X/Y（= 第一个候选点位），不是换算后的客户区坐标；没点位时是空串。
+        return Ok(rescue_skip(format!(
+            "模型说挡路的是{}，但它给的坐标({},{})落不到画面里 → 不点",
+            what,
+            jv_str(&jv_get(&v, "X")),
+            jv_str(&jv_get(&v, "Y"))
+        )));
+    }
+
+    // 按把握从高到低逐个试，谁点完画面真变了就算救活。三次机会都来自同一次问价：
+    // 不额外花钱、不额外等模型、也不会"换个答案把上一个还回去"。
+    let mut tries: Vec<String> = Vec::new();
+    for pt in points.iter() {
+        let cx = jv_str(&jv_get(pt, "ClientX"));
+        let cy = jv_str(&jv_get(pt, "ClientY"));
+        // 预告句：真身打在点击**之前**（vision-rescue.ps1:373），而 verb 回的那个 LogLine 是在点击之后算的
+        // ⇒ 想保住"W| 排在 V| 前"的投影次序，这句只能在核里本地拼（与 Live.cs 那份字面逐字相同，
+        //   H2 的逐字符等值就是这句双源的事实守卫）。B-2b 的第四处偏差，登记 plan §11.35。
+        h.log(
+            "WARN",
+            &format!(
+                "视觉兜底：{} → 点{} {},{}({})",
+                what,
+                name,
+                cx,
+                cy,
+                jv_str(&jv_get(pt, "Why"))
+            ),
+        );
+        let click = h.verb(
+            click_verb,
+            &jv_o(vec![
+                ("clientX", jv_get(pt, "ClientX")),
+                ("clientY", jv_get(pt, "ClientY")),
+                ("name", jv_s(&name)),
+                ("what", jv_get(&v, "What")),
+                ("why", jv_get(pt, "Why")),
+            ]),
+        )?;
+        let mode = jv_str(&jv_get(&click, "Mode"));
+        h.sleep(6);
+        let after_path = gd_join_path(
+            &dir,
+            &[&format!("{}-{}-{}-after{}.png", kind, tag, suffix, tries.len() + 1)],
+        );
+        let after = h.verb(
+            shot_verb,
+            &jv_o(vec![("path", jv_s(&after_path)), ("name", jv_s(&name))]),
+        )?;
+        if !jv_truthy(&jv_get(&after, "Ok")) {
+            trim_shot_dir(&dir, 24);
+            // 这一句用的是 after.Why（不是 Skip）⇒ 补拍失败只有一层前缀，与首拍那两处不成对称，原样照抄。
+            return Ok(rescue_skip(format!(
+                "点完补拍失败：{}({})，无法确认是否生效",
+                jv_str(&jv_get(&after, "Why")),
+                mode
+            )));
+        }
+        let chg = h.verb(
+            "shot-changed",
+            &jv_o(vec![
+                ("beforeSig", jv_get(&before, "Sig")),
+                ("afterSig", jv_get(&after, "Sig")),
+                ("minCells", JVal::I(2)),
+                ("minDelta", JVal::I(3)),
+            ]),
+        )?;
+        let chg_detail = jv_str(&jv_get(&chg, "Detail"));
+        tries.push(format!("点位 {},{}({})→{}", cx, cy, mode, chg_detail));
+        let last = tries[tries.len() - 1].clone();
+        if !jv_truthy(&jv_get(&chg, "Known")) {
+            trim_shot_dir(&dir, 24);
+            return Ok(VisionRc {
+                tried: true,
+                done: false,
+                detail: format!(
+                    "按模型说的把{}点了一下({})，但{} → 不算救活",
+                    what, last, chg_detail
+                ),
+            });
+        }
+        if jv_truthy(&jv_get(&chg, "Changed")) {
+            trim_shot_dir(&dir, 24);
+            let head = if tries.len() > 1 {
+                format!("试了 {} 个点位，", tries.len())
+            } else {
+                String::new()
+            };
+            return Ok(VisionRc {
+                tried: true,
+                done: true,
+                detail: format!("已按模型判断关掉{}：{}{}", what, head, last),
+            });
+        }
+    }
+    trim_shot_dir(&dir, 24);
+    Ok(VisionRc {
+        tried: true,
+        done: false,
+        detail: format!(
+            "按模型说的把{}点了 {} 个候选点位({})，画面都没动 → 这一路走不通",
+            what,
+            tries.len(),
+            tries.join("；")
+        ),
+    })
+}
+
+/// grab 回执（真身 maa.ps1:504-509，只有 stuck 档有这一支）。
+/// 抢前台抛异常**不上抛**：真身那个 try/catch 把它塌成一条 `{kind:'grab',exception:true,message}` 回执，
+/// 下一圈由 C# 从回执的 message 拼成 grabNote（RunLoops.cs:182「抢前台抛异常：…」）——
+/// 于是"抢前台失败"只会改这一轮的措辞，不会弄挂整轮。verb 空参即可：进程名默认由 C# 从 settings 读，
+/// 与真身 `Invoke-GdArkForegroundGrab -S $S` 同一事实源。
+fn do_grab<H: MaaHost>(h: &mut H, effx: &mut Vec<JVal>) {
+    match h.verb("ark-grab-foreground", &jv_o(Vec::new())) {
+        Ok(d) => effx.push(jv_o(vec![
+            ("kind", jv_s("grab")),
+            ("detail", jv_s(&jv_str(&jv_get(&d, "Detail")))),
+        ])),
+        Err(msg) => effx.push(jv_o(vec![
+            ("kind", jv_s("grab")),
+            ("exception", JVal::B(true)),
+            ("message", jv_s(&msg)),
+        ])),
+    }
+}
+
+/// 三档执行块里那段 rescue 调用（真身在 maa.ps1:511-521 / 546-555 / 578-586 抄了三遍，语义同一份）。
+/// 预算的还原/再扣照真身原样：`$rescueLeft = [int]$st.rescueLeft + 1` **无条件先做**，
+/// 于是"树上没有兜底函数"那一支会把预算加回去一格 —— 原样怪癖，不顺手修（§11.34 ⑦）。
+/// quiet 档真身连 -Context 都不给（默认空串）；这里统一读 effect 的 Context，因为 C# 给 stall 那档
+/// 挂的 Context 恒是 ""（RunLoops.cs:317），两条路在输入面上就是同一个值。
+fn do_rescue<H: MaaHost>(
+    h: &mut H,
+    sc: &MaaScen,
+    e: &JVal,
+    state: &JVal,
+    effx: &mut Vec<JVal>,
+    rescue_left: &mut i64,
+) {
+    let mut rl = jv_int(&jv_get(state, "rescueLeft"), 0) + 1;
+    if rl > 0 && h.rescue_available() {
+        rl -= 1;
+        let tag = jv_str(&jv_get(e, "Tag"));
+        let context = jv_str(&jv_get(e, "Context"));
+        match vision_rescue(h, sc, &tag, &context) {
+            Ok(rc) => effx.push(jv_o(vec![
+                ("kind", jv_s("rescue")),
+                ("tried", JVal::B(rc.tried)),
+                ("done", JVal::B(rc.done)),
+                ("detail", jv_s(&rc.detail)),
+            ])),
+            Err(msg) => effx.push(jv_o(vec![
+                ("kind", jv_s("rescue")),
+                ("exception", JVal::B(true)),
+                ("message", jv_s(&msg)),
+            ])),
+        }
+    }
+    *rescue_left = rl;
+}
+
+/// record 回执（真身 maa.ps1:522-528 / 557-563 / 588-594）。
+/// 那句 `$rescues += $rc.Detail` 的影子账本**不搬**：它只喂下一 tick 开头的 $detail 镜像，
+/// 而 $detail 自批次 9 起没有任何活口吃它（结论话术的事实源是 C# 的 rescueNotes）——
+/// 搬过来就是死代码，与上面 maa_run 头部那条"230-231/410-417 不搬"同一条理由。
+/// 记一笔账失败不能弄挂日常：真身对盘的两处 try/catch 都在本函数里，唯独 verb 那句不在
+/// ⇒ verb 错一路往上抛（= 整轮失败），照抄。
+#[allow(clippy::too_many_arguments)]
+fn do_record<H: MaaHost>(
+    h: &mut H,
+    sc: &MaaScen,
+    e: &JVal,
+    effx: &mut Vec<JVal>,
+) -> Result<(), String> {
+    let tried = jv_truthy(&jv_get(e, "Tried"));
+    let done = jv_truthy(&jv_get(e, "Done"));
+    add_rescue_record(
+        h,
+        sc,
+        &jv_str(&jv_get(e, "Tag")),
+        &jv_str(&jv_get(e, "Detail")),
+        tried,
+        done,
+    )?;
+    effx.push(jv_o(vec![("kind", jv_s("record"))]));
+    Ok(())
+}
+
+/// `Add-GdRescueRecord`(vision-rescue.ps1:413-466) 的复刻：读-改-写 `state\rescue.json`，
+/// 七键一条、Keep 60 滑窗、UTF-8 无 BOM 的 ConvertTo-Json 形状（复用 B-1a 那枚 ps_to_json_pretty）。
+/// 两处"写坏了别弄挂日常"的 WARN 整句照抄；时间戳走 GetLocalTime 自由函数（不经 MaaHost，
+/// 因此剧本世界里它是真钟而不是虚拟钟 —— 门④比这本账按语义比，不比文件名/时间戳字面）。
+fn add_rescue_record<H: MaaHost>(
+    h: &mut H,
+    sc: &MaaScen,
+    tag: &str,
+    detail: &str,
+    tried: bool,
+    done: bool,
+) -> Result<(), String> {
+    let path = rescue_ledger_path(sc);
+    let mut events: Vec<JVal> = Vec::new();
+    // "第一次救火"恰恰就是文件不存在那次，所以入口先用 Test-Path 守一次（真身那句注释的理由仍在，
+    // 而且它还被 t16 钉着）。读不动 → WARN 按空账继续。
+    if std::fs::metadata(&path).is_ok() {
+        match std::fs::read_to_string(&path) {
+            Ok(text) => match jv_parse(&text) {
+                Ok(old) => {
+                    for ev in jv_list(&jv_get(&old, "events")) {
+                        events.push(ev.clone());
+                    }
+                }
+                Err(e) => h.log(
+                    "WARN",
+                    &format!("救火账本旧内容读不动(按空账继续)：{}", e),
+                ),
+            },
+            Err(e) => h.log(
+                "WARN",
+                &format!("救火账本旧内容读不动(按空账继续)：{}", e),
+            ),
+        }
+    }
+    let e = h.verb(
+        "rescue-entry",
+        &jv_o(vec![
+            ("time", jv_s(&gd_ledger_time())),
+            ("game", jv_s(&sc.game)),
+            ("target", jv_s(&sc.target)),
+            // 真身这里传 [string]$Result.Target —— 靶子自报名；effect 上没这一格，恒空串（verb 的回退支用不上）。
+            ("fallbackTarget", jv_s("")),
+            ("tag", jv_s(tag)),
+            ("tried", JVal::B(tried)),
+            ("done", JVal::B(done)),
+            ("detail", jv_s(detail)),
+        ]),
+    )?;
+    events = ledger_push(
+        events,
+        jv_o(vec![
+            ("time", jv_get(&e, "Time")),
+            ("game", jv_get(&e, "Game")),
+            ("target", jv_get(&e, "Target")),
+            ("tag", jv_get(&e, "Tag")),
+            ("tried", jv_get(&e, "Tried")),
+            ("done", jv_get(&e, "Done")),
+            ("detail", jv_get(&e, "Detail")),
+        ]),
+        60,
+    );
+    let ledger = jv_o(vec![
+        ("version", JVal::I(1)),
+        ("updated", jv_s(&gd_ledger_time())),
+        ("events", JVal::A(events)),
+    ]);
+    if let Err(msg) = write_at(&path, ps_to_json_pretty(&ledger).as_bytes(), false) {
+        h.log("WARN", &format!("救火账本没写进去：{}", msg));
+    }
+    Ok(())
+}
+
 /// `Invoke-MaaRun` 的循环骨架（lib\maa.ps1:220-620）逐行进核。
-/// Err = 真身没有 try/catch 的那几处上抛（起进程、除 asst 段以外的所有 verb 调用）。
 fn maa_run<H: MaaHost>(h: &mut H, sc: &MaaScen) -> Result<MaaRet, String> {
     let p = MaaPaths::of(sc);
     // 228：DryRun 只打一行 STEP 就回（Detail 是空串、Errors 这个键根本不存在）。
@@ -5575,9 +6136,11 @@ fn maa_run<H: MaaHost>(h: &mut H, sc: &MaaScen) -> Result<MaaRet, String> {
         });
     }
 
-    // 230-231 的 $expectedCount（去重、每条恒 1）与 410-417 的镜像段（$doneCount/$allDone/
-    // $chainText/$detail）自批次 7 起只喂"现场复核守卫"，守卫块随 B-2b 才落 —— 这一段在真身里
-    // 不可观测（没有一条日志、也没有一个返回值吃它），不搬：搬过来就是死代码。
+    // 230-231 的 `$expectedCount`：真身把它建在**循环之外**（每条期望链恒记 1、大小写不敏感去重），
+    // 所以它的条数在一轮里是不变量 —— 这边照样只建一次。410-412 的 $doneCount/$allDone 每 tick 现算
+    // （读数本 tick 冻结），413-417 的 $chainText/$detail 镜像段仍不搬：它只喂下一 tick 开头的
+    // $detail 影子，而那份影子自批次 7 起没有任何活口吃它（结论话术的事实源在 C#）。
+    let expected = expected_dedup(&sc.expected);
     let mut offset: u64 = h.file_len(&p.gui_log).unwrap_or(0);
     let mut asst_offset: u64 = 0;
     let mut asst_hint = String::new();
@@ -5736,20 +6299,19 @@ fn maa_run<H: MaaHost>(h: &mut H, sc: &MaaScen) -> Result<MaaRet, String> {
 
         let elapsed = h.clock() - started;
         let quiet = h.clock() - last_growth;
+        // 410-412 的现场镜像：$doneCount/$allDone 每 tick 现算一次，整个迷你循环里读的是同一个值
+        //（真身把它们算在迷你循环之外 —— "读数本 tick 冻结"就是这条时序）。
+        let all_done_flag = all_done(&expected, &completed);
         if finished {
             break;
         }
 
         // ===== 迷你循环：同一 tick 内「喂 verb → 执行 effect → 带回执重入」=====
-        // B-2a 里两枚可用性恒 false ⇒ C# 不挂 effect ⇒ 这个循环每 tick 只转一圈。
         // $st/$effx 两个跨圈中继照真身(maa.ps1:431-433)留在**外层 tick 之内**：真身每 tick 从 $null 起步，
         // state 不跨 tick —— 别把它挪到外层循环外面，挪了就改了语义。
         let mut state: JVal = JVal::Null;
-        let effx: Vec<JVal> = Vec::new(); // 回执累加器：B-2b 落执行块时它才需要 push(那时改回 mut)
+        let mut effx: Vec<JVal> = Vec::new(); // 回执累加器(maa.ps1:432 的 $effx = @())
         let mut tail_now = false;
-        // B-2a 里没有执行块 ⇒ 这个循环必然一圈就出，state 的重读点(下一圈的 Body.state)按构造到不了；
-        // 中继形状照真身留着，B-2b 落执行块后它自然变成必读 —— 所以只压这一条 lint，不删这一路。
-        #[allow(unused_assignments)]
         loop {
             // 真身建 Body 的求值序：now(含 grabAgo 取钟) → live(探活 → 两枚 Get-Command) → ...
             let grab_ago = chan_grab_at.map(|t| h.clock() - t);
@@ -5849,17 +6411,79 @@ fn maa_run<H: MaaHost>(h: &mut H, sc: &MaaScen) -> Result<MaaRet, String> {
                 break;
             }
             let e = &ef[0];
-            // 判据挂了 effect 可没有执行块接手：宁可作废这一 tick（真身 maa.ps1:597-602 原话，
-            // 整句照抄 —— 执行块随 B-2b 落，落之前这条路按构造不可达，但话术得在这儿）。
-            h.log(
-                "WARN",
-                &format!(
-                    "MAA tick：effect(kind={}，tag={})没有落到执行块，本 tick 作废(下一轮按新读数重判)",
-                    jv_str(&jv_get(e, "Kind")),
-                    jv_str(&jv_get(e, "Tag"))
-                ),
-            );
-            break;
+            let kind = jv_str(&jv_get(e, "Kind"));
+            let tag = jv_str(&jv_get(e, "Tag"));
+            let mut did = false;
+
+            // ===== stuck 档执行块(maa.ps1:495-530) =====
+            // 原判据(exec≥60 闸 + 链路 0 完成闸、抢前台后 60 秒仍在原地整句早退、"抢完前台当场问一次画面"
+            // 的早触发)全部在 RunLoops.cs 的 Ladder 第 4 档。下面这层 if 是真身那句"现场复核"守卫
+            // (读数本 tick 冻结 ⇒ C# 挂了这档的 effect 它就成立)，照抄不并删：test-ark 按这段里的
+            // 调用点记"三笔账"、按 Grab→Rescue→Record 的落地顺序钉锚，三档的先后次序就是判据。
+            if kind_eq(&kind, "grab") || tag_like(&tag, "stuck") {
+                if stuck_exec >= 60 && completed.is_empty() && !finished {
+                    if kind_eq(&kind, "grab") {
+                        do_grab(h, &mut effx);
+                        did = true;
+                    }
+                    if kind_eq(&kind, "rescue") {
+                        do_rescue(h, sc, e, &state, &mut effx, &mut rescue_left);
+                        did = true;
+                    }
+                    if kind_eq(&kind, "record") {
+                        do_record(h, sc, e, &mut effx)?;
+                        did = true;
+                    }
+                }
+            }
+            // ===== drain 档执行块(maa.ps1:531-565) =====
+            // 2026-09-25 07:53 那轮的教训：07:56 就宣布"跑完但有错误"、6 条链路 0 完成，老代码却傻等到
+            // "静默 22 分钟"才反应。这一路排在静默判定之前(顺序错了等于没改)，只做两件被证据撑住的事：
+            // 当场兜底一次 + 立刻早退(早退那句已在 C# 的 DrainSentence)。这一段不写任何进程起停代码 ——
+            // 关端游重开 + 重起 MAA 是外层那一次重试的事。守卫 `$drained -and -not $allDone` 照抄。
+            if tag_like(&tag, "drain") {
+                if drained && !all_done_flag {
+                    if kind_eq(&kind, "rescue") {
+                        do_rescue(h, sc, e, &state, &mut effx, &mut rescue_left);
+                        did = true;
+                    }
+                    if kind_eq(&kind, "record") {
+                        do_record(h, sc, e, &mut effx)?;
+                        did = true;
+                    }
+                }
+            }
+            // ===== quiet/stall 档执行块(maa.ps1:567-596) =====
+            // 旧代码先给视觉兜底一次机会再判 stalled(2026-09-24 中秋弹窗：人眼一看就该把挡路窗口关掉，
+            // 模板匹配自己永远走不出来)。兜成 → 停滞计时从头算、也不让 stallWarn 下一轮再把它提前判死，
+            // 旧代码那一句原地 continue 由"带回执重入 + Directives(ResetLastGrowth/ClearStallWarn)"等价替换；
+            // 兜败或没有兜底 → 同一 tick 直接 stalled。这一档的调用 tag 在旧代码里就叫 stall(与档位名
+            // quiet 不同词)，照抄。`-not $did` 打头 ⇒ 前三档谁先接手后面就不再看，顺序即判据。
+            if !did && tag_like(&tag, "stall") {
+                if quiet > stall as f64 {
+                    if kind_eq(&kind, "rescue") {
+                        do_rescue(h, sc, e, &state, &mut effx, &mut rescue_left);
+                        did = true;
+                    }
+                    if kind_eq(&kind, "record") {
+                        do_record(h, sc, e, &mut effx)?;
+                        did = true;
+                    }
+                }
+            }
+            if !did {
+                // 判据挂了 effect 可哪个执行块都没接手(读数本 tick 冻结，理论上到不了这里)：
+                // 宁可作废这一 tick，也不能拿着没回执的挂起点空转 —— 下一 tick 的新读数会重新定档。
+                // 整句照抄 maa.ps1:600（真身是 `$kind` 与 `$([string]$e.Tag)`，这边就是那两个本地串）。
+                h.log(
+                    "WARN",
+                    &format!(
+                        "MAA tick：effect(kind={}，tag={})没有落到执行块，本 tick 作废(下一轮按新读数重判)",
+                        kind, tag
+                    ),
+                );
+                break;
+            }
         }
         if tail_now {
             break;
@@ -5896,6 +6520,11 @@ struct ScriptHost {
     next_ev: usize,
     clock: f64,
     proj: Vec<String>,
+    // B-2b：两枚可用性由剧本喂（真身是 `Get-Command` 问出来的，树上有没有那枚函数属现场事实，
+    // 门里就得由夹具说）；`live` 是七枚现场 verb 的夹具队列，按名 FIFO。
+    rescue_avail: bool,
+    grab_avail: bool,
+    live: Vec<(String, JVal)>,
 }
 
 impl ScriptHost {
@@ -5908,6 +6537,9 @@ impl ScriptHost {
             next_ev: 0,
             clock: 0.0,
             proj: Vec::new(),
+            rescue_avail: sc.rescue_available,
+            grab_avail: sc.grab_available,
+            live: sc.live.clone(),
         }
     }
 
@@ -6022,14 +6654,22 @@ impl MaaHost for ScriptHost {
         Ok(())
     }
     fn verb(&mut self, name: &str, body: &JVal) -> Result<JVal, String> {
+        // 夹具命中与真跑外调在投影上同形（都记一条 `V|名`）：门④要的是"这一路问了哪几枚 verb、
+        // 按什么顺序"，而不是"答案是夹具给的还是 C# 给的"。判定与纯规则仍一律真跑 —— 夹具只喂
+        // 七枚现场 verb（拍窗/点窗/抢前台/问模型/六闸上下文/窗口在场/桌面状态）。
+        if let Some(i) = self.live.iter().position(|(n, _)| n == name) {
+            self.proj.push(format!("V|{}", name));
+            let (_, data) = self.live.remove(i);
+            return Ok(data);
+        }
         self.proj.push(format!("V|{}", name));
         call_panel_verb(&self.panel_cs, name, body)
     }
     fn rescue_available(&self) -> bool {
-        false
+        self.rescue_avail
     }
     fn grab_available(&self) -> bool {
-        false
+        self.grab_avail
     }
 }
 
@@ -6037,6 +6677,30 @@ impl MaaHost for ScriptHost {
 
 struct RealHost {
     panel_cs: String,
+    // 两枚可用性在真身世界不是问盘问出来的，而是问"这一路的模块清单里有没有那枚函数"：
+    // lib\ark-module.ps1:31 的 Libs 带 vision-rescue.ps1 + vision-ark.ps1 ⇒ 两枚都在场；
+    // lib\r1999-module.ps1:27 的 Libs 只带 vision-rescue.ps1（抢前台那枚是端游专用的，住 vision-ark.ps1）
+    // ⇒ rescue 在场、grab 不在场。这是**装载期就定了的事实**，不随现场变，所以按 game 给常量，
+    // 不去现跑 `Get-Command`（问了也是同一个答案，还要多引一条"当前模块加载了哪些 lib"的现场依赖）。
+    rescue_avail: bool,
+    grab_avail: bool,
+}
+
+impl RealHost {
+    /// 默认按 ark 一路建（生产接线到目前为止只有端游这条线）。
+    fn new(panel_cs: &str) -> RealHost {
+        RealHost::for_game(panel_cs, "ark")
+    }
+    /// B-2d 给 m9a 那一路时用它：rescue 照旧在场，grab 按清单不在场 ⇒ 兜底链会走 C# 那句
+    /// "这棵树上没有抢前台的函数，只能等停滞判定"，而不是去调一枚根本不该调的现场 verb。
+    fn for_game(panel_cs: &str, game: &str) -> RealHost {
+        let ark = game.eq_ignore_ascii_case("ark");
+        RealHost {
+            panel_cs: panel_cs.to_string(),
+            rescue_avail: true,
+            grab_avail: ark,
+        }
+    }
 }
 
 /// `Get-GdFileTail` 的现场口径：不在 → ('',0)；offset 越界 → 归零全读；偏移 = 读时的文件总长。
@@ -6119,16 +6783,17 @@ impl MaaHost for RealHost {
         call_panel_verb(&self.panel_cs, name, body)
     }
     fn rescue_available(&self) -> bool {
-        false
+        self.rescue_avail
     }
     fn grab_available(&self) -> bool {
-        false
+        self.grab_avail
     }
 }
 
 // ---- 剧本 JSON 的读取与 --maa-run 出口 ----
 
 /// 一档剧本的读法：缺键一律按"没填"取值（0 / 空串 / 空数组），不替夹具猜默认值。
+/// 唯一的例外是 B-2b 的 game/target 两格：它们的"没填"就是真身写死的那两个 'ark'（见下面的注释）。
 fn maarun_parse(v: &JVal) -> Result<MaaScen, String> {
     let mut sc = MaaScen::default();
     sc.name = jv_str(&jv_get(v, "name"));
@@ -6159,6 +6824,30 @@ fn maarun_parse(v: &JVal) -> Result<MaaScen, String> {
     }
     for pr in jv_list(&jv_get(v, "procs")) {
         sc.procs.push((jv_str(&jv_get(pr, "name")), jv_truthy(&jv_get(pr, "up"))));
+    }
+    // B-2b 六格。game/target 的缺键默认是**真身写死的值**（maa.ps1:525/560/591 三处 -Game 'ark' -Target 'ark'），
+    // 不是替夹具猜；其余四格缺键就是"没填"（false / 空串 / 空队列）。
+    sc.game = {
+        let g = jv_str(&jv_get(v, "game"));
+        if g.is_empty() {
+            "ark".to_string()
+        } else {
+            g
+        }
+    };
+    sc.target = {
+        let t = jv_str(&jv_get(v, "target"));
+        if t.is_empty() {
+            sc.game.clone()
+        } else {
+            t
+        }
+    };
+    sc.rescue_available = jv_truthy(&jv_get(v, "rescueAvailable"));
+    sc.grab_available = jv_truthy(&jv_get(v, "grabAvailable"));
+    sc.state_dir = jv_str(&jv_get(v, "stateDir"));
+    for lv in jv_list(&jv_get(v, "live")) {
+        sc.live.push((jv_str(&jv_get(lv, "verb")), jv_get(lv, "data")));
     }
     for ev in jv_list(&jv_get(v, "events")) {
         let kind = jv_str(&jv_get(&ev, "kind"));
@@ -9609,13 +10298,501 @@ fn selftest() -> i32 {
         &mut fails,
         &mut total,
     );
-    let mut rh19 = RealHost { panel_cs: "gd-no-such-panel".to_string() };
+    let mut rh19 = RealHost::new("gd-no-such-panel");
     chk(
-        !rh19.proc_running("gd-definitely-not-running") && !rh19.rescue_available() && !rh19.grab_available(),
-        "RealHost 的现场读法走样（不存在的进程名 / 两枚兜底可用性）：B-2a 两枚恒 false 是拍过的口径，别在这里悄悄当真",
+        !rh19.proc_running("gd-definitely-not-running"),
+        "RealHost 的现场读法走样：不存在的进程名被判成在场（探活是 stuck/drain 两档的门槛，这里错一格整轮就变）",
         &mut fails,
         &mut total,
     );
+    // B-2b 把 B-2a 那两枚"恒 false"换成按模块清单给的常量（ark-module.ps1:31 / r1999-module.ps1:27）。
+    // 这里钉的是"两路各是什么"这一格本身 —— 树上有没有那枚函数的事实源在 lib 的 Libs 清单里，
+    // 清单变了这里就得跟着变（跟着变是应当的，不是回归）。
+    chk(
+        rh19.rescue_available() && rh19.grab_available(),
+        "RealHost(ark) 的两枚可用性走样：ark 一路兜底与抢前台都在场，缺任何一枚 stuck 档就走不到兜底那一步",
+        &mut fails,
+        &mut total,
+    );
+    let rh19m = RealHost::for_game("gd-no-such-panel", "r1999");
+    chk(
+        rh19m.rescue_available() && !rh19m.grab_available(),
+        "RealHost(r1999) 的两枚可用性走样：mumu 一路没有抢前台那枚(住 vision-ark.ps1，端游专用)，兜底照旧在场",
+        &mut fails,
+        &mut total,
+    );
+
+    // ---- B-2b：兜底编排的零件与离线全链 ----
+    // 这一组同样不加载 DLL、不碰窗口、不起 Python：七枚现场 verb 由剧本夹具喂，纯规则 verb 在自检里
+    // 也给夹具（自检的判定 exe 是指向不存在路径的桩）。钉的是"闸序 + 候选循环 + 三种结论话术 +
+    // 两本账的落盘形状"这四件，判据一律用真值清单，不拿形状猜测当结论。
+    chk(
+        tag_like("stuck-3", "stuck")
+            && tag_like("STUCK-3", "stuck")
+            && tag_like("stuck", "stuck")
+            && !tag_like("drain-1", "stuck")
+            && !tag_like("stuc", "stuck")
+            && !tag_like("", "stuck"),
+        "tag 的前缀通配没按 -like 不分大小写复刻（或把「恰好等于前缀」那一格漏了）：三档执行块会认错档，兜底整轮不触发",
+        &mut fails,
+        &mut total,
+    );
+    chk(
+        kind_eq("Rescue", "rescue")
+            && kind_eq("GRAB", "grab")
+            && !kind_eq("rescue", "record")
+            && !kind_eq("", "grab"),
+        "kind 的等值比走样（PS 的 -eq 比字符串不分大小写）：C# 挂来的 effect 会被当成没落到执行块而当场作废",
+        &mut fails,
+        &mut total,
+    );
+    let b19exp = expected_dedup(&[
+        "Fight".to_string(),
+        "fight".to_string(),
+        "Shop".to_string(),
+    ]);
+    chk(
+        b19exp.len() == 2
+            && cmap_keys(&b19exp).join(",") == "Fight,Shop"
+            && cmap_get(&b19exp, "FIGHT") == Some(1)
+            && cmap_get(&b19exp, "shop").is_some()
+            && cmap_get(&b19exp, "Rescue").is_none(),
+        "期望链容器没照 hashtable 语义（重复键留首个拼写、值恒 1、查键不分大小写）：完成数与「跑齐」两条判据都会漂",
+        &mut fails,
+        &mut total,
+    );
+    let b19cmp: Vec<(String, i64)> = vec![("FIGHT".to_string(), 3)];
+    let b19all: Vec<(String, i64)> = vec![("Fight".to_string(), 1), ("SHOP".to_string(), 2)];
+    let b19zero: Vec<(String, i64)> = Vec::new();
+    chk(
+        done_count(&b19exp, &b19cmp) == 1
+            && !all_done(&b19exp, &b19cmp)
+            && all_done(&b19exp, &b19all)
+            && done_count(&b19exp, &b19zero) == 0
+            && !all_done(&b19zero, &b19all),
+        "完成数/跑齐两条判据走样（每条期望链最多算 1、键不在场按 0、没有期望链就谈不上跑齐）：drain 档的现场复核守卫会误判",
+        &mut fails,
+        &mut total,
+    );
+    chk(
+        jv_str(&JVal::I(1520)) == "1520"
+            && jv_str(&JVal::F(1.5)) == "1.5"
+            && jv_str(&JVal::B(true)) == "True"
+            && jv_str(&JVal::Null).is_empty()
+            && jv_int(&jv_s(" 42 "), 0) == 42
+            && jv_int(&jv_s("x"), -1) == -1,
+        "「字符串吃数值」那一格的取数口径走样：C# 回整数坐标时，预告句与 tries 里那两段会被拼成空串",
+        &mut fails,
+        &mut total,
+    );
+    let mut b19led: Vec<JVal> = Vec::new();
+    for i in 1..=61i64 {
+        b19led = ledger_push(b19led, JVal::I(i), 60);
+    }
+    chk(
+        b19led.len() == 60
+            && jv_int(&b19led[0], 0) == 2
+            && jv_int(&b19led[59], 0) == 61
+            && ledger_push(vec![JVal::I(1)], JVal::I(2), 0).len() == 2,
+        "救火账本的 Keep 60 滑窗走样（第 61 条该挤掉第 1 条；keep<=0 一枚都不裁）：这本账会无限涨",
+        &mut fails,
+        &mut total,
+    );
+    let b19stale = pick_stale(
+        vec![
+            ("a".to_string(), 100u64),
+            ("b".to_string(), 300),
+            ("c".to_string(), 200),
+            ("d".to_string(), 100),
+        ],
+        2,
+    );
+    chk(
+        b19stale == vec!["a".to_string(), "d".to_string()]
+            && pick_stale(vec![("x".to_string(), 1u64)], 5).is_empty()
+            && pick_stale(vec![("x".to_string(), 1u64), ("y".to_string(), 2)], 0).len() == 2,
+        "截图目录「留哪几枚」的判据走样（mtime 倒序留 keep、同刻并列按输入先后、keep>=总数时一枚都不删）：Keep 24 会把最新那几张删掉",
+        &mut fails,
+        &mut total,
+    );
+    // 夹具：一条全过的 ark 兜底链，七枚返回值各给一份；下面四档只改其中几枚的形状。
+    let b19fx_ctx = jv_o(vec![
+        ("CanAsk", JVal::B(true)),
+        ("Kind", jv_s("ark")),
+        ("Name", jv_s("端游")),
+        ("Scene", jv_s("rescue")),
+        ("UserText", jv_s("这一屏有没有弹窗挡路")),
+    ]);
+    let b19fx_shot = jv_o(vec![
+        ("Ok", JVal::B(true)),
+        ("CanContinue", JVal::B(true)),
+        ("LogLine", jv_s("截图：窗口客户区 1600x900")),
+        ("Path", jv_s("x:\\before.png")),
+        ("ImgW", JVal::I(1600)),
+        ("ImgH", JVal::I(900)),
+        ("ClientLeft", JVal::I(0)),
+        ("ClientTop", JVal::I(0)),
+        ("ClientW", JVal::I(1600)),
+        ("ClientH", JVal::I(900)),
+        ("Sig", jv_s("sig-before")),
+    ]);
+    let b19fx_after = jv_o(vec![
+        ("Ok", JVal::B(true)),
+        ("Why", jv_s("")),
+        ("Sig", jv_s("sig-after")),
+    ]);
+    let b19fx_ask = jv_o(vec![
+        ("Ok", JVal::B(true)),
+        ("Verdict", jv_o(vec![
+            ("Found", JVal::B(true)),
+            ("Blocking", JVal::B(true)),
+            ("What", jv_s("活动页")),
+            ("X", jv_s("0.95")),
+            ("Y", jv_s("0.06")),
+            ("Clicks", JVal::A(vec![jv_o(vec![
+                ("X", jv_s("0.95")),
+                ("Y", jv_s("0.06")),
+                ("Why", jv_s("右上角的关闭")),
+            ])])),
+        ])),
+    ]);
+    let b19fx_point = jv_o(vec![
+        ("Found", JVal::B(true)),
+        ("ClientX", JVal::I(1520)),
+        ("ClientY", JVal::I(54)),
+        ("Why", jv_s("右上角的关闭")),
+    ]);
+    let b19fx_click = jv_o(vec![
+        ("Mode", jv_s("真实点击")),
+        ("Sent", JVal::B(true)),
+        ("TryPiece", jv_s("点位 1520,54(真实点击)")),
+        ("LogLine", jv_s("视觉兜底：活动页 → 点端游 1520,54(右上角的关闭)")),
+    ]);
+    let b19fx_chg_yes = jv_o(vec![
+        ("Known", JVal::B(true)),
+        ("Changed", JVal::B(true)),
+        ("Detail", jv_s("画面动了")),
+    ]);
+    let b19live = |tail: Vec<(&str, JVal)>| -> Vec<(String, JVal)> {
+        let mut v: Vec<(String, JVal)> = vec![
+            ("resolve-rescue-context".to_string(), b19fx_ctx.clone()),
+            ("ark-window-shot".to_string(), b19fx_shot.clone()),
+            ("vision-ask-model".to_string(), b19fx_ask.clone()),
+            ("vision-click-point".to_string(), b19fx_point.clone()),
+            ("ark-window-click".to_string(), b19fx_click.clone()),
+            ("ark-window-shot".to_string(), b19fx_after.clone()),
+        ];
+        for (n, d) in tail {
+            v.push((n.to_string(), d));
+        }
+        v
+    };
+    // 成功档：顺手把 26 张真截图摆在 state-c\\rescue 里，链尾那次裁剪就该落在这批真件上。
+    let b19state_c = format!("{}\\state-c", d19s);
+    let b19shotdir = format!("{}\\rescue", b19state_c);
+    let _ = std::fs::create_dir_all(&b19shotdir);
+    for i in 0..26 {
+        let _ = std::fs::write(format!("{}\\s{:02}.png", b19shotdir, i), b"x");
+    }
+    let _ = std::fs::write(format!("{}\\keep.txt", b19shotdir), b"x");
+    let b19sc_ok = MaaScen {
+        name: "rescue-ok".to_string(),
+        state_dir: b19state_c.clone(),
+        live: b19live(vec![("shot-changed", b19fx_chg_yes.clone())]),
+        ..Default::default()
+    };
+    let mut b19h_ok = ScriptHost::new("gd-no-such-panel", &b19sc_ok);
+    let b19rc_ok = vision_rescue(&mut b19h_ok, &b19sc_ok, "stuck-1", "MAA 日志 12 分钟无输出");
+    let b19pngs = std::fs::read_dir(&b19shotdir).map_or(0, |rd| {
+        rd.flatten()
+            .filter(|e| {
+                e.file_name()
+                    .to_string_lossy()
+                    .to_lowercase()
+                    .ends_with(".png")
+            })
+            .count()
+    });
+    trim_shot_dir(&format!("{}\\no-such-dir", d19s), 24);
+    let b19want_ok: Vec<String> = vec![
+        "V|resolve-rescue-context",
+        "V|ark-window-shot",
+        "W|WARN|截图：窗口客户区 1600x900",
+        "V|vision-ask-model",
+        "V|vision-click-point",
+        "W|WARN|视觉兜底：活动页 → 点端游 1520,54(右上角的关闭)",
+        "V|ark-window-click",
+        "S|6",
+        "V|ark-window-shot",
+        "V|shot-changed",
+    ]
+    .into_iter()
+    .map(|s| s.to_string())
+    .collect();
+    chk(
+        b19rc_ok.as_ref().map_or(false, |r| {
+            r.tried && r.done && r.detail == "已按模型判断关掉活动页：点位 1520,54(真实点击)→画面动了"
+        }) && b19h_ok.proj == b19want_ok
+            && b19h_ok.live.is_empty(),
+        "全过那一档的兜底链形状走样（闸序 / 预告句排在点击 verb 之前 / 那 6 秒走宿主睡眠 / 三种结论里的「救活」话术，四件之一）：真兜底在核里就不是同一条链",
+        &mut fails,
+        &mut total,
+    );
+    chk(
+        b19pngs == 24 && std::fs::metadata(format!("{}\\keep.txt", b19shotdir)).is_ok(),
+        "链尾那次 Keep 24 裁剪没落在真盘上（26 张该留 24 张、非 png 一枚都不许碰）：截图目录会涨，而删除的又是刚拍的",
+        &mut fails,
+        &mut total,
+    );
+    let b19sc_off = MaaScen {
+        name: "rescue-off".to_string(),
+        live: vec![(
+            "resolve-rescue-context".to_string(),
+            jv_o(vec![
+                ("CanAsk", JVal::B(false)),
+                ("Skip", jv_s("视觉兜底没开：settings 的 visionRescueEnabled=false")),
+            ]),
+        )],
+        ..Default::default()
+    };
+    let mut b19h_off = ScriptHost::new("gd-no-such-panel", &b19sc_off);
+    let b19rc_off = vision_rescue(&mut b19h_off, &b19sc_off, "quiet-1", "");
+    let b19one: Vec<String> = vec!["V|resolve-rescue-context".to_string()];
+    chk(
+        b19rc_off.as_ref().map_or(false, |r| {
+            !r.tried && !r.done && r.detail == "视觉兜底没开：settings 的 visionRescueEnabled=false"
+        }) && b19h_off.proj == b19one,
+        "开关关着那一档没做到「一次都不试」（或把 verb 的 Skip 改写了）：t13 那句「关了确实一次都不试」的事实源就废了",
+        &mut fails,
+        &mut total,
+    );
+    let b19sc_sf = MaaScen {
+        name: "rescue-shotfail".to_string(),
+        live: vec![
+            ("resolve-rescue-context".to_string(), b19fx_ctx.clone()),
+            (
+                "ark-window-shot".to_string(),
+                jv_o(vec![
+                    ("Ok", JVal::B(false)),
+                    ("Skip", jv_s("截图失败：窗口已消失(没抢到前台)")),
+                ]),
+            ),
+        ],
+        ..Default::default()
+    };
+    let mut b19h_sf = ScriptHost::new("gd-no-such-panel", &b19sc_sf);
+    let b19rc_sf = vision_rescue(&mut b19h_sf, &b19sc_sf, "drain-1", "");
+    chk(
+        b19rc_sf.as_ref().map_or(false, |r| {
+            !r.tried && r.detail == "截图失败：窗口已消失(没抢到前台)"
+        }) && b19h_sf.proj.len() == 2,
+        "第七道闸（拍不到东西就放弃）没只消费 verb 给的整句 Skip：核里重拼一遍会和 C# 那句双前缀的话术分岔",
+        &mut fails,
+        &mut total,
+    );
+    let b19sc_oob = MaaScen {
+        name: "rescue-oob".to_string(),
+        live: vec![
+            ("resolve-rescue-context".to_string(), b19fx_ctx.clone()),
+            ("ark-window-shot".to_string(), b19fx_shot.clone()),
+            (
+                "vision-ask-model".to_string(),
+                jv_o(vec![
+                    ("Ok", JVal::B(true)),
+                    ("Verdict", jv_o(vec![
+                        ("Found", JVal::B(true)),
+                        ("Blocking", JVal::B(true)),
+                        ("What", jv_s("活动页")),
+                        ("X", jv_s("0.95")),
+                        ("Y", jv_s("0.06")),
+                        ("Clicks", JVal::A(vec![
+                            jv_o(vec![("Y", jv_s("0.06")), ("Why", jv_s("这一枚没给 X"))]),
+                            jv_o(vec![("X", jv_s("0.95")), ("Y", jv_s("0.06")), ("Why", jv_s("越界的那枚"))]),
+                        ])),
+                    ])),
+                ]),
+            ),
+            (
+                "vision-click-point".to_string(),
+                jv_o(vec![("Found", JVal::B(false)), ("Why", jv_s("落在标题栏上"))]),
+            ),
+            ("ark-window-click".to_string(), b19fx_click.clone()),
+        ],
+        ..Default::default()
+    };
+    let mut b19h_oob = ScriptHost::new("gd-no-such-panel", &b19sc_oob);
+    let b19rc_oob = vision_rescue(&mut b19h_oob, &b19sc_oob, "stuck-2", "");
+    let b19n_point = b19h_oob
+        .proj
+        .iter()
+        .filter(|l| l.starts_with("V|vision-click-point"))
+        .count();
+    chk(
+        b19rc_oob.as_ref().map_or(false, |r| {
+            !r.tried && r.detail == "模型说挡路的是活动页，但它给的坐标(0.95,0.06)落不到画面里 → 不点"
+        }) && b19n_point == 1
+            && !b19h_oob.proj.iter().any(|l| l.starts_with("V|ark-window-click"))
+            && !b19h_oob.proj.iter().any(|l| l.starts_with("V|shot-changed")),
+        "候选点位的两道本地闸走样（坐标缺一枚就不外调换算、换算不落画面里就不点，且收尾那句吃的是 verdict 的 X/Y 不是客户区坐标）：会白起一次换算并点错地方",
+        &mut fails,
+        &mut total,
+    );
+    let b19sc_no = MaaScen {
+        name: "rescue-nochange".to_string(),
+        live: b19live(vec![(
+            "shot-changed",
+            jv_o(vec![
+                ("Known", JVal::B(false)),
+                ("Changed", JVal::B(false)),
+                ("Detail", jv_s("画面看不出变化")),
+            ]),
+        )]),
+        ..Default::default()
+    };
+    let mut b19h_no = ScriptHost::new("gd-no-such-panel", &b19sc_no);
+    let b19rc_no = vision_rescue(&mut b19h_no, &b19sc_no, "stuck-1", "");
+    chk(
+        b19rc_no.as_ref().map_or(false, |r| {
+            r.tried && !r.done && r.detail == "按模型说的把活动页点了一下(点位 1520,54(真实点击)→画面看不出变化)，但画面看不出变化 → 不算救活"
+        }) && b19h_no.proj.len() == 10,
+        "三种结论里「点了但画面没变」那一支的话术走样（真身 vision-rescue.ps1:386 那句里 $chg.Detail 出现两次：一次并进 tries 尾段、一次跟在「但」后面 —— 原样，不许顺手去重）：会把它说成救活了",
+        &mut fails,
+        &mut total,
+    );
+    let b19sc_askerr = MaaScen {
+        name: "rescue-askerr".to_string(),
+        live: vec![
+            ("resolve-rescue-context".to_string(), b19fx_ctx.clone()),
+            ("ark-window-shot".to_string(), b19fx_shot.clone()),
+        ],
+        ..Default::default()
+    };
+    let mut b19h_ask = ScriptHost::new("gd-no-such-panel", &b19sc_askerr);
+    let b19rc_ask = vision_rescue(&mut b19h_ask, &b19sc_askerr, "stuck-1", "");
+    // 四行 = 六闸 / 首拍 / 那句截图 WARN / 问模型(真外调，桩路径必然起不来)。
+    chk(
+        b19rc_ask.as_ref().map_or(false, |r| {
+            !r.tried && r.detail.starts_with("模型调用失败：")
+        }) && b19h_ask.proj.len() == 4,
+        "问模型这一处没把 verb 的错降级成一句 skip（三处 catch 里唯一吃掉 verb 错的那一处）：模型侧起不来会把整轮兜底打成异常回执",
+        &mut fails,
+        &mut total,
+    );
+    // do_rescue 的预算两格：在场时"先无条件 +1 再 -1"，不在场时那一格白加回去（§11.34 ⑦ 的原样怪癖）。
+    let b19sc_on = MaaScen {
+        name: "budget-on".to_string(),
+        rescue_available: true,
+        state_dir: format!("{}\\state-on", d19s),
+        live: b19live(vec![("shot-changed", b19fx_chg_yes.clone())]),
+        ..Default::default()
+    };
+    let mut b19h_bon = ScriptHost::new("gd-no-such-panel", &b19sc_on);
+    let mut b19effx_on: Vec<JVal> = Vec::new();
+    let mut b19left_on = 1i64;
+    do_rescue(
+        &mut b19h_bon,
+        &b19sc_on,
+        &jv_o(vec![
+            ("Kind", jv_s("rescue")),
+            ("Tag", jv_s("stuck-1")),
+            ("Context", jv_s("")),
+        ]),
+        &jv_o(vec![("rescueLeft", JVal::I(1))]),
+        &mut b19effx_on,
+        &mut b19left_on,
+    );
+    let b19sc_off2 = MaaScen {
+        name: "budget-off".to_string(),
+        state_dir: format!("{}\\state-off", d19s),
+        ..Default::default()
+    };
+    let mut b19h_boff = ScriptHost::new("gd-no-such-panel", &b19sc_off2);
+    let mut b19effx_off: Vec<JVal> = Vec::new();
+    let mut b19left_off = 0i64;
+    do_rescue(
+        &mut b19h_boff,
+        &b19sc_off2,
+        &jv_o(vec![
+            ("Kind", jv_s("rescue")),
+            ("Tag", jv_s("stall-1")),
+            ("Context", jv_s("")),
+        ]),
+        &jv_o(vec![("rescueLeft", JVal::I(0))]),
+        &mut b19effx_off,
+        &mut b19left_off,
+    );
+    chk(
+        b19left_on == 1
+            && b19effx_on.len() == 1
+            && jv_str(&jv_get(&b19effx_on[0], "kind")) == "rescue"
+            && jv_truthy(&jv_get(&b19effx_on[0], "done")),
+        "兜底预算的「state 里的余额先 +1 再 -1」走样，或回执三键(kind/tried/done/detail)没照真身形状出：一轮里的兜底次数会与壳侧算不齐",
+        &mut fails,
+        &mut total,
+    );
+    chk(
+        b19left_off == 1 && b19effx_off.is_empty() && b19h_boff.proj.is_empty(),
+        "树上没有兜底函数那一支没照真身把预算白加回一格（或反过来还去调了 verb）：这是登记过的原样怪癖，不许顺手修",
+        &mut fails,
+        &mut total,
+    );
+    let b19sc_led = MaaScen {
+        name: "ledger".to_string(),
+        state_dir: format!("{}\\state-led", d19s),
+        game: "ark".to_string(),
+        target: "端游".to_string(),
+        live: vec![
+            (
+                "rescue-entry".to_string(),
+                jv_o(vec![
+                    ("Time", jv_s("2026-10-08 07:00:00")),
+                    ("Game", jv_s("ark")),
+                    ("Target", jv_s("端游")),
+                    ("Tag", jv_s("quiet-1")),
+                    ("Tried", JVal::B(true)),
+                    ("Done", JVal::B(false)),
+                    ("Detail", jv_s("第一条")),
+                ]),
+            ),
+            (
+                "rescue-entry".to_string(),
+                jv_o(vec![
+                    ("Time", jv_s("2026-10-08 07:00:01")),
+                    ("Game", jv_s("ark")),
+                    ("Target", jv_s("端游")),
+                    ("Tag", jv_s("quiet-2")),
+                    ("Tried", JVal::B(false)),
+                    ("Done", JVal::B(false)),
+                    ("Detail", jv_s("第二条")),
+                ]),
+            ),
+        ],
+        ..Default::default()
+    };
+    let mut b19h_led = ScriptHost::new("gd-no-such-panel", &b19sc_led);
+    let b19r1 = add_rescue_record(&mut b19h_led, &b19sc_led, "quiet-1", "第一条", true, false);
+    let b19r2 = add_rescue_record(&mut b19h_led, &b19sc_led, "quiet-2", "第二条", false, false);
+    let b19ltext = std::fs::read_to_string(rescue_ledger_path(&b19sc_led)).unwrap_or_default();
+    let b19lroot = jv_parse(&b19ltext).unwrap_or(JVal::Null);
+    let b19lev = jv_get(&b19lroot, "events");
+    let b19levs = jv_list(&b19lev);
+    chk(
+        b19r1.is_ok()
+            && b19r2.is_ok()
+            && b19ltext.starts_with('{')
+            && jv_int(&jv_get(&b19lroot, "version"), 0) == 1
+            && !jv_str(&jv_get(&b19lroot, "updated")).is_empty()
+            && b19levs.len() == 2
+            && jv_str(&jv_get(b19levs[0], "tag")) == "quiet-1"
+            && jv_truthy(&jv_get(b19levs[0], "tried"))
+            && !jv_truthy(&jv_get(b19levs[1], "tried"))
+            && jv_str(&jv_get(b19levs[1], "detail")) == "第二条"
+            && !b19h_led.proj.iter().any(|l| l.starts_with("W|WARN")),
+        "救火账本的读-改-写落盘走样（version/updated/events 三格、UTF-8 无 BOM 的美化形状、七键一条、文件不在场那次不该惊动 WARN）：这本账会与真身那份不同形",
+        &mut fails,
+        &mut total,
+    );
+
     let _ = std::fs::remove_dir_all(&d19);
     chk(
         !d19.exists(),

@@ -14,6 +14,18 @@ $ErrorActionPreference = 'Stop'
 $here = $PSScriptRoot
 $cs   = @(Get-ChildItem -LiteralPath $here -Filter '*.cs' -File | Sort-Object Name | ForEach-Object { $_.FullName })
 if ($cs.Count -eq 0) { throw "本目录里没有 .cs 源码：$here" }
+
+# B-2b(2026-10-08)：Live.cs 那七枚现场 verb 要用的那批 user32 声明，**真身仍只有一份** =
+# ..\tools\gdinterop\GdWin.cs(端游视觉兜底迁移 B0③b 时从 lib\vision-ark.ps1 的 here-string 搬出来的那份，
+# PowerShell 侧靠 lib\common.ps1 的 Add-GdInterop 现编)。这里多带一条路径把它编进同一份装配，
+# 不在 panel-cs 里抄第二份签名 —— 于是改那份 .cs 从此要过两套装配：PS 现编那侧的门 tools\test-ark.ps1 t14
+# 与这条编译。缺文件就当编译失败(不许静默跳过：跳过了 Live.cs 会编不过，报错点反而更难读)。
+$gdwin = Join-Path (Split-Path $here) 'gdinterop\GdWin.cs'
+if (-not (Test-Path -LiteralPath $gdwin)) {
+    if ($Quiet) { exit 4 }
+    throw ('缺 tools\gdinterop\GdWin.cs(现场 verb 的 user32 声明，真身只这一份)：' + $gdwin)
+}
+$cs += $gdwin
 $exe  = Join-Path $here 'panel-cs.exe'
 $icon = Join-Path (Split-Path $here) 'assets\icon.png'
 
@@ -84,6 +96,10 @@ if ($Verify) {
     & $exe --agenttest
     if ($LASTEXITCODE -ne 0) { throw 'panel-cs --agenttest 有红项' }
     Write-Host 'panel-cs --agenttest OK'
+    # B-2b 现场件七枚(Live.cs)的纯规则段回环：真窗口/真 HTTP/真 key 一个都不碰，期望串逐字抄自旧实现(同上一条纪律)
+    & $exe --livetest
+    if ($LASTEXITCODE -ne 0) { throw 'panel-cs --livetest 有红项' }
+    Write-Host 'panel-cs --livetest OK'
     # 面板自证：读一次 -DumpSummary 协议 + 渲染 + 逐页布局断言 + 主题切换链
     & $exe --selftest
     if ($LASTEXITCODE -ne 0) { throw 'panel-cs --selftest 有红项' }

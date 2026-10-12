@@ -1,4 +1,6 @@
-// tools/panel-cs/Live.SelfTest.cs —— --livetest：B-2b 现场件(Live.cs)七枚 verb 的纯规则段自检。
+// tools/panel-cs/Live.SelfTest.cs —— --livetest：B-2b 现场件(Live.cs)七枚 verb 的纯规则段自检
+// + 10-11 新增的第八枚 check-ark-launcher(启动器更新页五档相位，见本文件第 8 组)
+// + 10-12 B-2d③ 的 mumu(adb) 这一路四枚(adb-connect/adb-game-pid/mumu-screen-shot/mumu-screen-click，见第 9 组)。
 //
 // 这一批和前十批不一样：Live.cs 里**大半代码天生测不了**(拍窗口要点真窗口、问模型要起真子进程、
 // 抢前台会动别人的焦点)。所以这里定的纪律是"只钉话术与算术，不钉现场"：
@@ -7,13 +9,16 @@
 //   * 不调 settings：八档夹具里每一档都把现场量喂全，只要有一格漏喂，Settings()/PythonExe() 就会去读真配置，
 //     那条断言立刻红(根没 Init，读会抛) —— 这正是"只读自检不许要求机器现场状态"的守门方式。
 //   * 唯一写盘的那一格打在 %TEMP% 副本上(请求目录裁剪要有真文件才裁得动)，收尾整目录删掉，不落仓内。
+//     10-12 起写盘的不止一处：mumu 的读图段要在 %TEMP% 造**真 PNG** 让 System.Drawing 真解码
+//     (否则尺寸闸与亮度算术只能拿假读数比，那一格就钉不住移植)，收尾同样整目录删掉。
 //
-// 期望串逐字抄自 lib\vision-ark.ps1 / lib\vision-rescue.ps1 的旧实现(那两个文件在生产接线 B-2c 之前仍是事实源)
-// —— 这里红了就是移植走样，改 Live.cs，不改这里的期望(批次 1 起同一条纪律)。
+// 期望串逐字抄自 lib\vision-ark.ps1 / lib\vision-rescue.ps1(ark 那一路)与 lib\vision-mumu.ps1 / lib\mumu.ps1
+// (mumu 那一路)的旧实现(生产接线之外它们仍是事实源)—— 这里红了就是移植走样，改 Live.cs，不改这里的期望(批次 1 起同一条纪律)。
 // 两处专门钉住的原样怪癖：①"截图失败："双前缀异常路径会叠两次(ShotFail)；②处境串里那两个空格
 // ("$UserText  自动化这边的处境：")。谁"顺手修好"了这里立刻红。
-// 够不着的三样如实登记，不假装测过：黑屏闸的 Skip 只钉句子(常量件 BlackScreenSkip)、
-// ark-window-shot / ark-window-click / ark-grab-foreground 的现场分支要等 B-2b④ 的门与一轮真跑。
+// 够不着的几样如实登记，不假装测过：黑屏闸的 Skip 只钉句子(常量件 BlackScreenSkip)、
+// ark-window-shot / ark-window-click / ark-grab-foreground 的现场分支要等 B-2b④ 的门与一轮真跑；
+// mumu 那两声 adb 失败(screencap/pull 的退出码句)与 RunAdb 的超时杀进程，同样只有真跑能验。
 
 using System;
 using System.Collections.Generic;
@@ -87,7 +92,7 @@ namespace GdPanel
         public static int LiveTest()
         {
             Box b = new Box();
-            Console.WriteLine("---- panel-cs --livetest(B-2b 现场件七枚的纯规则段，不碰真窗口/不起子进程/不联网) ----");
+            Console.WriteLine("---- panel-cs --livetest(B-2b 现场件七枚 + 10-11 的 check-ark-launcher 的纯规则段，不碰真窗口/不起子进程/不联网) ----");
             string tmp = Path.Combine(Path.GetTempPath(), "gd-livetest-" + System.Diagnostics.Process.GetCurrentProcess().Id);
             try
             {
@@ -430,10 +435,347 @@ namespace GdPanel
                        "输入桌面=Winlogon(会话不在正常桌面，鼠标键盘进不来)；端游窗口没找到";
             });
 
+            // ==================== 8) check-ark-launcher：启动器更新页的五档相位(10-11) ====================
+            // 这一组是**新增能力**的判据，旧实现在 lib 里没有真身可抄 —— 所以期望串就是这里定的那一套话术
+            // (Live.cs 的注释与这里逐字对着)。纪律照旧：不碰真 PrintWindow、不起子进程；
+            // 窗口那一格用"假句柄 + 注入的图读数"绕过，唯一碰真的地方是 no-window 那一档的进程枚举(只读、不碰窗口)。
+            b.Chk("相位①no-window：窗口没找到就收工，一句都不问模型(没喂问模型夹具，真去问会当场红)", delegate
+            {
+                Dictionary<string, object> d = Row(Live.ArkLauncherCheck(In(
+                    "procName", "gd-livetest-根本没有这一枚进程", "maxClicks", 6)));
+                return d != null && S(d["Phase"]) == "no-window" && S(d["Level"]) == "WARN"
+                       && S(d["LogLine"]) == "启动器检查：端游窗口没找到(可能已经关了)，这一轮不再检查更新页"
+                       && S(d["Detail"]) == "端游窗口没找到(可能已经关了)";
+            });
+            b.Chk("相位②uncertain：拍不到画面(黑屏闸那句原样带出)也不问模型", delegate
+            {
+                Dictionary<string, object> d = Row(Live.ArkLauncherCheck(In(
+                    "handle", 987654321L, "maxClicks", 6,
+                    "path", Path.Combine(Path.GetTempPath(), "gd-launcher-clamp.png"),
+                    "shot", In("Ok", false, "CanContinue", false,
+                               "Skip", Live.BlackScreenSkip(3), "Why", ""))));
+                return S(d["Phase"]) == "uncertain" && S(d["Detail"]) == Live.BlackScreenSkip(3)
+                       && S(d["LogLine"]) == "启动器检查：拍不到画面(" + Live.BlackScreenSkip(3) + ")，分不清是不是更新页，按原样放行";
+            });
+            b.Chk("拍图回执 Ok=true 但 CanContinue=false 也算拍不到(两格各自把关，不是只看 Ok)", delegate
+            {
+                Dictionary<string, object> d = Row(Live.ArkLauncherCheck(In(
+                    "handle", 987654321L, "maxClicks", 6, "path", @"C:\gd-launcher-clamp.png",
+                    "shot", FixShot("AvgLum", 7, "CanContinue", false, "Skip", Live.BlackScreenSkip(7)))));
+                return S(d["Phase"]) == "uncertain" && S(d["Level"]) == "WARN"
+                       && S(d["Detail"]) == Live.BlackScreenSkip(7);
+            });
+            b.Chk("相位③needs-click：blocking=true 且点位换算得动 → 出客户区坐标(千分比 500/820 → 800/738)", delegate
+            {
+                Dictionary<string, object> d = Row(Live.ArkLauncherCheck(LaunchKnobs(LClickJson, 0)));
+                return S(d["Phase"]) == "needs-click" && S(d["Level"]) == "STEP"
+                       && L(d["ClientX"]) == 800L && L(d["ClientY"]) == 738L
+                       && S(d["Why"]) == "『更新』按钮" && S(d["Model"]) == "m-fake"
+                       && S(d["What"]) == "资源更新页，要点更新";
+            });
+            b.Chk("needs-click 那句日志同时带出模型说法、点位与为什么(回看时要能认出点的是哪个按钮)", delegate
+            {
+                Dictionary<string, object> d = Row(Live.ArkLauncherCheck(LaunchKnobs(LClickJson, 0)));
+                return S(d["LogLine"]) == "启动器检查：这一页要点一下(模型说：资源更新页，要点更新，点位 800,738 『更新』按钮)";
+            });
+            b.Chk("客户区不是整窗时点位要减去客户区原点(启动器是无边框窗时那格照样对)", delegate
+            {
+                Dictionary<string, object> d = Row(Live.ArkLauncherCheck(LaunchKnobs(LClickJson, 0,
+                    "ClientLeft", 8, "ClientTop", 31)));
+                return L(d["ClientX"]) == 792L && L(d["ClientY"]) == 707L;
+            });
+            b.Chk("相位④waiting：blocking=true 但 clicks 是空数组(下载中/拿不准) → 等，一处都不点", delegate
+            {
+                Dictionary<string, object> d = Row(Live.ArkLauncherCheck(LaunchKnobs(LWaitJson, 0)));
+                return S(d["Phase"]) == "waiting" && S(d["Level"]) == "" && L(d["ClientX"]) == 0L
+                       && S(d["LogLine"]) == "启动器检查：这一页还不能进游戏(模型说：正在下载资源 47%)，没有该点的地方，继续等";
+            });
+            b.Chk("相位⑤clear：blocking=false → 放行(这一档不看点位)", delegate
+            {
+                Dictionary<string, object> d = Row(Live.ArkLauncherCheck(LaunchKnobs(LClearJson, 0)));
+                return S(d["Phase"]) == "clear" && S(d["Level"]) == "OK"
+                       && S(d["LogLine"]) == "启动器检查：已经不在更新页了(模型说：已经在游戏主界面)，可以开始了";
+            });
+            b.Chk("模型给的点位越界 → 当 waiting 而不是硬点(与兜底那一路同一把尺子、同一个宁可不动)", delegate
+            {
+                Dictionary<string, object> d = Row(Live.ArkLauncherCheck(LaunchKnobs(LOobJson, 0)));
+                return S(d["Phase"]) == "waiting" && S(d["Level"]) == "WARN"
+                       && S(d["Detail"]).Contains("模型给的点位用不了");
+            });
+            b.Chk("点击预算用尽 → uncertain 放行(不无限点『更新』，预算判据住 C#、计数在编排侧)", delegate
+            {
+                Dictionary<string, object> d = Row(Live.ArkLauncherCheck(LaunchKnobs(LClickJson, 6)));
+                return S(d["Phase"]) == "uncertain" && S(d["Level"]) == "WARN"
+                       && S(d["LogLine"]) == "启动器检查：已经点过 6 次还在要点『更新』(不像是点一次就完的事)，按原样放行"
+                       && L(d["ClicksAlready"]) == 6L && L(d["MaxClicks"]) == 6L;
+            });
+            b.Chk("maxClicks 写坏成 0 → 兜回 6(配置一坏不许变成\"一次都不许点\"的死闸)", delegate
+            {
+                Dictionary<string, object> knobs = LaunchKnobs(LClickJson, 5);
+                knobs["maxClicks"] = 0;
+                Dictionary<string, object> d = Row(Live.ArkLauncherCheck(knobs));
+                return S(d["Phase"]) == "needs-click" && L(d["MaxClicks"]) == 6L;
+            });
+            b.Chk("问模型失败(回执 ok:false)→ uncertain 并把那句错误原样带进日志", delegate
+            {
+                Dictionary<string, object> knobs = LaunchKnobs(FailJson, 0);
+                Dictionary<string, object> d = Row(Live.ArkLauncherCheck(knobs));
+                return S(d["Phase"]) == "uncertain" && S(d["Error"]) == "HTTP 429"
+                       && S(d["LogLine"]) == "启动器检查：问模型没成功(HTTP 429)，分不清是不是更新页，按原样放行";
+            });
+            b.Chk("回执 text 是空 → Verdict 抠不出 → uncertain(不许把\"没结论\"当成\"不用更新\")", delegate
+            {
+                Dictionary<string, object> d = Row(Live.ArkLauncherCheck(LaunchKnobs(LBlankJson, 0)));
+                return S(d["Phase"]) == "uncertain" && S(d["Detail"]) == "模型回话里抠不出 JSON";
+            });
+            b.Chk("没有 key 那一档：uncertain 的日志带得出 settings 的键名(和兜底那一路同一句话)", delegate
+            {
+                Dictionary<string, object> knobs = LaunchKnobs(LClickJson, 0);
+                knobs["hasKey"] = false;
+                Dictionary<string, object> d = Row(Live.ArkLauncherCheck(knobs));
+                return S(d["Phase"]) == "uncertain"
+                       && S(d["Error"]).Contains("没有视觉模型的 API key(settings.runtime.visionApiKey");
+            });
+            b.Chk("启动器那一档问的是启动器话术(上下文里写明\"启动器/更新器\"，不是兜底那句\"MAA 卡在原地\")", delegate
+            {
+                string askDir = Path.Combine(tmp, "launcher-ask");
+                Directory.CreateDirectory(askDir);
+                Dictionary<string, object> knobs = LaunchKnobs(LClickJson, 0);
+                knobs["noSpawn"] = false;             // 真走请求装配那一格：只写文件，进程起不来就照 uncertain 回
+                knobs["pythonExe"] = @"C:\gd-livetest-并不存在的\python.exe";
+                knobs["askDir"] = askDir;
+                Dictionary<string, object> d = Row(Live.ArkLauncherCheck(knobs));
+                string[] files = Directory.GetFiles(askDir, "ask-*.json");
+                if (files.Length == 0) return false;
+                string req = File.ReadAllText(files[0], Encoding.UTF8);
+                // 走序列化回来比(JavaScriptSerializer 会把中文转成 \uXXXX，直接 Contains 原文必然假红)
+                Dictionary<string, object> r = Row(GdJson.Deserialize(req));
+                string sp = r == null ? "" : S(r["system_prompt"]);
+                return S(d["Phase"]) != "" && sp.StartsWith("你是明日方舟端游**启动器/更新器**自动化流程")
+                       && !sp.Contains("自动化助手(MAA)不认识界面上没收录过的弹窗");
+            });
+            b.Chk("BuildRequest 带 sceneId 才换话术；请求文件仍是九个字段(协议没为这一档扩面)", delegate
+            {
+                Dictionary<string, object> plain = Live.BuildRequest("i", "H", "u", "m", 1, false, "", "req", "audit");
+                Dictionary<string, object> l2 = Live.BuildRequest("i", "H", "u", "m", 1, false, "", "req", "audit", "ark-launcher");
+                return plain.Count == 9 && l2.Count == 9
+                       && S(plain["system_prompt"]) == Vision.BuildPrompt("H", false)
+                       && S(l2["system_prompt"]).StartsWith("你是明日方舟端游**启动器/更新器**");
+            });
+
+            // ==================== 9) B-2d③(10-12)：mumu(adb) 这一路 ====================
+            // 这一组把 ark 那一路的**六闸期望一格都不改**(第 2 组那十格是移植的锚)，只往"按路派生"的默认值上加。
+            // 现场段里够得着的只有读图段：夹具 localPng 递一张**真 PNG**(在 %TEMP% 现造)，System.Drawing 真解码
+            // 走 Live.Stats —— 尺寸闸/黑屏闸/十五格回执因此钉得住，而 screencap/pull 那两次 adb 调用仍不碰
+            // (那两句失败话术要等一轮真跑，第 8 组之外唯一起进程的地方还是"进程起不来就照实回")。
+            b.Chk("mumu 绿档：六闸全过，Name/NeedsAdmin 与两份默认话术都取自靶子(话术逐字抄 vision-mumu.ps1:184-189)", delegate
+            {
+                Dictionary<string, object> d = Row(Live.RescueContext(GreenMumu()));
+                if (d == null) return false;
+                return Gd.Truthy(d["CanAsk"]) && S(d["Skip"]) == "" && S(d["Kind"]) == "mumu"
+                       && S(d["Name"]) == "MuMu 模拟器画面" && !Gd.Truthy(d["NeedsAdmin"])
+                       && S(d["AdminWhy"]) == "" && Gd.Truthy(d["HasPython"]) &&
+                       S(d["Scene"]) == "你是《重返未来：1999》自动化流程里的\"看屏幕的人\"。游戏跑在 MuMu 模拟器里，自动化助手(M9A)只认\n" +
+                           "自己模板集里的界面，遇到没收录过的弹窗或更新提示就会一直在原地重试。给你一张模拟器屏幕截图，\n" +
+                           "请判断画面上有没有挡住主流程的东西(活动公告、更新/下载提示、登录弹窗、网络错误框这类)，并指出该点哪里把它关掉。" &&
+                       S(d["UserText"]) == "这是模拟器里 1999 的当前画面。按规则只回一个 JSON 对象。";
+            });
+            b.Chk("mumu 不喂 hasBuilder：默认值按路派生(闸①不许把这一路当'树上没有')", delegate
+            {
+                Dictionary<string, object> k = GreenMumu();
+                k.Remove("hasBuilder");
+                Dictionary<string, object> d = Row(Live.RescueContext(k));
+                return d != null && Gd.Truthy(d["CanAsk"]) && S(d["Skip"]) == "";
+            });
+            b.Chk("mumu 喂了 scene/userText 就用喂的(两份默认只在缺键时垫，转达不改写)", delegate
+            {
+                Dictionary<string, object> k = GreenMumu();
+                k["scene"] = "就这一行"; k["userText"] = "找出挡路的弹窗";
+                Dictionary<string, object> d = Row(Live.RescueContext(k));
+                return S(d["Scene"]) == "就这一行" && S(d["UserText"]) == "找出挡路的弹窗";
+            });
+            b.Chk("闸②开关：mumu 那句带得出自己的键名，与 ark 那句不同(t13 那类断言按键名认)", delegate
+            {
+                Dictionary<string, object> k = GreenMumu(); k["enabled"] = false;
+                return SkipOf(k) == "mumuVisionRescue=false，模拟器这一路的视觉兜底已关闭";
+            });
+            b.Chk("闸③管理员：mumu 这一路整个跳过(isAdmin=false 也不拦，退到后面那格)", delegate
+            {
+                Dictionary<string, object> k = GreenMumu(); k["isAdmin"] = false;
+                Dictionary<string, object> d = Row(Live.RescueContext(k));
+                return d != null && Gd.Truthy(d["CanAsk"]);
+            });
+            b.Chk("闸⑥对象在场：那句用 mumu 的靶子名开头(通用层拼的是 $t.Name)", delegate
+            {
+                Dictionary<string, object> k = GreenMumu(); k["alive"] = false;
+                return SkipOf(k) == "MuMu 模拟器画面已经不在了，兜底没有对象";
+            });
+            b.Chk("mumu 的 alive 与端点**两样都没给** = 编程期抛(端点三源两正则不住这一侧，也不许猜一个'在'把兜底放行)", delegate
+            {
+                Dictionary<string, object> k = GreenMumu();
+                k.Remove("alive");
+                try { Live.RescueContext(k); return false; }
+                catch (GdRuleException ex) { return S(ex.Message).Contains("要么把 adb/serial 喂进来"); }
+            });
+            // 10-12 实测改口那格的正面锚：喂了端点、不喂 alive ⇒ 由这一侧现查(与 ark 那一路"现枚举进程"同形)。
+            // 无头安全：`adb` 指一棵不存在的树 ⇒ MumuAlive 在 File.Exists 那一步就回假，一趟 native 都不起
+            // (§11.42 ①-9 那条射程边界：devices/connect 那两次真 adb 调用不在这一组的射程里)。
+            b.Chk("mumu 喂了 adb/serial 而不喂 alive：现查走这一侧，adb 路径不在场即'对象不在场'(不许抛、也不起进程)", delegate
+            {
+                Dictionary<string, object> k = GreenMumu();
+                k.Remove("alive");
+                k["adb"] = @"C:\gd-livetest-并不存在的\adb.exe";
+                k["serial"] = "127.0.0.1:7555";
+                Dictionary<string, object> d = Row(Live.RescueContext(k));
+                return d != null && !Gd.Truthy(d["CanAsk"])
+                       && S(d["Skip"]) == "MuMu 模拟器画面已经不在了，兜底没有对象";
+            });
+            b.Chk("alive 覆盖格仍然优先：喂了端点也不自查(这一格只给无头自检与夹具用)", delegate
+            {
+                Dictionary<string, object> k = GreenMumu();
+                k["adb"] = @"C:\gd-livetest-并不存在的\adb.exe";
+                k["serial"] = "127.0.0.1:7555";
+                Dictionary<string, object> d = Row(Live.RescueContext(k));
+                return d != null && Gd.Truthy(d["CanAsk"]) && S(d["Skip"]) == "";
+            });
+            b.Chk("已拍那句两路共用一枚助手(ark 的十五格回执走的也是它 ⇒ 逐字符等值有单一事实源)", delegate
+            {
+                return Live.ShotLogLine("端游窗口", 1600, 900, 120) == "视觉兜底：已拍端游窗口(1600x900，亮度 120)，交给模型判断"
+                       && Live.ShotLogLine("MuMu 模拟器画面", 1280, 720, 88) == "视觉兜底：已拍MuMu 模拟器画面(1280x720，亮度 88)，交给模型判断";
+            });
+            b.Chk("mumu 尺寸闸那句与 ark 两句**不同源**(阈值同为 200x150，话术各说各的，不许顺手统一)", delegate
+            {
+                return Live.MuMuSizeWhy(200, 150) == "" &&
+                       Live.MuMuSizeWhy(120, 80) == "模拟器截屏尺寸异常 120x80(安卓那边还没起画面)" &&
+                       Live.MuMuSizeWhy(120, 80) != Live.ShotSizeWhy(120, 80, false) &&
+                       Live.MuMuSizeWhy(1920, 149).Length > 0;
+            });
+            b.Chk("adb-connect：devices 列出这台设备 → Ok=true(判定段复用 parse-adb-devices，同装配直调)", delegate
+            {
+                string fake = FakeAdbExe(tmp);
+                Dictionary<string, object> d = Row(Live.AdbConnect(In("adb", fake, "serial", "127.0.0.1:7555",
+                    "noSpawn", true, "fakeDevicesOut", "List of devices attached\n127.0.0.1:7555\tdevice\n")));
+                return d != null && Gd.Truthy(d["Ok"]) && d.Count == 1;
+            });
+            b.Chk("adb-connect：devices 只列了另一台 → Ok=false(真身那侧连不上也只 WARN 一句'仍继续')", delegate
+            {
+                string fake = FakeAdbExe(tmp);
+                Dictionary<string, object> d = Row(Live.AdbConnect(In("adb", fake, "serial", "127.0.0.1:7555",
+                    "noSpawn", true, "fakeDevicesOut", "List of devices attached\nemulator-5554\tdevice\n")));
+                return d != null && !Gd.Truthy(d["Ok"]);
+            });
+            b.Chk("adb 不在场 / 没给 adb：两处都是编程期抛，前者那句整字面抄 Connect-GdAdb 的 throw", delegate
+            {
+                try
+                {
+                    Live.AdbConnect(In("adb", Path.Combine(tmp, "并不存在\\adb.exe"), "serial", "127.0.0.1:7555", "noSpawn", true));
+                    return false;
+                }
+                catch (GdRuleException ex)
+                {
+                    string msg = "adb 不存在：" + Path.Combine(tmp, "并不存在\\adb.exe");
+                    if (S(ex.Message) != msg) return false;
+                }
+                try { Live.AdbConnect(In("serial", "127.0.0.1:7555")); return false; }
+                catch (GdRuleException ex) { return S(ex.Message).StartsWith("adb-connect：没给 adb"); }
+            });
+            b.Chk("adb-game-pid：stdout 有数字 → Found/Pid 两格；空 stdout → Found=false(= 旧语义的 $null)", delegate
+            {
+                Dictionary<string, object> a = Row(Live.AdbGamePid(In("adb", @"C:\fake\adb.exe",
+                    "serial", "127.0.0.1:7555", "package", "com.pape.m9a", "noSpawn", true, "fakeOut", " 1234\n")));
+                Dictionary<string, object> b2 = Row(Live.AdbGamePid(In("adb", @"C:\fake\adb.exe",
+                    "serial", "127.0.0.1:7555", "package", "com.pape.m9a", "noSpawn", true, "fakeOut", "")));
+                return Gd.Truthy(a["Found"]) && L(a["Pid"]) == 1234L && !Gd.Truthy(b2["Found"]);
+            });
+            b.Chk("mumu-screen-shot：没给 path 是规则错；缺 adb 那一格回'拍不了屏'并照旧叠一层'截图失败：'前缀", delegate
+            {
+                try { Live.MuMuShot(In("adb", @"C:\fake\adb.exe", "serial", "127.0.0.1:7555")); return false; }
+                catch (GdRuleException ex) { if (!S(ex.Message).StartsWith("mumu-screen-shot：没给 path")) return false; }
+                Dictionary<string, object> d = Row(Live.MuMuShot(In("path", @"C:\gd-none.png", "serial", "127.0.0.1:7555")));
+                return S(d["Why"]) == "adb 或序列号没定下来，拍不了屏" &&
+                       S(d["Skip"]) == "截图失败：adb 或序列号没定下来，拍不了屏" &&
+                       !Gd.Truthy(d["Ok"]) && !Gd.Truthy(d["CanContinue"]) && S(d["LogLine"]) == "";
+            });
+            b.Chk("mumu-screen-shot 读图段：真解一张亮 PNG → 十五格、整块屏即客户区、签名 144 格、LogLine 带靶子名", delegate
+            {
+                string png = WriteGrayPng(tmp, "mumu-bright.png", 300, 200, 20);
+                Dictionary<string, object> d = Row(Live.MuMuShot(In("path", @"C:\gd-mumu\mumu-stall-1012060000-before.png",
+                                                                   "localPng", png)));
+                if (d == null) return false;
+                if (d.Count != 15) return false;
+                if (!Gd.Truthy(d["Ok"]) || !Gd.Truthy(d["CanContinue"]) || S(d["Skip"]) != "") return false;
+                if (S(d["Path"]) != @"C:\gd-mumu\mumu-stall-1012060000-before.png") return false;   // Path 仍是编排给的那条
+                if (L(d["ImgW"]) != 300L || L(d["ImgH"]) != 200L) return false;
+                if (L(d["ClientLeft"]) != 0L || L(d["ClientTop"]) != 0L) return false;              // 真身:109 那四格
+                if (L(d["ClientW"]) != 300L || L(d["ClientH"]) != 200L) return false;
+                if (L(d["AvgLum"]) != 20L) return false;
+                string[] parts = S(d["Sig"]).Split(',');
+                if (parts.Length != 144) return false;
+                int hit = 0;
+                foreach (string p in parts) { if (p == "0") continue; if (p != "2") return false; hit++; }   // 20/8=2.5 → 取偶 2
+                if (hit == 0) return false;
+                if (S(d["Hash"]).Length != 32) return false;
+                return S(d["LogLine"]) == "视觉兜底：已拍MuMu 模拟器画面(300x200，亮度 20)，交给模型判断";
+            });
+            b.Chk("mumu 也过黑屏闸与尺寸闸：暗 PNG(亮度 3)拦、120x80 拦，两句都是通用层那句/自家那句", delegate
+            {
+                Dictionary<string, object> dark = Row(Live.MuMuShot(In("path", @"C:\gd-none.png",
+                    "localPng", WriteGrayPng(tmp, "mumu-dark.png", 260, 200, 3))));
+                Dictionary<string, object> tiny = Row(Live.MuMuShot(In("path", @"C:\gd-none.png",
+                    "localPng", WriteGrayPng(tmp, "mumu-tiny.png", 120, 80, 90))));
+                if (!Gd.Truthy(dark["Ok"])) return false;                      // 暗图拍到了，只是不该问模型
+                if (Gd.Truthy(dark["CanContinue"]) || S(dark["Skip"]) != Live.BlackScreenSkip(3)) return false;
+                return !Gd.Truthy(tiny["Ok"]) && S(tiny["Why"]) == "模拟器截屏尺寸异常 120x80(安卓那边还没起画面)"
+                       && S(tiny["Skip"]) == "截图失败：模拟器截屏尺寸异常 120x80(安卓那边还没起画面)";
+            });
+            b.Chk("mumu-screen-click 三句分派：0 → 点进虚拟机、非 0 → 带退出码、缺 serial → 通道断了(出口只 Mode/Sent 两格)", delegate
+            {
+                Dictionary<string, object> ok = Row(Live.MuMuClick(In("clientX", 880, "clientY", 210,
+                    "adb", @"C:\fake\adb.exe", "serial", "127.0.0.1:7555", "fakeCode", 0)));
+                Dictionary<string, object> bad = Row(Live.MuMuClick(In("clientX", 880, "clientY", 210,
+                    "adb", @"C:\fake\adb.exe", "serial", "127.0.0.1:7555", "fakeCode", 1)));
+                Dictionary<string, object> gone = Row(Live.MuMuClick(In("clientX", 1, "clientY", 2, "adb", @"C:\fake\adb.exe")));
+                if (ok.Count != 2 || bad.Count != 2 || gone.Count != 2) return false;
+                return S(ok["Mode"]) == "adb input tap(点进虚拟机，不碰宿主机窗口)" && Gd.Truthy(ok["Sent"])
+                       && S(bad["Mode"]) == "adb input tap 失败(退出码 1)" && !Gd.Truthy(bad["Sent"])
+                       && S(gone["Mode"]) == "adb 通道断了" && !Gd.Truthy(gone["Sent"]);
+            });
+
             int rc = b.Result("--livetest");
             try { if (Directory.Exists(tmp)) Directory.Delete(tmp, true); } catch { }
             return rc;
         }
+
+        // 启动器夹具：一张"已经拍好的启动器截图"(1600x900、客户区从原点起) + 问模型夹具档，外加计数
+        static Dictionary<string, object> FixShot(params object[] kv)
+        {
+            Dictionary<string, object> d = In("Ok", true, "CanContinue", true, "Path", @"C:\launcher.png",
+                "ImgW", 1600, "ImgH", 900, "ClientLeft", 0, "ClientTop", 0, "ClientW", 1600, "ClientH", 900,
+                "AvgLum", 120, "Skip", "", "Why", "", "Sig", "5,5,5,5", "Hash", "");
+            for (int i = 0; i + 1 < kv.Length; i += 2) d[(string)kv[i]] = kv[i + 1];
+            return d;
+        }
+
+        static Dictionary<string, object> LaunchKnobs(string fakeOut, int clicksAlready, params object[] shotKv)
+        {
+            Dictionary<string, object> knobs = AskKnobs(fakeOut);
+            knobs["handle"] = 987654321L;                 // 假句柄：有它才不走枚举，也不会碰真窗口
+            knobs["path"] = Path.Combine(Path.GetTempPath(), "gd-launcher-clamp.png");   // 不喂这一格就会去读 GdEnv.Root
+            knobs["shot"] = shotKv == null || shotKv.Length == 0 ? FixShot() : FixShot(shotKv);
+            knobs["clicksAlready"] = clicksAlready;
+            knobs["maxClicks"] = 6;
+            return knobs;
+        }
+
+        const string LClickJson =
+            @"{""ok"":true,""text"":""{\""blocking\"":true,\""what\"":\""资源更新页，要点更新\"",\""clicks\"":[{\""x\"":500,\""y\"":820,\""why\"":\""『更新』按钮\""}]}\"""",""model"":""q""}";
+        const string LWaitJson =
+            @"{""ok"":true,""text"":""{\""blocking\"":true,\""what\"":\""正在下载资源 47%\"",\""clicks\"":[]}\"""",""model"":""q""}";
+        const string LClearJson =
+            @"{""ok"":true,""text"":""{\""blocking\"":false,\""what\"":\""已经在游戏主界面\"",\""clicks\"":[]}\"""",""model"":""q""}";
+        const string LOobJson =
+            @"{""ok"":true,""text"":""{\""blocking\"":true,\""what\"":\""更新页\"",\""clicks\"":[{\""x\"":1500,\""y\"":-20,\""why\"":\""越界的假坐标\""}]}\"""",""model"":""q""}";
+        const string LBlankJson = @"{""ok"":true,""text"":"""",""model"":""q""}";
 
         // 取 Stats/子表的整数格(Stats 的 AvgLum 落 long，这里统一按 long 比)
         static long Row2(Dictionary<string, object> d, string k) { return Convert.ToInt64(d[k], System.Globalization.CultureInfo.InvariantCulture); }
@@ -446,6 +788,37 @@ namespace GdPanel
                       "scriptPath", Path.Combine(tmp, "ask.py"), "askDir", tmp,
                       "noSpawn", true, "model", "m-fake", "timeoutSeconds", 45, "scene", "H", "userText", "U",
                       "fakeCode", 0, "fakeOut", fakeOut, "fakeErr", "");
+        }
+
+        // ---------- B-2d③ mumu 这一路的夹具 ----------
+        // 六道闸的 mumu 绿档：与 Green() 同一套"喂全"纪律，但**一枚 isAdmin 都不喂** ——
+        // 这一路的 needsAdmin 默认就是 false，喂了反而钉不住"默认按路派生"那一格。
+        static Dictionary<string, object> GreenMumu()
+        {
+            return In("target", "mumu", "hasBuilder", true, "enabled", true,
+                      "hasKey", true, "pythonExe", @"C:\fake\python.exe", "alive", true);
+        }
+
+        // adb 的可执行文件只要"在"，三道现场闸才拦得住；夹具档 noSpawn 之下**永远不会被执行**。
+        static string FakeAdbExe(string tmp)
+        {
+            string p = Path.Combine(tmp, "adb.exe");
+            if (!File.Exists(p)) File.WriteAllText(p, "");
+            return p;
+        }
+
+        // 一张纯灰 PNG：读图段要真解码(不是给一个假读数)，尺寸闸与亮度算术因此都走的是真身那套。
+        static string WriteGrayPng(string tmp, string file, int w, int h, int gray)
+        {
+            string p = Path.Combine(tmp, file);
+            Bitmap bmp = new Bitmap(w, h);
+            try
+            {
+                for (int y = 0; y < h; y++) for (int x = 0; x < w; x++) bmp.SetPixel(x, y, Color.FromArgb(gray, gray, gray));
+                bmp.Save(p, System.Drawing.Imaging.ImageFormat.Png);
+            }
+            finally { bmp.Dispose(); }
+            return p;
         }
     }
 }

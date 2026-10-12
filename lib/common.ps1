@@ -1190,7 +1190,7 @@ function Test-GdExportLeaks {
 # 所以二进制今天不受它保护 —— 文本门绿不等于包干净。下面两道件就是把这一格补上：
 # 期望契约号有一份(壳侧)、要扫的东西有一份(仍走 Get-GdLocalOnlyValues 这个唯一口径 + 从环境现推的短串)、
 # 逐字节扫法有一份(两副眼镜：cargo 产物里是 UTF-8/ASCII，csc 产物里是 UTF-16，只看一副就有半边盲区)。
-function Get-GdRustContract { 'RustCore-R4.0' }   # 与 tools\rustcore\src\main.rs 的 const CONTRACT 同改；同一轮内不许单侧动
+function Get-GdRustContract { 'RustCore-R6.0' }   # 与 tools\rustcore\src\main.rs 的 const CONTRACT 同改；同一轮内不许单侧动
 
 function Test-GdRustDailyPath {
     <# R3③ 换头开关(2026-10-06)：判据三把，原文住 docs\r0-adrs.md §5.4 / 方案 §11.4 ——
@@ -1198,7 +1198,8 @@ function Test-GdRustDailyPath {
        ② settings.runtime.rustOff 字符串数组按件名屏蔽，含 'gdcore' 即关(读法照 Sync-GdCoreOff 的同族形状)；
        ③ settings.runtime.rustEnabled **显式为 $true** 才开(默认 false = 进包但不上路径)。
        缺键/形状坏一律当关(缺键宽容，同族语义见 Sync-GdCoreOff 与 Test-GdArkFightSkipMarkToday)；
-       默认关 = 一字不变走 PS 原身 Invoke-GdArkDailyLegacy。真接管那轮的留证口径见 R3③d。
+       默认关 = 一字不变走 PS 原身 Invoke-GdArkDailyLegacy / Invoke-GdR1999DailyLegacy(B-2d④ 起两路共用这把开关，
+       两路同进退 —— 不开第三枚键：能分别拨就得出"一路换头一路原生"的混合格，那不在任何一道的射程里)。真接管那轮的留证口径见 R3③d。
        判据只住这一处：ark-daily.ps1 的调度器与两门的强开覆盖版都从这里对齐(接线点唯一，ADR §5.4)。 #>
     param($S)
     try { if ($env:GD_RUST_OFF -eq '1') { return $false } } catch { }
@@ -1282,6 +1283,97 @@ function Invoke-GdNativeCapture {
         $lines = @(& $Exe @Arguments 2>&1 | ForEach-Object { [string]$_ })
         $code = $LASTEXITCODE
     } finally { $ErrorActionPreference = $prev }
+    return [pscustomobject]@{ ExitCode = $code; Lines = @($lines) }
+}
+
+# ---------- 日志侧信道(B-2c②)：核内按产生顺序逐行追加，壳侧按字节偏移增量排空 ----------
+function Read-GdSinkIncrement {
+    <# 只认整行：末段没有 LF 的那一截是半截行(核正在写)，本轮不消费、偏移不推进，下一轮从同一处再读。
+       偏移一律用**字节数**：话术里满屏中文，一行 UTF-8 是三十几字节，按字符推进会把偏移算小 ⇒ 同一行反复重放。
+       坏行(JSON 半截/编码错)照旧推进偏移并丢弃 —— 日志通道不许把整轮卡死，宁可少一行也不许停在等一行上。 #>
+    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][ref]$Offset)
+    $bytes = $null
+    $read = 0
+    try {
+        if (-not (Test-Path -LiteralPath $Path)) { return @() }
+        $fs = [System.IO.File]::Open($Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+        try {
+            $skip = [long]$Offset.Value
+            if ($fs.Length -le $skip) { return @() }
+            $null = $fs.Seek($skip, [System.IO.SeekOrigin]::Begin)
+            $bytes = New-Object byte[] ([int]($fs.Length - $skip))
+            $got = 0
+            while ($got -lt $bytes.Length) {
+                $n = $fs.Read($bytes, $got, $bytes.Length - $got)
+                if ($n -le 0) { break }
+                $got += $n
+            }
+            $read = $got
+        } finally { $fs.Dispose() }
+    } catch { return @() }
+    if ($read -le 0) { return @() }
+    if ($read -lt $bytes.Length) { $bytes = $bytes[0..($read - 1)] }
+    $last = [Array]::LastIndexOf($bytes, [byte]10)
+    if ($last -lt 0) { return @() }
+    $consumed = $last + 1
+    $text = [System.Text.Encoding]::UTF8.GetString($bytes, 0, $consumed)
+    $Offset.Value = [long]$Offset.Value + [long]$consumed
+    $rows = @()
+    foreach ($ln in ($text -split "`n")) {
+        $t = $ln
+        if ($t.EndsWith("`r")) { $t = $t.Substring(0, $t.Length - 1) }
+        if (-not $t) { continue }
+        $obj = $null
+        try { $obj = $t | ConvertFrom-Json } catch { $obj = $null }
+        if ($null -eq $obj) { continue }
+        $rows += [pscustomobject]@{ Level = [string]$obj.level; Text = [string]$obj.text }
+    }
+    return @($rows)
+}
+
+function Start-GdNativeStreamed {
+    <# Invoke-GdNativeCapture 是"跑完再收"的同步缓冲管道 —— 它返回时链上日志早落完了，侧信道就白开了：
+       这一把要的是**边跑边排空**(06:00 那一轮跑二十多分钟，卡住时一行不印就等于没留证)。
+       本函数只做两件事：起进程 + 在等待循环里排空 sink 并逐行回调，退出后再末次排空一次。
+       ⚠ 判据一律留在调用方：回调里怎么打日志、信封怎么判、动作怎么执行，全在调用方(判据只住一处的纪律不因收流方式而变)。
+       ⚠ 两条实测约束：① stdout/stderr 必须**两路同时异步收**(ReadToEndAsync)，否则管道一满子进程就卡在写流上；
+         ② 这里不走 `2>&1` 管道，5.1 那颗 stderr→终止错误的雷天然碰不到，但**本函数只在 pwsh7 上验过** —— 别当双引擎可用。 #>
+    param(
+        [Parameter(Mandatory)][string]$Exe,
+        [string[]]$Arguments = @(),
+        [Parameter(Mandatory)][string]$SinkPath,
+        [Parameter(Mandatory)][ref]$SinkOffset,
+        [scriptblock]$OnSinkRow
+    )
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $Exe
+    foreach ($a in @($Arguments)) { $psi.ArgumentList.Add([string]$a) }
+    $psi.UseShellExecute = $false
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.CreateNoWindow = $true
+    $p = New-Object System.Diagnostics.Process
+    $p.StartInfo = $psi
+    $null = $p.Start()
+    $outTask = $p.StandardOutput.ReadToEndAsync()
+    $errTask = $p.StandardError.ReadToEndAsync()
+    try {
+        while (-not $p.WaitForExit(200)) {
+            foreach ($r in @(Read-GdSinkIncrement -Path $SinkPath -Offset $SinkOffset)) {
+                if ($OnSinkRow) { & $OnSinkRow $r }
+            }
+        }
+    } finally {
+        # 末次排空：退出前后落的那几行(典型是收尾那一句)只能在这里收，漏了就是整句日志凭空消失
+        foreach ($r in @(Read-GdSinkIncrement -Path $SinkPath -Offset $SinkOffset)) {
+            if ($OnSinkRow) { & $OnSinkRow $r }
+        }
+    }
+    $code = $p.ExitCode
+    $lines = @()
+    $lines += @([string]$outTask.Result -split "`r?`n")
+    $lines += @([string]$errTask.Result -split "`r?`n")
+    $p.Dispose()
     return [pscustomobject]@{ ExitCode = $code; Lines = @($lines) }
 }
 

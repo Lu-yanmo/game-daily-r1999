@@ -33,7 +33,7 @@ use std::ffi::c_void;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::process::exit;
 
-const CONTRACT: &str = "RustCore-R4.0";
+const CONTRACT: &str = "RustCore-R6.0";
 const ROLE: &str = "R0-readonly";
 
 // ---------------------------------------------------------------- Win32 直调
@@ -96,9 +96,18 @@ struct SidIdentifierAuthority {
 const TH32CS_SNAPPROCESS: u32 = 0x0000_0002;
 const INVALID_HANDLE_ISIZE: isize = -1;
 
-/// `PROCESSENTRY32W` 的**现代布局**（Win8 起多了末尾那两个 ULONG_PTR）。
-/// 少了它们，`Process32FirstW` 会因为 `dwSize` 对不上直接失败 —— 那是实测过的形状，
-/// 所以这里按含两枚尾字段写，并且**失败一律当"闸读不出来"处理**（宁可拒跑，不许放行）。
+/// `PROCESSENTRY32W` 的**现代布局**（含末尾字段）。
+/// 这里只有**字段偏移**是按头文件写的；喂给内核的 `dwSize` 不是 `size_of` 而是下面那枚常量，
+/// 因为 `repr(C)` 会把整个结构体按 8 对齐补齐到 576，而内核要的是 568 —— 偏一字节都不给读。
+/// 10-12 实测分布（同一枚快照句柄上逐个试出来的，不是推算的）：
+///   `dwSize` = 560 → `Process32FirstW` 回 0 / err 24；**568 → 回 1、首条名字读得到**；
+///   572 → 0/24；576（＝本结构的 `size_of`）→ 0/24；584 → 0/24。
+/// err 24 = `ERROR_BAD_LENGTH`。两条教训记在这里：
+///   1) 早先"少写尾字段会因 dwSize 对不上失败"是真的，但补上尾字段**并不等于对上了**；
+///   2) 失败是**静默**的 —— 快照句柄照样拿到、`scan_forbidden_processes` 照样回 `Ok(空)`、
+///      环境闸照样报 `proc_read_ok:true`，而 `real_proc_running` 对任何名字恒 false。
+///      现场表现＝ 10-11 run 进核之后连报「MAA 未能启动(进程未出现)」，而 MAA 自己的日志
+///      显示它起来了并把整条队列跑完。自检里那枚"自身进程必然在场"的正例就是钉这一格的。
 #[repr(C)]
 struct ProcessEntry32W {
     dw_size: u32,
@@ -111,9 +120,13 @@ struct ProcessEntry32W {
     pc_pri_class_base: i32,
     dw_flags: u32,
     sz_exe_file: [u16; 260],
-    th32_memory_base: usize,
+    th32_memory_base: u32,
     th32_check_sum: u32,
 }
+
+/// 快照条目要递给内核的 `dwSize`：实测唯一被接受的那个数（见上面那串分布）。
+/// 用常量而不是 `size_of::<ProcessEntry32W>()`，后者是 576、内核不认。
+const PROCESSENTRY32W_DWSIZE: u32 = 568;
 
 /// 让 DLL 的依赖从**它自己所在目录**解析。不传这个旗标的话，MaaCore.dll 依赖的
 /// DirectML.dll 之类会先去找我们的 exe 目录，那是一定找不到的。
@@ -1514,6 +1527,15 @@ fn gd_now() -> SystemTime {
 fn gd_local_date() -> String {
     let st = gd_now();
     format!("{:04}-{:02}-{:02}", st.w_year, st.w_month, st.w_day)
+}
+
+/// `Get-Date -Format 'yyyyMMdd'` —— M9A 日志文件名里那一截（`Get-M9ADailyLog`，m9a.ps1:126-130：
+/// `Join-Path $P.LogDir "log-$(Get-Date -Format 'yyyyMMdd').log"`）。**没有横线**，跟上面那枚
+/// `yyyy-MM-dd` 不是一套形状；每轮重算 ⇒ 跨 00:00 就换一个文件，偏移必须按路径 keyed。
+/// 剧本侧不吃这一枚：那边由夹具喂的日期表按虚拟钟查（`day_lookup`），两边在投影上同记一条 `D|`。
+fn gd_day_stamp() -> String {
+    let st = gd_now();
+    format!("{:04}{:02}{:02}", st.w_year, st.w_month, st.w_day)
 }
 
 /// `Get-Date -Format 'MMdd-HHmmss'` —— 兜底截图的文件名后缀用（真身 vision-rescue.ps1 里那枚 `$stamp`）。
@@ -3884,6 +3906,85 @@ trait ArkDailyFx {
     fn admin(&mut self) -> Result<bool, ArkAbort>;
 }
 
+// ===== B-2d④：r1999 这一路的链体（真身 lib\r1999-daily.ps1 81-167）=====
+//
+// 与 ark 那一路**刻意不合并**（plan §11.39 ②-1：不为两路真差异做三层抽象）。真差异有五处，
+// 每一处都是这一路自己的事实，统一了就成了假话：
+//   ① 没有桌面闸（`desk`/`svdetail`）—— M9A 操作的是模拟器里的安卓，会话在不在 Default 都不影响；
+//   ② 没有 `launch`（不拉端游）；重试前真身只 `Stop-M9A`，没有"游戏没起来"那条血训；
+//   ③ `run` **不带 chains**（真身 `$run9` 那枚闭包就没这个参数）；
+//   ④ 重试间隔 **20 秒**（ark 那路是 25），两句数字各照各家真身，不许顺手统一；
+//   ⑤ 判定多吃一枚 `rescued`（`decide-daily-retry` 的 r1999 支靠它翻案，ark 支根本不读这格）；
+//   另有一整段 ark 没有的：起跑前的**更新闸**与收尾的**审计闸**。
+// 八格动作 = updgate/takeover/mumu/cfg/run/sleep/stop/audit，其中**真做只有 run**，其余照旧 ask。
+
+/// 更新闸/审计闸共用的回执三格：子进程退出码 + 挑出来那一句 + 全量输出并串。
+/// 真身那两处 try/catch 的形状是同一把（tools\m9a-update.ps1 / tools\1999-event-audit.ps1 都是
+/// `-Apply` 起一个 pwsh 子进程、收 2>&1、按正则挑一行、非 0 退出就把全部输出 join ' / '），
+/// 所以两格动作共用这一枚结构；**两句挑行的正则与三句文案各不相同**，那些住在链体与 executor 里。
+/// 异常不在这三格里（走 `Err(ArkAbort::Fail)`）：`drive_merge_res` 已定死"ok 真不许带 err 键"，
+/// 把 PS 异常串塞进 data 会让"执行器抛了"在 journal 里落成一条 data 行，与 ark 侧
+/// skip/ledger/obs 三处的 Ok/Fail 分派不同形。这是对 §11.39 ⑤-5「四个数据格」的就地细化。
+struct M9aGateOut {
+    code: i64,
+    line: String,
+    joined: String,
+}
+
+/// Set-M9AInstance -Apply 的返回里链体要的那一格（ark 侧同款结构还多带 chains 给 run 用；
+/// m9a 的 run 不吃 chains ⇒ 这里只有一格，不为了"看起来对称"补一枚死字段）。
+struct M9aCfgOut {
+    changes: Vec<String>,
+}
+
+/// Invoke-M9ARun 的返回里链体要的四格。
+/// **不给 `ArkRunOut` 加字段**（§11.39 ②-1 原文）：ark 那一路真身就没有 Rescued 这格，
+/// 补上去等于让端游的账行多一个恒 false 的键，journal 形状当场变。
+/// duration 与 rescued 都是**条件补**：
+///   · duration —— 真身只有 ok 那一路 `$res.Duration = $elapsed`（`m9a.ps1` 的收尾段）；
+///   · rescued —— 真身只在"进程都没了但画面兜成了"那一路挂 `$res.Rescued = $true`（`:493`），
+///     其余档位这个键**压根不存在**（PS 侧 `[bool]$r.Rescued` 读到 $null=false）。
+/// 两格都是"没有就不写"，所以账行与 done 回执的键序是 status → detail → duration? → rescued?。
+struct M9aRunOut {
+    status: String,
+    detail: String,
+    duration: Option<f64>,
+    rescued: bool,
+}
+
+/// r1999 链体的输入。ark 那路 ctx 顶层是 launch/retry_once/decision 三格，这里只有 retry_once 一格：
+/// 链体后面**一次都不读 decision**（实例那两枚走 ctx 的 m9aRun 载荷、由 executor 消费，
+/// 判定要的四键里也没有 Mode），把 decision 抄进来只会造出一格"账上有、没人读"的死数据。
+struct R1999DInput {
+    retry_once: bool,
+}
+
+/// 链体对宿主世界的全部需求（8 动作 + 日志 = 9 方法）。错阀门与 ark 那一路同一条：
+/// 宿主侧一切皆可失败，抛了就回 Err，**哪个点接住是链体的判断**（照真身 try/catch 逐点转写），
+/// 无 catch 的调用点直接 `?` 冒泡（等价真身"整函数异常上抛"，换头后落成 fail 信封）。
+trait R1999DailyFx {
+    fn log(&mut self, level: &str, text: &str);
+    /// 更新闸：`& $selfEngine -File tools\m9a-update.ps1 -Apply 2>&1` 那整段（真身 :90-101）。
+    /// Ok = 子进程起来了（退出码非 0 也算 Ok，那一档在真身里是 WARN 不是异常）；
+    /// Err(Fail) = 真身 catch 到的那句"闸本身抛错"。
+    fn updgate(&mut self) -> Result<M9aGateOut, ArkAbort>;
+    /// Invoke-GdTakeover（names 由 executor 现算：`(Get-M9APaths -S $S).Name`，ark 那路是两枚）。
+    fn takeover(&mut self) -> Result<(), ArkAbort>;
+    /// Start-GdMuMu 的裸 bool（"未能确认启动"那句 WARN 住在链体，不在 executor）。
+    fn mumu(&mut self) -> Result<bool, ArkAbort>;
+    /// Set-M9AInstance -S -Instance -Apply。
+    fn cfg(&mut self) -> Result<M9aCfgOut, ArkAbort>;
+    /// Invoke-M9ARun -S -Instance —— 本档**唯一真做**的动作，不吃 chains。
+    fn run(&mut self) -> Result<M9aRunOut, ArkAbort>;
+    /// Stop-M9A（真身调两次：重试前一次、收尾一次）。
+    fn stop(&mut self) -> Result<(), ArkAbort>;
+    /// Start-Sleep -Seconds（真身重试前那枚 20）。
+    fn sleep(&mut self, seconds: u32) -> Result<(), ArkAbort>;
+    /// 审计闸：`& $selfEngine -File tools\1999-event-audit.ps1 -Apply 2>&1` 那整段（真身 :155-165）。
+    /// 只在 status ∈ {ok, empty-queue} 时链体才会调它。
+    fn audit(&mut self) -> Result<M9aGateOut, ArkAbort>;
+}
+
 /// 夹具世界（8 档）的 Fx（把 live 门第六路/三侧门的桩语义原样平移进 trait 实现：调用序与入参
 /// 进 seq、队列消费、固定返回、admin 恒 false）——链体从真身抽出后，"8 档投影逐字不变"这一半
 /// 由它保。投影串里的动作裸名（DESK/CFG/RUN/SKIP/…）都是这一层的历史格式，链体不碰。
@@ -4346,6 +4447,152 @@ fn ark_daily_chain(
     Ok(ArkDOut { status: r.status, detail: r.detail, duration: r.duration })
 }
 
+/// m9a 一路的重试分流：真身 lib\r1999-daily.ps1:117-122 那句 `Invoke-GdCli -Verb 'decide-daily-retry'`
+/// 的 body 是**四键**（game/status/**rescued**/retryOnce），比 ark 那路多一枚 rescued —— C# 那侧
+/// （Orchestration.cs:549-603）只有 r1999 支会读它（`not-started/empty-queue/blocked` 三档靠它翻案），
+/// ark 支压根不碰这格。所以两路各写一枚调用体，不共用 arksk_call_decide：共用就要给 ark 的 body
+/// 添一枚它不该有的键，判定侧的宽容面会因此变成契约。
+/// 键序照真身 [pscustomobject] 的书写序（game→status→rescued→retryOnce）。
+fn m9a_call_decide(
+    panel_cs: &str,
+    status: &str,
+    rescued: bool,
+    retry_once: bool,
+) -> Result<(bool, Vec<(String, String)>), String> {
+    let body = jv_o(vec![
+        ("game", jv_s("r1999")),
+        ("status", jv_s(status)),
+        ("rescued", JVal::B(rescued)),
+        ("retryOnce", JVal::B(retry_once)),
+    ]);
+    let data = call_panel_verb(panel_cs, "decide-daily-retry", &body)?;
+    let retryable = jv_truthy(&jv_get(&data, "Retryable"));
+    let mut logs = Vec::new();
+    for l in jv_list(&jv_get(&data, "Logs")) {
+        logs.push((jv_str(&jv_get(l, "Level")), jv_str(&jv_get(l, "Text"))));
+    }
+    Ok((retryable, logs))
+}
+
+/// 一步的终态（r1999 那一路）。比 ark 的 `ArkStepOut` 多一枚 rescued —— 真身 `Invoke-GdStep`
+/// 原样透传 Body 的返回整块，而 `Invoke-M9ARun` 的返回里有 Rescued 这一格，重试分流要读它。
+/// catch 支（error 态）rescued 恒 false：真身那句 catch 返回的 hashtable 只有 Status/Detail 两键。
+struct R1999StepOut {
+    status: String,
+    detail: String,
+    duration: Option<f64>,
+    rescued: bool,
+}
+
+/// `Invoke-GdStep -Name '1999' -Body $run9` 的等价体（真身 :106-107）。
+/// 与 ark 那枚 `ark_daily_step` 的差别只有两处，都是这一路自己的事实：
+///   · 体重**没有拉端游那半句**（真身 `$run9` 闭包里就没有 Start-GdArkClient，也就没有"窗口没等到"那两句）；
+///   · 体只有 `fx.run()` 一句、**不吃 chains**。
+/// 相同的是 catch 边界：体内 Fail 吞成 error 态、**不 rethrow**（common.ps1:718-727 那条口径），
+/// 非 ok 打 WARN「{名} 结束状态：{status} — {detail}」；Ask/Proto 不接、一路冒到顶。
+fn r1999_daily_step(fx: &mut dyn R1999DailyFx, name: &str) -> Result<R1999StepOut, ArkAbort> {
+    let body = (|| -> Result<M9aRunOut, ArkAbort> { fx.run() })();
+    let r = match body {
+        Ok(r) => r,
+        Err(ArkAbort::Fail(m)) => {
+            return Ok(R1999StepOut {
+                status: "error".to_string(),
+                detail: format!("{} 异常：{}", name, m),
+                duration: None,
+                rescued: false,
+            })
+        }
+        Err(e) => return Err(e),
+    };
+    if !r.status.eq_ignore_ascii_case("ok") {
+        fx.log("WARN", &format!("{} 结束状态：{} — {}", name, r.status, r.detail));
+    }
+    Ok(R1999StepOut { status: r.status, detail: r.detail, duration: r.duration, rescued: r.rescued })
+}
+
+/// 链体：`Start-GdR1999Daily` 主体按句转写（真身 lib\r1999-daily.ps1 81-167）。
+/// 宿主差异全在 Fx（驱动走 journal+ask、现场动作由 PS 侧照单执行），这里只管
+/// "做什么、什么顺序、哪句什么 Level、哪个点接不接异常"。
+/// 逐段落纸顺序与真身逐行同源，其中三处**故意不与 ark 那路统一**（数字/句子里有一处统一就当场分歧）：
+/// 更新闸与审计闸的两句异常话术由**链体**产、不由执行器产（执行器零自有日志）；
+/// 而真身那两处 catch 的异常串（PowerShell 的 `$_.Exception.Message`）与核内 fail 信封的串
+/// 本来就不是同一把来源 —— 这一格已登记为"换宿主必不同源"，不进等值判据。
+fn r1999_daily_chain(
+    input: &R1999DInput,
+    fx: &mut dyn R1999DailyFx,
+    decide: &mut dyn FnMut(&str, bool, bool) -> Result<(bool, Vec<(String, String)>), String>,
+) -> Result<ArkDOut, ArkAbort> {
+    fx.log("STEP", "--- 重返未来：1999(MuMu + M9A)---");
+    // ===== 更新闸（真身 :87-101）。整段最坏十几分钟，但任何失败只 WARN 不挡当日轮 =====
+    // 必须排在起 M9A 之前：更新器见 m9a 进程在跑就拒动（且永不硬杀）。
+    // 三态照真身：退出码 0 ⇒ INFO 一句挑出来的行；退出码非 0 ⇒ WARN 带全量输出；抛 ⇒ WARN 带异常串。
+    match fx.updgate() {
+        Ok(g) => {
+            if g.code == 0 {
+                fx.log("INFO", &format!("M9A 自动更新闸：{}", g.line));
+            } else {
+                fx.log(
+                    "WARN",
+                    &format!("M9A 自动更新未完成(退出码 {})，不挡当日轮：{}", g.code, g.joined),
+                );
+            }
+        }
+        Err(ArkAbort::Fail(m)) => {
+            fx.log("WARN", &format!("M9A 自动更新闸本身抛错，跳过它照常跑：{}", m));
+        }
+        Err(e) => return Err(e),
+    }
+    fx.takeover()?;
+    // ===== 起模拟器（真身 :103）：判句在链体，executor 只回裸 bool =====
+    if !fx.mumu()? {
+        fx.log("WARN", "MuMu 未能确认启动，仍尝试让 M9A 自行处理");
+    }
+    let cfg = fx.cfg()?;
+    for c in &cfg.changes {
+        fx.log("INFO", &format!("  M9A：{}", c));
+    }
+    let mut r = r1999_daily_step(fx, "1999")?;
+    // ===== 批次 8：重试分流问 decide-daily-retry(panel-cs)（真身 :108-127）=====
+    // 判据(not-started/empty-queue/blocked 只有 Rescued 才翻案)、if/elseif 链的落穿语义
+    // 与全部话术都在 C#；链体只回放日志 + 落地"活"(Stop-M9A / sleep 20 / 重跑)。
+    let (retryable, logs) = decide(&r.status, r.rescued, input.retry_once)?;
+    for (lvl, text) in &logs {
+        let level = if lvl.is_empty() || lvl.eq_ignore_ascii_case("INFO") { "INFO" } else { lvl.as_str() };
+        fx.log(level, text);
+    }
+    if retryable {
+        fx.stop()?;
+        // 20 秒，不是 ark 那一路的 25 —— 真身 :130 写的就是这个数（plan §11.39 ⑤-4：两套话术不许统一）。
+        fx.sleep(20)?;
+        r = r1999_daily_step(fx, "1999重试")?;
+    }
+    fx.stop()?;
+    // ===== 活动审计闸（真身 :150-165）：只在队列真跑完的形态问 =====
+    // 状态名册不许造新词：这一支的条件就是 'ok'/'empty-queue' 两枚（真身 `-in @('ok','empty-queue')`）。
+    // 审计是加分项，任何失败只 WARN，不许把当日轮带崩 —— catch 边界照真身。
+    if r.status.eq_ignore_ascii_case("ok") || r.status.eq_ignore_ascii_case("empty-queue") {
+        match fx.audit() {
+            Ok(g) => {
+                if g.code == 0 {
+                    fx.log("INFO", &format!("1999 活动审计：{}", g.line));
+                } else {
+                    fx.log(
+                        "WARN",
+                        &format!("1999 活动审计没审成(退出码 {})，维持现状：{}", g.code, g.joined),
+                    );
+                }
+            }
+            Err(ArkAbort::Fail(m)) => {
+                fx.log("WARN", &format!("1999 活动审计本身抛错，跳过它照常收尾：{}", m));
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    // 终态三格（status/detail/duration）与 ark 那一路同形 —— 真身虽然 `return $r` 整块（还带
+    // Rescued/Tasks 等格），但框架侧（modules.ps1:419-423）只读这三格，done 信封就多带只会多一处比。
+    Ok(ArkDOut { status: r.status, detail: r.detail, duration: r.duration })
+}
+
 /// 一档的回放：夹具 Fx + 夹具 decision 走一遍链体，返回投影串（`L=…|S=…|D=…`，与 live 门同形）。
 /// `decide` 是重试分流处的注入点：真出口传 arksk_call_decide（真跑 panel-cs.exe），
 /// 自检传同语义的替身（自检不许要外部依赖）。`obs_n` 是 obsrec 桩的账本净计数（B-1a 起跨档连续，
@@ -4379,12 +4626,30 @@ fn arkskip_run_case(
 // 与现树不同源 → Proto），新区才追加新行。写失败一切转为驱动协议错（rc=1），因为"断点记不住"
 // 这件事本身就该当场拒跑，不许静默继续。
 //
-// 退出码：0（ask/done）/ 2（缺旗标拒跑）/ 1（协议或内部错）；role 恒 "R3-drive-ark-daily"。
+// 退出码：0（ask/done）/ 2（缺旗标拒跑）/ 1（协议或内部错）。
+// role 有两枚（B-2d④ 起）：`--drive-ark-daily` 恒 "R3-drive-ark-daily"（历史字面，arkdrive 等价门钉着它），
+// `--drive-m9a-daily` 恒 "B2d-drive-m9a-daily"。两路共用同一套记账与信封模板，差别只在 role/why 与名册。
 
 const DRIVE_WHY: &str = "驱动档是换头专用口：本进程只推链与记账，链体与已搬动作（mark/obsrec/admin）在本进程内跑，其余现场动作由 PS 侧照 ask 的 seq/action 执行后写 --res 回执再重入（缺 --i-drive 直接拒跑）";
 
-/// 六道拒跑闸（顺序即优先级）。六句都点名所缺旗标 —— 自检逐句咬字。
-fn drive_refusal(i_drive: bool, journal: &str, ctx: &str, res: &str, panel_cs: &str, state: &str) -> Option<String> {
+/// m9a 那一路的 why（B-2d④）：**不照抄上面那句** —— 那句里"已搬动作（mark/obsrec/admin）"是 ark
+/// 链体的事实，1999 这一路八格里没有这三格，真做的只有 run。字面沿用会造出"核认识 1999 专有话术
+/// 却说错了"的第二处事实源，所以另立一句、把真做的那一格点名。
+const DRIVE_WHY_M9A: &str = "驱动档是换头专用口：本进程只推 1999 的链与记账，链体与 run 真做在本进程内跑，其余七格现场动作由 PS 侧照 ask 的 seq/action 执行后写 --res 回执再重入（缺 --i-drive 直接拒跑）";
+
+/// 七道拒跑闸（顺序即优先级）。七句都点名所缺旗标 —— 自检逐句咬字。
+/// 第七闸是 B-2c②「日志侧信道」加上的：链上日志不再攒在内存里等收尾，而是按产生顺序
+/// 逐行追加进 --log-sink 指的侧信道文件，由 PS 侧边跑边排空 —— 没有落点就等于整轮日志不落盘，
+/// 所以缺这一枚旗标必须当场拒跑，不许退化成"照旧攒着"。
+fn drive_refusal(
+    i_drive: bool,
+    journal: &str,
+    ctx: &str,
+    res: &str,
+    panel_cs: &str,
+    state: &str,
+    log_sink: &str,
+) -> Option<String> {
     if !i_drive {
         return Some("驱动档是换头专用口：缺 --i-drive / --drive-ark-daily 系列参数时直接拒跑（默认档不许启用它）".to_string());
     }
@@ -4403,6 +4668,46 @@ fn drive_refusal(i_drive: bool, journal: &str, ctx: &str, res: &str, panel_cs: &
     if state.is_empty() {
         return Some("驱动档要 --state 指到 state 目录：已搬动作（mark/obsrec/admin）的账要落到生产同一处".to_string());
     }
+    if log_sink.is_empty() {
+        return Some("驱动档要 --log-sink 指到日志侧信道文件：链上日志按产生顺序逐行落这里，攒在内存里等收尾等于整轮不落盘".to_string());
+    }
+    None
+}
+
+/// m9a 那一路的七道拒跑闸（B-2d④）：**同序、同数量、不同句**（plan §11.39 ⑤）。
+/// 不同句不是修辞选择：ark 那七句里点名的是 launch/decision/mark/obsrec/admin 这一路的名册，
+/// 1999 这一路一格都不吃它们 —— 共用句子等于让 m9a 的拒跑话术指着一份不存在的名册。
+/// 顺序仍是判据（第七闸 log-sink 最末，与 ark 侧同位），自检逐句咬字。
+fn drive_m9a_refusal(
+    i_drive: bool,
+    journal: &str,
+    ctx: &str,
+    res: &str,
+    panel_cs: &str,
+    state: &str,
+    log_sink: &str,
+) -> Option<String> {
+    if !i_drive {
+        return Some("驱动档是换头专用口：缺 --i-drive / --drive-m9a-daily 系列参数时直接拒跑（默认档不许启用它）".to_string());
+    }
+    if journal.is_empty() {
+        return Some("驱动档要 --journal 指到会话 journal 文件：1999 这一路的断点没落点，重入记不住".to_string());
+    }
+    if ctx.is_empty() {
+        return Some("驱动档要 --ctx 指到上下文文件：retry_once/m9aRun 两格没来路".to_string());
+    }
+    if res.is_empty() {
+        return Some("驱动档要 --res 指到回执文件：八格现场动作（真做的只有 run）干完之后的落点没给".to_string());
+    }
+    if panel_cs.is_empty() {
+        return Some("驱动档要 --panel-cs 指到判定 exe：1999 的重试分流真跑 decide-daily-retry，缺它试不了".to_string());
+    }
+    if state.is_empty() {
+        return Some("驱动档要 --state 指到 state 目录：run 真做的救火账要落到生产同一处".to_string());
+    }
+    if log_sink.is_empty() {
+        return Some("驱动档要 --log-sink 指到日志侧信道文件：1999 链上日志按产生顺序逐行落这里，攒在内存里等收尾等于整轮不落盘".to_string());
+    }
     None
 }
 
@@ -4416,6 +4721,15 @@ fn drive_append_row(path: &str, row: &JVal) -> Result<(), String> {
         .map_err(|e| format!("打开 {} 失败：{}", path, e))?;
     f.write_all(format!("{}\n", jv_to_json(row)).as_bytes())
         .map_err(|e| format!("写入 {} 失败：{}", path, e))
+}
+
+/// 往日志侧信道尾追一行（NDJSON，`{level,text}`）。B-2c② 的本体：链上日志按**产生顺序**即时落这里，
+/// 重放段一行不写（判据在 DriveFx::log 那一处）。行格式只此一处 —— 壳侧照这一行一把解析。
+fn drive_sink_row(path: &str, level: &str, text: &str) -> Result<(), String> {
+    drive_append_row(
+        path,
+        &jv_o(vec![("level", jv_s(level)), ("text", jv_s(text))]),
+    )
 }
 
 /// 读整本 journal：返回（init 行内层, 记录行数组, 末行 done 内层）。行级校验全在这里，
@@ -4517,6 +4831,21 @@ struct DriveFx<'a> {
     journal: &'a str,
     /// state 目录（已搬动作的账与生产落同一处；write 前不建目录 —— 写不成就是 Fail，照 PS 真身）。
     state_dir: &'a str,
+    /// 日志侧信道落点（B-2c②）：新区每产生一条日志就按顺序追加一行，壳侧边跑边排空。
+    log_sink: &'a str,
+    /// run 真做的现场输入（B-2c③）：ctx 的 `maaRun` 那 13 枚，state_dir 由 `--state` 补上。
+    scen: MaaScen,
+    /// run 真做的注入点（照 `decide` 的先例）：真出口=`drive_real_run`，自检/门=桩或 `--fixture-run`。
+    run_maa: &'a mut dyn FnMut(&MaaScen, &[String]) -> Result<ArkRunOut, String>,
+    /// B-2d④：m9a 那一路 run 真做的现场输入（ctx 的 `m9aRun` 那 15 枚，state_dir 由 `--state` 补上）。
+    /// 与 `scen` 并列**不是冗余**：两路的 ctx 载荷键名交集为零（一边 maaDir/maaGuiLog，一边
+    /// m9aDir/adb/serial），塞进同一枚 MaaScen 会让两本 ctx 各自多出一堆死格 —— 而 ark 侧那本
+    /// journal 的 init 行要与 old 代逐字节可比（arkdrive 门的 H0 面），多一格就红一格。
+    m9a_scen: M9aScen,
+    /// m9a 那一路 run 真做的注入点。ark 那一路传一枚**永不触发**的桩（触发即内部错）：
+    /// `ark_daily_chain` 只会调 `run(chains)`，`r1999_daily_chain` 只会调 `run()` —— 两枚 trait
+    /// 方法名相同但签名不同，所以编译期就分开了；这一枚桩是**运行期**的那道防线。
+    run_m9a: &'a mut dyn FnMut(&M9aScen) -> Result<M9aRunOut, String>,
     rows: Vec<JVal>,
     /// 启动时（load+merge 后）的记录行数：这之后的才是本轮新区。
     replay_end: usize,
@@ -4524,8 +4853,6 @@ struct DriveFx<'a> {
     consumed: usize,
     /// 本轮已写新行数（seq 基准 = replay_end + written + 1）。
     written: usize,
-    /// 新区日志收集（重放不收集 —— 那些行上一轮的信封里已经报过）。
-    logs: Vec<(String, String)>,
     /// 新区动作的断点：ask 信封从这里渲染。
     pending: Option<(i64, &'static str, JVal)>,
     /// 驱动协议错。log 没有 Result 通道，只能落这里；下个动作 check_io 冒泡。
@@ -4533,22 +4860,96 @@ struct DriveFx<'a> {
 }
 
 impl<'a> DriveFx<'a> {
-    fn new(journal: &'a str, state_dir: &'a str, rows: Vec<JVal>) -> Self {
+    fn new(
+        journal: &'a str,
+        state_dir: &'a str,
+        log_sink: &'a str,
+        scen: MaaScen,
+        run_maa: &'a mut dyn FnMut(&MaaScen, &[String]) -> Result<ArkRunOut, String>,
+        m9a_scen: M9aScen,
+        run_m9a: &'a mut dyn FnMut(&M9aScen) -> Result<M9aRunOut, String>,
+        rows: Vec<JVal>,
+    ) -> Self {
         let replay_end = rows.len();
         DriveFx {
             journal,
             state_dir,
+            log_sink,
+            scen,
+            run_maa,
+            m9a_scen,
+            run_m9a,
             rows,
             replay_end,
             consumed: 0,
             written: 0,
-            logs: Vec::new(),
             pending: None,
             io_err: None,
         }
     }
+    /// 链上日志的唯一实现（B-2d④ 起两路 trait 各有一枚 `log`，body 必须同一处）：
+    /// 重放段逐行校验 `level|text`，新区追加 journal 行 + **同序**落侧信道。
+    /// 两路日志的记账动作名同为 `"log"`、行格式同为 `{level,text}` —— 这是驱动协议本身，
+    /// 不是某一路的话术，所以合并；两路**链体句子**一个字都不在这里（那些住各自的 chain）。
+    fn fx_log(&mut self, level: &str, text: &str) {
+        // log 没有 Result 通道：驱动协议错一律落 io_err，等动作面 check_io（或收口时）检查。
+        if self.io_err.is_some() {
+            return;
+        }
+        if self.replaying() {
+            match self.take_act("log") {
+                Ok(DriveTake::Data(d)) => {
+                    let lv = jv_str(&jv_get(&d, "level"));
+                    let tx = jv_str(&jv_get(&d, "text"));
+                    if lv != level || tx != text {
+                        self.io_err = Some(format!(
+                            "journal 对不上：账上 [{}|{}] vs 链体 [{}|{}]（journal 与现树不同源）",
+                            lv, tx, level, text
+                        ));
+                    }
+                }
+                Ok(DriveTake::Fail(_)) => {
+                    self.io_err = Some("journal 对不上：log 行带了 err（journal 与现树不同源）".to_string());
+                }
+                Err(ArkAbort::Proto(m)) => {
+                    self.io_err = Some(m);
+                }
+                Err(_) => {
+                    self.io_err = Some("journal 对不上：取记录行出了非 Proto 错（内部错）".to_string());
+                }
+            }
+        } else {
+            let d = jv_o(vec![("level", jv_s(level)), ("text", jv_s(text))]);
+            self.append_soft("log", d);
+            // 侧信道：新区日志即时落 sink（重放段一行不写 —— 那些壳侧上一轮已经排空过）。
+            // 与 journal 同一把 io_err 语义：写不成不当场抛，落 io_err 等下个动作 check_io 冒泡。
+            if self.io_err.is_none() {
+                if let Err(m) = drive_sink_row(self.log_sink, level, text) {
+                    self.io_err = Some(format!("日志侧信道追加失败：{}", m));
+                }
+            }
+        }
+    }
     fn replaying(&self) -> bool {
         self.consumed < self.replay_end
+    }
+    /// 两枚闸动作同形（回执三格 code/line/joined），共用这一把；ask 无参（子进程怎么起是 executor 的事）。
+    /// **不是 trait 方法**：`R1999DailyFx` 里只声明 `updgate`/`audit` 两格，本枚住固有 impl ——
+    /// trait impl 块里只能出现 trait 声明过的方法，把共用件放这儿是协议层，不是话术层。
+    fn gate(&mut self, action: &'static str) -> Result<M9aGateOut, ArkAbort> {
+        self.check_io()?;
+        if self.replaying() {
+            match self.take_act(action)? {
+                DriveTake::Data(d) => Ok(M9aGateOut {
+                    code: jv_int(&jv_get_ci(&d, "code"), 0),
+                    line: jv_str(&jv_get_ci(&d, "line")),
+                    joined: jv_str(&jv_get_ci(&d, "joined")),
+                }),
+                DriveTake::Fail(m) => Err(ArkAbort::Fail(m)),
+            }
+        } else {
+            self.ask(action, JVal::Null)
+        }
     }
     fn check_io(&mut self) -> Result<(), ArkAbort> {
         match &self.io_err {
@@ -4616,37 +5017,9 @@ impl<'a> DriveFx<'a> {
 
 impl ArkDailyFx for DriveFx<'_> {
     fn log(&mut self, level: &str, text: &str) {
-        // log 没有 Result 通道：驱动协议错一律落 io_err，等动作面 check_io（或收口时）检查。
-        if self.io_err.is_some() {
-            return;
-        }
-        if self.replaying() {
-            match self.take_act("log") {
-                Ok(DriveTake::Data(d)) => {
-                    let lv = jv_str(&jv_get(&d, "level"));
-                    let tx = jv_str(&jv_get(&d, "text"));
-                    if lv != level || tx != text {
-                        self.io_err = Some(format!(
-                            "journal 对不上：账上 [{}|{}] vs 链体 [{}|{}]（journal 与现树不同源）",
-                            lv, tx, level, text
-                        ));
-                    }
-                }
-                Ok(DriveTake::Fail(_)) => {
-                    self.io_err = Some("journal 对不上：log 行带了 err（journal 与现树不同源）".to_string());
-                }
-                Err(ArkAbort::Proto(m)) => {
-                    self.io_err = Some(m);
-                }
-                Err(_) => {
-                    self.io_err = Some("journal 对不上：取记录行出了非 Proto 错（内部错）".to_string());
-                }
-            }
-        } else {
-            let d = jv_o(vec![("level", jv_s(level)), ("text", jv_s(text))]);
-            self.append_soft("log", d);
-            self.logs.push((level.to_string(), text.to_string()));
-        }
+        // B-2d④：实现抽到 `DriveFx::fx_log`（m9a 那一路的 log 也走同一处）——
+        // 记账动作名、重放校验、侧信道同序落行，这三件是驱动协议而不是某一路的话术。
+        self.fx_log(level, text);
     }
     fn desk(&mut self) -> Result<String, ArkAbort> {
         self.check_io()?;
@@ -4736,7 +5109,30 @@ impl ArkDailyFx for DriveFx<'_> {
                 DriveTake::Fail(m) => Err(ArkAbort::Fail(m)),
             }
         } else {
-            self.ask("run", JVal::A(chains.iter().map(|c| jv_s(c)).collect()))
+            // 已搬动作（B-2c③）：run 真做，不再 ask。chains 是链体每次现给的期望链（cfg 回执里的
+            // ExpectedChains），不进 ctx —— ctx 给的是"在哪儿跑、跑多久算卡"那 13 枚现场参数。
+            // 账行形状与 ask 时代壳写的 res data 逐字同形（status→detail→duration，无 duration 则键不出现），
+            // 所以 old 代与 new 代的 journal 在这一格仍可比；两侧 err 文本不同源（一侧 PS 异常串、
+            // 一侧核内消息），已登记为"换宿主必不同源"那类格，不进等值判据。
+            let scen = self.scen.clone();
+            let ch = chains.to_vec();
+            match (self.run_maa)(&scen, &ch) {
+                Ok(o) => {
+                    let mut kv: Vec<(&str, JVal)> =
+                        vec![("status", jv_s(&o.status)), ("detail", jv_s(&o.detail))];
+                    if let Some(d) = o.duration {
+                        kv.push(("duration", JVal::F(d)));
+                    }
+                    self.append_soft("run", jv_o(kv));
+                    self.check_io()?;
+                    Ok(o)
+                }
+                Err(m) => {
+                    self.append_err("run", &m);
+                    self.check_io()?;
+                    Err(ArkAbort::Fail(m))
+                }
+            }
         }
     }
     fn stop(&mut self) -> Result<(), ArkAbort> {
@@ -4875,6 +5271,122 @@ impl ArkDailyFx for DriveFx<'_> {
     }
 }
 
+/// 驱动侧的 m9a 那一路 Fx（B-2d④）：与上面 `impl ArkDailyFx for DriveFx` 共用同一套记账机制
+/// （`fx_log` / `take_act` / `append_soft` / `append_err` / `ask`），**八格里真做只有 run**。
+/// 动作名就是 journal 里的 `action` 字面，也是 PS 侧 executor 白名单里的那八枚 —— 两侧必须逐字同名，
+/// 任一侧漏改都会在白名单处当场抛（ark 侧 B-2c③ 那条"双删即回归抓器"的先例）。
+impl R1999DailyFx for DriveFx<'_> {
+    fn log(&mut self, level: &str, text: &str) {
+        self.fx_log(level, text);
+    }
+    fn updgate(&mut self) -> Result<M9aGateOut, ArkAbort> {
+        self.gate("updgate")
+    }
+    fn audit(&mut self) -> Result<M9aGateOut, ArkAbort> {
+        self.gate("audit")
+    }
+    fn takeover(&mut self) -> Result<(), ArkAbort> {
+        self.check_io()?;
+        if self.replaying() {
+            match self.take_act("takeover")? {
+                DriveTake::Data(_) => Ok(()),
+                DriveTake::Fail(m) => Err(ArkAbort::Fail(m)),
+            }
+        } else {
+            self.ask("takeover", JVal::Null)
+        }
+    }
+    fn mumu(&mut self) -> Result<bool, ArkAbort> {
+        self.check_io()?;
+        if self.replaying() {
+            match self.take_act("mumu")? {
+                DriveTake::Data(d) => Ok(jv_truthy(&d)),
+                DriveTake::Fail(m) => Err(ArkAbort::Fail(m)),
+            }
+        } else {
+            self.ask("mumu", JVal::Null)
+        }
+    }
+    fn cfg(&mut self) -> Result<M9aCfgOut, ArkAbort> {
+        self.check_io()?;
+        if self.replaying() {
+            match self.take_act("cfg")? {
+                DriveTake::Data(d) => Ok(M9aCfgOut {
+                    changes: jv_list(&jv_get_ci(&d, "changes")).into_iter().map(jv_str).collect(),
+                }),
+                DriveTake::Fail(m) => Err(ArkAbort::Fail(m)),
+            }
+        } else {
+            self.ask("cfg", JVal::Null)
+        }
+    }
+    fn stop(&mut self) -> Result<(), ArkAbort> {
+        self.check_io()?;
+        if self.replaying() {
+            match self.take_act("stop")? {
+                DriveTake::Data(_) => Ok(()),
+                DriveTake::Fail(m) => Err(ArkAbort::Fail(m)),
+            }
+        } else {
+            self.ask("stop", JVal::Null)
+        }
+    }
+    fn sleep(&mut self, seconds: u32) -> Result<(), ArkAbort> {
+        self.check_io()?;
+        if self.replaying() {
+            match self.take_act("sleep")? {
+                DriveTake::Data(_) => Ok(()),
+                DriveTake::Fail(m) => Err(ArkAbort::Fail(m)),
+            }
+        } else {
+            self.ask("sleep", JVal::I(seconds as i64))
+        }
+    }
+    fn run(&mut self) -> Result<M9aRunOut, ArkAbort> {
+        self.check_io()?;
+        if self.replaying() {
+            match self.take_act("run")? {
+                DriveTake::Data(d) => {
+                    let dur = jv_get_ci(&d, "duration");
+                    Ok(M9aRunOut {
+                        status: jv_str(&jv_get_ci(&d, "status")),
+                        detail: jv_str(&jv_get_ci(&d, "detail")),
+                        duration: if matches!(dur, JVal::Null) { None } else { Some(jv_to_d(&dur)) },
+                        rescued: jv_truthy(&jv_get_ci(&d, "rescued")),
+                    })
+                }
+                DriveTake::Fail(m) => Err(ArkAbort::Fail(m)),
+            }
+        } else {
+            // 本档唯一的真做动作：Invoke-M9ARun 那整段循环在核内跑（m9a_run + RealHost），
+            // 现场 15 枚参数随 ctx 的 m9aRun 交进去。账行键序 status→detail→duration?→rescued?：
+            // 两枚条件补各照各家真身（无 duration=非 ok 档、无 rescued=没兜成），**没有就不写这个键**，
+            // 于是这一格在门上与 PS 侧 legacy 当年写的 res data 逐字节可比。
+            // 两侧 err 文本不同源（一侧 PS 异常串、一侧核内消息），属"换宿主必不同源"那类格，不进等值判据。
+            let scen = self.m9a_scen.clone();
+            match (self.run_m9a)(&scen) {
+                Ok(o) => {
+                    let mut kv: Vec<(&str, JVal)> = vec![("status", jv_s(&o.status)), ("detail", jv_s(&o.detail))];
+                    if let Some(d) = o.duration {
+                        kv.push(("duration", JVal::F(d)));
+                    }
+                    if o.rescued {
+                        kv.push(("rescued", JVal::B(true)));
+                    }
+                    self.append_soft("run", jv_o(kv));
+                    self.check_io()?;
+                    Ok(o)
+                }
+                Err(m) => {
+                    self.append_err("run", &m);
+                    self.check_io()?;
+                    Err(ArkAbort::Fail(m))
+                }
+            }
+        }
+    }
+}
+
 /// 已搬动作 mark（B-1a）：写 state\ark-fight-skip-mark.json，返回日期串。
 /// 文件字节 = PS 真身 Set-GdArkFightSkipMark 经 pwsh 7 ConvertTo-Json 的输出（形状口径见 ps_to_json_pretty）。
 /// 不建目录：写不成 → Err（照真身：Write-GdJson 抛 → 链体侧 WARN）。
@@ -4970,51 +5482,75 @@ fn drive_done_result(d: &JVal) -> JVal {
     jv_o(kv)
 }
 
-fn drive_logs_json(logs: &[(String, String)]) -> String {
-    let items: Vec<String> =
-        logs.iter().map(|(l, t)| format!("{{\"level\":{},\"text\":{}}}", jstr(l), jstr(t))).collect();
-    format!("[{}]", items.join(","))
+/// B-2c② 起日志改走 --log-sink 侧信道，信封 `logs` **留键不删键**：键还在、恒空数组。
+/// 判据是「换通道不换形状」——`probe-arkdrive` 等价门的 `C-logs` 面照旧逐字节比，
+/// 而壳侧不再等收尾才拿到日志（链上一有日志就落盘、边跑边排空）。
+///
+/// 两路驱动档各自的信封身份（B-2d④）：role 与 why **成对**，一条链体一套话术。
+/// ark 那一路沿用历史字面 `R3-drive-ark-daily`（arkdrive 等价门的 role 校验、老壳侧那两枚
+/// 校验都钉着它，改一个字就是形状变）；m9a 那一路是新立 role，**不复用**旧名 —— 两路的
+/// ctx/journal 名册不同源，名字共用会让"这一本账是谁的"当场问不出来。
+#[derive(Clone, Copy)]
+struct DriveRole {
+    role: &'static str,
+    why: &'static str,
 }
+const DRIVE_ROLE_ARK: DriveRole = DriveRole { role: "R3-drive-ark-daily", why: DRIVE_WHY };
+const DRIVE_ROLE_M9A: DriveRole = DriveRole { role: "B2d-drive-m9a-daily", why: DRIVE_WHY_M9A };
 
-/// ask 信封：链体停在哪个动作上（seq/action/params），壳照单执行后写 res 回执再重入。
-fn render_drive_ask(seq: i64, action: &str, params: &JVal, logs: &[(String, String)]) -> String {
+/// ask 信封的内层：链体停在哪个动作上（seq/action/params），壳照单执行后写 res 回执再重入。
+/// 三枚模板里 role/why 是唯一的差别，记账机制与键序两路完全同源 —— 所以这里只有一份字面。
+fn drive_env_ask(rl: DriveRole, seq: i64, action: &str, params: &JVal) -> String {
     format!(
-        "{{\"ok\":true,\"why\":{},\"contract\":{},\"role\":\"R3-drive-ark-daily\",\"kind\":\"ask\",\"seq\":{},\"action\":{},\"params\":{},\"logs\":{}}}",
-        jstr(DRIVE_WHY),
+        "{{\"ok\":true,\"why\":{},\"contract\":{},\"role\":{},\"kind\":\"ask\",\"seq\":{},\"action\":{},\"params\":{},\"logs\":[]}}",
+        jstr(rl.why),
         jstr(CONTRACT),
+        jstr(rl.role),
         seq,
         jstr(action),
-        jv_to_json(params),
-        drive_logs_json(logs)
+        jv_to_json(params)
     )
 }
 
-/// done 信封：链体整条走完（含 not-started 早退等一切终态），result 就是真身返回的
+/// done 信封的内层：链体整条走完（含 not-started 早退等一切终态），result 就是真身返回的
 /// @{Status;Detail;Duration?}。
-fn render_drive_done(result: &JVal, logs: &[(String, String)]) -> String {
+fn drive_env_done(rl: DriveRole, result: &JVal) -> String {
     format!(
-        "{{\"ok\":true,\"why\":{},\"contract\":{},\"role\":\"R3-drive-ark-daily\",\"kind\":\"done\",\"result\":{},\"logs\":{}}}",
-        jstr(DRIVE_WHY),
+        "{{\"ok\":true,\"why\":{},\"contract\":{},\"role\":{},\"kind\":\"done\",\"result\":{},\"logs\":[]}}",
+        jstr(rl.why),
         jstr(CONTRACT),
-        jv_to_json(result),
-        drive_logs_json(logs)
+        jstr(rl.role),
+        jv_to_json(result)
     )
 }
 
-/// fail 信封：链体 Fail 与驱动协议错共用（后者 error 里带"驱动协议坏了："前缀）。
-fn render_drive_fail(error: &str, logs: &[(String, String)]) -> String {
+/// fail 信封的内层：链体 Fail 与驱动协议错共用（后者 error 里带"驱动协议坏了："前缀）。
+fn drive_env_fail(rl: DriveRole, error: &str) -> String {
     format!(
-        "{{\"ok\":false,\"why\":{},\"contract\":{},\"role\":\"R3-drive-ark-daily\",\"kind\":\"fail\",\"error\":{},\"logs\":{}}}",
-        jstr(DRIVE_WHY),
+        "{{\"ok\":false,\"why\":{},\"contract\":{},\"role\":{},\"kind\":\"fail\",\"error\":{},\"logs\":[]}}",
+        jstr(rl.why),
         jstr(CONTRACT),
-        jstr(error),
-        drive_logs_json(logs)
+        jstr(rl.role),
+        jstr(error)
     )
+}
+
+/// 下面三枚是 ark 那一路的薄包装：`drive_ark_daily_envelope` 里那 15 处调用点一字不动，
+/// 也不出现"两套信封模板"。m9a 那一路直接调内层并喂 `DRIVE_ROLE_M9A`。
+fn render_drive_ask(seq: i64, action: &str, params: &JVal) -> String {
+    drive_env_ask(DRIVE_ROLE_ARK, seq, action, params)
+}
+fn render_drive_done(result: &JVal) -> String {
+    drive_env_done(DRIVE_ROLE_ARK, result)
+}
+fn render_drive_fail(error: &str) -> String {
+    drive_env_fail(DRIVE_ROLE_ARK, error)
 }
 
 /// 驱动档一轮的信封装配（纯函数；`run_drive_ark_daily` 与 `--selftest` 共用同一处）。
 /// 一轮 = 从 journal 重放回断点 → 再走一步链体 → 落 ask / done / fail 三种收场之一。
 /// `decide` = 重试分流真跑 decide-daily-retry 的注入点（生产=调 panel-cs；自检=闭包假身，不依赖外部件）。
+/// `run_maa` = run 真做的注入点（B-2c③，同一条先例）：生产=`drive_real_run`、自检=桩、门=`--fixture-run` 夹具。
 fn drive_ark_daily_envelope(
     i_drive: bool,
     journal: &str,
@@ -5022,58 +5558,72 @@ fn drive_ark_daily_envelope(
     res: &str,
     panel_cs: &str,
     state: &str,
+    log_sink: &str,
     decide: &mut dyn FnMut(&str, bool) -> Result<(bool, Vec<(String, String)>), String>,
+    run_maa: &mut dyn FnMut(&MaaScen, &[String]) -> Result<ArkRunOut, String>,
 ) -> (i32, String) {
-    if let Some(m) = drive_refusal(i_drive, journal, ctx, res, panel_cs, state) {
-        return (2, render_drive_fail(&m, &[]));
+    if let Some(m) = drive_refusal(i_drive, journal, ctx, res, panel_cs, state, log_sink) {
+        return (2, render_drive_fail(&m));
     }
+    // 侧信道是**一本会话一个文件**（与 journal 同生命周期）：每轮只追加、不重开，
+    // 壳侧按字节偏移增量排空 —— 所以这里绝不截断（截断会把上一轮已报过的行抹掉）。
     // ---- ctx：壳写一遍的三格（launch/retry_once/decision） ----
     let ctx_text = match std::fs::read_to_string(ctx) {
         Ok(t) => t,
-        Err(e) => return (1, render_drive_fail(&format!("驱动协议坏了：ctx 读不动：{}", e), &[])),
+        Err(e) => return (1, render_drive_fail(&format!("驱动协议坏了：ctx 读不动：{}", e))),
     };
     let ctx_val = match jv_parse(&ctx_text) {
         Ok(v) => v,
-        Err(e) => return (1, render_drive_fail(&format!("驱动协议坏了：ctx 不是合法 JSON：{}", e), &[])),
+        Err(e) => return (1, render_drive_fail(&format!("驱动协议坏了：ctx 不是合法 JSON：{}", e))),
     };
     let launch = match jv_get_ci(&ctx_val, "launch") {
         JVal::B(b) => b,
-        _ => return (1, render_drive_fail("驱动协议坏了：ctx 的 launch/retry_once 必须是布尔", &[])),
+        _ => return (1, render_drive_fail("驱动协议坏了：ctx 的 launch/retry_once 必须是布尔")),
     };
     let retry_once = match jv_get_ci(&ctx_val, "retry_once") {
         JVal::B(b) => b,
-        _ => return (1, render_drive_fail("驱动协议坏了：ctx 的 launch/retry_once 必须是布尔", &[])),
+        _ => return (1, render_drive_fail("驱动协议坏了：ctx 的 launch/retry_once 必须是布尔")),
     };
     let decision = jv_get_ci(&ctx_val, "decision");
     if !matches!(decision, JVal::O(_)) {
-        return (1, render_drive_fail("驱动协议坏了：ctx 的 decision 必须是对象", &[]));
+        return (1, render_drive_fail("驱动协议坏了：ctx 的 decision 必须是对象"));
     }
+    // ---- ctx 的 maaRun 子对象（B-2c③ run 真做的现场载荷）----
+    // 解析器与剧本档**同一把**（maarun_parse）：13 枚键名与 config\settings.json 逐字同名，立第二套
+    // 字面就等于两处口径可以各漂一半。缺 maaRun 不在这里报错（老 ctx 照样能走到 run 之前）；
+    // 到 run 真做那一步由 drive_real_run 点名缺哪一格 —— 这样失败落进 journal 的 err 行，可追。
+    let mut scen = match maarun_parse(&jv_get_ci(&ctx_val, "maaRun")) {
+        Ok(s) => s,
+        Err(e) => return (1, render_drive_fail(&format!("驱动协议坏了：ctx 的 maaRun 读不动：{}", e))),
+    };
+    // state_dir 不在 ctx 里（已有 --state 第六闸）：run 那本救火账与已搬三枚的账落同一处。
+    scen.state_dir = state.to_string();
     // ---- journal：账本在手就重放，不在就现起一本 ----
     let mut rows: Vec<JVal>;
     match std::fs::read_to_string(journal) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             let init_row = jv_o(vec![("init", ctx_val.clone())]);
             if let Err(m) = drive_append_row(journal, &init_row) {
-                return (1, render_drive_fail(&format!("驱动协议坏了：journal 建不起来：{}", m), &[]));
+                return (1, render_drive_fail(&format!("驱动协议坏了：journal 建不起来：{}", m)));
             }
             let _ = std::fs::remove_file(res);
             rows = Vec::new();
         }
-        Err(e) => return (1, render_drive_fail(&format!("驱动协议坏了：journal 读不动：{}", e), &[])),
+        Err(e) => return (1, render_drive_fail(&format!("驱动协议坏了：journal 读不动：{}", e))),
         Ok(text) => {
             let (init, r, done) = match drive_load_journal(&text) {
                 Ok(t) => t,
-                Err(m) => return (1, render_drive_fail(&format!("驱动协议坏了：journal 读不动：{}", m), &[])),
+                Err(m) => return (1, render_drive_fail(&format!("驱动协议坏了：journal 读不动：{}", m))),
             };
             if jv_to_json(&init) != jv_to_json(&ctx_val) {
                 return (
                     1,
-                    render_drive_fail("驱动协议坏了：journal 的 init 与 ctx 不是同一份（换了 ctx 就得起新 journal）", &[]),
+                    render_drive_fail("驱动协议坏了：journal 的 init 与 ctx 不是同一份（换了 ctx 就得起新 journal）"),
                 );
             }
             if let Some(drow) = done {
                 let _ = std::fs::remove_file(res);
-                return (0, render_drive_done(&drive_done_result(&jv_get(&drow, "done")), &[]));
+                return (0, render_drive_done(&drive_done_result(&jv_get(&drow, "done"))));
             }
             rows = r;
         }
@@ -5086,25 +5636,39 @@ fn drive_ark_daily_envelope(
             match drive_merge_res(&text, need) {
                 Ok(Some(row)) => {
                     if let Err(m) = drive_append_row(journal, &row) {
-                        return (1, render_drive_fail(&format!("驱动协议坏了：journal 追加失败：{}", m), &[]));
+                        return (1, render_drive_fail(&format!("驱动协议坏了：journal 追加失败：{}", m)));
                     }
                     rows.push(row);
                 }
                 Ok(None) => {}
-                Err(m) => return (1, render_drive_fail(&format!("驱动协议坏了：res 对不上：{}", m), &[])),
+                Err(m) => return (1, render_drive_fail(&format!("驱动协议坏了：res 对不上：{}", m))),
             }
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-        Err(e) => return (1, render_drive_fail(&format!("驱动协议坏了：res 读不动：{}", e), &[])),
+        Err(e) => return (1, render_drive_fail(&format!("驱动协议坏了：res 读不动：{}", e))),
     }
     // ---- 一轮：重放到断点，之后再走一步 ----
     let input = ArkDInput { launch, retry_once, decision };
-    let mut fx = DriveFx::new(journal, state, rows);
+    // m9a 那两枚字段在这一路是结构性桩（与 m9a envelope 里那枚 ark 桩对称）：ark 链体调不到 run_m9a，
+    // 调到了就是分派写错 —— Err 那句当场进 journal 的 err 行，不会被当成"run 办成了"。
+    let mut m9a_stub = |_sc: &M9aScen| -> Result<M9aRunOut, String> {
+        Err("内部错：ark 链体不许调 m9a 那一路的 run 闭包（DriveFx 分派写错了）".to_string())
+    };
+    let mut fx = DriveFx::new(
+        journal,
+        state,
+        log_sink,
+        scen,
+        &mut *run_maa,
+        M9aScen::default(),
+        &mut m9a_stub,
+        rows,
+    );
     let r = ark_daily_chain(&input, &mut fx, decide);
     match r {
         Ok(o) => {
             if let Some(m) = fx.io_err.take() {
-                return (1, render_drive_fail(&format!("驱动协议坏了：{}", m), &fx.logs));
+                return (1, render_drive_fail(&format!("驱动协议坏了：{}", m)));
             }
             let mut kv: Vec<(&str, JVal)> = vec![("status", jv_s(&o.status)), ("detail", jv_s(&o.detail))];
             if let Some(d) = o.duration {
@@ -5113,25 +5677,32 @@ fn drive_ark_daily_envelope(
             let result = jv_o(kv);
             let done_row = jv_o(vec![("done", result.clone())]);
             if let Err(m) = drive_append_row(journal, &done_row) {
-                return (1, render_drive_fail(&format!("驱动协议坏了：journal 追加失败：{}", m), &fx.logs));
+                return (1, render_drive_fail(&format!("驱动协议坏了：journal 追加失败：{}", m)));
             }
-            (0, render_drive_done(&result, &fx.logs))
+            (0, render_drive_done(&result))
         }
         Err(ArkAbort::Ask) => {
             if let Some(m) = fx.io_err.take() {
-                return (1, render_drive_fail(&format!("驱动协议坏了：{}", m), &fx.logs));
+                return (1, render_drive_fail(&format!("驱动协议坏了：{}", m)));
             }
             match fx.pending.take() {
-                Some((seq, action, params)) => (0, render_drive_ask(seq, action, &params, &fx.logs)),
-                None => (1, render_drive_fail("驱动协议坏了：Ask 出档却没记断点（内部错）", &fx.logs)),
+                Some((seq, action, params)) => (0, render_drive_ask(seq, action, &params)),
+                None => (1, render_drive_fail("驱动协议坏了：Ask 出档却没记断点（内部错）")),
             }
         }
-        Err(ArkAbort::Fail(m)) => (1, render_drive_fail(&m, &fx.logs)),
-        Err(ArkAbort::Proto(m)) => (1, render_drive_fail(&format!("驱动协议坏了：{}", m), &fx.logs)),
+        Err(ArkAbort::Fail(m)) => (1, render_drive_fail(&m)),
+        Err(ArkAbort::Proto(m)) => (1, render_drive_fail(&format!("驱动协议坏了：{}", m))),
     }
 }
 
 /// 驱动档那一档的出口（`--drive-ark-daily`）。
+/// `fixture_run` 非空＝run 真做换成夹具（门/自检专用旗标 `--fixture-run`，形状
+/// `{status,detail,duration?,logs:[{level,text}]}`）：**生产协议形状一字不动**，换的只是这枚闭包
+/// 背后做什么。夹具的 logs 逐行落进同一本侧信道 —— 生产里这些行由 maa_run 自己写，落点与顺序一致，
+/// 所以壳侧的流式排空（轮询、级别、顺序）在门里就能真拍一次，不必等生产 06:00。
+/// 夹具读不动/不是合法 JSON 就当场 fail 信封：给了旗标却喂错形状，比不喂更容易被当成"跑过了"。
+/// 三条分支（拒跑 / 真做 / 夹具）**收在同一处 emit**（照装配回放档那条旧例）：这一档的出口只有一处是判据 ——
+/// 多开一处，`--out` 就在其中一条分支上是空头承诺，而数这个的计数门第一个红在自己身上。
 fn run_drive_ark_daily(
     i_drive: bool,
     journal: &str,
@@ -5139,34 +5710,318 @@ fn run_drive_ark_daily(
     res: &str,
     panel_cs: &str,
     state: &str,
+    log_sink: &str,
+    fixture_run: &str,
     out: &Option<String>,
 ) -> i32 {
     let mut dec = |st: &str, ro: bool| arksk_call_decide(panel_cs, st, ro);
-    let (rc, json) = drive_ark_daily_envelope(i_drive, journal, ctx, res, panel_cs, state, &mut dec);
+    let rc: i32;
+    let json: String;
+    // 七道拒跑闸提到**读夹具之前**：缺 --i-drive 一律 rc=2 落拒跑句，绝对优先于"喂进来的夹具对不对"。
+    // 生产壳永远不带 --fixture-run，若先读夹具，一次参数漏写会被夹具错误掩盖成 rc=1 的"协议坏了"，
+    // 而拒跑句是给人的、必须第一眼就是它。闸本体仍在 envelope 顶部（自检会话共用同一处），
+    // 同一把纯函数同输入同输出，这里只是把它的结果提前用掉。
+    if let Some(m) = drive_refusal(i_drive, journal, ctx, res, panel_cs, state, log_sink) {
+        rc = 2;
+        json = render_drive_fail(&m);
+    } else if fixture_run.is_empty() {
+        let mut run = |sc: &MaaScen, ch: &[String]| drive_real_run(panel_cs, log_sink, sc, ch);
+        let pair = drive_ark_daily_envelope(i_drive, journal, ctx, res, panel_cs, state, log_sink, &mut dec, &mut run);
+        rc = pair.0;
+        json = pair.1;
+    } else {
+        let loaded = match std::fs::read_to_string(fixture_run) {
+            Ok(t) => jv_parse(&t).map_err(|e| format!("--fixture-run 的夹具不是合法 JSON：{}", e)),
+            Err(e) => Err(format!("--fixture-run 的夹具读不动：{}", e)),
+        };
+        match loaded {
+            Err(m) => {
+                rc = 1;
+                json = render_drive_fail(&format!("驱动协议坏了：{}", m));
+            }
+            Ok(fxv) => {
+                let f_status = jv_str(&jv_get_ci(&fxv, "status"));
+                let f_detail = jv_str(&jv_get_ci(&fxv, "detail"));
+                let f_dur = {
+                    let d = jv_get_ci(&fxv, "duration");
+                    if matches!(d, JVal::Null) {
+                        None
+                    } else {
+                        Some(jv_to_d(&d))
+                    }
+                };
+                let f_logs: Vec<(String, String)> = jv_list(&jv_get_ci(&fxv, "logs"))
+                    .into_iter()
+                    .map(|v| (jv_str(&jv_get_ci(&v, "level")), jv_str(&jv_get_ci(&v, "text"))))
+                    .collect();
+                let sink = log_sink.to_string();
+                let mut run = move |_sc: &MaaScen, _ch: &[String]| -> Result<ArkRunOut, String> {
+                    for (lv, tx) in &f_logs {
+                        let _ = drive_sink_row(&sink, lv, tx);
+                    }
+                    Ok(ArkRunOut { status: f_status.clone(), detail: f_detail.clone(), duration: f_dur })
+                };
+                let pair =
+                    drive_ark_daily_envelope(i_drive, journal, ctx, res, panel_cs, state, log_sink, &mut dec, &mut run);
+                rc = pair.0;
+                json = pair.1;
+            }
+        }
+    }
+    emit(&json, out);
+    rc
+}
+
+/// m9a 那一路的驱动档信封装配（B-2d④；纯函数，`run_drive_m9a_daily` 与 `--selftest` 第 23 组共用同一处）。
+/// 骨架与上面那枚**逐段同形**（拒跑 → ctx → journal 重放 → res 合并 → 走一步 → ask/done/fail），
+/// 因为骨架是驱动协议；差的四格全是两路各自的真身事实，不许顺手统一：
+/// - 拒跑闸用 `drive_m9a_refusal`（同序、同数量、不同句）；
+/// - ctx 只有两格：顶层 `retry_once` ＋ `m9aRun`（15 枚名册，由 `m9a_scen_core` 逐枚点名取键）。
+///   **没有 launch、也没有 decision** —— 1999 这一路不拉端游，当日档位也不现编
+///   （链体一次都不读 decision，所以名册里没有它的位置）；
+/// - role/why 用 `DRIVE_ROLE_M9A`；
+/// - run 闭包只吃 scen（`Invoke-M9ARun` 没有 `-Chains`），所以 `DriveFx` 里 ark 那两枚字段在这一路是
+///   **结构性桩**：`MaaScen::default()` ＋ 一枚当场 Err 的闭包。它存在只因为 `DriveFx` 是一枚 struct
+///   （两路共用同一套记账），不是一枚按路分的对象池；真被跑到就是分派写错了，Err 那句就是抓器。
+fn drive_m9a_daily_envelope(
+    i_drive: bool,
+    journal: &str,
+    ctx: &str,
+    res: &str,
+    panel_cs: &str,
+    state: &str,
+    log_sink: &str,
+    decide: &mut dyn FnMut(&str, bool, bool) -> Result<(bool, Vec<(String, String)>), String>,
+    run_m9a: &mut dyn FnMut(&M9aScen) -> Result<M9aRunOut, String>,
+) -> (i32, String) {
+    let fail = |m: &str| drive_env_fail(DRIVE_ROLE_M9A, m);
+    if let Some(m) = drive_m9a_refusal(i_drive, journal, ctx, res, panel_cs, state, log_sink) {
+        return (2, fail(&m));
+    }
+    // ---- ctx：壳写一遍的两格 ----
+    let ctx_text = match std::fs::read_to_string(ctx) {
+        Ok(t) => t,
+        Err(e) => return (1, fail(&format!("驱动协议坏了：ctx 读不动：{}", e))),
+    };
+    let ctx_val = match jv_parse(&ctx_text) {
+        Ok(v) => v,
+        Err(e) => return (1, fail(&format!("驱动协议坏了：ctx 不是合法 JSON：{}", e))),
+    };
+    let retry_once = match jv_get_ci(&ctx_val, "retry_once") {
+        JVal::B(b) => b,
+        _ => return (1, fail("驱动协议坏了：ctx 的 retry_once 必须是布尔")),
+    };
+    // 名册那 15 枚在这一处进核（与 --m9a-run 的夹具共用 `m9a_scen_core`，键名字面只有一份）。
+    // m9aDir/adb 两闸在这里就会咬：run 是这一路的核心动作，载荷残缺不许走到 ask 之后再说。
+    let mut scen = match m9a_scen_core(&jv_get_ci(&ctx_val, "m9aRun")) {
+        Ok(s) => s,
+        Err(e) => return (1, fail(&format!("驱动协议坏了：ctx 的 m9aRun 读不动：{}", e))),
+    };
+    // 名册外那五格按真身给：state_dir 来自 --state（第六闸），game/target 是真身 m9a.ps1 里写死的
+    // 两个字母面，两枚可用性是装载期事实（lib\r1999-module.ps1:27 只带 vision-rescue.ps1）。
+    scen.state_dir = state.to_string();
+    scen.game = "r1999".to_string();
+    scen.target = "mumu".to_string();
+    scen.rescue_available = true;
+    scen.grab_available = false;
+    // ---- journal：账本在手就重放，不在就现起一本 ----
+    let mut rows: Vec<JVal>;
+    match std::fs::read_to_string(journal) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            let init_row = jv_o(vec![("init", ctx_val.clone())]);
+            if let Err(m) = drive_append_row(journal, &init_row) {
+                return (1, fail(&format!("驱动协议坏了：journal 建不起来：{}", m)));
+            }
+            let _ = std::fs::remove_file(res);
+            rows = Vec::new();
+        }
+        Err(e) => return (1, fail(&format!("驱动协议坏了：journal 读不动：{}", e))),
+        Ok(text) => {
+            let (init, r, done) = match drive_load_journal(&text) {
+                Ok(t) => t,
+                Err(m) => return (1, fail(&format!("驱动协议坏了：journal 读不动：{}", m))),
+            };
+            if jv_to_json(&init) != jv_to_json(&ctx_val) {
+                return (
+                    1,
+                    fail("驱动协议坏了：journal 的 init 与 ctx 不是同一份（换了 ctx 就得起新 journal）"),
+                );
+            }
+            if let Some(drow) = done {
+                let _ = std::fs::remove_file(res);
+                return (0, drive_env_done(DRIVE_ROLE_M9A, &drive_done_result(&jv_get(&drow, "done"))));
+            }
+            rows = r;
+        }
+    }
+    // ---- res：上一轮壳的回执（读后即删；≤账上下一行的 seq 是幂等重放，忽略） ----
+    match std::fs::read_to_string(res) {
+        Ok(text) => {
+            let _ = std::fs::remove_file(res);
+            let need = rows.len() as i64 + 1;
+            match drive_merge_res(&text, need) {
+                Ok(Some(row)) => {
+                    if let Err(m) = drive_append_row(journal, &row) {
+                        return (1, fail(&format!("驱动协议坏了：journal 追加失败：{}", m)));
+                    }
+                    rows.push(row);
+                }
+                Ok(None) => {}
+                Err(m) => return (1, fail(&format!("驱动协议坏了：res 对不上：{}", m))),
+            }
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return (1, fail(&format!("驱动协议坏了：res 读不动：{}", e))),
+    }
+    // ---- 一轮：重放到断点，之后再走一步 ----
+    let input = R1999DInput { retry_once };
+    let mut ark_stub = |_sc: &MaaScen, _ch: &[String]| -> Result<ArkRunOut, String> {
+        Err("内部错：m9a 链体不许调 ark 那一路的 run 闭包（DriveFx 分派写错了）".to_string())
+    };
+    let mut fx = DriveFx::new(
+        journal,
+        state,
+        log_sink,
+        MaaScen::default(),
+        &mut ark_stub,
+        scen,
+        run_m9a,
+        rows,
+    );
+    let r = r1999_daily_chain(&input, &mut fx, decide);
+    match r {
+        Ok(o) => {
+            if let Some(m) = fx.io_err.take() {
+                return (1, fail(&format!("驱动协议坏了：{}", m)));
+            }
+            let mut kv: Vec<(&str, JVal)> = vec![("status", jv_s(&o.status)), ("detail", jv_s(&o.detail))];
+            if let Some(d) = o.duration {
+                kv.push(("duration", JVal::F(d)));
+            }
+            let result = jv_o(kv);
+            let done_row = jv_o(vec![("done", result.clone())]);
+            if let Err(m) = drive_append_row(journal, &done_row) {
+                return (1, fail(&format!("驱动协议坏了：journal 追加失败：{}", m)));
+            }
+            (0, drive_env_done(DRIVE_ROLE_M9A, &result))
+        }
+        Err(ArkAbort::Ask) => {
+            if let Some(m) = fx.io_err.take() {
+                return (1, fail(&format!("驱动协议坏了：{}", m)));
+            }
+            match fx.pending.take() {
+                Some((seq, action, params)) => (0, drive_env_ask(DRIVE_ROLE_M9A, seq, action, &params)),
+                None => (1, fail("驱动协议坏了：Ask 出档却没记断点（内部错）")),
+            }
+        }
+        Err(ArkAbort::Fail(m)) => (1, fail(&m)),
+        Err(ArkAbort::Proto(m)) => (1, fail(&format!("驱动协议坏了：{}", m))),
+    }
+}
+
+/// m9a 那一路驱动档的出口（`--drive-m9a-daily`）。三条分支（拒跑 / 真做 / 夹具）**收在同一处 emit**，
+/// 照 ark 那枚出口的旧例（多开一处，`--out` 就在其中一条分支上是空头承诺）。
+/// 夹具复用 ark 侧那枚 `--fixture-run`：形状同 `{status,detail,duration?,logs:[{level,text}]}`，
+/// m9a 只多认一枚可选 `rescued`（ark 链体不读它，喂了也不影响那一路）。
+/// 复用而不是新立一枚旗标，是为了让 ⑤ 的门不必再改一次协议 —— 协议形状再变就是第三次升号。
+fn run_drive_m9a_daily(
+    i_drive: bool,
+    journal: &str,
+    ctx: &str,
+    res: &str,
+    panel_cs: &str,
+    state: &str,
+    log_sink: &str,
+    fixture_run: &str,
+    out: &Option<String>,
+) -> i32 {
+    let mut dec = |st: &str, rs: bool, ro: bool| m9a_call_decide(panel_cs, st, rs, ro);
+    let rc: i32;
+    let json: String;
+    // 拒跑闸同样提到读夹具之前，理由与 ark 侧那条一字不差（拒跑句是给人的，必须第一眼就是它）。
+    if let Some(m) = drive_m9a_refusal(i_drive, journal, ctx, res, panel_cs, state, log_sink) {
+        rc = 2;
+        json = drive_env_fail(DRIVE_ROLE_M9A, &m);
+    } else if fixture_run.is_empty() {
+        let mut run = |sc: &M9aScen| drive_real_m9a_run(panel_cs, log_sink, sc);
+        let pair = drive_m9a_daily_envelope(i_drive, journal, ctx, res, panel_cs, state, log_sink, &mut dec, &mut run);
+        rc = pair.0;
+        json = pair.1;
+    } else {
+        let loaded = match std::fs::read_to_string(fixture_run) {
+            Ok(t) => jv_parse(&t).map_err(|e| format!("--fixture-run 的夹具不是合法 JSON：{}", e)),
+            Err(e) => Err(format!("--fixture-run 的夹具读不动：{}", e)),
+        };
+        match loaded {
+            Err(m) => {
+                rc = 1;
+                json = drive_env_fail(DRIVE_ROLE_M9A, &format!("驱动协议坏了：{}", m));
+            }
+            Ok(fxv) => {
+                let f_status = jv_str(&jv_get_ci(&fxv, "status"));
+                let f_detail = jv_str(&jv_get_ci(&fxv, "detail"));
+                let f_dur = {
+                    let d = jv_get_ci(&fxv, "duration");
+                    if matches!(d, JVal::Null) {
+                        None
+                    } else {
+                        Some(jv_to_d(&d))
+                    }
+                };
+                let f_rescued = jv_truthy(&jv_get_ci(&fxv, "rescued"));
+                let f_logs: Vec<(String, String)> = jv_list(&jv_get_ci(&fxv, "logs"))
+                    .into_iter()
+                    .map(|v| (jv_str(&jv_get_ci(&v, "level")), jv_str(&jv_get_ci(&v, "text"))))
+                    .collect();
+                let sink = log_sink.to_string();
+                let mut run = move |_sc: &M9aScen| -> Result<M9aRunOut, String> {
+                    for (lv, tx) in &f_logs {
+                        let _ = drive_sink_row(&sink, lv, tx);
+                    }
+                    Ok(M9aRunOut {
+                        status: f_status.clone(),
+                        detail: f_detail.clone(),
+                        duration: f_dur,
+                        rescued: f_rescued,
+                    })
+                };
+                let pair =
+                    drive_m9a_daily_envelope(i_drive, journal, ctx, res, panel_cs, state, log_sink, &mut dec, &mut run);
+                rc = pair.0;
+                json = pair.1;
+            }
+        }
+    }
     emit(&json, out);
     rc
 }
 
 /// B-1a 自检配套（仅供 --selftest）：迷你驱动器 —— 照生产壳 Invoke-GdArkDailyRust 的口径起轮：
 /// 一轮一进程 → 读信封 → ask 就替它办（responder 出回执）并写 res → 再起一轮，直到 done/fail。
+/// B-2c② 起日志不再从信封取，改从 --log-sink 侧信道取（会话开始前先截空，跑完读全量）——
+/// 壳侧是边跑边排空，这里没有并发的壳，末次读一次即可，行序与产生序天然一致。
 /// 返回（ask 动作序, 新面日志 "级别|文本", 终 kind, done 的 result（无则 Null）, 错一句话）。
 fn drive_selftest_session(
     journal: &str,
     ctx: &str,
     res: &str,
     state: &str,
+    log_sink: &str,
     responder: &mut dyn FnMut(&str, &JVal) -> Result<Option<JVal>, String>,
+    run_maa: &mut dyn FnMut(&MaaScen, &[String]) -> Result<ArkRunOut, String>,
 ) -> (Vec<String>, Vec<String>, String, JVal, Option<String>) {
     let mut asked: Vec<String> = Vec::new();
     let mut logs: Vec<String> = Vec::new();
     let mut kind = String::new();
     let mut result = JVal::Null;
     let mut err: Option<String> = None;
+    let _ = std::fs::write(log_sink, "");
     // 分流替身：自检不真跑 panel-cs（重试分流本身不在本组射程 —— 十连往返那组已钉"坏 exe 当场断"）。
     let mut dec =
         |_st: &str, _ro: bool| -> Result<(bool, Vec<(String, String)>), String> { Ok((false, Vec::new())) };
     for _ in 0..64 {
-        let (rc, env) = drive_ark_daily_envelope(true, journal, ctx, res, "unused-panel-cs", state, &mut dec);
+        let (rc, env) =
+            drive_ark_daily_envelope(true, journal, ctx, res, "unused-panel-cs", state, log_sink, &mut dec, &mut *run_maa);
         let ev = match jv_parse(&env) {
             Ok(v) => v,
             Err(e) => {
@@ -5174,10 +6029,6 @@ fn drive_selftest_session(
                 break;
             }
         };
-        let log_rows = jv_get(&ev, "logs");
-        for l in jv_list(&log_rows) {
-            logs.push(format!("{}|{}", jv_str(&jv_get_ci(l, "level")), jv_str(&jv_get_ci(l, "text"))));
-        }
         kind = jv_str(&jv_get(&ev, "kind"));
         if kind == "done" {
             if rc != 0 {
@@ -5217,15 +6068,50 @@ fn drive_selftest_session(
             break;
         }
     }
+    drive_sink_drain(log_sink, &mut logs, &mut err);
     if err.is_none() && kind != "done" {
         err = Some("会话没推到 done（迷你驱动器轮次打完了）".to_string());
     }
     (asked, logs, kind, result, err)
 }
 
-/// B-1a 自检配套：迷你驱动器的回执桩（会话 A/B 共用；run 的终态与明细按参注入）。
+/// 侧信道末次排空（--selftest 专用）：整本按行读回 "级别|文本"。
+/// 读不动或有半截行 = 把错话塞进 last_err，让自检组当场红 —— 不许拿空日志假装跑过。
+fn drive_sink_drain(log_sink: &str, logs: &mut Vec<String>, last_err: &mut Option<String>) {
+    let text = match std::fs::read_to_string(log_sink) {
+        Ok(t) => t,
+        Err(e) => {
+            if last_err.is_none() {
+                *last_err = Some(format!("日志侧信道读不动：{}", e));
+            }
+            return;
+        }
+    };
+    for (i, line) in text.lines().enumerate() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        match jv_parse(line) {
+            Ok(v) => logs.push(format!(
+                "{}|{}",
+                jv_str(&jv_get_ci(&v, "level")),
+                jv_str(&jv_get_ci(&v, "text"))
+            )),
+            Err(e) => {
+                if last_err.is_none() {
+                    *last_err = Some(format!("日志侧信道第 {} 行不是合法 JSON：{}", i + 1, e));
+                }
+            }
+        }
+    }
+}
+
+/// B-1a 自检配套：迷你驱动器的回执桩（会话 A/B 共用）。
 /// 桩面覆盖链体全序（desk…obs）—— 已搬动作（mark/obsrec/admin）不该出现在这里，出现即分派没接上。
-fn drive_selftest_respond(act: &str, _prm: &JVal, run_status: &str, run_detail: &str) -> Result<Option<JVal>, String> {
+/// B-2c③ 起 `run` 也从这里删了：真做之后壳不再 ask run，桩面留着这号就等于给"分派漏改"留了后门，
+/// 让 `other => Err` 抓回归才是这一刀要的判据（run 的终态改由会话自带的 run 闭包注入）。
+fn drive_selftest_respond(act: &str, _prm: &JVal) -> Result<Option<JVal>, String> {
     match act {
         "desk" => Ok(Some(jv_s("Default"))),
         "takeover" => Ok(None),
@@ -5234,7 +6120,6 @@ fn drive_selftest_respond(act: &str, _prm: &JVal, run_status: &str, run_detail: 
             ("chains", JVal::A(vec![jv_s("Fight"), jv_s("Shop")])),
         ]))),
         "launch" => Ok(Some(JVal::B(true))),
-        "run" => Ok(Some(jv_o(vec![("status", jv_s(run_status)), ("detail", jv_s(run_detail))]))),
         "skip" => Ok(Some(jv_o(vec![
             ("skipped", JVal::B(true)),
             ("plan", JVal::A(vec![jv_s("CE-5")])),
@@ -5252,6 +6137,119 @@ fn drive_selftest_respond(act: &str, _prm: &JVal, run_status: &str, run_detail: 
             ("Selected", jv_s("1-7")),
         ]))),
         other => Err(format!("迷你驱动器没有这号动作的桩：{}", other)),
+    }
+}
+
+/// B-2d④ 自检配套（仅供 --selftest）：m9a 那一路的迷你驱动器。
+/// 起轮口径与上面 `drive_selftest_session` **逐段同形**（一轮一"进程"→读信封→ask 就替它办→写 res→再起），
+/// 因为那是驱动协议；三处差别全是这一路自己的事实：
+/// - 走 `drive_m9a_daily_envelope`（role/why 两枚、ctx 只有 retry_once/m9aRun 两格）；
+/// - run 闭包只吃 scen（真身 `Invoke-M9ARun` 签名里没有 `-Chains`）；
+/// - `decide` 在这里是**注入的替身**而不是坏路径真跑：这一组要钉的是重试分流前后的动作序
+///   （stop / sleep 20 / 再 run 一次），拿坏 exe 路径当替身只会让会话在第一次分流就 fail 收场。
+fn drive_m9a_selftest_session(
+    journal: &str,
+    ctx: &str,
+    res: &str,
+    state: &str,
+    log_sink: &str,
+    responder: &mut dyn FnMut(&str, &JVal) -> Result<Option<JVal>, String>,
+    run_m9a: &mut dyn FnMut(&M9aScen) -> Result<M9aRunOut, String>,
+    decide: &mut dyn FnMut(&str, bool, bool) -> Result<(bool, Vec<(String, String)>), String>,
+) -> (Vec<String>, Vec<String>, String, JVal, Option<String>) {
+    let mut asked: Vec<String> = Vec::new();
+    let mut logs: Vec<String> = Vec::new();
+    let mut kind = String::new();
+    let mut result = JVal::Null;
+    let mut err: Option<String> = None;
+    let _ = std::fs::write(log_sink, "");
+    for _ in 0..64 {
+        let (rc, env) = drive_m9a_daily_envelope(
+            true,
+            journal,
+            ctx,
+            res,
+            "unused-panel-cs",
+            state,
+            log_sink,
+            &mut *decide,
+            &mut *run_m9a,
+        );
+        let ev = match jv_parse(&env) {
+            Ok(v) => v,
+            Err(e) => {
+                err = Some(format!("信封不是合法 JSON：{}", e));
+                break;
+            }
+        };
+        kind = jv_str(&jv_get(&ev, "kind"));
+        if kind == "done" {
+            if rc != 0 {
+                err = Some(format!("done 信封却非 0 码：{}", rc));
+                break;
+            }
+            result = jv_get(&ev, "result");
+            break;
+        }
+        if kind == "fail" {
+            err = Some(jv_str(&jv_get(&ev, "error")));
+            break;
+        }
+        if kind != "ask" {
+            err = Some(format!("没见过的 kind：[{}]", kind));
+            break;
+        }
+        if rc != 0 {
+            err = Some(format!("ask 信封却非 0 码：{}", rc));
+            break;
+        }
+        let act = jv_str(&jv_get(&ev, "action"));
+        let seq = jv_int(&jv_get(&ev, "seq"), 0);
+        let prm = jv_get(&ev, "params");
+        asked.push(act.clone());
+        let row = match responder(&act, &prm) {
+            Ok(Some(d)) => {
+                jv_o(vec![("seq", JVal::I(seq)), ("action", jv_s(&act)), ("ok", JVal::B(true)), ("data", d)])
+            }
+            Ok(None) => jv_o(vec![("seq", JVal::I(seq)), ("action", jv_s(&act)), ("ok", JVal::B(true))]),
+            Err(m) => {
+                jv_o(vec![("seq", JVal::I(seq)), ("action", jv_s(&act)), ("ok", JVal::B(false)), ("err", jv_s(&m))])
+            }
+        };
+        if let Err(e) = std::fs::write(res, jv_to_json(&row)) {
+            err = Some(format!("res 写不动：{}", e));
+            break;
+        }
+    }
+    drive_sink_drain(log_sink, &mut logs, &mut err);
+    if err.is_none() && kind != "done" {
+        err = Some("会话没推到 done（迷你驱动器轮次打完了）".to_string());
+    }
+    (asked, logs, kind, result, err)
+}
+
+/// B-2d④ 自检配套：m9a 那一路迷你驱动器的回执桩。八格里这里只有**七格** ——
+/// 名册里没有 `run`（这一路唯一真做的动作，真做之后壳不再 ask run），出现即分派漏改；
+/// 与 ark 侧 B-2c③ 那条「白名单与 case 双删，双删本身就是回归抓器」同一条判据。
+/// 两枚闸的回执是三格 {code,line,joined}（不是ark 那一路的任何形状）。
+fn drive_m9a_selftest_respond(act: &str, _prm: &JVal) -> Result<Option<JVal>, String> {
+    match act {
+        "updgate" => Ok(Some(jv_o(vec![
+            ("code", JVal::I(0)),
+            ("line", jv_s("已是最新，无需更新")),
+            ("joined", jv_s("已是最新，无需更新")),
+        ]))),
+        "takeover" => Ok(None),
+        "mumu" => Ok(Some(JVal::B(true))),
+        "cfg" => Ok(Some(jv_o(vec![("changes", JVal::A(vec![jv_s("实例：1999")]))]))),
+        "stop" => Ok(None),
+        "sleep" => Ok(None),
+        "audit" => Ok(Some(jv_o(vec![
+            ("code", JVal::I(0)),
+            ("line", jv_s("无待审活动")),
+            ("joined", jv_s("无待审活动")),
+        ]))),
+        other => Err(format!("m9a 迷你驱动器没有这号动作的桩：{}", other)),
     }
 }
 
@@ -5335,9 +6333,15 @@ fn run_arkskip(panel_cs: &str, out: &Option<String>) -> i32 {
 //     现场量那半已由 ark-desktop-state 落到 panel-cs（verb 就位），核内没有调用点 ⇒ 那一档采集
 //     在 Rust 侧仍是空白；接线时机与归属跟着 B-2c 的生产面一起定，别当成已经搬完。
 
-/// 运行面对宿主世界的全部需求（十件），每一件对应 lib\maa.ps1 里的一行现场动作。
+/// 运行面对宿主世界的全部需求（十一件），每一件对应 lib\maa.ps1 或 lib\m9a.ps1 里的一行现场动作。
 /// 两个宿主：`ScriptHost`=剧本夹具（B-2a 的对拍面，虚拟钟 + 事件时间线 + 投影），
 /// `RealHost`=生产现场（B-2c 接线时才启用；本刀不接生产，`run` 仍走 ask）。
+///
+/// **B-2d② 把十件扩成十一件**（plan §11.39 ③-2 登记的两处破面，逐条给由）：
+///   · `start_process` 多带一截 `args` —— m9a 必带 `-i/-a/-q/-f`，ark 一路从不带参数；
+///   · 新增 `day_stamp` —— M9A 的日志名吃本地日历日（`log-yyyyMMdd.log`，每轮重算），
+///     Rust 零依赖不自加日期库 ⇒ 真身走 GetLocalTime，剧本走夹具喂的日期表。
+/// 那半句"key 不进核 ⇒ 没有新的 env 通道"照旧成立，本刀没碰。
 trait MaaHost {
     /// Write-GdLog。level 归一：真身裸调用（不带 -Level）在两侧都落成显式 INFO。
     fn log(&mut self, level: &str, text: &str);
@@ -5351,8 +6355,14 @@ trait MaaHost {
     fn file_tail(&mut self, path: &str, offset: u64) -> (String, u64);
     /// Test-GdProcessRunning（Get-Process -Name：不分大小写、名字不带扩展名）。
     fn proc_running(&mut self, name: &str) -> bool;
-    /// Start-Process -FilePath -WorkingDirectory。真身不 try/catch：起不来就整函数上抛。
-    fn start_process(&mut self, exe: &str, dir: &str) -> Result<(), String>;
+    /// Start-Process -FilePath [-ArgumentList …] -WorkingDirectory。真身不 try/catch：起不来就整函数上抛。
+    /// `args` 空 = ark 那一路的裸启动（投影逐字保持 `R|{exe}|{dir}`，ark 侧 27 档基线因此一字不动）；
+    /// m9a 必带 `-i/-a/-q/-f` ⇒ 非空时投影追加一截，真身走 `Command::args`。
+    fn start_process(&mut self, exe: &str, dir: &str, args: &[String]) -> Result<(), String>;
+    /// `Get-Date -Format 'yyyyMMdd'` —— **m9a 独有**的一件：日志文件名每轮重算，跨 00:00 就换文件，
+    /// 所以偏移必须按路径 keyed（ark 侧是两枚固定 offset 变量，形状不同）。
+    /// 剧本侧由夹具喂的日期表按虚拟钟查表，投影只在**值变化时**落一条 `D|{stamp}`。
+    fn day_stamp(&mut self) -> String;
     /// Invoke-GdCli：唯一转发通道，verb 的 data 原样交回（本层不解释其内容）。
     fn verb(&mut self, name: &str, body: &JVal) -> Result<JVal, String>;
     /// `Get-Command Invoke-GdVisionRescue`。B-2a 恒 false；B-2b③ 起转真，但**真身那句问不出**
@@ -5538,6 +6548,119 @@ impl MaaRet {
     }
 }
 
+/// m9a 一路的剧本事件表把 target 收窄到 `"m9alog"` 一枚（见 `m9arun_parse`），所以这两格在 m9a 档里
+/// 是空串：m9a 的日志只有一本，名字还每轮变，装不进 `MaaPaths` 那两枚固定路径的形状。
+#[derive(Clone, Default)]
+struct M9aScen {
+    name: String,
+    dry_run: bool,
+    // ===== ctx 名册：逐枚点名 15 枚（paths 3 ＋ conn 2 ＋ instance 2 ＋ package 1 ＋ runtime 7）=====
+    // 硬约束（plan §11.39 ②-3，与 B-2c① 那条同款）：**绝不把 `$S.runtime` 整块序列化** ——
+    // `visionApiKey` 与下面这六枚 runtime 键住同一个块，整块序列化就等于把 key 送进核、送进落盘。
+    // paths 3（真身 `Get-M9APaths` 的六格里循环只吃这四样：Dir/Exe/LogDir/Name，Name 由 Exe 去扩展名算出）
+    m9a_dir: String,
+    m9a_exe: String,
+    m9a_log_dir: String,
+    // conn 2（真身 `Get-M9AConnection` 从实例 JSON 里解出来的两枚；解 JSON 那一步留在 ctx 侧，
+    // 因为它吃的是 `$Instance.Path` 指向的对方文件，不属判据）
+    adb: String,
+    serial: String,
+    // instance 2 ＋ package 1
+    instance_id: String,
+    instance_name: String,
+    package: String,
+    // runtime 7
+    mode: String, // m9aInstanceArg（'id'|'name'，缺键按真身调用的默认走 'id'）
+    force_start: bool, // m9aForceStart
+    /// m9aCliArgs 的**三态**：`None` = settings 里这枚键压根不存在 ⇒ 真身 `Get-GdM9ACliEnabled`
+    /// 那句 `if ($null -eq …) { return $true }` 判"开"。写成 `bool` 就把"没填"和"填了 false"两档
+    /// 塌成一档，而这两档在真身里走的是完全不同的路（前者带 -i/-a/-q/-f，后者裸启动＋"在跑就 throw"）。
+    cli: Option<bool>,
+    vision_max: i64, // visionMaxRescue（m9a 送的是**原始值**，不像 ark 那样先本地镜像一份预算）
+    start_min: i64, // r1999StartTimeoutMinutes
+    timeout_min: i64, // r1999TimeoutMinutes
+    stall_min: i64, // stallTimeoutMinutes
+    // ===== 兜底链三格 ＋ 两枚可用性（真身 m9a.ps1 写死 -Game 'r1999' -Target 'mumu'）=====
+    game: String,
+    target: String,
+    state_dir: String,
+    rescue_available: bool,
+    grab_available: bool, // m9a 一路结构上就是 false（抢前台那枚只有端游点）
+    // ===== 夹具面 =====
+    /// 本地日期读数表 `(at, yyyyMMdd)`，升序；M9A 的日志名每轮重算 ⇒ 这张表要能跨 00:00，
+    /// 门里"跨 00:00 的一轮"那一格就靠它（plan §11.39 ⑥-2，arkrun 的 27 档复用不了）。
+    days: Vec<(f64, String)>,
+    /// 起点日志内容：给 Some(整写，空串也算"文件在、零字节")／没给就删（"日志压根不在场"单独一档）。
+    seed: Option<String>,
+    procs: Vec<(String, bool)>,
+    events: Vec<MaaEv>,
+    live: Vec<(String, JVal)>,
+}
+
+/// `Get-M9APaths`(m9a.ps1:43-53) 里循环用得上的四格。
+/// 真身那六格的 AppSettings/FrameLog 两格**不复刻**：ma 循环一次都不读它们，
+/// 而 m9a 的 dry-run 话术写的是 `$($P.Exe)`（正确插值，不是 maa.ps1:228 那种整对象渲染），
+/// 所以这边不需要 `ps_to_string` —— 两格补上来只是死字段。
+struct M9aPaths {
+    dir: String,
+    exe: String,
+    log_dir: String,
+    name: String,
+}
+
+impl M9aPaths {
+    fn of(sc: &M9aScen) -> M9aPaths {
+        M9aPaths {
+            dir: sc.m9a_dir.clone(),
+            exe: gd_join_path(&sc.m9a_dir, &[&sc.m9a_exe]),
+            log_dir: gd_join_path(&sc.m9a_dir, &[&sc.m9a_log_dir]),
+            name: file_stem(&sc.m9a_exe),
+        }
+    }
+}
+
+/// Invoke-M9ARun 的返回：Status/Detail 恒有；Duration 只有 ok 那一路带（真身 `$res.Duration = $elapsed`
+/// 那一支）、Rescued 只在"进程都没了但画面兜成了"那一路才挂（`:493` 的语义）、
+/// Tasks/FailedTasks 是判因的话术料（`FailedTasks` 这一格在真身里**只有 blocked 才存在**，
+/// 因为 `Resolve-M9AStatus:315` 那句"信封有这个键才带"）。
+/// Args 是 dry-run 那一路唯一多出来的键（`:342`），其余档位真身压根不带 ⇒ 这里恒空数组。
+#[derive(Default)]
+struct M9aRet {
+    status: String,
+    detail: String,
+    duration: Option<f64>,
+    rescued: bool,
+    tasks: Vec<String>,
+    failed_tasks: Option<Vec<String>>,
+    args: Vec<String>,
+}
+
+impl M9aRet {
+    /// 投影末行：`Z|status|detail|dur|rescued|tasks|failed|args`。
+    /// 缺键落 "-"（与 ark 的 `Z|` 同口径）、数组内用单元分隔符，只有 args 用空格
+    /// —— 因为真身那句 `-join ' '` 就是空格，这一格在门上还要跟 `R|` 行对照着读。
+    fn proj_line(&self) -> String {
+        let dur = match self.duration {
+            None => "-".to_string(),
+            Some(d) => format!("{}", d),
+        };
+        let failed = match &self.failed_tasks {
+            None => "-".to_string(),
+            Some(v) => v.join("\u{1e}"),
+        };
+        format!(
+            "Z|{}|{}|{}|{}|{}|{}|{}",
+            self.status,
+            self.detail,
+            dur,
+            if self.rescued { 1 } else { 0 },
+            self.tasks.join("\u{1e}"),
+            failed,
+            self.args.join(" ")
+        )
+    }
+}
+
 /// completed 的容器：PS 侧是大小写不敏感的 hashtable（重复键**保留首个拼写**、覆盖值），
 /// 键序不是不变量 ⇒ 投影前一律 Ordinal 排序（与 RunLoops.cs:403 同口径；链名只可能是 [A-Za-z]+，
 /// 夹具面不混大小写是门纪律，见 probe-live-golden 头注那条同源规矩）。
@@ -5611,7 +6734,8 @@ fn replay_logs<H: MaaHost>(h: &mut H, logs: &JVal) {
 // 分工照 plan §11.34 ②：Rust 这层只搬"七道闸的消费顺序 + 候选循环 + 三种结论话术 + 两本账的落盘"，
 // 凡要动这台机器的（拍窗口、点客户区、抢前台、起 Python 问模型、读 key/管理员/解释器）一律经 verb 外调。
 // key 因此进不了核：它只在 panel-cs 侧进子进程环境变量（Live.cs 的 RunChild），核里一个字节都摸不到，
-// 也不经命令行、不进请求文件、不进日志（§11.34 里"必答"的那一条，MaaHost 十件签名因此一字未动）。
+// 也不经命令行、不进请求文件、不进日志（§11.34 里"必答"的那一条 —— 本刀为 m9a 扩的那两件
+// 与 key 无关，那条判据照旧成立：key 只进 panel-cs 子进程的 EnvironmentVariables）。
 
 /// `tag -like 'stuck*'` 这类"前缀通配"：PS 的 -like 不分大小写。三种 tag 前缀（stuck/drain/stall）
 /// 加 grab 那枚空 tag 用得上，别处的 -like 形状（带 [] ?）在本射程里不存在。
@@ -5657,14 +6781,59 @@ fn all_done(expected: &[(String, i64)], completed: &[(String, i64)]) -> bool {
     !expected.is_empty() && done_count(expected, completed) >= expected.len() as i64
 }
 
+/// 兜底链的**环境依赖**三格（B-2d② 从 `MaaScen` 里抽出来的一层，plan §11.39 ②-4 那条"配套抽取"）。
+/// 为什么现在抽：`vision_rescue`/记账那六枚函数原本吃整份 `&MaaScen`，实际只读这三格
+/// （`target` 给六闸与截图文件名、`state_dir` 给两本账的落点、`game` 给账本的 `-Game`）。
+/// m9a 那一路的循环宿主有自己的场景结构体（`M9aScen`，字段集与 ark 完全不同），
+/// 不抽这一层就得让 m9a 造一份假 `MaaScen` 或者把六枚函数各写两遍 —— 两条都比抽薄更糟。
+#[derive(Clone, Default)]
+struct RescueEnv {
+    game: String,
+    target: String,
+    state_dir: String,
+    // ===== B-2d③：mumu 那一路的两枚现场量（ark 路恒空串 ⇒ ark 行为零影响）=====
+    // 为什么是**传进来**而不是核里去算：算端点那段是「三源两正则 ＋ 两次 native」
+    // （`Get-GdMuMuAdbEndpoint:20-73`），plan §11.39 ②-3 明令不许搬进核，本刀照字面不搬。
+    // 事实源在 ctx 的 `conn` 两格（`m9arun_parse:7971-7972`，真身 `Get-M9AConnection` 现取），
+    // 到这儿已经是一枚**绝对路径**与一枚**序列号**，核只转达、不判定。
+    adb: String,
+    serial: String,
+}
+
+impl RescueEnv {
+    /// ark 一路：三格直接投影自 `MaaScen`（真身那三处写死的 'ark' 已在 `maarun_parse` 的默认支里）。
+    /// adb/serial 给空串：端游那一路压根没有 adb，`Live.cs` 的 ark 支也读不到这两枚键。
+    fn of_maa(sc: &MaaScen) -> RescueEnv {
+        RescueEnv {
+            game: sc.game.clone(),
+            target: sc.target.clone(),
+            state_dir: sc.state_dir.clone(),
+            adb: String::new(),
+            serial: String::new(),
+        }
+    }
+    /// m9a 一路：同一格三枚，缺省是真身写死的 `'r1999'`／`'mumu'`（`m9a.ps1:393/396/463/471`）。
+    /// adb/serial 走 `conn` 那两格 ⇒ 与循环开头 `adb-connect`／每轮 `adb-game-pid` 用的是**同一份**，
+    /// 不是"兜底时另算一次端点"（真身那边 Shot/Click/Alive 各自现查，本刀定案见 plan §11.42 ①-12）。
+    fn of_m9a(sc: &M9aScen) -> RescueEnv {
+        RescueEnv {
+            game: sc.game.clone(),
+            target: sc.target.clone(),
+            state_dir: sc.state_dir.clone(),
+            adb: sc.adb.clone(),
+            serial: sc.serial.clone(),
+        }
+    }
+}
+
 /// `Get-GdRescueShotDir`(vision-rescue.ps1:64) = `<GD.State>\rescue`。
-fn rescue_shot_dir(sc: &MaaScen) -> String {
-    gd_join_path(&sc.state_dir, &["rescue"])
+fn rescue_shot_dir(env: &RescueEnv) -> String {
+    gd_join_path(&env.state_dir, &["rescue"])
 }
 
 /// `Get-GdRescueLedgerPath`(:411) = `<GD.State>\rescue.json`。
-fn rescue_ledger_path(sc: &MaaScen) -> String {
-    gd_join_path(&sc.state_dir, &["rescue.json"])
+fn rescue_ledger_path(env: &RescueEnv) -> String {
+    gd_join_path(&env.state_dir, &["rescue.json"])
 }
 
 /// `Clear-GdVisionFiles`(:399-407) 的"留哪几枚"那半，抽成纯函数：mtime 在自检里造不出可信次序，
@@ -5738,44 +6907,63 @@ fn rescue_skip<D: Into<String>>(why: D) -> VisionRc {
 
 /// 兜底总入口的复刻（vision-rescue.ps1:305-397）。七道闸的顺序不许调换（真身头注原话），
 /// 前六道合成一次 `resolve-rescue-context` 外调（闸序在那边逐条落着），第七道"截图"与黑屏闸在
-/// `ark-window-shot`。**Err = 真身没罩 try 的那些调用**（截图/点位换算/点击/比签名），
+/// `ark-window-shot`／`mumu-screen-shot`（B-2d③ 起两路同形状十五格，核侧消费点一字不区分）。
+/// **Err = 真身没罩 try 的那些调用**（截图/点位换算/点击/比签名），
 /// 它们会一路冒到调用方的 catch ⇒ 回执 `{kind:'rescue',exception:true,message}`；
 /// 唯独"问模型"这一处真身自己罩了 catch，所以它的 verb 错在本地降级成一句 skip（见下面那条注释）。
 fn vision_rescue<H: MaaHost>(
     h: &mut H,
-    sc: &MaaScen,
+    env: &RescueEnv,
     tag: &str,
     context: &str,
 ) -> Result<VisionRc, String> {
     // 闸 1..6（后端在场 / 开关 / 管理员 / key / Python / 对象在场）。skip 话术全部出自 verb，
     // 编排侧一个字不改 —— 关开关那句必须带 settings 的键名，t13 按那几个字断言"关了确实一次都不试"。
-    let ctx = h.verb(
-        "resolve-rescue-context",
-        &jv_o(vec![("target", jv_s(&sc.target))]),
-    )?;
+    // mumu 那一路的"对象在场"也是**现场量**，但它由 C# 那一侧现查（`MumuAlive`：devices→补 connect），
+    // 与 ark 那一路"按进程名现枚举"同形 ⇒ 核在这里**不多问一枚 verb**，只把端点两键当入参喂进去。
+    // ⚠ 10-12 实测改口（原 §11.42 ①-12／⑥-1 定的是"核先调 adb-connect 再把 Ok 当 alive 覆盖格喂进来"）：
+    // 那条把 alive 变成 ctx 的**入参** ⇒ 核只能排在 ctx 之前，而真身的闸序是"先拿靶子(=这一问)、过前五闸、
+    // 第六闸才碰 adb" ⇒ m9arun 门 H2 当场红 8 处（投影多一枚 `V|adb-connect` 且顺序正反），
+    // 且"没配 key／开关关着"那一档核会白起两趟真身根本不起的 adb native。 ⇒ 现查移回 C#，闸序随真身。
+    // 端点三源两正则仍绝不进核（§11.39 ②-3）：这里只把 conn 那两枚**已经算好的**键转喂 verb。
+    // ark 那一路一个键都不多喂（`alive`/`adb`/`serial` 三格全缺 ⇒ C# 自走它的进程现查，与 B-2b③ 起逐字相同）。
+    let is_mumu_target = kind_eq(&env.target, "mumu");
+    let mut ctx_body = vec![("target", jv_s(&env.target))];
+    if is_mumu_target {
+        ctx_body.push(("adb", jv_s(&env.adb)));
+        ctx_body.push(("serial", jv_s(&env.serial)));
+    }
+    let ctx = h.verb("resolve-rescue-context", &jv_o(ctx_body))?;
     if !jv_truthy(&jv_get(&ctx, "CanAsk")) {
         return Ok(rescue_skip(jv_str(&jv_get(&ctx, "Skip"))));
     }
     let kind = jv_str(&jv_get(&ctx, "Kind"));
     let name = jv_str(&jv_get(&ctx, "Name"));
-    // 靶子 kinds 与现场 verb 的对应：ark 一路拍窗/点窗两枚**已随 B-2b③ 进核**（就是下面这两枚），
-    // mumu(adb) 一路仍留给 B-2d —— 那一档的现场件在 vision-mumu 侧，本刀不起它。
-    // 走不到 else：resolve-rescue-context 对认不出的 kind 第一道闸就回 CanAsk=false（`known` 判据），
+    // 靶子 kinds 与现场 verb 的对应：ark 两枚随 B-2b③、mumu 两枚随 B-2d③ **都已在核**。
+    // 下面那句 `other` 桩已删净（§11.42 ①-1：删桩即回归抓器 —— 只改一侧、另一侧的夹具还认 mumu 就当场红）。
+    // 走不到 catch-all：resolve-rescue-context 对认不出的 kind 第一道闸就回 CanAsk=false（`known` 判据），
     // 真到这儿说明夹具撒了谎，宁可当场 Err 让上面落成 exception 回执，也不编一句真身没有的话术。
     let (shot_verb, click_verb) = match kind.as_str() {
         "ark" => ("ark-window-shot", "ark-window-click"),
-        other => return Err(format!("vision_rescue：这一路的现场 verb 还没进核：{}", other)),
+        "mumu" => ("mumu-screen-shot", "mumu-screen-click"),
+        other => return Err(format!("vision_rescue：靶子自报了现场 verb 之外的 kind：{}", other)),
     };
+    // 两路口径不同只在这三格：mumu 的 shot/click 要带 adb/serial（回执十五格/两格已在 C# 同形状补齐），
+    // ark 的 body 逐字不动。投影安全由构造保证——`ScriptHost::verb` 只投影 `V|{name}` 一行
+    // （§11.42 ①-10），多喂键不可能把 ark 侧那 27 档 1218 步基线带跑。
+    let is_mumu = kind_eq(&kind, "mumu");
 
-    let dir = rescue_shot_dir(sc);
+    let dir = rescue_shot_dir(env);
     let suffix = gd_shot_suffix();
     // 闸 7：先拍到东西才判得了黑屏。文件名 `<kind>-<tag>-<MMdd-HHmmss>-before.png` 是编排侧的现场量，
     // verb 只管往这个路径落图（Live.cs 那句"路径属现场量，由编排侧拼"就是对着这里写的）。
     let before_path = gd_join_path(&dir, &[&format!("{}-{}-{}-before.png", kind, tag, suffix)]);
-    let before = h.verb(
-        shot_verb,
-        &jv_o(vec![("path", jv_s(&before_path)), ("name", jv_s(&name))]),
-    )?;
+    let mut before_body = vec![("path", jv_s(&before_path)), ("name", jv_s(&name))];
+    if is_mumu {
+        before_body.push(("adb", jv_s(&env.adb)));
+        before_body.push(("serial", jv_s(&env.serial)));
+    }
+    let before = h.verb(shot_verb, &jv_o(before_body))?;
     if !jv_truthy(&jv_get(&before, "Ok")) {
         // verb 的 Skip 已是"截图失败：<Why>"整句；异常路径上 Why 自带前缀 ⇒ 双前缀那处原样怪癖在这复刻。
         return Ok(rescue_skip(jv_str(&jv_get(&before, "Skip"))));
@@ -5787,7 +6975,8 @@ fn vision_rescue<H: MaaHost>(
     }
     h.log("WARN", &jv_str(&jv_get(&before, "LogLine")));
 
-    // 问模型：scene/userText 取自靶子（ark 一路两格都是空串 = 用 C# 那两份默认文案，逐字不许变），
+    // 问模型：scene/userText 取自靶子（ark 一路两格都是空串 = 用 C# 那两份默认文案，逐字不许变；
+    // mumu 一路两格是 `Live.cs` 的 1999 话术 ⇒ 核只原样转达、一个都不认识，plan §11.42 ①-11 那条硬约束），
     // context 是"为什么要问这一句"，截 200 字的规矩在 Live.cs AskUserText 里。
     // 真身 try/catch 罩的是整次问模型（含转发壳自己起不来），所以 verb 的 Err 也归"模型调用失败"那一句 ——
     // 这是三处 catch 里唯一把 verb 错吃掉的一处，照抄。
@@ -5879,26 +7068,30 @@ fn vision_rescue<H: MaaHost>(
                 jv_str(&jv_get(pt, "Why"))
             ),
         );
-        let click = h.verb(
-            click_verb,
-            &jv_o(vec![
-                ("clientX", jv_get(pt, "ClientX")),
-                ("clientY", jv_get(pt, "ClientY")),
-                ("name", jv_s(&name)),
-                ("what", jv_get(&v, "What")),
-                ("why", jv_get(pt, "Why")),
-            ]),
-        )?;
+        let mut click_body = vec![
+            ("clientX", jv_get(pt, "ClientX")),
+            ("clientY", jv_get(pt, "ClientY")),
+            ("name", jv_s(&name)),
+            ("what", jv_get(&v, "What")),
+            ("why", jv_get(pt, "Why")),
+        ];
+        if is_mumu {
+            click_body.push(("adb", jv_s(&env.adb)));
+            click_body.push(("serial", jv_s(&env.serial)));
+        }
+        let click = h.verb(click_verb, &jv_o(click_body))?;
         let mode = jv_str(&jv_get(&click, "Mode"));
         h.sleep(6);
         let after_path = gd_join_path(
             &dir,
             &[&format!("{}-{}-{}-after{}.png", kind, tag, suffix, tries.len() + 1)],
         );
-        let after = h.verb(
-            shot_verb,
-            &jv_o(vec![("path", jv_s(&after_path)), ("name", jv_s(&name))]),
-        )?;
+        let mut after_body = vec![("path", jv_s(&after_path)), ("name", jv_s(&name))];
+        if is_mumu {
+            after_body.push(("adb", jv_s(&env.adb)));
+            after_body.push(("serial", jv_s(&env.serial)));
+        }
+        let after = h.verb(shot_verb, &jv_o(after_body))?;
         if !jv_truthy(&jv_get(&after, "Ok")) {
             trim_shot_dir(&dir, 24);
             // 这一句用的是 after.Why（不是 Skip）⇒ 补拍失败只有一层前缀，与首拍那两处不成对称，原样照抄。
@@ -5977,14 +7170,18 @@ fn do_grab<H: MaaHost>(h: &mut H, effx: &mut Vec<JVal>) {
     }
 }
 
-/// 三档执行块里那段 rescue 调用（真身在 maa.ps1:511-521 / 546-555 / 578-586 抄了三遍，语义同一份）。
+/// 三档执行块里那段 rescue 调用（真身在 maa.ps1:511-521 / 546-555 / 578-586 抄了三遍，语义同一份；
+/// m9a 那一路的真身在 m9a.ps1:459-466，算术同一份）。
+/// `ack_kind` = 回执上那条 kind 的字面：**ark 侧叫 `rescue`、m9a 侧叫 `ask-screen`**（两套词各归各处，
+/// 由各自的 C# 按 kind 分派 ⇒ 不许"顺手统一成一个"，plan §11.39 ⑤-3 那条同款纪律）。
 /// 预算的还原/再扣照真身原样：`$rescueLeft = [int]$st.rescueLeft + 1` **无条件先做**，
 /// 于是"树上没有兜底函数"那一支会把预算加回去一格 —— 原样怪癖，不顺手修（§11.34 ⑦）。
 /// quiet 档真身连 -Context 都不给（默认空串）；这里统一读 effect 的 Context，因为 C# 给 stall 那档
 /// 挂的 Context 恒是 ""（RunLoops.cs:317），两条路在输入面上就是同一个值。
 fn do_rescue<H: MaaHost>(
     h: &mut H,
-    sc: &MaaScen,
+    env: &RescueEnv,
+    ack_kind: &str,
     e: &JVal,
     state: &JVal,
     effx: &mut Vec<JVal>,
@@ -5995,15 +7192,15 @@ fn do_rescue<H: MaaHost>(
         rl -= 1;
         let tag = jv_str(&jv_get(e, "Tag"));
         let context = jv_str(&jv_get(e, "Context"));
-        match vision_rescue(h, sc, &tag, &context) {
+        match vision_rescue(h, env, &tag, &context) {
             Ok(rc) => effx.push(jv_o(vec![
-                ("kind", jv_s("rescue")),
+                ("kind", jv_s(ack_kind)),
                 ("tried", JVal::B(rc.tried)),
                 ("done", JVal::B(rc.done)),
                 ("detail", jv_s(&rc.detail)),
             ])),
             Err(msg) => effx.push(jv_o(vec![
-                ("kind", jv_s("rescue")),
+                ("kind", jv_s(ack_kind)),
                 ("exception", JVal::B(true)),
                 ("message", jv_s(&msg)),
             ])),
@@ -6021,7 +7218,7 @@ fn do_rescue<H: MaaHost>(
 #[allow(clippy::too_many_arguments)]
 fn do_record<H: MaaHost>(
     h: &mut H,
-    sc: &MaaScen,
+    env: &RescueEnv,
     e: &JVal,
     effx: &mut Vec<JVal>,
 ) -> Result<(), String> {
@@ -6029,7 +7226,7 @@ fn do_record<H: MaaHost>(
     let done = jv_truthy(&jv_get(e, "Done"));
     add_rescue_record(
         h,
-        sc,
+        env,
         &jv_str(&jv_get(e, "Tag")),
         &jv_str(&jv_get(e, "Detail")),
         tried,
@@ -6045,13 +7242,13 @@ fn do_record<H: MaaHost>(
 /// 因此剧本世界里它是真钟而不是虚拟钟 —— 门④比这本账按语义比，不比文件名/时间戳字面）。
 fn add_rescue_record<H: MaaHost>(
     h: &mut H,
-    sc: &MaaScen,
+    env: &RescueEnv,
     tag: &str,
     detail: &str,
     tried: bool,
     done: bool,
 ) -> Result<(), String> {
-    let path = rescue_ledger_path(sc);
+    let path = rescue_ledger_path(env);
     let mut events: Vec<JVal> = Vec::new();
     // "第一次救火"恰恰就是文件不存在那次，所以入口先用 Test-Path 守一次（真身那句注释的理由仍在，
     // 而且它还被 t16 钉着）。读不动 → WARN 按空账继续。
@@ -6078,8 +7275,8 @@ fn add_rescue_record<H: MaaHost>(
         "rescue-entry",
         &jv_o(vec![
             ("time", jv_s(&gd_ledger_time())),
-            ("game", jv_s(&sc.game)),
-            ("target", jv_s(&sc.target)),
+            ("game", jv_s(&env.game)),
+            ("target", jv_s(&env.target)),
             // 真身这里传 [string]$Result.Target —— 靶子自报名；effect 上没这一格，恒空串（verb 的回退支用不上）。
             ("fallbackTarget", jv_s("")),
             ("tag", jv_s(tag)),
@@ -6115,6 +7312,8 @@ fn add_rescue_record<H: MaaHost>(
 /// `Invoke-MaaRun` 的循环骨架（lib\maa.ps1:220-620）逐行进核。
 fn maa_run<H: MaaHost>(h: &mut H, sc: &MaaScen) -> Result<MaaRet, String> {
     let p = MaaPaths::of(sc);
+    // 兜底链的环境三格：整轮建一次（B-2d② 抽出的那层，真身在 maa.ps1 里是三处调用点各写一遍同样的参数）。
+    let env = RescueEnv::of_maa(sc);
     // 228：DryRun 只打一行 STEP 就回（Detail 是空串、Errors 这个键根本不存在）。
     // 话术里那串 `@{Dir=…}.Exe` 不是笔误复刻、是**真身就这么印**：maa.ps1 写的是 `$P.Exe`，
     // PS 按 `$P` 整体插值 + 字面 `.Exe` 处理 ⇒ 打印的是对象渲染而不是 exe 路径。
@@ -6155,7 +7354,8 @@ fn maa_run<H: MaaHost>(h: &mut H, sc: &MaaScen) -> Result<MaaRet, String> {
     }
     let started = h.clock();
     h.log("STEP", &format!("启动 MAA：{}", p.exe));
-    h.start_process(&p.exe, &p.dir)?;
+    // ark 一路从不带参数（真身 maa.ps1 那句裸 Start-Process）⇒ 传空切片，投影保持 `R|exe|dir` 两截。
+    h.start_process(&p.exe, &p.dir, &[])?;
     if !wait_condition(h, 90, 3, "MAA 进程启动", |hh| hh.proc_running(&p.name)) {
         return Ok(MaaRet {
             status: "error".to_string(),
@@ -6427,11 +7627,11 @@ fn maa_run<H: MaaHost>(h: &mut H, sc: &MaaScen) -> Result<MaaRet, String> {
                         did = true;
                     }
                     if kind_eq(&kind, "rescue") {
-                        do_rescue(h, sc, e, &state, &mut effx, &mut rescue_left);
+                        do_rescue(h, &env, "rescue", e, &state, &mut effx, &mut rescue_left);
                         did = true;
                     }
                     if kind_eq(&kind, "record") {
-                        do_record(h, sc, e, &mut effx)?;
+                        do_record(h, &env, e, &mut effx)?;
                         did = true;
                     }
                 }
@@ -6444,11 +7644,11 @@ fn maa_run<H: MaaHost>(h: &mut H, sc: &MaaScen) -> Result<MaaRet, String> {
             if tag_like(&tag, "drain") {
                 if drained && !all_done_flag {
                     if kind_eq(&kind, "rescue") {
-                        do_rescue(h, sc, e, &state, &mut effx, &mut rescue_left);
+                        do_rescue(h, &env, "rescue", e, &state, &mut effx, &mut rescue_left);
                         did = true;
                     }
                     if kind_eq(&kind, "record") {
-                        do_record(h, sc, e, &mut effx)?;
+                        do_record(h, &env, e, &mut effx)?;
                         did = true;
                     }
                 }
@@ -6462,11 +7662,11 @@ fn maa_run<H: MaaHost>(h: &mut H, sc: &MaaScen) -> Result<MaaRet, String> {
             if !did && tag_like(&tag, "stall") {
                 if quiet > stall as f64 {
                     if kind_eq(&kind, "rescue") {
-                        do_rescue(h, sc, e, &state, &mut effx, &mut rescue_left);
+                        do_rescue(h, &env, "rescue", e, &state, &mut effx, &mut rescue_left);
                         did = true;
                     }
                     if kind_eq(&kind, "record") {
-                        do_record(h, sc, e, &mut effx)?;
+                        do_record(h, &env, e, &mut effx)?;
                         did = true;
                     }
                 }
@@ -6525,6 +7725,39 @@ struct ScriptHost {
     rescue_avail: bool,
     grab_avail: bool,
     live: Vec<(String, JVal)>,
+    // B-2d②：本地日期读数按剧本喂的表查（`(at, stamp)` 升序，`at` 之前一律用首档）。
+    // ark 一路不填这张表也不调 `day_stamp` ⇒ 四格全空、投影零条 `D|`，27 档基线一字不动。
+    days: Vec<(f64, String)>,
+    cur_day: String,
+    /// 已经落过投影的那枚日期值：`D|` 只在**值变化时**落一条（日期是"每轮重算的同一个读数"，
+    /// 逐轮重复落只会把门变成"数行数"，换不了文件的读数没有信息量）。空串当"还没落过"，
+    /// 因为真日期恒为 8 位、不可能等于空串。
+    day_shown: String,
+    /// m9a 那一路的日志目录（`log-yyyyMMdd.log` 的父目录）；ark 一路为空。
+    m9a_log_dir: String,
+    /// B-2d③：每次外调的**入参**按先后各留一份，只给自检钉「body 按 kind 分派」那一格用
+    /// （mumu 那三枚要带 `adb`/`serial`、ark 那三枚一个键都不许多）。
+    /// 它**不进 `proj`** —— 等值门的比对面一字未动，ark 侧 27 档 1218 步基线因此不可能被这一格带跑
+    /// （§11.42 ①-10 那句"投影安全由构造保证"的同族）。
+    bodies: Vec<(String, JVal)>,
+}
+
+/// 按虚拟钟查日期表：取 `at <= clock` 的最后一档，钟还没走到首档时用首档（表空返回空串，
+/// 由调用侧的形状门拒跑 —— 见 `m9arun_parse` 那条"剧本没给 dates"）。
+fn day_lookup(days: &[(f64, String)], clock: f64) -> String {
+    let mut out = String::new();
+    for (at, stamp) in days {
+        if *at > clock {
+            break;
+        }
+        out = stamp.clone();
+    }
+    if out.is_empty() {
+        if let Some((_, stamp)) = days.first() {
+            out = stamp.clone();
+        }
+    }
+    out
 }
 
 impl ScriptHost {
@@ -6540,24 +7773,75 @@ impl ScriptHost {
             rescue_avail: sc.rescue_available,
             grab_avail: sc.grab_available,
             live: sc.live.clone(),
+            days: Vec::new(),
+            cur_day: String::new(),
+            day_shown: String::new(),
+            m9a_log_dir: String::new(),
+            bodies: Vec::new(),
         }
     }
 
+    /// m9a 一路的剧本宿主：ark 那两枚固定路径（gui/asst）在这里**没有落点**，
+    /// 日志名每轮由 `days` 表查出来 ⇒ `m9a_log_dir` 填上、`paths` 留空。
+    /// `file_of` 因此只对 `"m9alog"` 给路径，而那枚 target 之外的事件由 `m9arun_parse` 当场拒跑
+    /// （不是静默丢弃：靶子名写错会让一整档跑成"什么都没发生"，那种假绿比红更糟）。
+    fn new_m9a(panel_cs: &str, sc: &M9aScen) -> ScriptHost {
+        ScriptHost {
+            panel_cs: panel_cs.to_string(),
+            paths: MaaPaths::of(&MaaScen::default()),
+            procs: sc.procs.clone(),
+            events: sc.events.clone(),
+            next_ev: 0,
+            clock: 0.0,
+            proj: Vec::new(),
+            rescue_avail: sc.rescue_available,
+            grab_avail: sc.grab_available,
+            live: sc.live.clone(),
+            days: sc.days.clone(),
+            cur_day: day_lookup(&sc.days, 0.0),
+            day_shown: String::new(),
+            m9a_log_dir: M9aPaths::of(sc).log_dir,
+            bodies: Vec::new(),
+        }
+    }
+
+    /// 自检用：同名 verb 的**最后**一枚入参（兜底链里首拍与补拍同名，判据要看最后一次的分派）。
+    /// 它只读 `bodies`，不进 `proj` ⇒ 等值门的比对面一字未动。
+    fn body_of(&self, name: &str) -> Option<&JVal> {
+        self.bodies
+            .iter()
+            .rev()
+            .find(|(n, _)| n == name)
+            .map(|(_, b)| b)
+    }
+
     /// 睡眠推钟并把 `at <= 新钟` 的事件按剧本先后落完（同一 at 的先后 = 数组先后，两侧一致）。
+    /// B-2d② 起顺序是「**先置钟 → 刷日期 → 落事件**」：真身每轮是 `Start-Sleep` 之后才现算
+    /// `log-<今天>.log` 这个路径，所以"睡醒那一刻的日期"才是事件内容该落进去的文件；
+    /// 原先"落完事件再置钟"的写法在 ark 一路等价（它不读日期、两枚路径是常量），故 27 档基线不动。
     fn advance(&mut self, seconds: u32) {
         let until = self.clock + seconds as f64;
+        self.clock = until;
+        self.cur_day = day_lookup(&self.days, until);
         while self.next_ev < self.events.len() && self.events[self.next_ev].at <= until {
             let ev = self.events[self.next_ev].clone();
             self.next_ev += 1;
             self.apply_ev(&ev);
         }
-        self.clock = until;
     }
 
     fn file_of(&self, target: &str) -> Option<String> {
         match target {
             "gui" => Some(self.paths.gui_log.clone()),
             "asst" => Some(self.paths.asst_log.clone()),
+            // m9a 一路的日志名吃本地日历日，日期由夹具表给 ⇒ 文件名每轮可能换一枚。
+            // 目录为空（ark 一路）时给 None：那一档事件在本剧本里没有落点，照旧静默丢弃。
+            "m9alog" => {
+                if self.m9a_log_dir.is_empty() || self.cur_day.is_empty() {
+                    return None;
+                }
+                Some(m9a_daily_path(&self.m9a_log_dir, &self.cur_day))
+            }
             _ => None,
         }
     }
@@ -6649,9 +7933,28 @@ impl MaaHost for ScriptHost {
         self.proj.push(format!("P|{}|{}", name, if on { 1 } else { 0 }));
         on
     }
-    fn start_process(&mut self, exe: &str, dir: &str) -> Result<(), String> {
-        self.proj.push(format!("R|{}|{}", exe, dir));
+    fn start_process(&mut self, exe: &str, dir: &str, args: &[String]) -> Result<(), String> {
+        // args 为空 ⇒ 逐字 `R|{exe}|{dir}`（ark 一路的裸启动，27 档 1218 步基线因此一字不动）；
+        // 非空 ⇒ 追加一截，参数间用单元分隔符（数组在投影里的一贯记法，不为这一格另立形状）。
+        if args.is_empty() {
+            self.proj.push(format!("R|{}|{}", exe, dir));
+        } else {
+            self.proj.push(format!(
+                "R|{}|{}|{}",
+                exe,
+                dir,
+                args.join("\u{1e}")
+            ));
+        }
         Ok(())
+    }
+    fn day_stamp(&mut self) -> String {
+        self.cur_day = day_lookup(&self.days, self.clock);
+        if self.day_shown != self.cur_day {
+            self.proj.push(format!("D|{}", self.cur_day));
+            self.day_shown = self.cur_day.clone();
+        }
+        self.cur_day.clone()
     }
     fn verb(&mut self, name: &str, body: &JVal) -> Result<JVal, String> {
         // 夹具命中与真跑外调在投影上同形（都记一条 `V|名`）：门④要的是"这一路问了哪几枚 verb、
@@ -6659,10 +7962,12 @@ impl MaaHost for ScriptHost {
         // 七枚现场 verb（拍窗/点窗/抢前台/问模型/六闸上下文/窗口在场/桌面状态）。
         if let Some(i) = self.live.iter().position(|(n, _)| n == name) {
             self.proj.push(format!("V|{}", name));
+            self.bodies.push((name.to_string(), body.clone()));
             let (_, data) = self.live.remove(i);
             return Ok(data);
         }
         self.proj.push(format!("V|{}", name));
+        self.bodies.push((name.to_string(), body.clone()));
         call_panel_verb(&self.panel_cs, name, body)
     }
     fn rescue_available(&self) -> bool {
@@ -6673,10 +7978,487 @@ impl MaaHost for ScriptHost {
     }
 }
 
-// ---- RealHost：生产现场（B-2c 接线才启用；本刀不进生产） ----
+// ---- B-2d②：m9a 一路的采集面与循环骨架（lib\m9a.ps1:126-528 逐段进核）----
+
+/// `Get-M9ADailyLog`(m9a.ps1:126-130) 的复刻：`<LogDir>\log-<yyyyMMdd>.log`，**每轮重算**（跨 00:00 就换文件）。
+/// 真身那句是裸 `Join-Path` 而不是宽容的 `Join-GdPath` —— LogDir 为空时真身当场抛，
+/// 所以 `m9arun_parse` 把 `paths.m9aDir` 做成拒跑闸，运行期这一格不可能为空（少这一闸就要多复刻一句 PS 绑定异常）。
+fn m9a_daily_path(log_dir: &str, day: &str) -> String {
+    gd_join_path(log_dir, &[&format!("log-{}.log", day)])
+}
+
+/// PS hashtable 的**键存在性**（真身两句都吃这个：`Register-M9AEvents` 的 `ContainsKey`、
+/// `Resolve-M9AStatus:315` 的 `$null -ne $d.PSObject.Properties['FailedTasks']`）。
+/// 不能用 `jv_get(...) == Null` 代替 —— 那会把"键在、值是 null"与"键压根不在"塌成一档，
+/// 而 C# 那侧 `queueCount` 的 `qc != null` 判据恰恰区分它们（Processes.cs:488）。
+fn jvo_has(v: &JVal, key: &str) -> bool {
+    if let JVal::O(o) = v {
+        return o.iter().any(|(k, _)| k == key);
+    }
+    false
+}
+
+/// PS hashtable 的原位赋值：键在则保位置换值，不在则追加。
+/// 键序**不是**判据（user 记忆 pwsh-hashtable-keyorder-not-an-invariant：换进程或拷贝就可能重排），
+/// 保位置只是让这份 state 在投影之外也读得顺。
+fn jvo_set(st: &mut JVal, key: &str, val: JVal) {
+    if let JVal::O(o) = st {
+        for (k, v) in o.iter_mut() {
+            if k == key {
+                *v = val;
+                return;
+            }
+        }
+        o.push((key.to_string(), val));
+    }
+}
+
+/// `Register-M9AEvents:187-188` 那份名单，十二枚逐字照抄（`lastLog` 刻意不在内 —— 挂钟量不进信封）。
+/// 这一序 = `$state` hashtable 字面量(m9a.ps1:370-375)去掉 `lastLog` 后的余下十二格：两处同源，
+/// 改一处就要改另一处（ark 侧那枚 `completed` 容器同理，见 cmap_*）。
+const M9A_STATE_KEYS: [&str; 12] = [
+    "tasks",
+    "chainStarted",
+    "chainDone",
+    "connectPhase",
+    "failed",
+    "queueCount",
+    "startRequested",
+    "eventCount",
+    "failedTasks",
+    "resCurrent",
+    "resLatest",
+    "connectFail",
+];
+
+/// keyed offsets 三件（`$Offsets`/`$PreOffsets` 是 hashtable，ark 侧是两枚固定变量 —— 形状不同源）：
+/// ensure 只在"这一枚路径第一次出现"时建格，起点取 PreOffsets 里那条或 0。
+fn keyed_offset_ensure(v: &mut Vec<(String, u64)>, k: &str, pre: &[(String, u64)]) {
+    if !v.iter().any(|(ek, _)| ek == k) {
+        let start = pre.iter().find(|(ek, _)| ek == k).map(|(_, ev)| *ev).unwrap_or(0);
+        v.push((k.to_string(), start));
+    }
+}
+
+fn keyed_offset_get(v: &[(String, u64)], k: &str) -> u64 {
+    v.iter().find(|(ek, _)| ek == k).map(|(_, ev)| *ev).unwrap_or(0)
+}
+
+fn keyed_offset_set(v: &mut Vec<(String, u64)>, k: &str, val: u64) {
+    for (ek, ev) in v.iter_mut() {
+        if ek == k {
+            *ev = val;
+            return;
+        }
+    }
+    v.push((k.to_string(), val));
+}
+
+/// `Read-M9ALogEvents`(m9a.ps1:146-172) 的复刻：日志路径每轮现算，偏移按路径 keyed。
+/// 返回 `(日志路径, 事件数组)`；事件形状是真身那两键 hashtable（`Kind`/`Text`），不是信封原物。
+fn m9a_read_log<H: MaaHost>(
+    h: &mut H,
+    p: &M9aPaths,
+    inst_id: &str,
+    offsets: &mut Vec<(String, u64)>,
+    pre: &[(String, u64)],
+) -> Result<(String, Vec<JVal>), String> {
+    let day = h.day_stamp();
+    let log = m9a_daily_path(&p.log_dir, &day);
+    let mut events: Vec<JVal> = Vec::new();
+    // `Test-GdPathReady`(common.ps1:287-292) 先挡：不在场就**直接回空事件、并且不给 offsets 建格**。
+    // 次序要紧：文件后来才出现时，起点仍按 PreOffsets（或 0）算，而不是按"这一轮读过的 0"续着走。
+    if log.is_empty() || h.file_len(&log).is_none() {
+        return Ok((log, events));
+    }
+    keyed_offset_ensure(offsets, &log, pre);
+    let off = keyed_offset_get(offsets, &log);
+    let (text, after) = h.file_tail(&log, off);
+    keyed_offset_set(offsets, &log, after);
+    // 「本轮没有新字节就干脆不起进程」是真身那句 `if ($tail.Text.Trim())`（与旧实现同形的省钱点）。
+    if text.trim().is_empty() {
+        return Ok((log, events));
+    }
+    let d = h.verb(
+        "parse-m9a-lines",
+        &jv_o(vec![("text", jv_s(&text)), ("instanceId", jv_s(inst_id))]),
+    )?;
+    for e in jv_list(&jv_get(&d, "Events")) {
+        events.push(jv_o(vec![
+            ("Kind", jv_s(&jv_str(&jv_get(e, "Kind")))),
+            ("Text", jv_s(&jv_str(&jv_get(e, "Text")))),
+        ]));
+    }
+    Ok((log, events))
+}
+
+/// `Register-M9AEvents`(m9a.ps1:174-198) 的复刻：0 条事件连 verb 都不问 →
+/// 摘名单十二键（只摘真在的）→ 整批一次转发 → 按档重印日志 → 回执 State 全键回写 →
+/// `Directives.TouchLastLog` 置挂钟（剧本世界里那枚挂钟就是虚拟钟）。
+/// 三个在案 PS 语义坑（`@($null)` 占位 / `$null -eq @()` 塌缩 / `-ne` 不分大小写）全在 C# 逐字复刻，
+/// 这一层只搬运，不解释。
+fn m9a_register_events<H: MaaHost>(
+    h: &mut H,
+    state: &mut JVal,
+    events: &[JVal],
+    last_log: &mut f64,
+) -> Result<(), String> {
+    if events.is_empty() {
+        return Ok(());
+    }
+    let mut pairs: Vec<(String, JVal)> = Vec::new();
+    for k in M9A_STATE_KEYS.iter() {
+        if jvo_has(state, k) {
+            pairs.push(((*k).to_string(), jv_get(state, k)));
+        }
+    }
+    let d = h.verb(
+        "apply-m9a-events",
+        &JVal::O(vec![
+            ("events".to_string(), JVal::A(events.to_vec())),
+            ("state".to_string(), JVal::O(pairs)),
+        ]),
+    )?;
+    replay_logs(h, &jv_get(&d, "Logs"));
+    if let JVal::O(props) = jv_get(&d, "State") {
+        for (k, v) in props.iter() {
+            jvo_set(state, k, v.clone());
+        }
+    }
+    if jv_truthy(&jv_get(&jv_get(&d, "Directives"), "TouchLastLog")) {
+        *last_log = h.clock();
+    }
+    Ok(())
+}
+
+/// `Resolve-M9AStatus`(m9a.ps1:282-317) 的复刻：十键 body 顺序照真身；`Found:false` = 还在跑 → `None`
+/// （主循环那记 `continue` 的落点）；`FailedTasks` 按**键存在**取值（只有 blocked 那一路 C# 才带这枚键）。
+/// 真身那句"拷一份、摘掉 lastLog"在核内没有对应物：这里的 lastLog 从来不进映射，
+/// 另存成 `last_log` 本地量（ark 侧同一处置，见 `maa_run` 的 `last_growth`）—— 是形状不同，不是漏搬。
+fn m9a_resolve_status<H: MaaHost>(
+    h: &mut H,
+    state: &JVal,
+    elapsed: f64,
+    last_log: f64,
+    sc: &M9aScen,
+    process_gone: bool,
+    log_name: &str,
+) -> Result<Option<M9aRet>, String> {
+    let mut pairs: Vec<(String, JVal)> = Vec::new();
+    if let JVal::O(o) = state {
+        for (k, v) in o.iter() {
+            pairs.push((k.clone(), v.clone()));
+        }
+    }
+    // 静默时距＝真身的 (Get-Date) - $state.lastLog；先取局部是因为 h.verb 与 h.clock 不能同表达式并存。
+    let quiet_seconds = h.clock() - last_log;
+    let d = h.verb(
+        "resolve-m9a-status",
+        &jv_o(vec![
+            ("state", JVal::O(pairs)),
+            ("elapsed", JVal::F(elapsed)),
+            ("quietSeconds", JVal::F(quiet_seconds)),
+            ("processGone", JVal::B(process_gone)),
+            ("logName", jv_s(log_name)),
+            ("instanceName", jv_s(&sc.instance_name)),
+            ("instanceId", jv_s(&sc.instance_id)),
+            ("startTimeoutMinutes", JVal::I(sc.start_min)),
+            ("timeoutMinutes", JVal::I(sc.timeout_min)),
+            ("stallTimeoutMinutes", JVal::I(sc.stall_min)),
+        ]),
+    )?;
+    if !jv_truthy(&jv_get(&d, "Found")) {
+        return Ok(None);
+    }
+    let mut r = M9aRet {
+        status: jv_str(&jv_get(&d, "Status")),
+        detail: jv_str(&jv_get(&d, "Detail")),
+        tasks: vstr_list(&jv_get(&d, "Tasks")),
+        ..Default::default()
+    };
+    if jvo_has(&d, "FailedTasks") {
+        r.failed_tasks = Some(vstr_list(&jv_get(&d, "FailedTasks")));
+    }
+    Ok(Some(r))
+}
+
+/// `Invoke-M9ARun` 的循环骨架（lib\m9a.ps1:319-528）逐段进核。
+/// 与 ark 一路（`maa_run`）是同一段形状：装配启动参数 → 启动等待 → 每 10 秒采集 → 喂判定 verb →
+/// 同一 tick 内执行 effect 并带回执重入。三处不同是**真身本来就不同**，不许"顺手统一"（§11.39 ⑤）：
+///   · 偏移按**日志路径 keyed**（跨 00:00 换文件、新文件从 0 起算），不是 ark 那两枚固定变量；
+///   · `cfg.rescueMaxRaw` 送**原始** visionMaxRescue（ark 送本地预算镜像），两边各自在 C# clamp `<=0→2`；
+///   · 兜底回执的 kind 叫 `ask-screen`（ark 叫 `rescue`），记账 Tag 与调用 Tag **同数**（ark 差一格）。
+/// 外层没有退出条件这点也是真身原样：出结论全靠 `resolve-m9a-status` 的档位，而三枚超时钟一定会撞上。
+fn m9a_run<H: MaaHost>(h: &mut H, sc: &M9aScen) -> Result<M9aRet, String> {
+    let p = M9aPaths::of(sc);
+    let env = RescueEnv::of_m9a(sc);
+    // :333 Get-GdM9ACliEnabled 的三态：settings 里这枚**键不存在**（None）= 开。
+    let cli = sc.cli.unwrap_or(true);
+    // :334-337 Get-M9ALaunchArgs：五键 body 顺序照真身（cliArgs/mode/id/name/forceStart）。
+    // ⚠ mode 的"没填"是真身递进去的**空串**，不是 `Get-M9ALaunchArgs` 那个 param 默认 'id' ——
+    // 真句是 `-Mode ([string]$S.runtime.m9aInstanceArg)`，显式传了就不走默认；C# 本体只认 "name"、
+    // 其余一律按 id 取值（Processes.cs:392），所以空串与 'id' 在**结果**上同形，但喂进去的字节必须是空串。
+    let d = h.verb(
+        "m9a-launch-args",
+        &jv_o(vec![
+            ("cliArgs", JVal::B(cli)),
+            ("mode", jv_s(&sc.mode)),
+            ("id", jv_s(&sc.instance_id)),
+            ("name", jv_s(&sc.instance_name)),
+            ("forceStart", JVal::B(sc.force_start)),
+        ]),
+    )?;
+    let launch_args = vstr_list(&jv_get(&d, "Args"));
+
+    // :339-343 DryRun 一行 STEP 就回，返回表里多带 Args 一格（其余档位真身根本没有这一键）。
+    if sc.dry_run {
+        let shown = if launch_args.is_empty() {
+            "(不带参数：老路子，靠 M9A 自己的自动开始)".to_string()
+        } else {
+            launch_args.join(" ")
+        };
+        h.log(
+            "STEP",
+            &format!(
+                "[dry-run] 将启动 {} {}，ADB {}，以 logs\\log-*.log 判定完成",
+                p.exe, shown, sc.serial
+            ),
+        );
+        return Ok(M9aRet {
+            status: "dryrun".to_string(),
+            detail: String::new(),
+            args: launch_args,
+            ..Default::default()
+        });
+    }
+
+    // :344-347 两枚"已在运行"分支。真身是两句各问一次 `Test-GdProcessRunning` ⇒ 这边也各问一次
+    // （投影因此有两条 `P|`，合成一条就是把两句判据并成一句）。第二句是真 throw：上抛，不返回结果表。
+    if cli && h.proc_running(&p.name) {
+        h.log(
+            "WARN",
+            "M9A 已在运行：命令行会被转发给正在跑的实例，按 -i/-f 重新开始任务",
+        );
+    }
+    if !cli && h.proc_running(&p.name) {
+        return Err(
+            "M9A 已在运行，无法保证按新实例开始(请先关闭，或把 runtime.m9aCliArgs 打开)".to_string()
+        );
+    }
+
+    // :349-352 ADB 连接段。`Connect-GdAdb`(mumu.ps1:61-69) 的第一句是 `Test-Path` 挡 adb 不在场，
+    // 那是纯现场检查 ⇒ 在核内做（那句 throw 的整字面照抄）；connect + devices 两步是真碰设备 ⇒ verb。
+    // panel-cs 真身已随 **B-2d③-a** 落（`Live.AdbConnect`），生产接线也已随 **B-2d④** 的链体批落地：
+    // `--drive-m9a-daily` 的 run 真做走 `drive_real_m9a_run` ⇒ RealHost，§11.42 ⑦-2 那笔欠账已结清。
+    // 等价门里这一枚仍由夹具喂回执（`--fixture-run`），为的是让"对拍"不被现场设备拖住。
+    h.log("STEP", &format!("ADB 连接 {}", sc.serial));
+    if h.file_len(&sc.adb).is_none() {
+        return Err(format!("adb 不存在：{}", sc.adb));
+    }
+    let ac = h.verb(
+        "adb-connect",
+        &jv_o(vec![("adb", jv_s(&sc.adb)), ("serial", jv_s(&sc.serial))]),
+    )?;
+    if !jv_truthy(&jv_get(&ac, "Ok")) {
+        h.log("WARN", "adb devices 未列出该序列号，仍继续(M9A 会自行重连)");
+    }
+
+    // :354-358 先记今天日志现有长度：只认启动之后的新增内容，别把上次运行的"完成"读成本轮的。
+    let started = h.clock();
+    let mut pre_offsets: Vec<(String, u64)> = Vec::new();
+    let today_start = h.day_stamp();
+    let today = m9a_daily_path(&p.log_dir, &today_start);
+    if let Some(l) = h.file_len(&today) {
+        pre_offsets.push((today.clone(), l));
+    }
+
+    // :359 这句的**句尾空格**是真身原样：模板里那枚空格在 `$(if …)` 之外，参数为空时展开成空串，
+    // 于是那句日志以空格收尾。门 old 侧逐字比 ⇒ 不许 trim（与 §11.39 ⑤-2 那族"原样怪癖"同处置）。
+    h.log(
+        "STEP",
+        &format!(
+            "启动 M9A：{} {}",
+            p.exe,
+            if launch_args.is_empty() {
+                String::new()
+            } else {
+                launch_args.join(" ")
+            }
+        ),
+    );
+    // :360-364 两支 Start-Process 在真身是为了 `-ArgumentList` 给不给；这边一枚方法两支都吃
+    // （args 为空 ⇒ `ScriptHost` 投影保持两截 `R|exe|dir`，与 ark 那一路同款保基线写法）。
+    h.start_process(&p.exe, &p.dir, &launch_args)?;
+    // :365-367 先测后睡的那 120/3 秒；超时是真身那句 return（不是 throw）。
+    if !wait_condition(h, 120, 3, "M9A 进程启动", |hh| hh.proc_running(&p.name)) {
+        return Ok(M9aRet {
+            status: "error".to_string(),
+            detail: "M9A 未能启动(进程未出现)".to_string(),
+            ..Default::default()
+        });
+    }
+
+    // :369-377 三份跨拍状态：keyed 偏移表（**空表起步**，与 pre_offsets 分开）、十三键 $state、
+    // seenGame/gone 两枚现场量。lastLog 那格在真身是 DateTime ⇒ 不进映射，另存 last_log。
+    let mut offsets: Vec<(String, u64)> = Vec::new();
+    let mut state = jv_o(vec![
+        ("tasks", JVal::A(Vec::new())),
+        ("chainStarted", JVal::B(false)),
+        ("chainDone", JVal::B(false)),
+        ("connectPhase", jv_s("none")),
+        ("failed", JVal::Null),
+        ("queueCount", JVal::Null),
+        ("startRequested", JVal::B(false)),
+        ("eventCount", JVal::I(0)),
+        ("failedTasks", JVal::A(Vec::new())),
+        ("resCurrent", JVal::Null),
+        ("resLatest", JVal::Null),
+        ("connectFail", JVal::Null),
+    ]);
+    let mut last_log = h.clock();
+    let mut seen_game = false;
+    let mut gone: i64 = 0;
+    // :401 $stM9a 建在 while **之外**：C# 那份小状态跨拍保命（phase/预算/Notes），一次调用一份。
+    let mut st_m9a: JVal = JVal::Null;
+    // 预算本地镜像：m9a 真身**没有**这一格（预算只活在 C# 的 state 里，body 送的是原始值）。
+    // 建它只为喂 `do_rescue` 的出参 —— 那个出参每拍都被 state 重算盖掉，不参与任何判据。
+    let mut rescue_left = sc.vision_max;
+    if rescue_left <= 0 {
+        rescue_left = 2;
+    }
+
+    loop {
+        // :403 每轮先睡 10 秒（真身这句在 while 的第一行，一轮都不许省）。
+        h.sleep(10);
+        // :404-406 采集 + 整批一次回灌（批次 9 的省钱点：一轮一个进程，绝不每事件一个）。
+        let (log_path, events) = m9a_read_log(h, &p, &sc.instance_id, &mut offsets, &pre_offsets)?;
+        m9a_register_events(h, &mut state, &events, &mut last_log)?;
+        // :407 `Get-Gd1999Pid`(mumu.ps1:71-78)：Found:false = 游戏没在跑（旧语义的 $null）。
+        // 这句不挡 adb 在场与否 —— 真身也是直接起 adb。panel-cs 真身已随 **B-2d③-a** 落（`Live.AdbGamePid`），
+        // 生产接线已随 **B-2d④** 落地（run 真做走 RealHost）；等价门里这一枚仍由夹具喂，理由同上。
+        let gp = h.verb(
+            "adb-game-pid",
+            &jv_o(vec![
+                ("adb", jv_s(&sc.adb)),
+                ("serial", jv_s(&sc.serial)),
+                ("package", jv_s(&sc.package)),
+            ]),
+        )?;
+        if jv_truthy(&jv_get(&gp, "Found")) {
+            seen_game = true;
+        }
+        // :409-413 elapsed 在 adb 之后现算；进程连续两轮不在场才算真退出（自更新重启会闪一下）。
+        let elapsed = h.clock() - started;
+        if !h.proc_running(&p.name) {
+            gone += 1;
+        } else {
+            gone = 0;
+        }
+        let mut res = match m9a_resolve_status(
+            h,
+            &state,
+            elapsed,
+            last_log,
+            sc,
+            gone >= 2,
+            &file_name(&log_path),
+        )? {
+            Some(r) => r,
+            None => continue,
+        };
+
+        // ===== 迷你循环：同一 tick 内「喂 verb → 执行 effect → 带回执重入」（真身 m9a.ps1:422-480）=====
+        // $effx 建在迷你循环之内、$stM9a 建在它之外 —— 照真身：预算/Notes 要跨拍，"本拍已办什么"不跨拍。
+        let mut effx: Vec<JVal> = Vec::new();
+        loop {
+            let rescue_avail = h.rescue_available();
+            let d = h.verb(
+                "decide-m9a-run-tick",
+                &jv_o(vec![
+                    ("now", jv_o(vec![("elapsedSec", JVal::F(elapsed))])),
+                    (
+                        "live",
+                        jv_o(vec![
+                            ("seenGame", JVal::B(seen_game)),
+                            ("rescueAvailable", JVal::B(rescue_avail)),
+                        ]),
+                    ),
+                    (
+                        "res",
+                        jv_o(vec![
+                            ("status", jv_s(&res.status)),
+                            ("detail", jv_s(&res.detail)),
+                            ("tasksCount", JVal::I(res.tasks.len() as i64)),
+                        ]),
+                    ),
+                    ("cfg", jv_o(vec![("rescueMaxRaw", JVal::I(sc.vision_max))])),
+                    ("state", st_m9a.clone()),
+                    ("effectsResolved", JVal::A(effx.clone())),
+                ]),
+            )?;
+            st_m9a = jv_get(&d, "State");
+            // Directives：停滞解除那一拍把停滞计时归零 —— 真身 `$state.lastLog = Get-Date` 的落地处。
+            if jv_truthy(&jv_get(&jv_get(&d, "Directives"), "ResetLastLog")) {
+                last_log = h.clock();
+            }
+            replay_logs(h, &jv_get(&d, "Logs"));
+
+            let effs = jv_get(&d, "Effects");
+            let ef = jv_list(&effs);
+            if ef.is_empty() {
+                if jv_str(&jv_get(&d, "Action")) == "return" {
+                    // 完成整句/进程后缀/兜底拼串的全集已由 C# 拼好（上面 Logs 已回放）；
+                    // Rescued 只在真兜成时有意义，Duration 只有 ok 档带（按**键存在**取，同 FailedTasks 那口径）。
+                    res.detail = jv_str(&jv_get(&d, "Detail"));
+                    if jv_truthy(&jv_get(&d, "Rescued")) {
+                        res.rescued = true;
+                    }
+                    if jvo_has(&d, "Duration") {
+                        res.duration = Some(jv_to_d(&jv_get(&d, "Duration")));
+                    }
+                    return Ok(res);
+                }
+                // loop 且无待办 effect = 兜成功了、这一轮的结论撤回继续等（真身那记原地 continue）。
+                break;
+            }
+            let e = ef[0].clone();
+            let kind = jv_str(&jv_get(&e, "Kind"));
+            let mut did = false;
+            if kind_eq(&kind, "ask-screen") {
+                // 真兜底：Tag/Context 由 C# 挂回（预算在挂 effect 那拍已扣）；异常回执走 exception 键，
+                // C# 续判时合成旧闭包同款"兜底抛异常：…"结论。ack_kind 用 `ask-screen` 这套词。
+                do_rescue(h, &env, "ask-screen", &e, &st_m9a, &mut effx, &mut rescue_left);
+                did = true;
+            }
+            if !did && kind_eq(&kind, "record") {
+                do_record(h, &env, &e, &mut effx)?;
+                did = true;
+            }
+            if !did {
+                // 判据挂了 effect 可哪个执行块都没接手：宁可作废这一拍，也不能拿着没回执的挂起点空转。
+                // 整句照抄 m9a.ps1:478（`$kind` 与 `$([string]$e.Tag)` 就是下面那两个本地串）。
+                h.log(
+                    "WARN",
+                    &format!(
+                        "M9A tick：effect(kind={}，tag={})没有落到执行块，本 tick 作废(下一轮按新读数重判)",
+                        kind,
+                        jv_str(&jv_get(&e, "Tag"))
+                    ),
+                );
+                break;
+            }
+        }
+    }
+}
+
+// ---- RealHost：生产现场（B-2c③ 起真接线：`run` 真做就是从这里进 maa_run） ----
 
 struct RealHost {
     panel_cs: String,
+    /// 日志落点＝与链体日志**同一本**侧信道（B-2c② 第七闸给的那枚路径）。
+    /// §11.36 ②-1 那句"核内所有 log 产生点"的另一半就是这里：run 内部行不再走 stderr，
+    /// 它与链体行同序落进同一文件，壳侧一次排空就照原级别回放整条链 —— 通道只有一条。
+    log_sink: String,
     // 两枚可用性在真身世界不是问盘问出来的，而是问"这一路的模块清单里有没有那枚函数"：
     // lib\ark-module.ps1:31 的 Libs 带 vision-rescue.ps1 + vision-ark.ps1 ⇒ 两枚都在场；
     // lib\r1999-module.ps1:27 的 Libs 只带 vision-rescue.ps1（抢前台那枚是端游专用的，住 vision-ark.ps1）
@@ -6688,15 +8470,16 @@ struct RealHost {
 
 impl RealHost {
     /// 默认按 ark 一路建（生产接线到目前为止只有端游这条线）。
-    fn new(panel_cs: &str) -> RealHost {
-        RealHost::for_game(panel_cs, "ark")
+    fn new(panel_cs: &str, log_sink: &str) -> RealHost {
+        RealHost::for_game(panel_cs, "ark", log_sink)
     }
     /// B-2d 给 m9a 那一路时用它：rescue 照旧在场，grab 按清单不在场 ⇒ 兜底链会走 C# 那句
     /// "这棵树上没有抢前台的函数，只能等停滞判定"，而不是去调一枚根本不该调的现场 verb。
-    fn for_game(panel_cs: &str, game: &str) -> RealHost {
+    fn for_game(panel_cs: &str, game: &str, log_sink: &str) -> RealHost {
         let ark = game.eq_ignore_ascii_case("ark");
         RealHost {
             panel_cs: panel_cs.to_string(),
+            log_sink: log_sink.to_string(),
             rescue_avail: true,
             grab_avail: ark,
         }
@@ -6732,7 +8515,7 @@ fn real_proc_running(name: &str) -> bool {
         return false;
     }
     let mut entry: ProcessEntry32W = unsafe { std::mem::zeroed() };
-    entry.dw_size = std::mem::size_of::<ProcessEntry32W>() as u32;
+    entry.dw_size = PROCESSENTRY32W_DWSIZE;
     let mut found = false;
     let mut ok = unsafe { Process32FirstW(snap, &mut entry) } != 0;
     while ok {
@@ -6750,9 +8533,10 @@ fn real_proc_running(name: &str) -> bool {
 
 impl MaaHost for RealHost {
     fn log(&mut self, level: &str, text: &str) {
-        // 落点（控制台 + run 日志）由 B-2c 的宿主策略定，本刀先按探针纪律走 stderr：
-        // stdout 是机读面，一条都不许被日志占了（R0 实测对方 DLL 往 stdout 喷噪声）。
-        eprintln!("[{}] {}", level, text);
+        // B-2c③ 结清 B-2a 那笔留言：run 内部行的落点就是链体同一本侧信道，通道只有一条。
+        // log 的签名不带 Result（trait 定的），所以这里不另开第二条错路：写不成先吞掉，同一枚
+        // sink 的毛病由链体下一次 fx.log 的 io_err 咬住并冒泡 —— 真做段与新区段共用同一把错阀。
+        let _ = drive_sink_row(&self.log_sink, level, text);
     }
     fn clock(&mut self) -> f64 {
         std::time::SystemTime::now()
@@ -6772,12 +8556,19 @@ impl MaaHost for RealHost {
     fn proc_running(&mut self, name: &str) -> bool {
         real_proc_running(name)
     }
-    fn start_process(&mut self, exe: &str, dir: &str) -> Result<(), String> {
-        std::process::Command::new(exe)
-            .current_dir(dir)
-            .spawn()
+    fn start_process(&mut self, exe: &str, dir: &str, args: &[String]) -> Result<(), String> {
+        let mut cmd = std::process::Command::new(exe);
+        cmd.current_dir(dir);
+        // Start-Process -ArgumentList 的现场等价物：非空才带（ark 一路裸启动，参数面一个字节都不进）。
+        if !args.is_empty() {
+            cmd.args(args);
+        }
+        cmd.spawn()
             .map(|_| ())
             .map_err(|e| format!("Start-Process {} 失败：{}", exe, e))
+    }
+    fn day_stamp(&mut self) -> String {
+        gd_day_stamp()
     }
     fn verb(&mut self, name: &str, body: &JVal) -> Result<JVal, String> {
         call_panel_verb(&self.panel_cs, name, body)
@@ -6788,6 +8579,63 @@ impl MaaHost for RealHost {
     fn grab_available(&self) -> bool {
         self.grab_avail
     }
+}
+
+// ---- B-2c③：`run` 真做的生产入口（链体要 run 时从这里进 maa_run，不再 ask 给壳） ----
+
+/// 生产侧那枚 run 闭包的真身：ctx 的 `maaRun` 载荷（已解析成 MaaScen）＋链体现给的 chains → maa_run。
+/// 两枚 paths 缺一就当场 Err：往空目录去起 MAA 只会造出一条没法归因的现场错，不如在这里点名
+/// "载荷缺哪一格"（这句话进 journal 的 err 行，链体照旧把它吞成 status=error 那档）。
+/// `dry_run` 在这里按死=false —— 生产三处调用点（ark-daily.ps1:157/221/408）都不给 `-DryRun`，
+/// ctx 里也没有这一格；给它留口子等于给生产载荷开一扇"什么都不做也算 ok"的门。
+fn drive_real_run(
+    panel_cs: &str,
+    log_sink: &str,
+    sc: &MaaScen,
+    chains: &[String],
+) -> Result<ArkRunOut, String> {
+    if sc.maa_dir.is_empty() || sc.maa_exe.is_empty() {
+        return Err(
+            "ctx 没给 maaRun 的 paths(maaDir/maaExe)：run 真做只吃 ctx 载荷，不替生产猜默认路径".to_string(),
+        );
+    }
+    let mut sc2 = sc.clone();
+    // expected 不是配置，是链体每次现给的期望链（cfg 回执里的 ExpectedChains）——覆盖 ctx 那格。
+    sc2.expected = chains.to_vec();
+    sc2.dry_run = false;
+    let mut h = RealHost::for_game(panel_cs, &sc2.game, log_sink);
+    let r = maa_run(&mut h, &sc2)?;
+    // MaaRet 的 errors 键不进链体（PS 侧的 $rd 只有 status/detail/duration 三格，同一条口径）。
+    Ok(ArkRunOut { status: r.status, detail: r.detail, duration: r.duration })
+}
+
+/// 生产侧那枚 m9a run 闭包的真身（B-2d④）：ctx 的 `m9aRun` 载荷（已解析成 `M9aScen`）→ `m9a_run`。
+/// 这一枚落地的同时，B-2d② 挂着的两笔"RealHost 编而不接"留言一并结清（§11.42 ⑦-2）。
+/// 与上面那枚同规矩、两处不同源，都来自真身的形状而不是风格：
+/// 1) **没有 chains 参数** —— `Invoke-M9ARun` 的签名里没有 `-Chains`，m9a 的期望链根本不由链体现给
+///    （cfg 回执只有 changes 数组），所以本闭包只吃 scen；
+/// 2) **rescued 要带出去** —— 真身 `Start-GdR1999Daily` 把它喂给 `decide-daily-retry`（ark 那一路
+///    压根不吃这格），所以 `M9aRunOut` 比 `ArkRunOut` 多这一枚；tasks/failedTasks/args 三格仍不带，
+///    它们是 `Z|` 投影面的话术料，链体不读（与 ark 侧 errors 不同源那条同款）。
+/// 空路径照 ark 那枚的规矩当场点名拒做：往空目录去起 M9A 只会造出一条没法归因的现场错。
+/// `dry_run` 按死=false —— 生产那三处调用点都不给 `-DryRun`，ctx 里也没有这一格。
+fn drive_real_m9a_run(
+    panel_cs: &str,
+    log_sink: &str,
+    sc: &M9aScen,
+) -> Result<M9aRunOut, String> {
+    if sc.m9a_dir.is_empty() || sc.m9a_exe.is_empty() {
+        return Err(
+            "ctx 没给 m9aRun 的 paths(m9aDir/m9aExe)：run 真做只吃 ctx 载荷，不替生产猜默认路径".to_string(),
+        );
+    }
+    let mut sc2 = sc.clone();
+    sc2.dry_run = false;
+    // game 是名册外的常量（真身 m9a.ps1 三处写死 'r1999'），由 envelope 填好再进来；
+    // for_game 按它给两枚可用性：r1999 ⇒ rescue 在场、grab 不在场（lib\r1999-module.ps1:27 的清单事实）。
+    let mut h = RealHost::for_game(panel_cs, &sc2.game, log_sink);
+    let r = m9a_run(&mut h, &sc2)?;
+    Ok(M9aRunOut { status: r.status, detail: r.detail, duration: r.duration, rescued: r.rescued })
 }
 
 // ---- 剧本 JSON 的读取与 --maa-run 出口 ----
@@ -7003,6 +8851,286 @@ fn run_maa_run(script_path: &str, panel_cs: &str, out: &Option<String>) -> i32 {
     0
 }
 
+// ---- --m9a-run 出口（B-2d②：m9a 那一路的循环骨架回放档）----
+
+/// ctx 名册那 15 枚的**唯一出处**（B-2d④）：paths 3 ＋ conn 2 ＋ instance 2 ＋ package 1 ＋ runtime 7。
+/// 剧本档（`--m9a-run` 的夹具）与生产档（`--drive-m9a-daily` 的 `ctx.m9aRun`）共用这一把：
+/// 立第二套键名字面就等于两处口径可以各漂一半（B-2c③ 那条 `maarun_parse` 先例同款）。
+/// 硬约束照 plan §11.39 ⑥-1 的字面：这 15 枚**逐枚点名取键**，绝不允许把 `$S.runtime` 整块序列化，
+/// 所以 `visionApiKey` 与名册那七枚 runtime 键虽住同一个块，落到这里只有这七枚。
+/// 两枚起步拒跑闸也在这里（它们吃的全是名册内的格）；第三枚 days 闸留在外层 ——
+/// 日期读数表只有夹具要（生产走 `gd_day_stamp` 现取挂钟），放这里会让生产 ctx 当场拒跑。
+/// **三闸相对次序 m9aDir → adb → days 是门的判据，不许在两层的任何一侧重排。**
+fn m9a_scen_core(v: &JVal) -> Result<M9aScen, String> {
+    let mut sc = M9aScen::default();
+    let paths = jv_get(v, "paths");
+    sc.m9a_dir = jv_str(&jv_get(&paths, "m9aDir"));
+    sc.m9a_exe = jv_str(&jv_get(&paths, "m9aExe"));
+    sc.m9a_log_dir = jv_str(&jv_get(&paths, "m9aLogDir"));
+    // 真身 `Get-M9ADailyLog:129` 那句是裸 `Join-Path $P.LogDir ...`（不是宽容的 Join-GdPath），
+    // LogDir 为空当场抛绑定异常。核里没有"绑定异常"这一档，所以把它前移成起步拒跑：
+    // 宁可剧本改一行，也不要一核内"看起来跑完了、其实一次文件都没读"的假绿。
+    if sc.m9a_dir.is_empty() {
+        return Err("paths.m9aDir 没给：日志目录与 exe 落点都从它拼，真身那句裸 Join-Path 会当场抛".to_string());
+    }
+    let conn = jv_get(v, "conn");
+    sc.adb = jv_str(&jv_get(&conn, "adb"));
+    sc.serial = jv_str(&jv_get(&conn, "serial"));
+    // adb 路径为空时真身那句 `Connect-GdAdb` 的 `throw "adb 不存在："` 会在起循环**之前**炸掉，
+    // 也就是说这一档在现场根本走不到读日志那一步；与其让内核产出一行 E| 假装跑过，不如拒跑。
+    if sc.adb.is_empty() {
+        return Err("conn.adb 没给：真身在这一步就 throw（adb 不存在），这一档连循环都进不去".to_string());
+    }
+    let inst = jv_get(v, "instance");
+    sc.instance_id = jv_str(&jv_get(&inst, "id"));
+    sc.instance_name = jv_str(&jv_get(&inst, "name"));
+    sc.package = jv_str(&jv_get(v, "package"));
+    let rt = jv_get(v, "runtime");
+    // mode 缺键落成**空串**而不是 'id'：真身 `:335` 那句是 `[string]$S.runtime.m9aInstanceArg`
+    // （显式转换，不是 param 默认值），C# 那侧只认 "name"、其余一律按 id —— 结果同形，字节要照原样。
+    sc.mode = jv_str(&jv_get(&rt, "m9aInstanceArg"));
+    sc.force_start = jv_truthy(&jv_get(&rt, "m9aForceStart"));
+    // m9aCliArgs 是**三态**（plan §11.39 ⑤-1 点名的那枚地雷）：键不存在 = 真身
+    // `Get-GdM9ACliEnabled` 的"没写"档 = **开**命令行入口。用 `jv_truthy` 收会把"没填"和
+    // "填了 false"塌成一档，而这两档在真身里走完全不同的路（前者带 -i/-a/-q/-f，后者裸启动＋"在跑就 throw"）。
+    let cli_raw = jv_get(&rt, "m9aCliArgs");
+    if !matches!(cli_raw, JVal::Null) {
+        sc.cli = Some(jv_truthy(&cli_raw));
+    }
+    sc.vision_max = jv_int(&jv_get(&rt, "visionMaxRescue"), 0);
+    sc.start_min = jv_int(&jv_get(&rt, "r1999StartTimeoutMinutes"), 0);
+    sc.timeout_min = jv_int(&jv_get(&rt, "r1999TimeoutMinutes"), 0);
+    sc.stall_min = jv_int(&jv_get(&rt, "stallTimeoutMinutes"), 0);
+    Ok(sc)
+}
+
+/// m9a 一档剧本的读法，与 `maarun_parse` 同规矩：缺键一律按"没填"取值，不替夹具猜默认值。
+/// 名册那 15 枚与 m9aDir/adb 两闸走 `m9a_scen_core`（生产 ctx 与夹具同一把），其余全是夹具面：
+/// 名字/干跑档/game/target/stateDir/两枚可用性/日期读数表/种子/进程表/事件表/live 队列。
+/// 一处例外：game/target 的"没填"＝真身写死的那两个字母面（m9a.ps1 三处 `-Game 'r1999' -Target 'mumu'`）。
+/// 拒跑闸三枚（都不是判据，是"这档剧本压根不能开"）：m9aDir / adb / days。
+fn m9arun_parse(v: &JVal) -> Result<M9aScen, String> {
+    let mut sc = m9a_scen_core(v)?;
+    sc.name = jv_str(&jv_get(v, "name"));
+    sc.dry_run = jv_truthy(&jv_get(v, "dryRun"));
+    sc.game = {
+        let g = jv_str(&jv_get(v, "game"));
+        if g.is_empty() {
+            "r1999".to_string()
+        } else {
+            g
+        }
+    };
+    sc.target = {
+        let t = jv_str(&jv_get(v, "target"));
+        if t.is_empty() {
+            "mumu".to_string()
+        } else {
+            t
+        }
+    };
+    sc.rescue_available = jv_truthy(&jv_get(v, "rescueAvailable"));
+    sc.grab_available = jv_truthy(&jv_get(v, "grabAvailable"));
+    sc.state_dir = jv_str(&jv_get(v, "stateDir"));
+    for dv in jv_list(&jv_get(v, "days")) {
+        sc.days.push((jv_to_d(&jv_get(&dv, "at")), jv_str(&jv_get(&dv, "stamp"))));
+    }
+    // 日期表为空 ⇒ `day_stamp` 恒给空串 ⇒ 日志文件名恒为 `log-.log`：这档读的是**一个真身永远不会读的文件名**。
+    // 这一闸是"跨 00:00"那格的前提（plan §11.39 ⑥-2）：日期由夹具喂，而不是核里现取挂钟。
+    if sc.days.is_empty() {
+        return Err("days 日期读数表没给：日志名 log-yyyyMMdd.log 每轮重算，没表就等于恒读 log-.log".to_string());
+    }
+    let seed = jv_get(v, "seed");
+    if !matches!(seed, JVal::Null) {
+        sc.seed = Some(jv_str(&seed));
+    }
+    for pr in jv_list(&jv_get(v, "procs")) {
+        sc.procs.push((jv_str(&jv_get(pr, "name")), jv_truthy(&jv_get(pr, "up"))));
+    }
+    for ev in jv_list(&jv_get(v, "events")) {
+        let kind = jv_str(&jv_get(&ev, "kind"));
+        if !matches!(kind.as_str(), "append" | "grow" | "truncate" | "up" | "down") {
+            return Err(format!("剧本里认不出的事件 kind：{}（只有 append/grow/truncate/up/down）", kind));
+        }
+        let target = {
+            let t = jv_str(&jv_get(&ev, "target"));
+            if t.is_empty() {
+                jv_str(&jv_get(&ev, "proc"))
+            } else {
+                t
+            }
+        };
+        // m9a 一路只有一本日志，而且文件名每轮换 ⇒ 事件的文件靶子收窄到 `m9alog` 一枚。
+        // 写错的靶子名必须**当场拒跑**：`file_of` 认不出的事件是静默丢弃（ark 那两枚固定路径的形状），
+        // 拼错一个字母就会让一整档跑成"日志一条没进、判定全按空读数走"的假绿。
+        if matches!(kind.as_str(), "append" | "grow" | "truncate") && target != "m9alog" {
+            return Err(format!(
+                "剧本第 {} 条事件的文件靶子是 {}：m9a 一路只有 m9alog 一枚（gui/asst 是 ark 那两本固定日志）",
+                sc.events.len() + 1,
+                target
+            ));
+        }
+        sc.events.push(MaaEv {
+            at: jv_to_d(&jv_get(&ev, "at")),
+            kind: match kind.as_str() {
+                "append" => "append",
+                "grow" => "grow",
+                "truncate" => "truncate",
+                "up" => "up",
+                _ => "down",
+            },
+            target,
+            text: jv_str(&jv_get(&ev, "text")),
+            bytes: jv_int(&jv_get(&ev, "bytes"), 0),
+        });
+    }
+    for lv in jv_list(&jv_get(v, "live")) {
+        sc.live.push((jv_str(&jv_get(lv, "verb")), jv_get(lv, "data")));
+    }
+    Ok(sc)
+}
+
+/// 开跑前先把日志目录里**所有** `log-*.log` 清掉，再按剧本摆起点(给了 seed 就整写，空串也算"文件在、零字节"；
+/// 没给就删掉 —— "日志压根不在场"是单独一档，真身 `Test-GdPathReady` 那一支)。
+/// 落点用 `days` 表在钟 0 处查出的那枚日期 —— 与 old 侧桩浴摆的是同一个文件，两侧起点才相同。
+/// ⚠ 这一步"全清"是 m9a 一路独有的形状，ark 那两路没有：m9a 的文件名**带日期**(days 表按钟查)，
+/// 一档可能写出两三本，而 seed 只指得住钟 0 那一本；ark 的 gui.log/asst.log 是两枚固定名、seed 逐枚覆盖，
+/// 天然不会串档。不清就真串过：三侧共用同一个沙盒、rust 侧先跑，它在 `log-<次日>.log` 里留下的 22 字节
+/// 被随后的 PS 侧原样读到 ⇒ PS 比核内**提前一整轮**读到完成行(63s 出 ok、核内 73s)，
+/// 看着像"两侧循环差一轮"，其实是夹具没归零 —— 跨天档(m9as17)是本门唯一咬得住这一格的读数。
+fn m9arun_seed(sc: &M9aScen) -> Result<(), String> {
+    let p = M9aPaths::of(sc);
+    if let Ok(rd) = std::fs::read_dir(&p.log_dir) {
+        for ent in rd.flatten() {
+            let name = ent.file_name().to_string_lossy().to_string();
+            if name.starts_with("log-") && name.ends_with(".log") {
+                let _ = std::fs::remove_file(ent.path());
+            }
+        }
+    }
+    let path = m9a_daily_path(&p.log_dir, &day_lookup(&sc.days, 0.0));
+    match &sc.seed {
+        None => {
+            let _ = std::fs::remove_file(&path);
+        }
+        Some(s) => write_at(&path, s.as_bytes(), false)?,
+    }
+    Ok(())
+}
+
+fn render_m9arun_json(items: &[(String, String)]) -> String {
+    let cases: Vec<String> = items
+        .iter()
+        .map(|(name, data)| format!("{{\"name\":{},\"data\":{}}}", jstr(name), jstr(data)))
+        .collect();
+    format!(
+        "{{\"ok\":true,\"why\":\"m9a 运行面的剧本回放：循环骨架在内核里跑，判据照旧真跑 panel-cs；这不是对方行为的读数\",\"contract\":{},\"role\":\"B2-m9a-run\",\"fixture\":\"m9a-run\",\"count\":{},\"cases\":[{}]}}",
+        jstr(CONTRACT),
+        cases.len(),
+        cases.join(",")
+    )
+}
+
+/// `--m9a-run --script <剧本文件> --panel-cs <判定 exe>`：与 `--maa-run` 同形（一文件多档，逐档回放）。
+/// 两处**故意**不同，都记在 plan §11.39：
+/// 1) 出口面：m9a 那一路的返回值里 `Duration/Rescued/FailedTasks` 是有料的（ark 侧那三格走的是另一形状），
+///    所以末行是 `M9aRet::proj_line()` 的七段而不是 `MaaRet` 的四段。
+/// 2) 单档 `Err` 不杀整批：真身 `:347` 那句 `throw`（命令行入口关了、M9A 又在跑）本身就是**一档的正常结论**，
+///    把它做成"整批中止"会让门里那一档连投影都看不到。故 Err 落成该档末行 `E|{msg}` 后继续跑下一档；
+///    剧本读不动/摆不回起点仍然整批中止（那是夹具自己的形状错，不属场景）。
+fn run_m9a_run(script_path: &str, panel_cs: &str, out: &Option<String>) -> i32 {
+    let missing = if script_path.is_empty() {
+        Some("--script：剧本文件（JSON 数组，一档一项）没给")
+    } else if panel_cs.is_empty() {
+        Some("--panel-cs：循环骨架每 tick 真跑 decide-m9a-run-tick，缺判定 exe 这一档跑不了")
+    } else {
+        None
+    };
+    if let Some(m) = missing {
+        emit(
+            &format!(
+                "{{\"ok\":false,\"why\":{},\"contract\":{},\"role\":\"B2-m9a-run\"}}",
+                jstr(&format!("m9a 运行面回放档拒跑：{} —— 缺它这一档没开", m)),
+                jstr(CONTRACT)
+            ),
+            out,
+        );
+        return 2;
+    }
+    let text = match std::fs::read_to_string(script_path) {
+        Ok(t) => t,
+        Err(e) => {
+            emit(
+                &format!(
+                    "{{\"ok\":false,\"why\":{},\"contract\":{},\"role\":\"B2-m9a-run\"}}",
+                    jstr(&format!("剧本读不动（{}）：{}", script_path, e)),
+                    jstr(CONTRACT)
+                ),
+                out,
+            );
+            return 1;
+        }
+    };
+    let root = match jv_parse(&text) {
+        Ok(v) => v,
+        Err(e) => {
+            emit(
+                &format!(
+                    "{{\"ok\":false,\"why\":{},\"contract\":{},\"role\":\"B2-m9a-run\"}}",
+                    jstr(&format!("剧本不是合法 JSON：{}", e)),
+                    jstr(CONTRACT)
+                ),
+                out,
+            );
+            return 1;
+        }
+    };
+    let mut items: Vec<(String, String)> = Vec::new();
+    let mut bad: Option<String> = None;
+    for raw in jv_list(&root) {
+        let sc = match m9arun_parse(raw) {
+            Ok(s) => s,
+            Err(e) => {
+                bad = Some(format!("剧本第 {} 档读不动：{}", items.len() + 1, e));
+                break;
+            }
+        };
+        if let Err(e) = m9arun_seed(&sc) {
+            bad = Some(format!("剧本第 {} 档的日志摆不回起点：{}", items.len() + 1, e));
+            break;
+        }
+        let mut host = ScriptHost::new_m9a(panel_cs, &sc);
+        match m9a_run(&mut host, &sc) {
+            Ok(r) => {
+                let mut proj = host.proj.clone();
+                proj.push(r.proj_line());
+                items.push((sc.name.clone(), proj.join("\u{1f}")));
+            }
+            Err(e) => {
+                let mut proj = host.proj.clone();
+                proj.push(format!("E|{}", e));
+                items.push((sc.name.clone(), proj.join("\u{1f}")));
+            }
+        }
+    }
+    let json = match bad {
+        Some(e) => {
+            emit(
+                &format!(
+                    "{{\"ok\":false,\"why\":{},\"contract\":{},\"role\":\"B2-m9a-run\"}}",
+                    jstr(&e),
+                    jstr(CONTRACT)
+                ),
+                out,
+            );
+            return 1;
+        }
+        None => render_m9arun_json(&items),
+    };
+    emit(&json, out);
+    0
+}
+
 // ---- 环境闸（纯判据，可无头自检）
 
 #[derive(Clone, Default)]
@@ -7036,16 +9164,22 @@ fn gate_verdict(flags: &GateFlags, proc_read_ok: bool, forbidden_seen: &[String]
 
 /// 真取数：枚举进程名，返回**命中的禁用进程名**（小写比较，只回原名）。
 /// 读不出来就返回 Err，让 gate_verdict 走"前提未知 = 拒跑"那一支。
+/// 两层"读不出来"都要算：句柄没拿到是一层；句柄拿到了但**一条都没枚举出来**是另一层
+/// —— 后者早先是漏的：`Process32FirstW` 失败时循环 0 次、这里回 `Ok(空)`，环境闸照样报
+/// `proc_read_ok:true`，于是"在就不抢方向盘"那道护栏从进核起有没有真生效过一次都无从谈起。
+/// 任何真实 Windows 上快照都不可能只有 0 条进程，所以 0 条就是硬错，不误伤正常路径。
 fn scan_forbidden_processes() -> Result<Vec<String>, String> {
     let snap = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
     if snap.is_null() || snap as isize == INVALID_HANDLE_ISIZE {
         return Err("CreateToolhelp32Snapshot 失败".to_string());
     }
     let mut entry: ProcessEntry32W = unsafe { std::mem::zeroed() };
-    entry.dw_size = std::mem::size_of::<ProcessEntry32W>() as u32;
+    entry.dw_size = PROCESSENTRY32W_DWSIZE;
     let mut hits: Vec<String> = Vec::new();
     let mut ok = unsafe { Process32FirstW(snap, &mut entry) } != 0;
+    let mut seen = 0usize;
     while ok {
+        seen += 1;
         let name = String::from_utf16_lossy(&entry.sz_exe_file);
         let name = name.trim_end_matches('\0').to_string();
         if FORBIDDEN_PROCESSES.iter().any(|f| f.eq_ignore_ascii_case(&name)) && !hits.contains(&name) {
@@ -7054,6 +9188,9 @@ fn scan_forbidden_processes() -> Result<Vec<String>, String> {
         ok = unsafe { Process32NextW(snap, &mut entry) } != 0;
     }
     unsafe { CloseHandle(snap) };
+    if seen == 0 {
+        return Err("进程快照一条都没枚举出来(dwSize/结构布局与内核期望不符)".to_string());
+    }
     Ok(hits)
 }
 
@@ -8031,7 +10168,11 @@ fn selftest() -> i32 {
     chk(elapsed_ms(100, 50) == 0, "时钟倒退没饱和成 0：绕回大数会把 waited_ms 印成一枚荒谬读数", &mut fails, &mut total);
     chk(elapsed_ms(0, 10_000_000) == 1000, "一秒没等于一千毫秒：两侧对账的刻度就废了", &mut fails, &mut total);
     let stamp_def: &str = &["fn ", "stamp("].concat();
-    let stamp_any: &str = &["", "stamp("].concat();
+    // 前导空格是**必要**的：B-2d② 起 src_head 里多了一族 `day_stamp(` / `gd_day_stamp(`（本地日期读数，
+    // 与这枚退出位 setter 毫无关系），裸 `stamp(` 会把七枚日期位一起数进来、把这一格顶成假红。
+    // 收紧针而不是把期望从 8 改成 15：这一格数的是"connect_run 的退出路有没有漏接 setter"，
+    // 改成 15 就等于把判据换成"日期件加了几个"，下次再加一枚日期函数它还是红，而红得没人看得懂。
+    let stamp_any: &str = &["", " stamp("].concat();
     let rel_seed: &str = &["let _ = ", "rel_ms("].concat();
     let waited_set: &str = &["r.", "waited_ms = "].concat();
     chk(src_head.matches(waited_set).count() == 1, "waited_ms 有了第二处赋值：那枚恒 0 的读数会换个地方长回来", &mut fails, &mut total);
@@ -8293,20 +10434,23 @@ fn selftest() -> i32 {
         &mut fails,
         &mut total,
     );
-    // --events、--sv、--farm-intent、--arkskip、--drive-ark-daily 与 --maa-run 六档都必须并入同一条 emit 出口（否则 --out 出现"某一档默默忽略"的假口径），
-    // 且各自的分派必须落在「--kind 那条必填」**之前**：这六档都不需要装包，被必填拦死就等于没开。
+    // --events、--sv、--farm-intent、--arkskip、--drive-ark-daily、--maa-run、--m9a-run 与 --drive-m9a-daily
+    // 八档都必须并入同一条 emit 出口（否则 --out 出现"某一档默默忽略"的假口径），
+    // 且各自的分派必须落在「--kind 那条必填」**之前**：这八档都不需要装包，被必填拦死就等于没开。
     // （驱动档 R3③ 是第五档：它同样不装包 —— 现场动作全由壳侧照 ask 执行，探针侧只推链与记账。
-    //   运行面回放档 B-2a 是第六档：它也不装包、不碰现场，现场动作全落成投影事件。）
+    //   运行面回放档 B-2a 是第六档：它也不装包、不碰现场，现场动作全落成投影事件。
+    //   m9a 运行面回放档 B-2d② 是第七档：与第六档同一条形状，只是循环体换枚、剧本面多日期与 adb。
+    //   m9a 驱动档 B-2d④ 是第八档：与第五档同一条协议、同一套记账，只是链体换枚、名册换一枚 ctx 子对象。）
     // 这里数的是**整份** SRC 而不是 src_head：分派在 run() 里，而 run() 排在 selftest **之后**，
     // 用 src_head 会两处都找不到、双双退成 MAX 再判成红（这一族"针落在射程外"的坑本轮第二次踩）。
     // needle 一律运行期拼，**且失败文案里也不许把那串字面量原样写出来**：整份一起数时，
     // 自家标签先于 run() 命中，门就红在一句人话上（本轮真踩：文案里的 `--kind` 与那条必填连起来写，
     // SRC.find 先逮到的是这条文案自己 —— 同一族坑第四次，判据读的是自己就必须把自己排除在射程外）。
     // 装配回放档同理只保留**一处** emit 调用（错误路径用局部 rc + 单出口收束）：计数断言本身就
-    // 是"出口唯一"的守门人，多开一处它先红。驱动档同理 —— 它的唯一 emit 收在 run_drive_ark_daily 里。
+    // 是"出口唯一"的守门人，多开一处它先红。两枚驱动档同理 —— 唯一 emit 各收在 run_drive_* 里。
     chk(
-        SRC.matches(&["emit(&", "json"].concat()).count() == 6,
-        "事件流/监督判定/farm-intent/装配回放/驱动/运行面回放六档没同走一处 emit：--out 在其中一档上是空头承诺",
+        SRC.matches(&["emit(&", "json"].concat()).count() == 8,
+        "事件流/监督判定/farm-intent/装配回放/驱动/运行面回放/m9a 运行面回放/m9a 驱动八档没同走一处 emit：--out 在其中一档上是空头承诺",
         &mut fails,
         &mut total,
     );
@@ -8339,10 +10483,26 @@ fn selftest() -> i32 {
         &mut fails,
         &mut total,
     );
-    let mr_dispatch_at = SRC.find(&["run_maa_run(", "&maa_script"].concat()).unwrap_or(usize::MAX);
+    let mr_dispatch_at = SRC.find(&["run_maa_run(", "&run_script"].concat()).unwrap_or(usize::MAX);
     chk(
         mr_dispatch_at < kind_gate_at,
         "--maa-run 的分派落在那条必填拦路虎之后：运行面回放这一档会被装包必填拦死，对拍门根本起不了它",
+        &mut fails,
+        &mut total,
+    );
+    let m9_dispatch_at = SRC.find(&["run_m9a_run(", "&run_script"].concat()).unwrap_or(usize::MAX);
+    chk(
+        m9_dispatch_at < kind_gate_at,
+        "--m9a-run 的分派落在那条必填拦路虎之后：m9a 运行面回放这一档会被装包必填拦死，新门根本起不了它",
+        &mut fails,
+        &mut total,
+    );
+    // m9a 驱动档（B-2d④）：这一档比 --m9a-run 更该躲开必填 —— 换头调度器起步第一枪就是它，
+    // 被拦死等于 1999 那一轮直接不跑（而且它的落点全在 ctx 名册里，那两枚必填根本没有对应物）。
+    let dm_dispatch_at = SRC.find(&["run_drive_m9a_daily(", "i_drive"].concat()).unwrap_or(usize::MAX);
+    chk(
+        dm_dispatch_at < kind_gate_at,
+        "--drive-m9a-daily 的分派落在那条必填拦路虎之后：1999 的换头调度器起步即断（这一档同样不装包）",
         &mut fails,
         &mut total,
     );
@@ -9642,48 +11802,54 @@ fn selftest() -> i32 {
     }
 
     // 17. R3③ 驱动档（--drive-ark-daily = 换头重入协议：journal 重放 + ask/res 往返）。
-    //     协议六件（拒跑六闸 / journal 装载 / res 合并）先钉死，再走十连真往返：
+    //     协议六件（拒跑七闸 / journal 装载 / res 合并）先钉死，再走十连真往返：
     //     临时目录里起新账 → 逐动作重入（六轮 ask、一轮 fail、一轮 done、两轮拒跑收场）。
     //     只碰 %TEMP% 下自己的目录，不加载 DLL、不碰任何现场；收尾连目录一起删。
     chk(
-        drive_refusal(false, "j", "c", "r", "p", "s").map_or(false, |m| m.contains("--i-drive")),
+        drive_refusal(false, "j", "c", "r", "p", "s", "k").map_or(false, |m| m.contains("--i-drive")),
         "驱动档拒跑闸①走样：缺 --i-drive 没被点名拒跑（默认档可能把换头专用口当普通出口用）",
         &mut fails,
         &mut total,
     );
     chk(
-        drive_refusal(true, "", "c", "r", "p", "s").map_or(false, |m| m.contains("--journal")),
+        drive_refusal(true, "", "c", "r", "p", "s", "k").map_or(false, |m| m.contains("--journal")),
         "驱动档拒跑闸②走样：journal 没落点没被拒（断点记不住的会话会被放行）",
         &mut fails,
         &mut total,
     );
     chk(
-        drive_refusal(true, "j", "", "r", "p", "s").map_or(false, |m| m.contains("--ctx")),
+        drive_refusal(true, "j", "", "r", "p", "s", "k").map_or(false, |m| m.contains("--ctx")),
         "驱动档拒跑闸③走样：上下文文件没给没被拒（launch/retry_once/decision 没来路）",
         &mut fails,
         &mut total,
     );
     chk(
-        drive_refusal(true, "j", "c", "", "p", "s").map_or(false, |m| m.contains("--res")),
+        drive_refusal(true, "j", "c", "", "p", "s", "k").map_or(false, |m| m.contains("--res")),
         "驱动档拒跑闸④走样：回执落点没给没被拒（PS 侧干完一头的落点没处写）",
         &mut fails,
         &mut total,
     );
     chk(
-        drive_refusal(true, "j", "c", "r", "", "s").map_or(false, |m| m.contains("--panel-cs")),
+        drive_refusal(true, "j", "c", "r", "", "s", "k").map_or(false, |m| m.contains("--panel-cs")),
         "驱动档拒跑闸⑤走样：判定 exe 没指没被拒（重试分流试不了）",
         &mut fails,
         &mut total,
     );
     chk(
-        drive_refusal(true, "j", "c", "r", "p", "").map_or(false, |m| m.contains("--state")),
+        drive_refusal(true, "j", "c", "r", "p", "", "k").map_or(false, |m| m.contains("--state")),
         "驱动档拒跑闸⑥走样：state 目录没指没被拒（已搬动作的账会写到没处、静默假绿）",
         &mut fails,
         &mut total,
     );
     chk(
-        drive_refusal(true, "j", "c", "r", "p", "s").is_none(),
-        "驱动档六样齐时仍被拒跑：换头调度器根本起不来（拒跑闸的合取写反了）",
+        drive_refusal(true, "j", "c", "r", "p", "s", "").map_or(false, |m| m.contains("--log-sink")),
+        "驱动档拒跑闸⑦走样：日志侧信道没落点没被拒（B-2c② 换通道后，没落点等于整轮日志不落盘）",
+        &mut fails,
+        &mut total,
+    );
+    chk(
+        drive_refusal(true, "j", "c", "r", "p", "s", "k").is_none(),
+        "驱动档七样齐时仍被拒跑：换头调度器根本起不来（拒跑闸的合取写反了）",
         &mut fails,
         &mut total,
     );
@@ -9743,26 +11909,46 @@ fn selftest() -> i32 {
     let dr_c = dr_dir.join("ctx.json").to_str().unwrap().to_string();
     let dr_r = dr_dir.join("res.json").to_str().unwrap().to_string();
     let dr_s = dr_dir.join("state").to_str().unwrap().to_string();
+    let dr_k = dr_dir.join("log-sink.ndjson").to_str().unwrap().to_string();
     let _ = std::fs::create_dir_all(&dr_s);
     let dr_p = "unused-panel-cs";
     // B-1a：decide 改成注入点 —— 自检照样传"坏路径真跑"，第六轮的"起不来当场断"断言不变，
     // 但自检从此不依赖 envelope 内部硬连 panel-cs。
     let mut dr_dec = |st: &str, ro: bool| arksk_call_decide(dr_p, st, ro);
+    // B-2c③：run 也从 ask 换成注入点。闭包把每次调用看到的 chains 记下来（原第五轮那条
+    // "chains 参数面"判据从信封搬到闭包口）并数调用次数 —— 重放段一次都不许再多。ask 时代这条
+    // 靠"重放不问"间接成立，真做之后必须自己咬字。两枚读数走 Cell/RefCell：闭包按引用捕获它们，
+    // 直接读同名变量会和后面几轮的再借用打架（借用检查器认闭包活着）。
+    let dr_run_seen = std::cell::RefCell::new(Vec::<String>::new());
+    let dr_run_calls = std::cell::Cell::new(0usize);
+    let mut dr_run = |sc: &MaaScen, ch: &[String]| -> Result<ArkRunOut, String> {
+        dr_run_calls.set(dr_run_calls.get() + 1);
+        *dr_run_seen.borrow_mut() = ch.to_vec();
+        // 桩不吃 ctx 那 13 枚（生产闭包 drive_real_run 才吃）；这一组只钉协议形状。
+        let _ = sc;
+        Ok(ArkRunOut { status: "ok".to_string(), detail: "一切正常".to_string(), duration: None })
+    };
+    let dr_run_rows = || -> usize {
+        std::fs::read_to_string(&dr_j)
+            .unwrap_or_default()
+            .lines()
+            .filter(|l| l.contains("\"action\":\"run\""))
+            .count()
+    };
     let _ = std::fs::write(&dr_c, "{\"launch\":true,\"retry_once\":false,\"decision\":{\"Mode\":\"plain\",\"Stage\":\"1-7,CE-5\"}}");
-    let (dr_rc1, dr_e1) = drive_ark_daily_envelope(true, &dr_j, &dr_c, &dr_r, dr_p, &dr_s, &mut dr_dec);
+    let (dr_rc1, dr_e1) = drive_ark_daily_envelope(true, &dr_j, &dr_c, &dr_r, dr_p, &dr_s, &dr_k, &mut dr_dec, &mut dr_run);
     chk(
         dr_rc1 == 0
             && dr_e1.contains("\"kind\":\"ask\"")
             && dr_e1.contains("\"role\":\"R3-drive-ark-daily\"")
             && dr_e1.contains("\"seq\":2")
-            && dr_e1.contains("\"action\":\"desk\"")
-            && dr_e1.contains("--- 方舟(端游 + MAA)---"),
-        "驱动档第一轮没停在 desk：起新账（init+首行日志）或 ask 信封装错（换头调度器第一步就接不下去）",
+            && dr_e1.contains("\"action\":\"desk\""),
+        "驱动档第一轮没停在 desk：起新账（init+首行日志进侧信道）或 ask 信封装错（换头调度器第一步就接不下去）",
         &mut fails,
         &mut total,
     );
     let _ = std::fs::write(&dr_r, "{\"seq\":2,\"action\":\"desk\",\"ok\":true,\"data\":\"Default\"}");
-    let (dr_rc2, dr_e2) = drive_ark_daily_envelope(true, &dr_j, &dr_c, &dr_r, dr_p, &dr_s, &mut dr_dec);
+    let (dr_rc2, dr_e2) = drive_ark_daily_envelope(true, &dr_j, &dr_c, &dr_r, dr_p, &dr_s, &dr_k, &mut dr_dec, &mut dr_run);
     chk(
         dr_rc2 == 0 && dr_e2.contains("\"seq\":3") && dr_e2.contains("\"action\":\"takeover\""),
         "驱动档第二轮没把 desk 回执并账后停在 takeover：重放推进或新区衔接错",
@@ -9770,7 +11956,7 @@ fn selftest() -> i32 {
         &mut total,
     );
     let _ = std::fs::write(&dr_r, "{\"seq\":3,\"action\":\"takeover\",\"ok\":true}");
-    let (dr_rc3, dr_e3) = drive_ark_daily_envelope(true, &dr_j, &dr_c, &dr_r, dr_p, &dr_s, &mut dr_dec);
+    let (dr_rc3, dr_e3) = drive_ark_daily_envelope(true, &dr_j, &dr_c, &dr_r, dr_p, &dr_s, &dr_k, &mut dr_dec, &mut dr_run);
     chk(
         dr_rc3 == 0 && dr_e3.contains("\"seq\":4") && dr_e3.contains("\"params\":{\"kind\":\"main\"}"),
         "驱动档第三轮没停在 cfg(main)：takeover 回执并账或 cfg ask 的 params 装错",
@@ -9778,56 +11964,118 @@ fn selftest() -> i32 {
         &mut total,
     );
     let _ = std::fs::write(&dr_r, "{\"seq\":4,\"action\":\"cfg\",\"ok\":true,\"data\":{\"changes\":[\"chg-main\"],\"chains\":[\"Fight\",\"Shop\"]}}");
-    let (dr_rc4, dr_e4) = drive_ark_daily_envelope(true, &dr_j, &dr_c, &dr_r, dr_p, &dr_s, &mut dr_dec);
+    let (dr_rc4, dr_e4) = drive_ark_daily_envelope(true, &dr_j, &dr_c, &dr_r, dr_p, &dr_s, &dr_k, &mut dr_dec, &mut dr_run);
     chk(
-        dr_rc4 == 0
-            && dr_e4.contains("\"seq\":6")
-            && dr_e4.contains("\"action\":\"launch\"")
-            && dr_e4.contains("  MAA：chg-main"),
-        "驱动档第四轮没停在 launch 或 MAA 变更日志没带上：cfg 回执的 changes 渲染或 seq 基准错（日志占号）",
+        dr_rc4 == 0 && dr_e4.contains("\"seq\":6") && dr_e4.contains("\"action\":\"launch\""),
+        "驱动档第四轮没停在 launch：cfg 回执并账或 seq 基准错（日志占号 —— 侧信道里那句 MAA 变更另行咬字）",
         &mut fails,
         &mut total,
     );
     let _ = std::fs::write(&dr_r, "{\"seq\":6,\"action\":\"launch\",\"ok\":true,\"data\":true}");
-    let (dr_rc5, dr_e5) = drive_ark_daily_envelope(true, &dr_j, &dr_c, &dr_r, dr_p, &dr_s, &mut dr_dec);
+    let (dr_rc5, dr_e5) = drive_ark_daily_envelope(true, &dr_j, &dr_c, &dr_r, dr_p, &dr_s, &dr_k, &mut dr_dec, &mut dr_run);
+    let dr_seen5 = dr_run_seen.borrow().clone();
     chk(
-        dr_rc5 == 0 && dr_e5.contains("\"seq\":7") && dr_e5.contains("\"action\":\"run\"") && dr_e5.contains("[\"Fight\",\"Shop\"]"),
-        "驱动档第五轮没停在 run 或 chains 参数面丢了：launch 回执并账或 run ask 的 params 装错",
+        dr_rc5 == 1
+            && dr_e5.contains("\"kind\":\"fail\"")
+            && dr_e5.contains("decide-daily-retry 起不来")
+            && dr_run_calls.get() == 1
+            && dr_seen5 == vec!["Fight".to_string(), "Shop".to_string()]
+            && dr_run_rows() == 1
+            && std::fs::read_to_string(&dr_j)
+                .unwrap_or_default()
+                .contains("{\"seq\":7,\"action\":\"run\",\"data\":{\"status\":\"ok\",\"detail\":\"一切正常\"}}"),
+        "驱动档第五轮的 run 真做不对：ask 时代这里该停在 ask run，B-2c③ 后同一轮要一路做过 run（账上一行、chains 交得出、无 duration 就不补键）再撞坏判定 exe 当场断（闭包没被叫=分派没接上；被叫两遍=重放重做；键序/键数不对=账行形状和壳当年写的 res 不同形）",
         &mut fails,
         &mut total,
     );
-    let _ = std::fs::write(&dr_r, "{\"seq\":7,\"action\":\"run\",\"ok\":true,\"data\":{\"status\":\"ok\",\"detail\":\"一切正常\"}}");
-    let (dr_rc6, dr_e6) = drive_ark_daily_envelope(true, &dr_j, &dr_c, &dr_r, dr_p, &dr_s, &mut dr_dec);
+    // 第六轮：同一本账再起一轮 —— 重放段必须只**消费** run 那行（闭包一次都不许多、账一行都不许多），
+    // 然后照旧撞在 decide 上。ask 时代这一轮是"重放不问 run"，真做后判据换成闭包计数。
+    let (dr_rc6, dr_e6) = drive_ark_daily_envelope(true, &dr_j, &dr_c, &dr_r, dr_p, &dr_s, &dr_k, &mut dr_dec, &mut dr_run);
     chk(
-        dr_rc6 == 1 && dr_e6.contains("\"kind\":\"fail\"") && dr_e6.contains("decide-daily-retry 起不来"),
-        "驱动档第六轮没在坏判定 exe 处当场断（唯一外部调用）：真跑 decide-daily-retry 的失败会被静默吞掉",
+        dr_rc6 == 1
+            && dr_e6.contains("\"kind\":\"fail\"")
+            && dr_e6.contains("decide-daily-retry 起不来")
+            && dr_run_calls.get() == 1
+            && dr_run_rows() == 1,
+        "驱动档第六轮重放把 run 又做了一遍（闭包被再叫或账上多一行）：真做动作的重放只消费账行 —— 一遍真做两遍 MAA，生产就是双起会话",
         &mut fails,
         &mut total,
     );
     let dr_done_row = jv_o(vec![("done", jv_o(vec![("status", jv_s("ok")), ("detail", jv_s("x")), ("duration", JVal::F(1.5))]))]);
     let _ = drive_append_row(&dr_j, &dr_done_row);
-    let (dr_rc7, dr_e7) = drive_ark_daily_envelope(true, &dr_j, &dr_c, &dr_r, dr_p, &dr_s, &mut dr_dec);
+    let (dr_rc7, dr_e7) = drive_ark_daily_envelope(true, &dr_j, &dr_c, &dr_r, dr_p, &dr_s, &dr_k, &mut dr_dec, &mut dr_run);
     chk(
         dr_rc7 == 0
             && dr_e7.contains("\"kind\":\"done\"")
             && dr_e7.contains("{\"status\":\"ok\",\"detail\":\"x\",\"duration\":1.5}")
-            && dr_e7.contains("\"logs\":[]"),
-        "驱动档第七轮没把末行 done 直接收成 done 信封：重入到已完成会话应原样报结（result 三格/logs 空）",
+            && dr_e7.contains("\"logs\":[]")
+            && dr_run_calls.get() == 1,
+        "驱动档第七轮没把末行 done 直接收成 done 信封，或重放到 done 的一路把 run 又做了一遍（末行是 done 就不该再碰任何注入点）",
         &mut fails,
         &mut total,
     );
     let _ = std::fs::write(&dr_c, "{\"launch\":false,\"retry_once\":false,\"decision\":{}}");
-    let (dr_rc8, dr_e8) = drive_ark_daily_envelope(true, &dr_j, &dr_c, &dr_r, dr_p, &dr_s, &mut dr_dec);
+    let (dr_rc8, dr_e8) = drive_ark_daily_envelope(true, &dr_j, &dr_c, &dr_r, dr_p, &dr_s, &dr_k, &mut dr_dec, &mut dr_run);
     chk(
         dr_rc8 == 1 && dr_e8.contains("驱动协议坏了") && dr_e8.contains("不是同一份"),
         "驱动档第八轮没拒掉换 ctx 续旧账：init/ctx 不同源的会话会被静默接续",
         &mut fails,
         &mut total,
     );
-    let (dr_rc9, dr_e9) = drive_ark_daily_envelope(false, &dr_j, &dr_c, &dr_r, dr_p, &dr_s, &mut dr_dec);
+    let (dr_rc9, dr_e9) = drive_ark_daily_envelope(false, &dr_j, &dr_c, &dr_r, dr_p, &dr_s, &dr_k, &mut dr_dec, &mut dr_run);
     chk(
         dr_rc9 == 2 && dr_e9.contains("--i-drive"),
         "驱动档第九轮没在缺 --i-drive 时拒跑（rc2）：默认档能把换头专用口当普通出口用",
+        &mut fails,
+        &mut total,
+    );
+    // —— B-2c② 侧信道三条判据（"换通道不换形状"的门侧论据就在这一段）——
+    // ①九轮信封的 logs 键一律留恒空；②sink 行数 == journal 里 log 行数（两边都只在新区写 ⇒
+    //   重放段一行不写，多一行=重复落、少一行=漏落）；③sink 每行是带 level/text 的合法 JSON 对象
+    //   （壳侧照这一把行格式解析，形状一歪整条日志通道空转而无人察觉）。
+    chk(
+        [
+            dr_e1.as_str(),
+            dr_e2.as_str(),
+            dr_e3.as_str(),
+            dr_e4.as_str(),
+            dr_e5.as_str(),
+            dr_e6.as_str(),
+            dr_e7.as_str(),
+            dr_e8.as_str(),
+            dr_e9.as_str(),
+        ]
+        .iter()
+        .all(|e| e.contains("\"logs\":[]")),
+        "九轮信封里有 logs 没留空：B-2c② 定的「留键不删键」没落到某一轮（arkdrive 门的 C-logs 面会把它判成分歧）",
+        &mut fails,
+        &mut total,
+    );
+    let dr_sink_txt = std::fs::read_to_string(&dr_k).unwrap_or_default();
+    let dr_sink_rows: Vec<&str> = dr_sink_txt.lines().filter(|l| !l.trim().is_empty()).collect();
+    let dr_journal_txt = std::fs::read_to_string(&dr_j).unwrap_or_default();
+    let dr_log_rows = dr_journal_txt.lines().filter(|l| l.contains("\"action\":\"log\"")).count();
+    chk(
+        dr_log_rows >= 2 && dr_sink_rows.len() == dr_log_rows,
+        &format!(
+            "侧信道与 journal 的 log 行数不等（sink={} journal={}）：重放段重复落盘或新区漏落，两种都会让同一句日志打两遍或一遍不打",
+            dr_sink_rows.len(),
+            dr_log_rows
+        ),
+        &mut fails,
+        &mut total,
+    );
+    chk(
+        dr_sink_rows.iter().any(|l| l.contains("--- 方舟(端游 + MAA)---"))
+            && dr_sink_rows.iter().any(|l| l.contains("\"level\":\"STEP\""))
+            && dr_sink_rows.iter().any(|l| l.contains("MAA：chg-main")),
+        "侧信道没带出链体首行(STEP)或 cfg 那句 MAA 变更行：日志落点从信封换到这里，字面一句没改 —— 红=新通道漏句，不是期望要放宽",
+        &mut fails,
+        &mut total,
+    );
+    chk(
+        dr_sink_rows.iter().all(|l| matches!(jv_parse(l), Ok(ref v) if jv_has(v, "level") && jv_has(v, "text"))),
+        "侧信道行格式不对（不是带 level/text 的合法 JSON 行）：壳侧照这一把行格式增量排空，形状一歪整条日志通道空转",
         &mut fails,
         &mut total,
     );
@@ -9851,16 +12099,25 @@ fn selftest() -> i32 {
     let a_c = d18.join("a-ctx.json").to_str().unwrap().to_string();
     let a_r = d18.join("a-res.json").to_str().unwrap().to_string();
     let a_st = d18.join("a-state").to_str().unwrap().to_string();
+    let a_k = d18.join("a-log-sink.ndjson").to_str().unwrap().to_string();
+    let a2_k = d18.join("a2-log-sink.ndjson").to_str().unwrap().to_string();
     let _ = std::fs::create_dir_all(&a_st);
     let _ = std::fs::write(&a_c, "{\"launch\":true,\"retry_once\":false,\"decision\":{\"Mode\":\"plain\",\"Stage\":\"CE-5\"}}");
-    let mut resp_a = |act: &str, prm: &JVal| drive_selftest_respond(act, prm, "ok", "一切正常");
-    let (a_asked, a_logs, a_kind, a_result, a_err) = drive_selftest_session(&a_j, &a_c, &a_r, &a_st, &mut resp_a);
-    let a_asked_want = vec!["desk", "takeover", "cfg", "launch", "run", "skip", "stop", "ledger", "obs"];
+    // B-2c③：run 不再出现在 ask 名册里 —— 会话自带 run 闭包给终态，并数调用次数（一次为准）。
+    let a_run_calls = std::cell::Cell::new(0usize);
+    let mut run_a = |_sc: &MaaScen, _ch: &[String]| -> Result<ArkRunOut, String> {
+        a_run_calls.set(a_run_calls.get() + 1);
+        Ok(ArkRunOut { status: "ok".to_string(), detail: "一切正常".to_string(), duration: None })
+    };
+    let mut resp_a = |act: &str, prm: &JVal| drive_selftest_respond(act, prm);
+    let (a_asked, a_logs, a_kind, a_result, a_err) =
+        drive_selftest_session(&a_j, &a_c, &a_r, &a_st, &a_k, &mut resp_a, &mut run_a);
+    let a_asked_want = vec!["desk", "takeover", "cfg", "launch", "skip", "stop", "ledger", "obs"];
     chk(
-        a_err.is_none() && a_kind == "done" && a_asked == a_asked_want,
+        a_err.is_none() && a_kind == "done" && a_asked == a_asked_want && a_run_calls.get() == 1,
         &format!(
-            "B-1a 会话 A 没走到 done 或 ask 序不对：kind={} asked={:?} err={:?}（已搬动作还出现在 ask 里=分派没接上；序漂=链体转写走样）",
-            a_kind, a_asked, a_err
+            "B-1a 会话 A 没走到 done 或 ask 序不对：kind={} asked={:?} run调用次数={} err={:?}（已搬动作还出现在 ask 里=分派没接上；序漂=链体转写走样；run 出现在 ask 名册=B-2c③ 的双删没删净；次数≠1=真做被跳过或重演）",
+            a_kind, a_asked, a_run_calls.get(), a_err
         ),
         &mut fails,
         &mut total,
@@ -9880,6 +12137,12 @@ fn selftest() -> i32 {
         &mut fails,
         &mut total,
     );
+    chk(
+        a_logs.first().map_or(false, |l| l.starts_with("STEP|") && l.contains("--- 方舟(端游 + MAA)---")),
+        "B-2c② 会话 A 的侧信道首行不对（级别或文本串位）：壳侧照「级别|文本」逐行增量排空，第一行就错=整条日志通道口径错",
+        &mut fails,
+        &mut total,
+    );
     let a_text = std::fs::read_to_string(&a_j).unwrap_or_default();
     let (_, a_rows, a_done) = match drive_load_journal(&a_text) {
         Ok(t) => t,
@@ -9893,8 +12156,9 @@ fn selftest() -> i32 {
         a_row("mark").map_or(false, |r| jv_get(r, "data") == jv_s(&gd_local_date()))
             && a_row("obsrec").map_or(false, |r| jv_get(r, "data") == JVal::I(1))
             && a_row("admin").is_none()
+            && a_row("run").map_or(false, |r| jv_to_json(&jv_get(r, "data")) == "{\"status\":\"ok\",\"detail\":\"一切正常\"}")
             && a_done.is_some(),
-        "B-1a 会话 A 的 journal 软行不对：mark 该记真今日、obsrec 该记 1、ok 轮不该叫 admin、done 行该在（软行=重放的唯一依据）",
+        "B-1a 会话 A 的 journal 软行不对：mark 该记真今日、obsrec 该记 1、ok 轮不该叫 admin、run 行该是核自己写的两格（无 duration 不补键）、done 行该在（软行=重放的唯一依据）",
         &mut fails,
         &mut total,
     );
@@ -9930,18 +12194,27 @@ fn selftest() -> i32 {
         a_cut.push('\n');
     }
     let _ = std::fs::write(&a_j, &a_cut);
-    let mut resp_a2 = |act: &str, prm: &JVal| drive_selftest_respond(act, prm, "ok", "一切正常");
-    let (a2_asked, _, a2_kind, a2_result, a2_err) = drive_selftest_session(&a_j, &a_c, &a_r, &a_st, &mut resp_a2);
+    let mut resp_a2 = |act: &str, prm: &JVal| drive_selftest_respond(act, prm);
+    // 重放段的 run 闭包一次都不许被叫：叫了就说明真做动作在重放里重演（生产=双起 MAA 会话）。
+    let a2_run_calls = std::cell::Cell::new(0usize);
+    let mut run_a2 = |_sc: &MaaScen, _ch: &[String]| -> Result<ArkRunOut, String> {
+        a2_run_calls.set(a2_run_calls.get() + 1);
+        Ok(ArkRunOut { status: "ok".to_string(), detail: "一切正常".to_string(), duration: None })
+    };
+    let (a2_asked, a2_logs, a2_kind, a2_result, a2_err) =
+        drive_selftest_session(&a_j, &a_c, &a_r, &a_st, &a2_k, &mut resp_a2, &mut run_a2);
     chk(
         a2_err.is_none()
             && a2_kind == "done"
             && a2_asked.is_empty()
+            && a2_logs.is_empty()
+            && a2_run_calls.get() == 0
             && !a_mk_path.exists()
             && !a_ob_path.exists()
             && jv_str(&jv_get_ci(&a2_result, "detail")) == "一切正常；Fight 被 MAA 判全关(认栽，已记当日标记)",
         &format!(
-            "B-1a 截 done 重放不对：kind={} asked={:?} err={:?}（重放该一路消费到 done：不重问、不重写两文件）",
-            a2_kind, a2_asked, a2_err
+            "B-1a 截 done 重放不对：kind={} asked={:?} run调用次数={} sink行数={:?} err={:?}（重放该一路消费到 done：不重问、run 真做一次都不许再叫、不重写两文件、侧信道一行不写 —— 重放段落 sink 会让同一句日志打两遍）",
+            a2_kind, a2_asked, a2_run_calls.get(), a2_logs.len(), a2_err
         ),
         &mut fails,
         &mut total,
@@ -9951,20 +12224,28 @@ fn selftest() -> i32 {
     let b_c = d18.join("b-ctx.json").to_str().unwrap().to_string();
     let b_r = d18.join("b-res.json").to_str().unwrap().to_string();
     let b_st = d18.join("b-state").to_str().unwrap().to_string();
+    let b_k = d18.join("b-log-sink.ndjson").to_str().unwrap().to_string();
     let _ = std::fs::create_dir_all(&b_st);
     let _ = std::fs::write(&b_c, "{\"launch\":true,\"retry_once\":false,\"decision\":{\"Mode\":\"plain\",\"Stage\":\"CE-5\"}}");
-    let mut resp_b = |act: &str, prm: &JVal| drive_selftest_respond(act, prm, "not-started", "没起得来");
-    let (b_asked, b_logs, b_kind, b_result, b_err) = drive_selftest_session(&b_j, &b_c, &b_r, &b_st, &mut resp_b);
-    let b_asked_want = vec!["desk", "takeover", "cfg", "launch", "run", "stop", "ledger", "obs"];
+    let mut resp_b = |act: &str, prm: &JVal| drive_selftest_respond(act, prm);
+    let b_run_calls = std::cell::Cell::new(0usize);
+    let mut run_b = |_sc: &MaaScen, _ch: &[String]| -> Result<ArkRunOut, String> {
+        b_run_calls.set(b_run_calls.get() + 1);
+        Ok(ArkRunOut { status: "not-started".to_string(), detail: "没起得来".to_string(), duration: None })
+    };
+    let (b_asked, b_logs, b_kind, b_result, b_err) =
+        drive_selftest_session(&b_j, &b_c, &b_r, &b_st, &b_k, &mut resp_b, &mut run_b);
+    let b_asked_want = vec!["desk", "takeover", "cfg", "launch", "stop", "ledger", "obs"];
     chk(
         b_err.is_none()
             && b_kind == "done"
             && b_asked == b_asked_want
+            && b_run_calls.get() == 1
             && jv_str(&jv_get_ci(&b_result, "status")) == "not-started"
             && jv_str(&jv_get_ci(&b_result, "detail")) == "没起得来",
         &format!(
-            "B-1a 会话 B 的 ask 序或终态不对：kind={} asked={:?} err={:?}（not-started 轮不许叫 skip——skip 只挂 ok 支）",
-            b_kind, b_asked, b_err
+            "B-1a 会话 B 的 ask 序或终态不对：kind={} asked={:?} run调用次数={} err={:?}（not-started 轮不许叫 skip——skip 只挂 ok 支；终态两格现由 run 闭包给，ask 名册里不该再有 run）",
+            b_kind, b_asked, b_run_calls.get(), b_err
         ),
         &mut fails,
         &mut total,
@@ -10130,7 +12411,7 @@ fn selftest() -> i32 {
     let _ = h19t.file_tail(&ap19, 0);
     h19t.sleep(15);
     let trunc19 = std::fs::read_to_string(t19(&tl_gui)).unwrap_or_default();
-    let start19 = h19t.start_process("C:\\maa\\MAA.exe", "C:\\maa");
+    let start19 = h19t.start_process("C:\\maa\\MAA.exe", "C:\\maa", &[]);
     let verb19 = h19t.verb("parse-asst-state", &JVal::Null);
     let proj19t = h19t.proj.clone();
     chk(
@@ -10298,10 +12579,24 @@ fn selftest() -> i32 {
         &mut fails,
         &mut total,
     );
-    let mut rh19 = RealHost::new("gd-no-such-panel");
+    let mut rh19 = RealHost::new("gd-no-such-panel", &t19("rh19-sink.ndjson"));
     chk(
         !rh19.proc_running("gd-definitely-not-running"),
         "RealHost 的现场读法走样：不存在的进程名被判成在场（探活是 stuck/drain 两档的门槛，这里错一格整轮就变）",
+        &mut fails,
+        &mut total,
+    );
+    // B-2d③ 结案登记：上面那枚**只有负例**。恒 false 的读法在负例上照样绿 —— 10-11 起 run 进核之后
+    // 现场连报"MAA 未能启动(进程未出现)"，而 MAA 自己的日志显示它起来了并把队列跑完，那格读的
+    // 就是这个没被验过的正例面。这里补一枚**自身进程必然在场**的正例：current_exe 的 stem 就是
+    // 本进程自己，快照读得出任何一条就必然命中它；读不出任何一条(dwSize/布局走样)当场红。
+    let self_exe19 = std::env::current_exe()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let self_name19 = file_stem(&self_exe19);
+    chk(
+        !self_name19.is_empty() && rh19.proc_running(&self_name19),
+        "RealHost 的现场读法读不出任何进程：连自己这个进程都不在场，说明快照枚举一条都没落进来(dwSize/结构布局走样)。这一格恒 false 会把\"进程确实起来了\"记成\"进程未出现\"，整轮的成败读数全部作废",
         &mut fails,
         &mut total,
     );
@@ -10314,7 +12609,7 @@ fn selftest() -> i32 {
         &mut fails,
         &mut total,
     );
-    let rh19m = RealHost::for_game("gd-no-such-panel", "r1999");
+    let rh19m = RealHost::for_game("gd-no-such-panel", "r1999", &t19("rh19m-sink.ndjson"));
     chk(
         rh19m.rescue_available() && !rh19m.grab_available(),
         "RealHost(r1999) 的两枚可用性走样：mumu 一路没有抢前台那枚(住 vision-ark.ps1，端游专用)，兜底照旧在场",
@@ -10502,7 +12797,7 @@ fn selftest() -> i32 {
         ..Default::default()
     };
     let mut b19h_ok = ScriptHost::new("gd-no-such-panel", &b19sc_ok);
-    let b19rc_ok = vision_rescue(&mut b19h_ok, &b19sc_ok, "stuck-1", "MAA 日志 12 分钟无输出");
+    let b19rc_ok = vision_rescue(&mut b19h_ok, &RescueEnv::of_maa(&b19sc_ok), "stuck-1", "MAA 日志 12 分钟无输出");
     let b19pngs = std::fs::read_dir(&b19shotdir).map_or(0, |rd| {
         rd.flatten()
             .filter(|e| {
@@ -10556,7 +12851,7 @@ fn selftest() -> i32 {
         ..Default::default()
     };
     let mut b19h_off = ScriptHost::new("gd-no-such-panel", &b19sc_off);
-    let b19rc_off = vision_rescue(&mut b19h_off, &b19sc_off, "quiet-1", "");
+    let b19rc_off = vision_rescue(&mut b19h_off, &RescueEnv::of_maa(&b19sc_off), "quiet-1", "");
     let b19one: Vec<String> = vec!["V|resolve-rescue-context".to_string()];
     chk(
         b19rc_off.as_ref().map_or(false, |r| {
@@ -10581,7 +12876,7 @@ fn selftest() -> i32 {
         ..Default::default()
     };
     let mut b19h_sf = ScriptHost::new("gd-no-such-panel", &b19sc_sf);
-    let b19rc_sf = vision_rescue(&mut b19h_sf, &b19sc_sf, "drain-1", "");
+    let b19rc_sf = vision_rescue(&mut b19h_sf, &RescueEnv::of_maa(&b19sc_sf), "drain-1", "");
     chk(
         b19rc_sf.as_ref().map_or(false, |r| {
             !r.tried && r.detail == "截图失败：窗口已消失(没抢到前台)"
@@ -10621,7 +12916,7 @@ fn selftest() -> i32 {
         ..Default::default()
     };
     let mut b19h_oob = ScriptHost::new("gd-no-such-panel", &b19sc_oob);
-    let b19rc_oob = vision_rescue(&mut b19h_oob, &b19sc_oob, "stuck-2", "");
+    let b19rc_oob = vision_rescue(&mut b19h_oob, &RescueEnv::of_maa(&b19sc_oob), "stuck-2", "");
     let b19n_point = b19h_oob
         .proj
         .iter()
@@ -10650,7 +12945,7 @@ fn selftest() -> i32 {
         ..Default::default()
     };
     let mut b19h_no = ScriptHost::new("gd-no-such-panel", &b19sc_no);
-    let b19rc_no = vision_rescue(&mut b19h_no, &b19sc_no, "stuck-1", "");
+    let b19rc_no = vision_rescue(&mut b19h_no, &RescueEnv::of_maa(&b19sc_no), "stuck-1", "");
     chk(
         b19rc_no.as_ref().map_or(false, |r| {
             r.tried && !r.done && r.detail == "按模型说的把活动页点了一下(点位 1520,54(真实点击)→画面看不出变化)，但画面看不出变化 → 不算救活"
@@ -10668,7 +12963,7 @@ fn selftest() -> i32 {
         ..Default::default()
     };
     let mut b19h_ask = ScriptHost::new("gd-no-such-panel", &b19sc_askerr);
-    let b19rc_ask = vision_rescue(&mut b19h_ask, &b19sc_askerr, "stuck-1", "");
+    let b19rc_ask = vision_rescue(&mut b19h_ask, &RescueEnv::of_maa(&b19sc_askerr), "stuck-1", "");
     // 四行 = 六闸 / 首拍 / 那句截图 WARN / 问模型(真外调，桩路径必然起不来)。
     chk(
         b19rc_ask.as_ref().map_or(false, |r| {
@@ -10691,7 +12986,8 @@ fn selftest() -> i32 {
     let mut b19left_on = 1i64;
     do_rescue(
         &mut b19h_bon,
-        &b19sc_on,
+        &RescueEnv::of_maa(&b19sc_on),
+        "rescue",
         &jv_o(vec![
             ("Kind", jv_s("rescue")),
             ("Tag", jv_s("stuck-1")),
@@ -10711,7 +13007,8 @@ fn selftest() -> i32 {
     let mut b19left_off = 0i64;
     do_rescue(
         &mut b19h_boff,
-        &b19sc_off2,
+        &RescueEnv::of_maa(&b19sc_off2),
+        "rescue",
         &jv_o(vec![
             ("Kind", jv_s("rescue")),
             ("Tag", jv_s("stall-1")),
@@ -10770,9 +13067,9 @@ fn selftest() -> i32 {
         ..Default::default()
     };
     let mut b19h_led = ScriptHost::new("gd-no-such-panel", &b19sc_led);
-    let b19r1 = add_rescue_record(&mut b19h_led, &b19sc_led, "quiet-1", "第一条", true, false);
-    let b19r2 = add_rescue_record(&mut b19h_led, &b19sc_led, "quiet-2", "第二条", false, false);
-    let b19ltext = std::fs::read_to_string(rescue_ledger_path(&b19sc_led)).unwrap_or_default();
+    let b19r1 = add_rescue_record(&mut b19h_led, &RescueEnv::of_maa(&b19sc_led), "quiet-1", "第一条", true, false);
+    let b19r2 = add_rescue_record(&mut b19h_led, &RescueEnv::of_maa(&b19sc_led), "quiet-2", "第二条", false, false);
+    let b19ltext = std::fs::read_to_string(rescue_ledger_path(&RescueEnv::of_maa(&b19sc_led))).unwrap_or_default();
     let b19lroot = jv_parse(&b19ltext).unwrap_or(JVal::Null);
     let b19lev = jv_get(&b19lroot, "events");
     let b19levs = jv_list(&b19lev);
@@ -10801,7 +13098,1762 @@ fn selftest() -> i32 {
         &mut total,
     );
 
+    // 20. B-2c③「run 换真做」：这一组钉真做这一刀自己的判据 —— 闸的优先级（缺 --i-drive 必须先于
+    //     夹具错报出来）、`--fixture-run` 的三条错路与一条正路（账行逐字 + 夹具 logs 按序进侧信道、
+    //     重放不重做）、ctx 那 13 枚的取键、生产 run 闭包的两条边界（载荷缺失当场拒做、RealHost 的
+    //     run 内部行落进链体同一本侧信道）、以及真做抛错仍被链体吞成 error 态。
+    //     文件一律写 %TEMP% 下自己的目录，收尾连目录一起删；判定 exe 全指不存在的桩路径。
+    let d20 = std::env::temp_dir().join(format!("gd-b2c3-selftest-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&d20);
+    let _ = std::fs::create_dir_all(&d20);
+    let d20s = d20.to_str().unwrap_or("").to_string();
+    let t20 = |n: &str| format!("{}\\{}", d20s, n);
+    let e20 = t20("env.json");
+    let out20 = &Some(e20.clone());
+    let env20 = || -> String { std::fs::read_to_string(&e20).unwrap_or_default().trim().to_string() };
+    let j20 = t20("journal.ndjson");
+    let c20 = t20("ctx.json");
+    let r20 = t20("res.json");
+    let s20 = t20("state");
+    let k20 = t20("sink.ndjson");
+    let _ = std::fs::create_dir_all(&s20);
+    let _ = std::fs::write(
+        &c20,
+        "{\"launch\":true,\"retry_once\":false,\"decision\":{\"Mode\":\"plain\",\"Stage\":\"1-7,CE-5\"}}",
+    );
+
+    // 20a 闸的优先级：缺 --i-drive 却同时喂一枚读不动的夹具，出来的必须是拒跑句而不是夹具错。
+    let missfx20 = t20("no-such-fixture.json");
+    let rc20a = run_drive_ark_daily(false, &j20, &c20, &r20, "unused-panel-cs", &s20, &k20, &missfx20, out20);
+    let ea20 = env20();
+    chk(
+        rc20a == 2 && ea20.contains("--i-drive") && !ea20.contains("夹具读不动"),
+        "驱动档的拒跑闸排在了夹具读取之后：缺 --i-drive 时先报夹具错，会把『参数漏写』伪装成『夹具喂错』——换头开关那句拒跑就此不是唯一出口",
+        &mut fails,
+        &mut total,
+    );
+
+    // 20b/20c 夹具的两条错路：读不动与不是合法 JSON 各自的话术，且都收在 rc=1 的 fail 信封。
+    let rc20b = run_drive_ark_daily(true, &j20, &c20, &r20, "unused-panel-cs", &s20, &k20, &missfx20, out20);
+    let eb20 = env20();
+    chk(
+        rc20b == 1
+            && eb20.contains("\"kind\":\"fail\"")
+            && eb20.contains("--fixture-run 的夹具读不动")
+            && eb20.contains("驱动协议坏了"),
+        "--fixture-run 指到不存在的文件时没当场 fail（或错话没点名旗标）：给了旗标却喂不到夹具，比不喂更容易被当成『跑过了』",
+        &mut fails,
+        &mut total,
+    );
+    let badfx20 = t20("fixture-bad.json");
+    let _ = std::fs::write(&badfx20, "{\"status\":\"ok\",");
+    let rc20c = run_drive_ark_daily(true, &j20, &c20, &r20, "unused-panel-cs", &s20, &k20, &badfx20, out20);
+    let ec20 = env20();
+    chk(
+        rc20c == 1 && ec20.contains("\"kind\":\"fail\"") && ec20.contains("不是合法 JSON"),
+        "--fixture-run 的夹具不是合法 JSON 时没当场 fail：半截夹具会被读成『状态全空的一轮』，门就此把坏档当绿档收",
+        &mut fails,
+        &mut total,
+    );
+
+    // 20d 夹具正路：走**真出口**（run_drive_ark_daily + --out）推满五轮，钉第五轮的 run 账行逐字形状
+    //     （夹具给了 duration ⇒ 键要出现，与 ask 时代壳写的 res data 同形）＋夹具 logs 按序进侧信道，
+    //     再用第六轮（同账重放）钉这两样都不许翻倍。
+    let fx20 = t20("fixture-run.json");
+    let _ = std::fs::write(
+        &fx20,
+        "{\"status\":\"ok\",\"detail\":\"一切正常\",\"duration\":62.5,\"logs\":[{\"level\":\"INFO\",\"text\":\"夹具第一行\"},{\"level\":\"WARN\",\"text\":\"夹具第二行\"}]}",
+    );
+    let sink_rows20 = |needle: &str| -> Vec<usize> {
+        std::fs::read_to_string(&k20)
+            .unwrap_or_default()
+            .lines()
+            .enumerate()
+            .filter(|(_, l)| l.contains(needle))
+            .map(|(i, _)| i)
+            .collect()
+    };
+    let run_rows20 = || -> usize {
+        std::fs::read_to_string(&j20)
+            .unwrap_or_default()
+            .lines()
+            .filter(|l| l.contains("\"action\":\"run\""))
+            .count()
+    };
+    let mut rc20d = 0i32;
+    let mut e20d = String::new();
+    for (i, res_row) in [
+        "",
+        "{\"seq\":2,\"action\":\"desk\",\"ok\":true,\"data\":\"Default\"}",
+        "{\"seq\":3,\"action\":\"takeover\",\"ok\":true}",
+        "{\"seq\":4,\"action\":\"cfg\",\"ok\":true,\"data\":{\"changes\":[\"chg-main\"],\"chains\":[\"Fight\",\"Shop\"]}}",
+        "{\"seq\":6,\"action\":\"launch\",\"ok\":true,\"data\":true}",
+    ]
+    .iter()
+    .enumerate()
+    {
+        if i > 0 {
+            let _ = std::fs::write(&r20, res_row);
+        }
+        rc20d = run_drive_ark_daily(true, &j20, &c20, &r20, "unused-panel-cs", &s20, &k20, &fx20, out20);
+        e20d = env20();
+    }
+    let run_row20 = std::fs::read_to_string(&j20)
+        .unwrap_or_default()
+        .lines()
+        .find(|l| l.contains("\"action\":\"run\""))
+        .unwrap_or_default()
+        .to_string();
+    let g1_20 = sink_rows20("夹具第一行");
+    let g2_20 = sink_rows20("夹具第二行");
+    chk(
+        rc20d == 1
+            && e20d.contains("\"kind\":\"fail\"")
+            && e20d.contains("decide-daily-retry 起不来")
+            && run_rows20() == 1
+            && run_row20 == "{\"seq\":7,\"action\":\"run\",\"data\":{\"status\":\"ok\",\"detail\":\"一切正常\",\"duration\":62.5}}"
+            && g1_20.len() == 1
+            && g2_20.len() == 1
+            && g1_20[0] < g2_20[0],
+        "真出口这一路的 run 真做不对：夹具喂进去的终态没原样落到账行（键序/键数/duration 一格都不许动 —— 账行与 ask 时代壳写的 res data 不同形 ⇒ old/new 两代 journal 不可比），或夹具的 logs 没按序落进同一本侧信道（通道不是这一条）",
+        &mut fails,
+        &mut total,
+    );
+    let rc20e = run_drive_ark_daily(true, &j20, &c20, &r20, "unused-panel-cs", &s20, &k20, &fx20, out20);
+    chk(
+        rc20e == 1
+            && env20().contains("decide-daily-retry 起不来")
+            && run_rows20() == 1
+            && sink_rows20("夹具第一行").len() == 1
+            && sink_rows20("夹具第二行").len() == 1,
+        "同账重放把 run 又做了一遍（账上多一行或侧信道多两行）：真做动作的重放只消费账行 —— 一遍真做两遍 MAA，生产就是双起会话，日志也会整段重播",
+        &mut fails,
+        &mut total,
+    );
+
+    // 20e ctx 的 maaRun 十三枚逐格点名（键名与 config\\settings.json 逐字同名）＋缺键一律按"没填"。
+    let full20 = jv_parse(
+        "{\"name\":\"ctx-maarun\",\"paths\":{\"maaDir\":\"D:/MAA\",\"maaExe\":\"D:/MAA/MAA.exe\",\"maaConfig\":\"D:/MAA/config.json\",\"maaGuiLog\":\"D:/MAA/gui.log\",\"maaAsstLog\":\"D:/MAA/debug/asst.log\",\"arknightsExe\":\"D:/Ark/Arknights.exe\"},\"runtime\":{\"arkStartTimeoutMinutes\":3,\"arkTimeoutMinutes\":40,\"stallTimeoutMinutes\":10,\"idleConfirmSeconds\":60,\"abortOnMaaStallWarning\":true,\"visionMaxRescue\":5,\"benignMaaErrors\":[\"E1\",\"E2\"]}}",
+    )
+    .unwrap_or(JVal::Null);
+    let p20 = maarun_parse(&full20);
+    chk(
+        p20.as_ref().map_or(false, |m| {
+            m.maa_dir == "D:/MAA"
+                && m.maa_exe == "D:/MAA/MAA.exe"
+                && m.maa_config == "D:/MAA/config.json"
+                && m.gui_log == "D:/MAA/gui.log"
+                && m.asst_log == "D:/MAA/debug/asst.log"
+                && m.ark_exe == "D:/Ark/Arknights.exe"
+                && m.start_min == 3
+                && m.timeout_min == 40
+                && m.stall_min == 10
+                && m.idle_sec == 60
+                && m.abort_stall
+                && m.vision_max == 5
+                && m.benign == vec!["E1".to_string(), "E2".to_string()]
+        }),
+        "ctx 的 maaRun 十三枚里有一枚接错（paths 六格＋runtime 六格＋benignMaaErrors，键名必须与 config\\settings.json 逐字同名）：真做会拿错路径或错超时去跑 MAA，而门看不出来",
+        &mut fails,
+        &mut total,
+    );
+    let p20empty = maarun_parse(&JVal::Null);
+    chk(
+        p20empty.map_or(false, |m| {
+            m.maa_dir.is_empty()
+                && m.ark_exe.is_empty()
+                && m.start_min == 0
+                && m.timeout_min == 0
+                && m.stall_min == 0
+                && m.idle_sec == 0
+                && !m.abort_stall
+                && m.vision_max == 0
+                && m.benign.is_empty()
+                && m.game == "ark"
+                && m.target == "ark"
+        }),
+        "ctx 没给 maaRun（或只给半套键）时十三枚没有一律按『没填』取值：game/target 之外的一律要落成 0/空 —— 缺键被猜成默认值，生产就有一处没人签过字的超时",
+        &mut fails,
+        &mut total,
+    );
+
+    // 20f 生产 run 闭包的第一条边界：ctx 载荷缺失 ⇒ 当场拒做，且不碰侧信道、不猜路径。
+    let f_sink20 = t20("f-sink.ndjson");
+    let f20 = drive_real_run("unused-panel-cs", &f_sink20, &MaaScen::default(), &["Fight".to_string()]);
+    chk(
+        f20.as_ref().err().map_or(false, |m| m.contains("maaRun 的 paths") && m.contains("不替生产猜默认路径"))
+            && std::fs::metadata(&f_sink20).is_err(),
+        "生产 run 闭包在 ctx 载荷缺失时没当场拒做（或拒做的路上顺手造了文件）：真做会拿空路径去 Start-Process，错话还会从链上消失",
+        &mut fails,
+        &mut total,
+    );
+
+    // 20g RealHost 的 log 落点＝链体同一本侧信道（B-2a 那笔"run 内部行往哪去"的留言在此结清）。
+    let g_sink20 = t20("g-sink.ndjson");
+    let mut rh20 = RealHost::for_game("unused-panel-cs", "ark", &g_sink20);
+    MaaHost::log(&mut rh20, "INFO", "生产接线自检的一行");
+    chk(
+        std::fs::read_to_string(&g_sink20).unwrap_or_default()
+            == "{\"level\":\"INFO\",\"text\":\"生产接线自检的一行\"}\n",
+        "RealHost::log 没把 MAA 运行面内部行落进链体那一本侧信道（通道另开了一条，或行不是 level/text 两键）：壳侧流式排空会漏掉整段运行面日志",
+        &mut fails,
+        &mut total,
+    );
+
+    // 20h 真做抛错仍被链体吞成 error 态：账上写 err 不写 data，终态话术与 ask 时代壳写 ok:false 同语义。
+    let j20h = t20("h-journal.ndjson");
+    let mut resp_h20 = |act: &str, prm: &JVal| drive_selftest_respond(act, prm);
+    let mut run_h20 = |_sc: &MaaScen, _ch: &[String]| -> Result<ArkRunOut, String> {
+        Err("运行面桩故意抛".to_string())
+    };
+    let (h_asked, _h_logs, h_kind, h_result, h_err) =
+        drive_selftest_session(&j20h, &c20, &t20("h-res.json"), &s20, &t20("h-sink.ndjson"), &mut resp_h20, &mut run_h20);
+    let h_row20 = std::fs::read_to_string(&j20h)
+        .unwrap_or_default()
+        .lines()
+        .find(|l| l.contains("\"action\":\"run\""))
+        .unwrap_or_default()
+        .to_string();
+    chk(
+        h_err.is_none()
+            && h_kind == "done"
+            && !h_asked.iter().any(|a| a == "run")
+            && jv_str(&jv_get(&h_result, "status")) == "error"
+            && jv_str(&jv_get(&h_result, "detail")) == "方舟 异常：运行面桩故意抛"
+            && h_row20 == "{\"seq\":7,\"action\":\"run\",\"err\":\"运行面桩故意抛\"}",
+        "run 真做抛错这一路不对：账上该写 err 而不是 data、链体该把它吞成 status=error＋『方舟 异常：』那句、ask 名册里该再没有 run —— 任一半走样，生产就把一次失败的 MAA 当成成功终态收（重试分流就此失灵）",
+        &mut fails,
+        &mut total,
+    );
+
+    let _ = std::fs::remove_dir_all(&d20);
+    chk(
+        !d20.exists(),
+        "B-2c③ 自检的临时目录没收干净：自检会在 %TEMP% 里留垃圾",
+        &mut fails,
+        &mut total,
+    );
+
+    // 21. B-2d②「m9a run 循环进核」：这一组钉 m9a 档自己的判据 —— ctx 名册 15 枚逐枚点名、
+    //     runtime 那枚 m9aCliArgs 的**三态**、三枚起步拒跑闸、事件靶子收窄到 m9alog、跨 00:00 换文件
+    //     与 keyed offset、`:347` 那句 throw 落成 E| 且整批继续、以及"日志不在场 / 本轮无新字节"两个
+    //     省钱点，末了钉住 ark 那一路**零条 D|**（27 档 1218 步基线一字不动的自证）。
+    //     adb 两枚 verb（connect / 1999 pid）的 panel-cs 真身在 B-2d③ 才落 ⇒ 这一组一律由 live 夹具喂，
+    //     判定 exe 全指不存在的路径：夹具没喂到的 verb 会 Err 出"起不来"，那正是"核里没现取现场"的证据。
+    let d21 = std::env::temp_dir().join(format!("gd-b2d2-selftest-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&d21);
+    let _ = std::fs::create_dir_all(&d21);
+    let d21s = d21.to_str().unwrap_or("").to_string();
+    let t21 = |n: &str| format!("{}\\{}", d21s, n);
+    let out21 = t21("env.json");
+    let o21 = &Some(out21.clone());
+    let env21 = || -> String { std::fs::read_to_string(&out21).unwrap_or_default().trim().to_string() };
+    // 假 adb：Connect-GdAdb 那句 Test-Path 只问在不在场，内容无所谓。
+    let adb21 = t21("adb.exe");
+    let _ = std::fs::write(&adb21, "fake");
+    let day1 = "20261011".to_string();
+    let day2 = "20261012".to_string();
+    let jva = |v: Vec<&str>| JVal::A(v.iter().map(|s| jv_s(s)).collect());
+    let sc21 = |name: &str, log_dir: &str| -> M9aScen {
+        M9aScen {
+            name: name.to_string(),
+            m9a_dir: d21s.clone(),
+            m9a_exe: "M9A.exe".to_string(),
+            m9a_log_dir: log_dir.to_string(),
+            adb: adb21.clone(),
+            serial: "127.0.0.1:7555".to_string(),
+            instance_id: "1".to_string(),
+            instance_name: "MuMu".to_string(),
+            package: "com.paz.py".to_string(),
+            game: "r1999".to_string(),
+            target: "mumu".to_string(),
+            state_dir: d21s.clone(),
+            procs: vec![("M9A".to_string(), true)],
+            days: vec![(0.0, day1.clone())],
+            ..Default::default()
+        }
+    };
+
+    // 21a ctx 名册 15 枚逐枚点名（paths 3 ＋ conn 2 ＋ instance 2 ＋ package 1 ＋ runtime 7），
+    //     键名与 config\settings.json 逐字同名；game/target/stateDir 那三格是兜底链的料，不算在册内。
+    let full21 = jv_parse(
+        "{\"name\":\"ctx15\",\"paths\":{\"m9aDir\":\"D:/M9A\",\"m9aExe\":\"M9A.exe\",\"m9aLogDir\":\"logs\"},\"conn\":{\"adb\":\"D:/adb.exe\",\"serial\":\"127.0.0.1:7555\"},\"instance\":{\"id\":\"7\",\"name\":\"MuMu-7\"},\"package\":\"com.paz.wm\",\"runtime\":{\"m9aInstanceArg\":\"name\",\"m9aForceStart\":true,\"m9aCliArgs\":false,\"visionMaxRescue\":3,\"r1999StartTimeoutMinutes\":4,\"r1999TimeoutMinutes\":45,\"stallTimeoutMinutes\":12},\"rescueAvailable\":true,\"stateDir\":\"D:/st\",\"seed\":\"起点\",\"days\":[{\"at\":0,\"stamp\":\"20261011\"}],\"procs\":[{\"name\":\"M9A\",\"up\":true}],\"events\":[{\"at\":5,\"kind\":\"up\",\"proc\":\"Other\"}],\"live\":[{\"verb\":\"adb-connect\",\"data\":{\"Ok\":true}}]}",
+    )
+    .unwrap_or(JVal::Null);
+    let c21 = m9arun_parse(&full21);
+    chk(
+        c21.as_ref().map_or(false, |s| {
+            s.m9a_dir == "D:/M9A"
+                && s.m9a_exe == "M9A.exe"
+                && s.m9a_log_dir == "logs"
+                && s.adb == "D:/adb.exe"
+                && s.serial == "127.0.0.1:7555"
+                && s.instance_id == "7"
+                && s.instance_name == "MuMu-7"
+                && s.package == "com.paz.wm"
+                && s.mode == "name"
+                && s.force_start
+                && s.cli == Some(false)
+                && s.vision_max == 3
+                && s.start_min == 4
+                && s.timeout_min == 45
+                && s.stall_min == 12
+                && s.rescue_available
+                && !s.grab_available
+                && s.state_dir == "D:/st"
+                && s.seed.as_deref() == Some("起点")
+                && s.days.len() == 1
+                && s.procs.len() == 1
+                && s.events.len() == 1
+                && s.live.len() == 1
+        }),
+        "m9a 的 ctx 名册有一枚接错（15 枚逐枚点名，另加兜底面三格与夹具面四样）：键名漂一枚，生产就拿错实例或错超时去开 M9A，而门看不出来",
+        &mut fails,
+        &mut total,
+    );
+    // 缺键一律按"没填"：mode 落成**空串**（真身 `:335` 那句显式转换），三态 cli 落 None，超时落 0。
+    let min21 = jv_parse(
+        "{\"name\":\"min\",\"paths\":{\"m9aDir\":\"D:/M9A\"},\"conn\":{\"adb\":\"D:/a\"},\"days\":[{\"at\":0,\"stamp\":\"20261011\"}]}",
+    )
+    .unwrap_or(JVal::Null);
+    let m21 = m9arun_parse(&min21);
+    chk(
+        m21.as_ref().map_or(false, |s| {
+            s.mode.is_empty()
+                && !s.force_start
+                && s.cli.is_none()
+                && s.vision_max == 0
+                && s.start_min == 0
+                && s.timeout_min == 0
+                && s.stall_min == 0
+                && s.game == "r1999"
+                && s.target == "mumu"
+                && s.state_dir.is_empty()
+                && s.seed.is_none()
+                && s.days.len() == 1
+                && s.procs.is_empty()
+        }),
+        "ctx 只给半套键时没一律按『没填』取值（mode 必须是空串而不是 'id'、game/target 的没填才等于真身写死那两枚）：缺键被猜成默认值，生产就有一处没人签过字的超时与参数",
+        &mut fails,
+        &mut total,
+    );
+    // 三态：键不存在 / 填 true / 填 false 是三档，塌成两档就把真身两条完全不同的路并成一条。
+    let cli21 = |extra: &str| -> Option<bool> {
+        let j = format!(
+            "{{\"name\":\"t\",\"paths\":{{\"m9aDir\":\"D\"}},\"conn\":{{\"adb\":\"A\"}},\"days\":[{{\"at\":0,\"stamp\":\"20261011\"}}]{}}}",
+            extra
+        );
+        m9arun_parse(&jv_parse(&j).unwrap_or(JVal::Null)).ok().and_then(|s| s.cli)
+    };
+    chk(
+        cli21("").is_none()
+            && cli21(",\"runtime\":{\"m9aCliArgs\":true}") == Some(true)
+            && cli21(",\"runtime\":{\"m9aCliArgs\":false}") == Some(false),
+        "runtime.m9aCliArgs 的三态塌成一态：真身 Get-GdM9ACliEnabled 那句 `if ($null -eq …) {{ return $true }}` 让『没写』走带 -i/-a/-q/-f 的新路子，而『写了 false』走裸启动＋在跑就 throw 的老路子",
+        &mut fails,
+        &mut total,
+    );
+
+    // 21b 三枚起步拒跑闸（都不是判据，是"这一档压根不能开"）。
+    let g_dir = m9arun_parse(
+        &jv_parse("{\"name\":\"g\",\"conn\":{\"adb\":\"A\"},\"days\":[{\"at\":0,\"stamp\":\"20261011\"}]}").unwrap_or(JVal::Null),
+    )
+    .err()
+    .unwrap_or_default();
+    let g_adb = m9arun_parse(
+        &jv_parse("{\"name\":\"g\",\"paths\":{\"m9aDir\":\"D\"},\"days\":[{\"at\":0,\"stamp\":\"20261011\"}]}").unwrap_or(JVal::Null),
+    )
+    .err()
+    .unwrap_or_default();
+    let g_days = m9arun_parse(&jv_parse("{\"name\":\"g\",\"paths\":{\"m9aDir\":\"D\"},\"conn\":{\"adb\":\"A\"}}").unwrap_or(JVal::Null))
+        .err()
+        .unwrap_or_default();
+    chk(
+        g_dir.contains("m9aDir") && g_adb.contains("conn.adb") && g_days.contains("days"),
+        "三枚起步拒跑闸有一枚没咬住（m9aDir / conn.adb / days）：真身在这三处要么裸 Join-Path 当场抛、要么 throw 在起循环之前、要么恒读 log-.log —— 闸不咬就等于让内核产出一行『看起来跑完了』的假绿",
+        &mut fails,
+        &mut total,
+    );
+
+    // 21c 靶子收窄：m9a 一路只有 m9alog 一枚；认不出的 kind 同样当场拒跑（静默丢事件比红更糟）。
+    let bad_target = m9arun_parse(
+        &jv_parse("{\"name\":\"g\",\"paths\":{\"m9aDir\":\"D\"},\"conn\":{\"adb\":\"A\"},\"days\":[{\"at\":0,\"stamp\":\"20261011\"}],\"events\":[{\"at\":1,\"kind\":\"append\",\"target\":\"gui\",\"text\":\"x\"}]}").unwrap_or(JVal::Null),
+    )
+    .err()
+    .unwrap_or_default();
+    let ok_proc = m9arun_parse(
+        &jv_parse("{\"name\":\"g\",\"paths\":{\"m9aDir\":\"D\"},\"conn\":{\"adb\":\"A\"},\"days\":[{\"at\":0,\"stamp\":\"20261011\"}],\"events\":[{\"at\":1,\"kind\":\"up\",\"proc\":\"M9A\"}]}").unwrap_or(JVal::Null),
+    );
+    let bad_kind = m9arun_parse(
+        &jv_parse("{\"name\":\"g\",\"paths\":{\"m9aDir\":\"D\"},\"conn\":{\"adb\":\"A\"},\"days\":[{\"at\":0,\"stamp\":\"20261011\"}],\"events\":[{\"at\":1,\"kind\":\"bogus\",\"target\":\"m9alog\"}]}").unwrap_or(JVal::Null),
+    )
+    .err()
+    .unwrap_or_default();
+    chk(
+        bad_target.contains("第 1 条事件")
+            && bad_target.contains("m9alog")
+            && !bad_target.contains("第 2 条")
+            && ok_proc.is_ok()
+            && bad_kind.contains("bogus"),
+        "剧本面收窄没咬住：文件靶子写 gui/asst 该当场拒跑（m9a 只有一本每轮换名的日志），up/down 的进程靶子该照收，认不出的 kind 该点名 —— 少咬一条，拼错一个字母就有一整档跑成『日志一条没进、判定全按空读数走』",
+        &mut fails,
+        &mut total,
+    );
+
+    // 21d dry-run 两支话术：真身 `:339-343` 只一行 STEP 就回，返回表多带 Args 一格。
+    let mut sc21d = sc21("dry", "logs0");
+    sc21d.dry_run = true;
+    sc21d.live = vec![("m9a-launch-args".to_string(), jv_o(vec![("Args", jva(vec!["-i", "1", "-a"]))]))];
+    let mut h21d = ScriptHost::new_m9a("gd-no-such-panel", &sc21d);
+    let r21d = m9a_run(&mut h21d, &sc21d);
+    let mut pd21 = h21d.proj.clone();
+    if let Ok(rt) = r21d.as_ref() {
+        pd21.push(rt.proj_line());
+    }
+    let mut sc21d2 = sc21("dry-noarg", "logs0");
+    sc21d2.dry_run = true;
+    sc21d2.live = vec![("m9a-launch-args".to_string(), jv_o(vec![("Args", JVal::A(Vec::new()))]))];
+    let mut h21d2 = ScriptHost::new_m9a("gd-no-such-panel", &sc21d2);
+    let r21d2 = m9a_run(&mut h21d2, &sc21d2);
+    let mut pd212 = h21d2.proj.clone();
+    if let Ok(rt) = r21d2.as_ref() {
+        pd212.push(rt.proj_line());
+    }
+    chk(
+        r21d.is_ok()
+            && pd21.len() == 3
+            && pd21[0] == "V|m9a-launch-args"
+            && pd21[1] == format!("W|STEP|[dry-run] 将启动 {}\\M9A.exe -i 1 -a，ADB 127.0.0.1:7555，以 logs\\log-*.log 判定完成", d21s)
+            && pd21[2] == "Z|dryrun||-|0||-|-i 1 -a"
+            && r21d2.is_ok()
+            && pd212.iter().any(|l| l.contains("(不带参数：老路子，靠 M9A 自己的自动开始)"))
+            && pd212.last().map_or(false, |l| l == "Z|dryrun||-|0||-|")
+            && !pd21.iter().any(|l| l.contains("adb-connect")),
+        "dry-run 那一档的形状走样（一行 STEP／Args 进末行／空参数那支的括号话术／ADB 段根本不该问）：真身 m9a.ps1:339-343 就这四件事，多出来的每一行都是门里的假差异",
+        &mut fails,
+        &mut total,
+    );
+
+    // 21e 跨 00:00 的一轮（plan §11.39 ⑥-2：沙盒里必须造得出换文件，arkrun 的 27 档复用不了）。
+    //     起点摆 OLD\n（4 字节）⇒ 偏移从 4 起算；at=10 的行落第一本，at=30 的行落在日期刷新**之后**
+    //     ⇒ 落第二本，且第二本不在 PreOffsets 里 ⇒ 从 0 起算（keyed offset 的两格都在这一档上）。
+    let mut sc21e = sc21("cross-day", "logs1");
+    sc21e.days = vec![(0.0, day1.clone()), (25.0, day2.clone())];
+    sc21e.seed = Some("OLD\n".to_string());
+    sc21e.events = vec![
+        MaaEv { at: 10.0, kind: "append", target: "m9alog".to_string(), text: "L1\n".to_string(), bytes: 0 },
+        MaaEv { at: 30.0, kind: "append", target: "m9alog".to_string(), text: "L2\n".to_string(), bytes: 0 },
+    ];
+    sc21e.live = vec![
+        ("m9a-launch-args".to_string(), jv_o(vec![("Args", jva(vec!["-i", "1"]))])),
+        ("adb-connect".to_string(), jv_o(vec![("Ok", JVal::B(true))])),
+        ("parse-m9a-lines".to_string(), jv_o(vec![("Events", JVal::A(Vec::new()))])),
+        (
+            "parse-m9a-lines".to_string(),
+            jv_o(vec![("Events", JVal::A(vec![jv_o(vec![("Kind", jv_s("TaskDone")), ("Text", jv_s("L2"))])]))]),
+        ),
+        (
+            "apply-m9a-events".to_string(),
+            jv_o(vec![
+                ("Logs", JVal::A(Vec::new())),
+                ("State", jv_o(vec![("eventCount", JVal::I(1))])),
+                ("Directives", jv_o(vec![("TouchLastLog", JVal::B(true))])),
+            ]),
+        ),
+        ("adb-game-pid".to_string(), jv_o(vec![("Found", JVal::B(false))])),
+        ("adb-game-pid".to_string(), jv_o(vec![("Found", JVal::B(false))])),
+        ("adb-game-pid".to_string(), jv_o(vec![("Found", JVal::B(true))])),
+        ("resolve-m9a-status".to_string(), jv_o(vec![("Found", JVal::B(false))])),
+        ("resolve-m9a-status".to_string(), jv_o(vec![("Found", JVal::B(false))])),
+        (
+            "resolve-m9a-status".to_string(),
+            jv_o(vec![
+                ("Found", JVal::B(true)),
+                ("Status", jv_s("ok")),
+                ("Detail", jv_s("原始结论")),
+                ("Tasks", jva(vec!["A"])),
+            ]),
+        ),
+        (
+            "decide-m9a-run-tick".to_string(),
+            jv_o(vec![
+                ("Effects", JVal::A(Vec::new())),
+                ("Action", jv_s("return")),
+                ("Detail", jv_s("完成整句")),
+                ("Duration", JVal::F(30.0)),
+            ]),
+        ),
+    ];
+    let _ = m9arun_seed(&sc21e);
+    let f121 = t21(format!("logs1\\log-{}.log", day1).as_str());
+    let f221 = t21(format!("logs1\\log-{}.log", day2).as_str());
+    let mut h21e = ScriptHost::new_m9a("gd-no-such-panel", &sc21e);
+    let r21e = m9a_run(&mut h21e, &sc21e);
+    let mut pe21 = h21e.proj.clone();
+    if let Ok(rt) = r21e.as_ref() {
+        pe21.push(rt.proj_line());
+    }
+    let ncnt = |needle: &str| pe21.iter().filter(|l| l.starts_with(needle)).count();
+    let dlines: Vec<String> = pe21.iter().filter(|l| l.starts_with("D|")).cloned().collect();
+    let tlines: Vec<String> = pe21.iter().filter(|l| l.starts_with("T|")).cloned().collect();
+    chk(
+        r21e.is_ok()
+            && dlines == vec![format!("D|{}", day1), format!("D|{}", day2)]
+            && tlines == vec![
+                format!("T|log-{}.log|4|7|3", day1),
+                format!("T|log-{}.log|7|7|0", day1),
+                format!("T|log-{}.log|0|3|3", day2),
+            ]
+            && std::fs::read_to_string(&f121).unwrap_or_default() == "OLD\nL1\n"
+            && std::fs::read_to_string(&f221).unwrap_or_default() == "L2\n"
+            && ncnt("V|parse-m9a-lines") == 2
+            && ncnt("V|apply-m9a-events") == 1
+            && ncnt("V|adb-game-pid") == 3
+            && ncnt("V|resolve-m9a-status") == 3
+            && ncnt("V|decide-m9a-run-tick") == 1
+            && ncnt("P|M9A|") == 5
+            && ncnt("S|10") == 3
+            && pe21.iter().any(|l| l == "W|WARN|M9A 已在运行：命令行会被转发给正在跑的实例，按 -i/-f 重新开始任务")
+            && pe21.last().map_or(false, |l| l == "Z|ok|完成整句|30|0|A|-|"),
+        "跨 00:00 这一档不对（日期只在值变化时落 D|／新文件从 0 起算而起点文件从 PreOffsets 起算／本轮无新字节不起 parse／两本文件的字节各归各）：这一格是 m9a 一路独有的采集面，arkrun 的 27 档替不了它",
+        &mut fails,
+        &mut total,
+    );
+
+    // 21f 日志压根不在场（Test-GdPathReady 那一支：不建 offsets 格、不起进程）＋空参数启动的两处原样怪癖。
+    //     先手工摆一本再让 m9arun_seed 删掉 —— 删不掉就是"起点摆不回"，两侧起点会不一样。
+    let mut sc21f = sc21("no-log", "logs2");
+    sc21f.live = vec![
+        ("m9a-launch-args".to_string(), jv_o(vec![("Args", JVal::A(Vec::new()))])),
+        ("adb-connect".to_string(), jv_o(vec![("Ok", JVal::B(true))])),
+        ("adb-game-pid".to_string(), jv_o(vec![("Found", JVal::B(false))])),
+        (
+            "resolve-m9a-status".to_string(),
+            jv_o(vec![
+                ("Found", JVal::B(true)),
+                ("Status", jv_s("blocked")),
+                ("Detail", jv_s("旧结论")),
+                ("Tasks", jva(vec!["T"])),
+                ("FailedTasks", jva(vec!["x", "y"])),
+            ]),
+        ),
+        (
+            "decide-m9a-run-tick".to_string(),
+            jv_o(vec![("Effects", JVal::A(Vec::new())), ("Action", jv_s("return")), ("Detail", jv_s("新结论"))]),
+        ),
+    ];
+    let f21f = t21(format!("logs2\\log-{}.log", day1).as_str());
+    let _ = std::fs::write(&f21f, "STALE\n");
+    let _ = m9arun_seed(&sc21f);
+    let mut h21f = ScriptHost::new_m9a("gd-no-such-panel", &sc21f);
+    let r21f = m9a_run(&mut h21f, &sc21f);
+    let mut pf21 = h21f.proj.clone();
+    if let Ok(rt) = r21f.as_ref() {
+        pf21.push(rt.proj_line());
+    }
+    let launch21 = pf21.iter().find(|l| l.starts_with("W|STEP|启动 M9A：")).cloned().unwrap_or_default();
+    let rline21 = pf21.iter().find(|l| l.starts_with("R|")).cloned().unwrap_or_default();
+    chk(
+        r21f.is_ok()
+            && std::fs::metadata(&f21f).is_err()
+            && !pf21.iter().any(|l| l.starts_with("T|"))
+            && !pf21.iter().any(|l| l.starts_with("V|parse-m9a-lines"))
+            && !pf21.iter().any(|l| l.starts_with("V|apply-m9a-events"))
+            && launch21.ends_with(' ')
+            && launch21.starts_with(&format!("W|STEP|启动 M9A：{}\\M9A.exe", d21s))
+            && rline21.matches('|').count() == 2
+            && rline21.starts_with("R|")
+            && pf21.iter().filter(|l| l.starts_with("P|M9A|")).count() == 3
+            && pf21.last().map_or(false, |l| l == "Z|blocked|新结论|-|0|T|x\u{1e}y|"),
+        "『日志不在场／空参数启动』这一档不对（seed 该被删掉、零条 T|、句尾空格是真身模板原样、裸启动的 R| 只有两截、FailedTasks 按**键存在**取值）：句尾空格被 trim 或 R| 多一截，门的逐字符比就从这里开始整档红",
+        &mut fails,
+        &mut total,
+    );
+
+    // 21g `:347` 那句 throw 走真出口：单档 Err 落成该档末行 E| 后**继续跑下一档**（不杀整批）。
+    let script21g = t21("script-347.json");
+    let _ = std::fs::write(
+        &script21g,
+        "[{\"name\":\"e347\",\"paths\":{\"m9aDir\":\"C:\\\\M9A\",\"m9aExe\":\"M9A.exe\",\"m9aLogDir\":\"logs\"},\"conn\":{\"adb\":\"C:\\\\adb.exe\",\"serial\":\"s\"},\"runtime\":{\"m9aCliArgs\":false},\"procs\":[{\"name\":\"M9A\",\"up\":true}],\"days\":[{\"at\":0,\"stamp\":\"20261011\"}],\"live\":[{\"verb\":\"m9a-launch-args\",\"data\":{\"Args\":[\"-i\",\"1\"]}}]},{\"name\":\"dry2\",\"dryRun\":true,\"paths\":{\"m9aDir\":\"C:\\\\M9A\",\"m9aExe\":\"M9A.exe\"},\"conn\":{\"adb\":\"C:\\\\adb.exe\"},\"days\":[{\"at\":0,\"stamp\":\"20261011\"}],\"live\":[{\"verb\":\"m9a-launch-args\",\"data\":{\"Args\":[\"-i\",\"2\"]}}]}]",
+    );
+    let rc21g = run_m9a_run(&script21g, "gd-no-such-panel", o21);
+    let root21g = jv_parse(&env21()).unwrap_or(JVal::Null);
+    let csraw21 = jv_get(&root21g, "cases");
+    let cs21g = jv_list(&csraw21);
+    let case21 = |n: &str| -> String {
+        for c in cs21g.iter() {
+            if jv_str(&jv_get(*c, "name")) == n {
+                return jv_str(&jv_get(*c, "data"));
+            }
+        }
+        String::new()
+    };
+    let d347 = case21("e347");
+    let l347: Vec<&str> = d347.split('\u{1f}').collect();
+    let d2r = case21("dry2");
+    chk(
+        rc21g == 0
+            && jv_str(&jv_get(&root21g, "role")) == "B2-m9a-run"
+            && jv_int(&jv_get(&root21g, "count"), 0) == 2
+            && l347.last().map_or(false, |l| {
+                *l == "E|M9A 已在运行，无法保证按新实例开始(请先关闭，或把 runtime.m9aCliArgs 打开)"
+            })
+            && l347.iter().filter(|l| l.starts_with("P|")).count() == 1
+            && !d347.contains("V|adb-connect")
+            && d2r.contains("Z|dryrun"),
+        "真出口的『单档 Err 不杀整批』走样：`:347` 该落成该档末行 E|（整字面照真身）、cli=false 时两句在跑判据只问一次进程（&& 短路，投影就一条 P|）、后面的档该照跑 —— 做成整批中止，门里那一档连投影都看不到",
+        &mut fails,
+        &mut total,
+    );
+
+    // 21h 出口的错路：两枚缺参拒跑（rc 2）、剧本读不动与非法 JSON（rc 1）、一档读不动整批中止（rc 1）。
+    let rc21h1 = run_m9a_run("", "gd-no-such-panel", o21);
+    let j21h1 = env21();
+    let rc21h2 = run_m9a_run(&t21("no-such-script.json"), "", o21);
+    let j21h2 = env21();
+    let rc21h3 = run_m9a_run(&t21("no-such-script.json"), "gd-no-such-panel", o21);
+    let j21h3 = env21();
+    chk(
+        rc21h1 == 2
+            && j21h1.contains("--script")
+            && rc21h2 == 2
+            && j21h2.contains("--panel-cs")
+            && rc21h3 == 1
+            && j21h3.contains("剧本读不动"),
+        "m9a 回放档的三枚缺参/缺料闸没咬住：给了 --m9a-run 却喂不到剧本或判定 exe 时，出口必须是拒跑句而不是空的 cases 数组",
+        &mut fails,
+        &mut total,
+    );
+    let bad21 = t21("script-bad.json");
+    let _ = std::fs::write(&bad21, "[{\"name\":\"b\",");
+    let rc21i1 = run_m9a_run(&bad21, "gd-no-such-panel", o21);
+    let j21i1 = env21();
+    let nodays21 = t21("script-nodays.json");
+    let _ = std::fs::write(&nodays21, "[{\"name\":\"nd\",\"paths\":{\"m9aDir\":\"D\"},\"conn\":{\"adb\":\"A\"}}]");
+    let rc21i2 = run_m9a_run(&nodays21, "gd-no-such-panel", o21);
+    let j21i2 = env21();
+    let badk21 = t21("script-badkind.json");
+    let _ = std::fs::write(
+        &badk21,
+        "[{\"name\":\"bk\",\"paths\":{\"m9aDir\":\"D\"},\"conn\":{\"adb\":\"A\"},\"days\":[{\"at\":0,\"stamp\":\"20261011\"}],\"events\":[{\"at\":1,\"kind\":\"bogus\",\"target\":\"m9alog\"}]}]",
+    );
+    let rc21i3 = run_m9a_run(&badk21, "gd-no-such-panel", o21);
+    let j21i3 = env21();
+    chk(
+        rc21i1 == 1
+            && j21i1.contains("不是合法 JSON")
+            && rc21i2 == 1
+            && j21i2.contains("剧本第 1 档读不动")
+            && j21i2.contains("days")
+            && rc21i3 == 1
+            && j21i3.contains("bogus"),
+        "剧本自身的三种坏法（半截 JSON／某档缺 days 表／认不出的事件 kind）没能整批中止并点名第几档：门会拿一份缺档的出口当绿档收",
+        &mut fails,
+        &mut total,
+    );
+
+    // 21i adb 路径给了但文件不在场：运行期 Err（与 21b 那枚"压根没给"的拒跑闸分档），且这句在 ADB 连接之后。
+    let mut sc21j = sc21("no-adb", "logs3");
+    sc21j.adb = t21("no-such-adb.exe");
+    sc21j.live = vec![(
+        "m9a-launch-args".to_string(),
+        jv_o(vec![("Args", jva(vec!["-i", "1"]))]),
+    )];
+    let mut h21j = ScriptHost::new_m9a("gd-no-such-panel", &sc21j);
+    let r21j = m9a_run(&mut h21j, &sc21j);
+    chk(
+        r21j.as_ref().err().map_or(false, |m| m == &format!("adb 不存在：{}", sc21j.adb))
+            && h21j.proj.iter().any(|l| l == "W|STEP|ADB 连接 127.0.0.1:7555")
+            && !h21j.proj.iter().any(|l| l.starts_with("R|")),
+        "adb 给了路径但文件不在场这一档不对：真身 `Connect-GdAdb` 那句 Test-Path 的 throw 在起进程**之前**（throw 的整字面照抄），于是这一路既没有 R| 也没有日志读行 —— 把它做成静默继续就是假绿",
+        &mut fails,
+        &mut total,
+    );
+
+    // 21j effect 的两条落点：认不出的 kind 该 WARN 作废这一拍（真身 m9a.ps1:478 整句），
+    //     ask-screen 该被接手；兜底不可用时**连一枚现场 verb 都不问**（三道门槛那两道在核内）。
+    let mut sc21k = sc21("bad-eff", "logs4");
+    sc21k.seed = Some("OLD\n".to_string());
+    sc21k.live = vec![
+        ("m9a-launch-args".to_string(), jv_o(vec![("Args", jva(vec!["-i", "1"]))])),
+        ("adb-connect".to_string(), jv_o(vec![("Ok", JVal::B(true))])),
+        ("adb-game-pid".to_string(), jv_o(vec![("Found", JVal::B(false))])),
+        ("adb-game-pid".to_string(), jv_o(vec![("Found", JVal::B(false))])),
+        (
+            "resolve-m9a-status".to_string(),
+            jv_o(vec![("Found", JVal::B(true)), ("Status", jv_s("running"))]),
+        ),
+        (
+            "resolve-m9a-status".to_string(),
+            jv_o(vec![("Found", JVal::B(true)), ("Status", jv_s("running"))]),
+        ),
+        (
+            "decide-m9a-run-tick".to_string(),
+            jv_o(vec![(
+                "Effects",
+                JVal::A(vec![jv_o(vec![("Kind", jv_s("bogus")), ("Tag", jv_s("t1"))])]),
+            )]),
+        ),
+        (
+            "decide-m9a-run-tick".to_string(),
+            jv_o(vec![("Effects", JVal::A(Vec::new())), ("Action", jv_s("return")), ("Detail", jv_s("收"))]),
+        ),
+    ];
+    let _ = m9arun_seed(&sc21k);
+    let mut h21k = ScriptHost::new_m9a("gd-no-such-panel", &sc21k);
+    let r21k = m9a_run(&mut h21k, &sc21k);
+    let mut pk21 = h21k.proj.clone();
+    if let Ok(rt) = r21k.as_ref() {
+        pk21.push(rt.proj_line());
+    }
+    let mut sc21l = sc21("ask-eff", "logs5");
+    sc21l.seed = Some("OLD\n".to_string());
+    sc21l.rescue_available = false;
+    sc21l.live = vec![
+        ("m9a-launch-args".to_string(), jv_o(vec![("Args", jva(vec!["-i", "1"]))])),
+        ("adb-connect".to_string(), jv_o(vec![("Ok", JVal::B(true))])),
+        ("adb-game-pid".to_string(), jv_o(vec![("Found", JVal::B(false))])),
+        ("adb-game-pid".to_string(), jv_o(vec![("Found", JVal::B(false))])),
+        (
+            "resolve-m9a-status".to_string(),
+            jv_o(vec![("Found", JVal::B(true)), ("Status", jv_s("running"))]),
+        ),
+        (
+            "resolve-m9a-status".to_string(),
+            jv_o(vec![("Found", JVal::B(true)), ("Status", jv_s("running"))]),
+        ),
+        (
+            "decide-m9a-run-tick".to_string(),
+            jv_o(vec![(
+                "Effects",
+                JVal::A(vec![jv_o(vec![("Kind", jv_s("ask-screen")), ("Tag", jv_s("t")), ("Context", jv_s("c"))])]),
+            )]),
+        ),
+        (
+            "decide-m9a-run-tick".to_string(),
+            jv_o(vec![("Effects", JVal::A(Vec::new())), ("Action", jv_s("return")), ("Detail", jv_s("收2"))]),
+        ),
+    ];
+    let _ = m9arun_seed(&sc21l);
+    let mut h21l = ScriptHost::new_m9a("gd-no-such-panel", &sc21l);
+    let r21l = m9a_run(&mut h21l, &sc21l);
+    let pl21 = h21l.proj.clone();
+    chk(
+        r21k.is_ok()
+            && pk21.iter().any(|l| {
+                l == "W|WARN|M9A tick：effect(kind=bogus，tag=t1)没有落到执行块，本 tick 作废(下一轮按新读数重判)"
+            })
+            && pk21.iter().filter(|l| l.starts_with("V|decide-m9a-run-tick")).count() == 2
+            && pk21.last().map_or(false, |l| l == "Z|running|收|-|0||-|")
+            && r21l.is_ok()
+            && !pl21.iter().any(|l| l.contains("没有落到执行块"))
+            && pl21.iter().filter(|l| l.starts_with("V|decide-m9a-run-tick")).count() == 2,
+        "迷你循环的两条落点不对（未知 kind 该照抄 m9a.ps1:478 那句并作废这一拍、ask-screen 该被接手；兜底不可用时不问任何现场 verb —— 一旦问了，这档会因判定 exe 不在场而当场 Err）：m9a 的 ack kind 叫 ask-screen 而 ark 叫 rescue，这一格是两路的差别，不许顺手统一",
+        &mut fails,
+        &mut total,
+    );
+
+    // 21k 扩面两枚的真身形状 ＋ ark 那一路零条 D|（保 27 档 1218 步基线的自证）＋ 摘名单十二枚。
+    let mut rh21 = RealHost::for_game("unused-panel-cs", "r1999", &t21("m-sink.ndjson"));
+    let ds21 = MaaHost::day_stamp(&mut rh21);
+    let mut ah21 = ScriptHost::new("gd-no-such-panel", &MaaScen::default());
+    let ad21 = MaaHost::day_stamp(&mut ah21);
+    chk(
+        ds21.len() == 8 && ds21.chars().all(|c| c.is_ascii_digit())
+            && !m9a_daily_path("X", &ds21).contains("log-.log")
+            && ad21.is_empty()
+            && ah21.proj.is_empty()
+            && ah21.file_of("m9alog").is_none()
+            && M9A_STATE_KEYS.len() == 12
+            && !M9A_STATE_KEYS.contains(&"lastLog"),
+        "B-2d② 两处扩面走样（本地日期读数该是 yyyyMMdd 八位、ark 一路不填 days 就该零条 D| 且不落 m9alog 路径、回灌名单该十二枚且 lastLog 不在内）：D| 一进 ark 那一路，27 档 1218 步的基线就得重拍",
+        &mut fails,
+        &mut total,
+    );
+
+    let _ = std::fs::remove_dir_all(&d21);
+    chk(
+        !d21.exists(),
+        "B-2d② 自检的临时目录没收干净：自检会在 %TEMP% 里留垃圾",
+        &mut fails,
+        &mut total,
+    );
+
+    // 22. B-2d③「mumu 兜底现场件」：这一组钉 mumu 那一路进核自己的判据 ——
+    //     ① 闸⑥「对象在场」由 C# 现查（`MumuAlive`），核**只把端点两键转喂 ctx**、不多问一枚 verb
+    //        （10-12 实测改口：原先定的是"核先问 adb-connect、把 Ok 当 alive 覆盖格喂进去"，那条让核排在 ctx
+    //        之前 ⇒ m9arun 门 H2 红 8 处、且"没配 key"那一档白起两趟真身不起的 adb native；改口明细在
+    //        vision_rescue 那段的注释里，plan §11.42 ①-12 就地作废）；
+    //     ② kind 分派到 `mumu-screen-shot`／`mumu-screen-click`，那三枚 body 各多带 `adb`/`serial` 两键；
+    //     ③ **ark 那一路一个键都不多喂**（22b 拿 B-19 那套 ark 夹具复跑一遍，投影与基线逐字全等）；
+    //     ④ 十五格回执在核侧的消费点与 ark **一字不区分**（`ImgW/ImgH` 与四格客户区照样进点位换算的 body）。
+    //     六闸的 C# 那半边由 `--livetest` 钉（③-a），这一组只钉"编排等值"：verb 的话术一律原样转达。
+    //     判定 exe 全指不存在的路径 ⇒ 夹具没喂到的 verb 当场 Err，那正是"核里没现取现场"的证据。
+    //     ⚠ 改口之后闸序与真身一致 ⇒ ③-c 的门里"开关关着/没配 key"这类档**重新可以做剧本**：
+    //     两侧在这一问之前都不碰 adb，不再有"谁多起一枚 verb"那两条事实源要分开供。
+    let d22 = std::env::temp_dir().join(format!("gd-b2d3-selftest-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&d22);
+    let _ = std::fs::create_dir_all(&d22);
+    let d22s = d22.to_str().unwrap_or("").to_string();
+    let adb22 = format!("{}\\adb.exe", d22s);
+    let _ = std::fs::write(&adb22, "fake");
+    let sc22 = |name: &str, live: Vec<(String, JVal)>| -> M9aScen {
+        M9aScen {
+            name: name.to_string(),
+            m9a_dir: d22s.clone(),
+            m9a_exe: "M9A.exe".to_string(),
+            m9a_log_dir: format!("{}\\logs", d22s),
+            adb: adb22.clone(),
+            serial: "127.0.0.1:7554".to_string(),
+            instance_id: "1".to_string(),
+            instance_name: "MuMu".to_string(),
+            package: "com.paz.py".to_string(),
+            game: "r1999".to_string(),
+            target: "mumu".to_string(),
+            state_dir: d22s.clone(),
+            rescue_available: true,
+            days: vec![(0.0, "20261012".to_string())],
+            live,
+            ..Default::default()
+        }
+    };
+    // 夹具一律抄真身字面：Name 那句来自 `vision-mumu.ps1:179`，Skip 那两句来自 `Live.cs` 的闸②与闸⑥，
+    // `Mode` 整串来自 `vision-mumu.ps1:132`（§11.42 ⑤-3：这句逐字进 tries 拼串，不许改字）。
+    let m22_ctx = jv_o(vec![
+        ("CanAsk", JVal::B(true)),
+        ("Kind", jv_s("mumu")),
+        ("Name", jv_s("MuMu 模拟器画面")),
+        (
+            "Scene",
+            jv_s("你是《重返未来：1999》自动化流程里的\"看屏幕的人\"。给你一张模拟器屏幕截图，请判断画面上有没有挡住主流程的东西。"),
+        ),
+        ("UserText", jv_s("这是模拟器里 1999 的当前画面。按规则只回一个 JSON 对象。")),
+    ]);
+    // 十五格同 ark（§11.42 ⑥-2）：真身 `Save-GdMuMuShot` 只回十二格，那三格由通用层现算，
+    // C# 的 mumu 支已补齐 ⇒ 核侧两路消费同一形状，这里喂满十五格并钉消费点。
+    let m22_shot = jv_o(vec![
+        ("Ok", JVal::B(true)),
+        ("CanContinue", JVal::B(true)),
+        ("LogLine", jv_s("已拍 MuMu 模拟器画面：1080x1920，平均亮度 62")),
+        ("Path", jv_s("z:\\before.png")),
+        ("ImgW", JVal::I(1080)),
+        ("ImgH", JVal::I(1920)),
+        ("ClientLeft", JVal::I(0)),
+        ("ClientTop", JVal::I(0)),
+        ("ClientW", JVal::I(1080)),
+        ("ClientH", JVal::I(1920)),
+        ("AvgLum", JVal::I(62)),
+        ("Sig", jv_s("mumu-sig-before")),
+        ("Hash", jv_s("0123456789abcdef")),
+        ("Why", jv_s("")),
+        ("Skip", jv_s("")),
+    ]);
+    let m22_after = jv_o(vec![
+        ("Ok", JVal::B(true)),
+        ("Why", jv_s("")),
+        ("Sig", jv_s("mumu-sig-after")),
+    ]);
+    let m22_ask = jv_o(vec![
+        ("Ok", JVal::B(true)),
+        ("Verdict", jv_o(vec![
+            ("Found", JVal::B(true)),
+            ("Blocking", JVal::B(true)),
+            ("What", jv_s("更新提示")),
+            ("X", jv_s("0.90")),
+            ("Y", jv_s("0.06")),
+            ("Clicks", JVal::A(vec![jv_o(vec![
+                ("X", jv_s("0.90")),
+                ("Y", jv_s("0.06")),
+                ("Why", jv_s("右上角的关闭")),
+            ])])),
+        ])),
+    ]);
+    let m22_point = jv_o(vec![
+        ("Found", JVal::B(true)),
+        ("ClientX", JVal::I(972)),
+        ("ClientY", JVal::I(115)),
+        ("Why", jv_s("右上角的关闭")),
+    ]);
+    let m22_click = jv_o(vec![
+        ("Mode", jv_s("adb input tap(点进虚拟机，不碰宿主机窗口)")),
+        ("Sent", JVal::B(true)),
+    ]);
+    let m22_chg = jv_o(vec![
+        ("Known", JVal::B(true)),
+        ("Changed", JVal::B(true)),
+        ("Detail", jv_s("画面动了")),
+    ]);
+    let m22live = |tail: Vec<(&str, JVal)>| -> Vec<(String, JVal)> {
+        let mut v: Vec<(String, JVal)> = vec![
+            ("resolve-rescue-context".to_string(), m22_ctx.clone()),
+            ("mumu-screen-shot".to_string(), m22_shot.clone()),
+            ("vision-ask-model".to_string(), m22_ask.clone()),
+            ("vision-click-point".to_string(), m22_point.clone()),
+            ("mumu-screen-click".to_string(), m22_click.clone()),
+            ("mumu-screen-shot".to_string(), m22_after.clone()),
+        ];
+        for (n, d) in tail {
+            v.push((n.to_string(), d));
+        }
+        v
+    };
+
+    // 22a/22b 全过那一档：链体形状、结论话术、以及三枚 body 的 adb/serial 分派。
+    let sc22a = sc22("mumu-rescue-ok", m22live(vec![("shot-changed", m22_chg.clone())]));
+    let mut h22a = ScriptHost::new_m9a("gd-no-such-panel", &sc22a);
+    let env22a = RescueEnv::of_m9a(&sc22a);
+    let r22a = vision_rescue(&mut h22a, &env22a, "stuck-1", "M9A 连续两轮停在同一个界面");
+    let want22a: Vec<String> = vec![
+        "V|resolve-rescue-context",
+        "V|mumu-screen-shot",
+        "W|WARN|已拍 MuMu 模拟器画面：1080x1920，平均亮度 62",
+        "V|vision-ask-model",
+        "V|vision-click-point",
+        "W|WARN|视觉兜底：更新提示 → 点MuMu 模拟器画面 972,115(右上角的关闭)",
+        "V|mumu-screen-click",
+        "S|6",
+        "V|mumu-screen-shot",
+        "V|shot-changed",
+    ]
+    .into_iter()
+    .map(|s| s.to_string())
+    .collect();
+    chk(
+        r22a.as_ref().map_or(false, |r| {
+            r.tried && r.done && r.detail == "已按模型判断关掉更新提示：点位 972,115(adb input tap(点进虚拟机，不碰宿主机窗口))→画面动了"
+        }) && h22a.proj == want22a && h22a.live.is_empty(),
+        "mumu 那一路的兜底链形状走样（闸序 / ctx 之前多问了一枚 verb / 两枚现场 verb 换 mumu 前缀 / 那句预告句仍排在点击 verb 之前 / 「救活」话术里 Mode 整串逐字）：两路共用的编排就不是同一条链",
+        &mut fails,
+        &mut total,
+    );
+    let b22ctx = h22a.body_of("resolve-rescue-context").cloned().unwrap_or(JVal::Null);
+    let b22ask = h22a.body_of("vision-ask-model").cloned().unwrap_or(JVal::Null);
+    let b22point = h22a.body_of("vision-click-point").cloned().unwrap_or(JVal::Null);
+    let b22shot = h22a.body_of("mumu-screen-shot").cloned().unwrap_or(JVal::Null);
+    let b22click = h22a.body_of("mumu-screen-click").cloned().unwrap_or(JVal::Null);
+    chk(
+        // 闸⑥由 C# 现查 ⇒ ctx 只收端点两键；`alive` 那枚覆盖格**不许由核喂**（它只归无头自检用）。
+        jvo_has(&b22ctx, "target")
+            && jv_str(&jv_get(&b22ctx, "target")) == "mumu"
+            && jv_str(&jv_get(&b22ctx, "adb")) == sc22a.adb
+            && jv_str(&jv_get(&b22ctx, "serial")) == "127.0.0.1:7554"
+            && !jvo_has(&b22ctx, "alive")
+            // 问模型那一处**原样转达**：两格 1999 话术核一个都不认识（§11.42 ①-11 的硬约束）。
+            && jv_str(&jv_get(&b22ask, "scene")) == jv_str(&jv_get(&m22_ctx, "Scene"))
+            && jv_str(&jv_get(&b22ask, "userText")) == "这是模拟器里 1999 的当前画面。按规则只回一个 JSON 对象。"
+            && jv_str(&jv_get(&b22ask, "imagePath")) == "z:\\before.png"
+            // 十五格消费：四格客户区与两枚尺寸取自 shot 回执，mumu 那四格恒 0/W/H。
+            && jv_int(&jv_get(&b22point, "imgW"), 0) == 1080
+            && jv_int(&jv_get(&b22point, "clientLeft"), -1) == 0
+            && jv_int(&jv_get(&b22point, "clientW"), -1) == 1080
+            // 三枚 body 各带 adb/serial；补拍那枚的路径由编排侧拼（mumu-<tag>-<时刻>-after1.png）。
+            && jv_str(&jv_get(&b22shot, "adb")) == sc22a.adb
+            && jv_str(&jv_get(&b22shot, "serial")) == "127.0.0.1:7554"
+            && jv_str(&jv_get(&b22shot, "path")).ends_with("-after1.png")
+            && jv_str(&jv_get(&b22shot, "path")).contains("mumu-stuck-1-")
+            && jv_str(&jv_get(&b22click, "adb")) == sc22a.adb
+            && jv_str(&jv_get(&b22click, "name")) == "MuMu 模拟器画面"
+            && jv_int(&jv_get(&b22click, "clientX"), 0) == 972,
+        "mumu 那四枚 verb 的入参分派走样（ctx 的端点两键漏喂／又多喂了一枚 alive／adb·serial 漏进 shot 或 click 的 body／现场量 path 拼错／1999 话术被核改写）：真跑时 C# 那边一句「adb 或序列号没定下来，拍不了屏」就会把兜底打死，而门吃夹具看不出来",
+        &mut fails,
+        &mut total,
+    );
+
+    // 22b ark 那一路的零影响自证：连 ark 基线投影都直接复用 B-19 那一组（一字不许多、一字不许少），
+    //     再钉住 ctx 不喂 alive、两枚现场 verb 的 body 不带 adb/serial、`of_maa` 那两格恒空串。
+    let sc22b = MaaScen {
+        name: "ark-rescue-ctl".to_string(),
+        state_dir: d22s.clone(),
+        live: b19live(vec![("shot-changed", b19fx_chg_yes.clone())]),
+        ..Default::default()
+    };
+    let mut h22b = ScriptHost::new("gd-no-such-panel", &sc22b);
+    let env22b = RescueEnv::of_maa(&sc22b);
+    let r22b = vision_rescue(&mut h22b, &env22b, "stuck-1", "");
+    let b22b_ctx = h22b.body_of("resolve-rescue-context").cloned().unwrap_or(JVal::Null);
+    let b22b_shot = h22b.body_of("ark-window-shot").cloned().unwrap_or(JVal::Null);
+    let b22b_click = h22b.body_of("ark-window-click").cloned().unwrap_or(JVal::Null);
+    chk(
+        r22b.is_ok()
+            && h22b.proj == b19want_ok
+            && !h22b.proj.iter().any(|l| l.starts_with("V|adb-connect"))
+            && env22b.adb.is_empty()
+            && env22b.serial.is_empty()
+            && !jvo_has(&b22b_ctx, "alive")
+            && !jvo_has(&b22b_shot, "adb")
+            && !jvo_has(&b22b_shot, "serial")
+            && !jvo_has(&b22b_click, "adb")
+            && !jvo_has(&b22b_click, "serial"),
+        "端游那一路被 mumu 这一刀带跑了（多问一枚 adb-connect／多喂一个 alive／现场 verb 的 body 多出 adb 键／of_maa 那两格不再是空串）：arkrun 的 27 档 1218 步基线当场就得重拍",
+        &mut fails,
+        &mut total,
+    );
+
+    // 22c 闸⑥在核侧只剩一条消费路径：ctx 回 CanAsk=false ⇒ 那句 Skip 原样落地、投影**恰一行**，
+    //     并且**绝不问 adb-connect**（10-12 实测改口：现查移进 C# 的 `MumuAlive` ⇒ 原先"devices 起不来"与
+    //     "Ok:false"两种拿不到塌成同一格那条锚随之下沉，现由 `--livetest` 三格钉住；这一组只钉
+    //     "核不多问一枚 verb、话术不重拼"）。
+    //     反方向同样钉死：ctx 那一问**自己起不来** ⇒ 核**不降级**，把 Err 原样上抛 —— 真身那三处 catch 罩的是
+    //     问模型／点击／比签名，不包括这一问；在这儿罩错了会把"编排漏喂端点"打成一句正常 skip。
+    let off22 = jv_o(vec![
+        ("CanAsk", JVal::B(false)),
+        ("Skip", jv_s("MuMu 模拟器画面已经不在了，兜底没有对象")),
+    ]);
+    let sc22c = sc22(
+        "mumu-rescue-offline",
+        vec![("resolve-rescue-context".to_string(), off22)],
+    );
+    let mut h22c = ScriptHost::new_m9a("gd-no-such-panel", &sc22c);
+    let r22c = vision_rescue(&mut h22c, &RescueEnv::of_m9a(&sc22c), "quiet-1", "");
+    let b22c = h22c.body_of("resolve-rescue-context").cloned().unwrap_or(JVal::Null);
+    let sc22c2 = sc22("mumu-rescue-ctxerr", vec![]);
+    let mut h22c2 = ScriptHost::new_m9a("gd-no-such-panel", &sc22c2);
+    let r22c2 = vision_rescue(&mut h22c2, &RescueEnv::of_m9a(&sc22c2), "quiet-2", "");
+    chk(
+        r22c.is_ok()
+            && r22c.as_ref().map_or(false, |x| {
+                !x.tried && x.detail == "MuMu 模拟器画面已经不在了，兜底没有对象"
+            })
+            && h22c.proj == vec!["V|resolve-rescue-context".to_string()]
+            && !h22c.proj.iter().any(|l| l.contains("adb-connect"))
+            && jvo_has(&b22c, "adb")
+            && jvo_has(&b22c, "serial")
+            && !jvo_has(&b22c, "alive")
+            && r22c2.is_err()
+            && h22c2.proj.len() == 1,
+        "闸⑥那句 skip 被核重拼、或核仍然多问了 adb-connect（投影上一枚 verb 恰一行是硬形状）、或 ctx 起不来被降级成正常 skip：现场 adb 一断，兜底该落在 C# 那一句「已经不在了」上，而不是核里编出来的第二种话术",
+        &mut fails,
+        &mut total,
+    );
+
+    // 22d 第七道闸那两句在 mumu 那一路同样**只消费 verb 的整句 Skip**：尺寸句与黑屏句不同源（§11.42 ⑤-2），
+    //     核里重拼一遍就是双前缀话术，而 arkrun/arkskip 那两条既有判据会当场分岔。
+    let sc22d = sc22(
+        "mumu-shot-size",
+        vec![
+            ("resolve-rescue-context".to_string(), m22_ctx.clone()),
+            (
+                "mumu-screen-shot".to_string(),
+                jv_o(vec![
+                    ("Ok", JVal::B(false)),
+                    ("Skip", jv_s("截图失败：模拟器截屏尺寸异常 100x100(安卓那边还没起画面)")),
+                ]),
+            ),
+        ],
+    );
+    let mut h22d = ScriptHost::new_m9a("gd-no-such-panel", &sc22d);
+    let r22d = vision_rescue(&mut h22d, &RescueEnv::of_m9a(&sc22d), "drain-1", "");
+    let sc22e = sc22(
+        "mumu-shot-dark",
+        vec![
+            ("resolve-rescue-context".to_string(), m22_ctx.clone()),
+            (
+                "mumu-screen-shot".to_string(),
+                jv_o(vec![
+                    ("Ok", JVal::B(true)),
+                    ("CanContinue", JVal::B(false)),
+                    ("AvgLum", JVal::I(3)),
+                    ("Skip", jv_s("截图几乎是全黑(平均亮度 3)")),
+                ]),
+            ),
+        ],
+    );
+    let mut h22e = ScriptHost::new_m9a("gd-no-such-panel", &sc22e);
+    let r22e = vision_rescue(&mut h22e, &RescueEnv::of_m9a(&sc22e), "drain-2", "");
+    chk(
+        r22d.as_ref().map_or(false, |x| {
+            !x.tried && x.detail == "截图失败：模拟器截屏尺寸异常 100x100(安卓那边还没起画面)"
+        }) && h22d.proj.len() == 2
+            && !h22d.proj.iter().any(|l| l.contains("vision-ask-model"))
+            && !h22d.proj.iter().any(|l| l.contains("adb-connect"))
+            && r22e.as_ref().map_or(false, |x| {
+                !x.tried && x.detail == "截图几乎是全黑(平均亮度 3)"
+            })
+            && h22e.proj.len() == 2
+            && !h22e.live.iter().any(|(n, _)| n == "vision-ask-model"),
+        "mumu 那一路的第七道闸（拍不到东西／几乎全黑）没只消费 verb 给的整句 Skip，或多问了一次模型：那两句在 C# 各有事实源，核里重拼就是双前缀",
+        &mut fails,
+        &mut total,
+    );
+
+    // 22f `other` 那枚桩已删净（§11.42 ①-1「删桩即回归抓器」）：靶子自报了现场 verb 之外的 kind ⇒ 当场 Err，
+    //     话术是"自报了…之外的 kind"，而旧桩那句「现场 verb 还没进核」必须一个字节都不剩。
+    let sc22f = sc22(
+        "mumu-rescue-badkind",
+        vec![
+            (
+                "resolve-rescue-context".to_string(),
+                jv_o(vec![
+                    ("CanAsk", JVal::B(true)),
+                    ("Kind", jv_s("windows")),
+                    ("Name", jv_s("别的窗口")),
+                ]),
+            ),
+        ],
+    );
+    let mut h22f = ScriptHost::new_m9a("gd-no-such-panel", &sc22f);
+    let r22f = vision_rescue(&mut h22f, &RescueEnv::of_m9a(&sc22f), "stuck-9", "");
+    chk(
+        r22f.as_ref().err().map_or(false, |m| {
+            m == "vision_rescue：靶子自报了现场 verb 之外的 kind：windows"
+        }) && h22f.proj.len() == 1
+            && !h22f.proj.iter().any(|l| l.contains("mumu-screen-shot")),
+        "catch-all 那枚桩没删干净，或认不出的 kind 被当 mumu 去拍了屏：真身对这种靶子第一道闸就回 CanAsk=false，核里编一句真身没有的话术就是把假绿写进链体",
+        &mut fails,
+        &mut total,
+    );
+
+    let _ = std::fs::remove_dir_all(&d22);
+    chk(
+        !d22.exists(),
+        "B-2d③ 自检的临时目录没收干净：自检会在 %TEMP% 里留垃圾",
+        &mut fails,
+        &mut total,
+    );
+
+    // 23. B-2d④「r1999 链体进核＋PS 侧 executor」：这一组钉 `--drive-m9a-daily` 自己 ——
+    //     七道拒跑闸逐句咬字且七句互不相同、role/why 两枚不同源（信封模板只留内层一份）、
+    //     八格动作里真做只有 run（桩名册里没有它 ⇒ 分派漏改当场红）、账行键序
+    //     status→detail→duration?→rescued?（后两枚**条件补**，没有就不写这个键）、
+    //     重试分流那一支的 stop / sleep 20 / 再 run 一次、rescued 与 retry_once 怎么喂 decide、
+    //     名册外五格按真身补、更新闸与审计闸各自的三态话术、init 与 ctx 不同源即 Proto、
+    //     done 幂等、生产 run 闭包缺载荷即拒做，末了钉 `--fixture-run` 复用给这一路时的账行形状
+    //     （⑤ 的等价门就吃这一枚旗标 —— 协议形状在这里再变一次就是第三次升号）。
+    let d23 = std::env::temp_dir().join(format!("gd-b2d4-selftest-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&d23);
+    let _ = std::fs::create_dir_all(&d23);
+    let d23s = d23.to_str().unwrap_or("").to_string();
+    let t23 = |n: &str| format!("{}\\{}", d23s, n);
+    let s23 = t23("state");
+    let _ = std::fs::create_dir_all(&s23);
+    let c23 = t23("ctx.json");
+    let _ = std::fs::write(
+        &c23,
+        "{\"retry_once\":false,\"m9aRun\":{\"paths\":{\"m9aDir\":\"D:/M9A\",\"m9aExe\":\"D:/M9A/m9a.exe\",\"m9aLogDir\":\"D:/M9A/log\"},\"conn\":{\"adb\":\"D:/adb.exe\",\"serial\":\"127.0.0.1:7555\"},\"instance\":{\"id\":\"0\",\"name\":\"MuMu Android 12\"},\"package\":\"com.example.revenuguild\",\"runtime\":{\"m9aCliArgs\":true,\"m9aInstanceArg\":\"id\",\"m9aForceStart\":true,\"r1999StartTimeoutMinutes\":6,\"r1999TimeoutMinutes\":45,\"stallTimeoutMinutes\":12,\"visionMaxRescue\":3}}}",
+    );
+    let jlines = |p: &str| -> Vec<String> {
+        std::fs::read_to_string(p)
+            .unwrap_or_default()
+            .lines()
+            .map(|s| s.to_string())
+            .collect()
+    };
+    let runrows = |p: &str| -> Vec<String> {
+        jlines(p)
+            .into_iter()
+            .filter(|l| l.contains("\"action\":\"run\""))
+            .collect()
+    };
+    let mut dec_no23 = |_st: &str, _rs: bool, _ro: bool| -> Result<(bool, Vec<(String, String)>), String> {
+        Ok((false, Vec::new()))
+    };
+    let mut run_no23 = |_sc: &M9aScen| -> Result<M9aRunOut, String> {
+        Err("这一枚不该被调到（会话级判据之外的路）".to_string())
+    };
+
+    // 23a 七道闸：逐句点名所缺旗标，且七句互不相同（同字面＝诊断里闸的编号没了）。
+    let ref23: Vec<Option<String>> = vec![
+        drive_m9a_refusal(false, "j", "c", "r", "p", "s", "k"),
+        drive_m9a_refusal(true, "", "c", "r", "p", "s", "k"),
+        drive_m9a_refusal(true, "j", "", "r", "p", "s", "k"),
+        drive_m9a_refusal(true, "j", "c", "", "p", "s", "k"),
+        drive_m9a_refusal(true, "j", "c", "r", "", "s", "k"),
+        drive_m9a_refusal(true, "j", "c", "r", "p", "", "k"),
+        drive_m9a_refusal(true, "j", "c", "r", "p", "s", ""),
+    ];
+    let keys23 = ["--i-drive", "--journal", "--ctx", "--res", "--panel-cs", "--state", "--log-sink"];
+    let mut uniq23: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut named23 = true;
+    for (m, k) in ref23.iter().zip(keys23.iter()) {
+        match m {
+            Some(t) => {
+                named23 = named23 && t.contains(*k);
+                uniq23.insert(t.clone());
+            }
+            None => named23 = false,
+        }
+    }
+    chk(
+        named23 && uniq23.len() == 7,
+        "m9a 驱动档的七道拒跑闸走样（有一道没点名所缺旗标，或两句同字面）：缺参的会话会在动作中途才炸，1999 的换头调度器起不来时看不出是哪一面没给",
+        &mut fails,
+        &mut total,
+    );
+    chk(
+        ref23[1].as_ref().map_or(false, |m| m.contains("断点没落点"))
+            && ref23[2].as_ref().map_or(false, |m| m.contains("retry_once/m9aRun 两格"))
+            && ref23[3].as_ref().map_or(false, |m| m.contains("八格现场动作"))
+            && ref23[4]
+                .as_ref()
+                .map_or(false, |m| m.contains("decide-daily-retry"))
+            && ref23[5].as_ref().map_or(false, |m| m.contains("救火账"))
+            && ref23[6].as_ref().map_or(false, |m| m.contains("1999 链上日志"))
+            && drive_m9a_refusal(true, "j", "c", "r", "p", "s", "k").is_none(),
+        "m9a 拒跑句里有一枚没交代这一面是干什么的（或七样齐时仍拒跑）：拒跑闸是给人的第一句人话，只报旗标名不报后果就等于让人自己去读码",
+        &mut fails,
+        &mut total,
+    );
+
+    // 23b role/why 两枚不同源：三枚信封模板只有内层一份字面，role/why 是唯一的差别。
+    let ask_ark23 = render_drive_ask(2, "desk", &JVal::Null);
+    let ask_m9a23 = drive_env_ask(DRIVE_ROLE_M9A, 2, "updgate", &JVal::Null);
+    chk(
+        ask_ark23.contains("\"role\":\"R3-drive-ark-daily\"")
+            && ask_ark23.contains("mark/obsrec/admin")
+            && !ask_ark23.contains("B2d-drive-m9a-daily")
+            && ask_m9a23.contains("\"role\":\"B2d-drive-m9a-daily\"")
+            && ask_m9a23.contains("1999 的链与记账")
+            && !ask_m9a23.contains("R3-drive-ark-daily")
+            && !ask_m9a23.contains("mark/obsrec/admin")
+            && ask_m9a23.contains("\"logs\":[]")
+            && ask_m9a23.contains("\"params\":null"),
+        "两路信封的 role/why 串了（或 m9a 那句照抄了 ark 的『已搬动作（mark/obsrec/admin）』）：1999 这一路八格里没有这三格，字面沿用就是让核认识一句 1999 事实却说错了",
+        &mut fails,
+        &mut total,
+    );
+    chk(
+        drive_env_fail(DRIVE_ROLE_M9A, "x").contains("\"role\":\"B2d-drive-m9a-daily\"")
+            && drive_env_done(DRIVE_ROLE_M9A, &JVal::Null).contains("\"role\":\"B2d-drive-m9a-daily\"")
+            && drive_env_done(DRIVE_ROLE_ARK, &JVal::Null).contains("\"role\":\"R3-drive-ark-daily\""),
+        "三枚信封里 role 有一枚没走参数化（ask 换了、done/fail 还写死 ark 那枚）：PS 侧那两枚校验（role 与 contract 成对）会在 done 上认不出这一本账是谁的",
+        &mut fails,
+        &mut total,
+    );
+
+    // 23c 会话正路（真做只有 run）：ask 名册七格里的六格、账行四键齐全、done 只带三格。
+    let j23c = t23("c-journal.ndjson");
+    let k23c = t23("c-sink.ndjson");
+    let run_calls23c = std::cell::Cell::new(0usize);
+    let mut resp23c = |a: &str, p: &JVal| drive_m9a_selftest_respond(a, p);
+    let mut run23c = |_sc: &M9aScen| -> Result<M9aRunOut, String> {
+        run_calls23c.set(run_calls23c.get() + 1);
+        Ok(M9aRunOut {
+            status: "ok".to_string(),
+            detail: "一切正常".to_string(),
+            duration: Some(62.5),
+            rescued: true,
+        })
+    };
+    let (a23c, l23c, kind23c, res23c, e23c) = drive_m9a_selftest_session(
+        &j23c,
+        &c23,
+        &t23("c-res.json"),
+        &s23,
+        &k23c,
+        &mut resp23c,
+        &mut run23c,
+        &mut dec_no23,
+    );
+    chk(
+        e23c.is_none()
+            && kind23c == "done"
+            && a23c == vec![
+                "updgate".to_string(),
+                "takeover".to_string(),
+                "mumu".to_string(),
+                "cfg".to_string(),
+                "stop".to_string(),
+                "audit".to_string()
+            ]
+            && run_calls23c.get() == 1,
+        "m9a 链体的动作序或真做分派不对：ask 名册该是 updgate/takeover/mumu/cfg/stop/audit 六枚（run 真做、不许问），run 该恰好做一次 —— 多出 run 说明壳侧白名单没删干净（双删即回归抓器），少一枚说明链体与真身 :87-165 不同源",
+        &mut fails,
+        &mut total,
+    );
+    let rows23c = runrows(&j23c);
+    chk(
+        rows23c.len() == 1
+            && rows23c[0]
+                == "{\"seq\":8,\"action\":\"run\",\"data\":{\"status\":\"ok\",\"detail\":\"一切正常\",\"duration\":62.5,\"rescued\":true}}"
+            && jv_to_json(&res23c) == "{\"status\":\"ok\",\"detail\":\"一切正常\",\"duration\":62.5}",
+        "m9a 的 run 账行或 done result 形状不对：账行键序该 status→detail→duration→rescued（四枚齐全时），done 只带三格（不带 rescued）—— 键序或键数一变，⑤ 的门就没法与 PS 侧 legacy 写的 res data 逐字节比",
+        &mut fails,
+        &mut total,
+    );
+    chk(
+        l23c == vec![
+            "STEP|--- 重返未来：1999(MuMu + M9A)---".to_string(),
+            "INFO|M9A 自动更新闸：已是最新，无需更新".to_string(),
+            "INFO|  M9A：实例：1999".to_string(),
+            "INFO|1999 活动审计：无待审活动".to_string(),
+        ],
+        "m9a 链上日志没按产生顺序逐行落进 --log-sink（句子话术或先后有一处走样）：更新闸排在起 M9A 之前是真身的硬事实（更新器见进程在跑就拒动），顺序错一轮生产就是白等十几分钟",
+        &mut fails,
+        &mut total,
+    );
+
+    // 23d 两枚条件补 ＋ 审计闸的条件：非 ok/empty-queue 的终态**不许问审计**，且 duration/rescued 不落键。
+    let j23d = t23("d-journal.ndjson");
+    let mut resp23d = |act: &str, prm: &JVal| drive_m9a_selftest_respond(act, prm);
+    let mut run23d = |_sc: &M9aScen| -> Result<M9aRunOut, String> {
+        Ok(M9aRunOut {
+            status: "blocked".to_string(),
+            detail: "停在启动器更新页".to_string(),
+            duration: None,
+            rescued: false,
+        })
+    };
+    let (a23d, l23d, kind23d, _res23d, e23d) = drive_m9a_selftest_session(
+        &j23d,
+        &c23,
+        &t23("d-res.json"),
+        &s23,
+        &t23("d-sink.ndjson"),
+        &mut resp23d,
+        &mut run23d,
+        &mut dec_no23,
+    );
+    let rows23d = runrows(&j23d);
+    chk(
+        e23d.is_none()
+            && kind23d == "done"
+            && rows23d.len() == 1
+            && rows23d[0]
+                == "{\"seq\":8,\"action\":\"run\",\"data\":{\"status\":\"blocked\",\"detail\":\"停在启动器更新页\"}}"
+            && a23d == vec![
+                "updgate".to_string(),
+                "takeover".to_string(),
+                "mumu".to_string(),
+                "cfg".to_string(),
+                "stop".to_string()
+            ]
+            && l23d.iter().any(|x| x == "WARN|1999 结束状态：blocked — 停在启动器更新页"),
+        "m9a 账行的两枚条件补走样了（无 duration/rescued 却把键写出来），或 blocked 终态仍去问审计闸：真身那句条件是 `-in @('ok','empty-queue')`，多问一次就是给一轮没跑完的当日轮记一笔莫须有的活动账",
+        &mut fails,
+        &mut total,
+    );
+
+    // 23e 重试分流那一支：stop → sleep 20 → 再 run 一次（第二次叫「1999重试」）→ 收尾 stop → 审计。
+    let j23e = t23("e-journal.ndjson");
+    let prm_e23 = std::cell::RefCell::new(String::new());
+    let mut resp23e = |act: &str, prm: &JVal| -> Result<Option<JVal>, String> {
+        if act == "sleep" {
+            *prm_e23.borrow_mut() = jv_to_json(prm);
+        }
+        drive_m9a_selftest_respond(act, prm)
+    };
+    let run_calls23e = std::cell::Cell::new(0usize);
+    let mut run23e = |_sc: &M9aScen| -> Result<M9aRunOut, String> {
+        run_calls23e.set(run_calls23e.get() + 1);
+        Ok(M9aRunOut {
+            status: "ok".to_string(),
+            detail: "第二次跑完".to_string(),
+            duration: None,
+            rescued: false,
+        })
+    };
+    let mut dec23e = |_st: &str, _rs: bool, _ro: bool| -> Result<(bool, Vec<(String, String)>), String> {
+        Ok((true, vec![("INFO".to_string(), "重试分流：判可重试".to_string())]))
+    };
+    let (a23e, l23e, kind23e, _res23e, e23e) = drive_m9a_selftest_session(
+        &j23e,
+        &c23,
+        &t23("e-res.json"),
+        &s23,
+        &t23("e-sink.ndjson"),
+        &mut resp23e,
+        &mut run23e,
+        &mut dec23e,
+    );
+    let rows23e = runrows(&j23e);
+    chk(
+        e23e.is_none()
+            && kind23e == "done"
+            && run_calls23e.get() == 2
+            && prm_e23.borrow().as_str() == "20"
+            && a23e == vec![
+                "updgate".to_string(),
+                "takeover".to_string(),
+                "mumu".to_string(),
+                "cfg".to_string(),
+                "stop".to_string(),
+                "sleep".to_string(),
+                "stop".to_string(),
+                "audit".to_string()
+            ]
+            && rows23e.len() == 2
+            && rows23e[1].starts_with("{\"seq\":12,\"action\":\"run\"")
+            && l23e.iter().any(|x| x == "INFO|重试分流：判可重试"),
+        "m9a 的重试分流这一支不对：sleep 的 params 该是 20（**不是 ark 那一路的 25**，真身 :130 写的就是这个数）、动作序该是 stop/sleep/再 run/收尾 stop、decide 回传的日志该按序进账进侧信道 —— 两套话术不许顺手统一，统一了门就再也分不清是哪一路",
+        &mut fails,
+        &mut total,
+    );
+
+    // 23fg 喂 decide 的三参数 ＋ 名册外五格按真身补（run 闭包看到的 scen 是这两枚判据的现场）。
+    let c23g = t23("g-ctx.json");
+    let _ = std::fs::write(&c23g, std::fs::read_to_string(&c23).unwrap_or_default().replace("\"retry_once\":false", "\"retry_once\":true"));
+    let seen_dec23g = std::cell::RefCell::new(Vec::<String>::new());
+    let seen_scen23g = std::cell::RefCell::new(String::new());
+    let mut resp23g = |act: &str, prm: &JVal| drive_m9a_selftest_respond(act, prm);
+    let mut run23g = |sc: &M9aScen| -> Result<M9aRunOut, String> {
+        *seen_scen23g.borrow_mut() = format!(
+            "dir={} adb={} serial={} pkg={} mode={} cli={} force={} start={} timeout={} stall={} vision={} game={} target={} state={} rescue={} grab={} dry={}",
+            sc.m9a_dir,
+            sc.adb,
+            sc.serial,
+            sc.package,
+            sc.mode,
+            sc.cli.map_or("none".to_string(), |b| if b { "true".to_string() } else { "false".to_string() }),
+            sc.force_start,
+            sc.start_min,
+            sc.timeout_min,
+            sc.stall_min,
+            sc.vision_max,
+            sc.game,
+            sc.target,
+            sc.state_dir,
+            sc.rescue_available,
+            sc.grab_available,
+            sc.dry_run
+        );
+        Ok(M9aRunOut {
+            status: "not-started".to_string(),
+            detail: "没起来".to_string(),
+            duration: None,
+            rescued: true,
+        })
+    };
+    let mut dec23g = |st: &str, rs: bool, ro: bool| -> Result<(bool, Vec<(String, String)>), String> {
+        seen_dec23g.borrow_mut().push(format!("{}|{}|{}", st, rs, ro));
+        Ok((false, Vec::new()))
+    };
+    let (_a23g, _l23g, kind23g, _res23g, e23g) = drive_m9a_selftest_session(
+        &t23("g-journal.ndjson"),
+        &c23g,
+        &t23("g-res.json"),
+        &s23,
+        &t23("g-sink.ndjson"),
+        &mut resp23g,
+        &mut run23g,
+        &mut dec23g,
+    );
+    chk(
+        // decide 不是八格现场动作、不记账，所以迷你驱动器每重放一轮都会被**重新调一次**（实测：
+        // 账上 log/run 都占 seq，decide 不占）。判据只钉"每一枚都等于同一组现值"，不钉枚数。
+        e23g.is_none()
+            && kind23g == "done"
+            && !seen_dec23g.borrow().is_empty()
+            && seen_dec23g.borrow().iter().all(|x| x == "not-started|true|true"),
+        "decide-daily-retry 的三枚入参有一枚接错（status 取自账上终态、rescued 来自 run 真做、retry_once 来自 ctx 顶层）：分流判据就此拿错现值，而 C# 那侧的九档话术看不出自己拿到的是假数据",
+        &mut fails,
+        &mut total,
+    );
+    let want23g = format!(
+        "dir=D:/M9A adb=D:/adb.exe serial=127.0.0.1:7555 pkg=com.example.revenuguild mode=id cli=true force=true start=6 timeout=45 stall=12 vision=3 game=r1999 target=mumu state={} rescue=true grab=false dry=false",
+        s23
+    );
+    chk(
+        *seen_scen23g.borrow() == want23g,
+        "ctx 名册那 15 枚进核后有一枚接错，或名册外那五格没按真身补（game=r1999 / target=mumu / state_dir=--state / 救火可用 true / 抢前台 false / dry_run 必须为 false）：真做会拿错实例或错超时去起 M9A，而 dry_run 一旦被供成 true，当日轮会一行现场都不碰却报 ok",
+        &mut fails,
+        &mut total,
+    );
+
+    // 23h 更新闸与审计闸的三态：非零退出码 WARN 不挡当日轮；闸本身抛错 WARN 后照常跑。
+    let mut resp23h = |act: &str, prm: &JVal| -> Result<Option<JVal>, String> {
+        match act {
+            "updgate" => Ok(Some(jv_o(vec![
+                ("code", JVal::I(3)),
+                ("line", jv_s("挑出来的那一行")),
+                ("joined", jv_s("更新器输出第一行 第二行")),
+            ]))),
+            "audit" => Ok(Some(jv_o(vec![
+                ("code", JVal::I(1)),
+                ("line", jv_s("审计没挑出行")),
+                ("joined", jv_s("审计输出整段")),
+            ]))),
+            other => drive_m9a_selftest_respond(other, prm),
+        }
+    };
+    let mut run23h = |_sc: &M9aScen| -> Result<M9aRunOut, String> {
+        Ok(M9aRunOut {
+            status: "empty-queue".to_string(),
+            detail: "队列是空的".to_string(),
+            duration: None,
+            rescued: false,
+        })
+    };
+    let (_a23h, l23h, kind23h, _res23h, e23h) = drive_m9a_selftest_session(
+        &t23("h-journal.ndjson"),
+        &c23,
+        &t23("h-res.json"),
+        &s23,
+        &t23("h-sink.ndjson"),
+        &mut resp23h,
+        &mut run23h,
+        &mut dec_no23,
+    );
+    chk(
+        e23h.is_none()
+            && kind23h == "done"
+            && l23h.iter().any(|x| x == "WARN|M9A 自动更新未完成(退出码 3)，不挡当日轮：更新器输出第一行 第二行")
+            && l23h
+                .iter()
+                .any(|x| x == "WARN|1999 活动审计没审成(退出码 1)，维持现状：审计输出整段")
+            && l23h.iter().any(|x| x == "WARN|1999 结束状态：empty-queue — 队列是空的"),
+        "两枚闸的非零退出码话术走样（该带退出码与全量输出、且**不挡当日轮**）：真身这两段是加分项，一句改重就把『更新器今天没配额』升级成了整轮失败",
+        &mut fails,
+        &mut total,
+    );
+    let mut resp23h2 = |act: &str, prm: &JVal| -> Result<Option<JVal>, String> {
+        if act == "updgate" {
+            return Err("更新闸自己炸了".to_string());
+        }
+        drive_m9a_selftest_respond(act, prm)
+    };
+    let j23h2 = t23("h2-journal.ndjson");
+    let (_a23h2, l23h2, kind23h2, _res23h2, e23h2) = drive_m9a_selftest_session(
+        &j23h2,
+        &c23,
+        &t23("h2-res.json"),
+        &s23,
+        &t23("h2-sink.ndjson"),
+        &mut resp23h2,
+        &mut run23h,
+        &mut dec_no23,
+    );
+    let gate_row23h2 = jlines(&j23h2)
+        .into_iter()
+        .find(|l| l.contains("\"action\":\"updgate\""))
+        .unwrap_or_default();
+    chk(
+        e23h2.is_none()
+            && kind23h2 == "done"
+            && gate_row23h2 == "{\"seq\":2,\"action\":\"updgate\",\"err\":\"更新闸自己炸了\"}"
+            && l23h2
+                .iter()
+                .any(|x| x == "WARN|M9A 自动更新闸本身抛错，跳过它照常跑：更新闸自己炸了"),
+        "闸本身抛错这一路不对：账上该写 err 而不是 data、链体该吞成那句 WARN 并**继续当日轮** —— 抛错被当 Fail 上抛的话，一次更新器崩溃会拖垮整轮（真身的 catch 只包住这一段）",
+        &mut fails,
+        &mut total,
+    );
+
+    // 23i init 与 ctx 不同源 = Proto：任何 catch 都不接，当场 fail 且不写侧信道。
+    let j23i = t23("i-journal.ndjson");
+    let c23i = t23("i-ctx.json");
+    let _ = std::fs::write(
+        &c23i,
+        "{\"retry_once\":false,\"m9aRun\":{\"paths\":{\"m9aDir\":\"D:/OTHER\",\"m9aExe\":\"D:/OTHER/m9a.exe\",\"m9aLogDir\":\"D:/OTHER/log\"},\"conn\":{\"adb\":\"D:/adb.exe\",\"serial\":\"127.0.0.1:7555\"},\"instance\":{\"id\":\"0\",\"name\":\"MuMu Android 12\"},\"package\":\"com.example.revenuguild\",\"runtime\":{\"m9aCliArgs\":true,\"m9aInstanceArg\":\"id\",\"m9aForceStart\":true,\"r1999StartTimeoutMinutes\":6,\"r1999TimeoutMinutes\":45,\"stallTimeoutMinutes\":12,\"visionMaxRescue\":3}}}",
+    );
+    let (rc23i1, env23i1) = drive_m9a_daily_envelope(
+        true,
+        &j23i,
+        &c23,
+        &t23("i-res.json"),
+        "unused-panel-cs",
+        &s23,
+        &t23("i-sink.ndjson"),
+        &mut dec_no23,
+        &mut run_no23,
+    );
+    let (rc23i2, env23i2) = drive_m9a_daily_envelope(
+        true,
+        &j23i,
+        &c23i,
+        &t23("i-res.json"),
+        "unused-panel-cs",
+        &s23,
+        &t23("i-sink2.ndjson"),
+        &mut dec_no23,
+        &mut run_no23,
+    );
+    chk(
+        rc23i1 == 0
+            && env23i1.contains("\"action\":\"updgate\"")
+            && env23i1.contains("\"seq\":2")
+            && rc23i2 == 1
+            && env23i2.contains("\"kind\":\"fail\"")
+            && env23i2.contains("驱动协议坏了：journal 的 init 与 ctx 不是同一份")
+            && std::fs::metadata(&t23("i-sink2.ndjson")).is_err(),
+        "同一本 journal 换了 ctx 没被拒（或首问不是 updgate、或拒跑时还往侧信道写行）：拿上一轮的账配这一轮的现值继续跑，1999 会在错误的实例上接着推链 —— 这类不同源必须是 Proto，任何 catch 都不许接住它",
+        &mut fails,
+        &mut total,
+    );
+
+    // 23j done 幂等：账上有 done 行时再起一轮 = 直接 done，一次动作都不重做、一行日志都不再落。
+    let before23j = jlines(&j23c).len();
+    let (rc23j, env23j) = drive_m9a_daily_envelope(
+        true,
+        &j23c,
+        &c23,
+        &t23("j-res.json"),
+        "unused-panel-cs",
+        &s23,
+        &t23("j-sink.ndjson"),
+        &mut dec_no23,
+        &mut run_no23,
+    );
+    chk(
+        rc23j == 0
+            && env23j.contains("\"kind\":\"done\"")
+            && env23j.contains("\"role\":\"B2d-drive-m9a-daily\"")
+            && env23j.contains("\"status\":\"ok\"")
+            && jlines(&j23c).len() == before23j
+            && std::fs::read_to_string(&t23("j-sink.ndjson")).unwrap_or_default().is_empty(),
+        "done 之后重入没走早退（账又多行 / 侧信道又落行 / 桩 run 被调到）：幂等重入是断点协议的一部分，重做一遍就是当日双起 M9A 会话",
+        &mut fails,
+        &mut total,
+    );
+
+    // 23k 真做抛错仍被链体吞成 error 态：账写 err、话术是「1999 异常：」（ark 那一路是「方舟 异常：」）。
+    let j23k = t23("k-journal.ndjson");
+    let mut resp23k = |act: &str, prm: &JVal| drive_m9a_selftest_respond(act, prm);
+    let mut run23k = |_sc: &M9aScen| -> Result<M9aRunOut, String> {
+        Err("运行面桩故意抛".to_string())
+    };
+    let (a23k, _l23k, kind23k, res23k, e23k) = drive_m9a_selftest_session(
+        &j23k,
+        &c23,
+        &t23("k-res.json"),
+        &s23,
+        &t23("k-sink.ndjson"),
+        &mut resp23k,
+        &mut run23k,
+        &mut dec_no23,
+    );
+    let rows23k = runrows(&j23k);
+    chk(
+        e23k.is_none()
+            && kind23k == "done"
+            && !a23k.iter().any(|x| x == "run")
+            && rows23k.len() == 1
+            && rows23k[0] == "{\"seq\":8,\"action\":\"run\",\"err\":\"运行面桩故意抛\"}"
+            && jv_str(&jv_get(&res23k, "status")) == "error"
+            && jv_str(&jv_get(&res23k, "detail")) == "1999 异常：运行面桩故意抛",
+        "run 真做抛错这一路不对：账上写 err 不写 data、链体吞成 status=error＋「1999 异常：」那句（**不是 ark 的「方舟 异常：」**）、ask 名册里不许再出现 run —— 任一半走样，生产就把一次失败的 M9A 当成功终态收",
+        &mut fails,
+        &mut total,
+    );
+
+    // 23l 生产 run 闭包的边界：ctx 载荷残缺 ⇒ 当场拒做，不猜路径、不碰侧信道。
+    let f_sink23 = t23("f-sink.ndjson");
+    let f23 = drive_real_m9a_run("unused-panel-cs", &f_sink23, &M9aScen::default());
+    chk(
+        f23
+            .as_ref()
+            .err()
+            .map_or(false, |m| m.contains("m9aRun 的 paths") && m.contains("不替生产猜默认路径"))
+            && std::fs::metadata(&f_sink23).is_err(),
+        "生产 run 闭包在 ctx 载荷缺失时没当场拒做（或拒做的路上顺手造了文件）：真做会拿空路径去起 M9A，错话还会从链上消失",
+        &mut fails,
+        &mut total,
+    );
+
+    // 23m ctx 那三枚起步闸走 fail 通道（rc=1、带「驱动协议坏了：」前缀），retry_once 非布尔另算一句。
+    let cases23m: Vec<(&str, &str, &str)> = vec![
+        (
+            "m-ctx-a.json",
+            "{\"retry_once\":\"yes\"}",
+            "retry_once 必须是布尔",
+        ),
+        (
+            "m-ctx-b.json",
+            "{\"retry_once\":false,\"m9aRun\":{\"paths\":{}}}",
+            "paths.m9aDir 没给",
+        ),
+        (
+            "m-ctx-c.json",
+            "{\"retry_once\":false,\"m9aRun\":{\"paths\":{\"m9aDir\":\"D:/M9A\"}}}",
+            "conn.adb 没给",
+        ),
+    ];
+    let mut got23m = Vec::new();
+    for (n, body, want) in cases23m.iter() {
+        let p = t23(n);
+        let _ = std::fs::write(&p, body);
+        let (rc, env) = drive_m9a_daily_envelope(
+            true,
+            &t23(&n.replace("ctx", "jou")),
+            &p,
+            &t23(&n.replace("ctx", "rse")),
+            "unused-panel-cs",
+            &s23,
+            &t23(&n.replace("ctx", "snk")),
+            &mut dec_no23,
+            &mut run_no23,
+        );
+        got23m.push(rc == 1 && env.contains("\"kind\":\"fail\"") && env.contains("驱动协议坏了") && env.contains(*want));
+    }
+    chk(
+        got23m == vec![true, true, true],
+        "ctx 面的三枚起步闸没走 fail 通道（或错话没点名是哪一格残缺）：retry_once 不是布尔、m9aDir/adb 没给这三档，缺任何一条都会在真做那一步变成『拿空值起进程』，而不是当场一句人话",
+        &mut fails,
+        &mut total,
+    );
+
+    // 23n --fixture-run 复用给这一路（⑤ 的门就吃这枚旗标）：先钉闸的优先级与夹具的两条错路，
+    //     再走**真出口**推满五轮（首轮问 updgate，后四轮逐枚回执），钉这一轮的 run 账行逐字形状
+    //     （多认的那枚 rescued 必须落到键序末位）。
+    //     账行号照实测：链体每句 log 也占一行 seq —— 1 STEP / 2 updgate / 3 更新闸句 / 4 takeover /
+    //     5 mumu / 6 cfg / 7 "  M9A：" 句 / **8 run**，所以夹具回执的 seq 是 2·4·5·6 而不是连号。
+    let e23n = t23("n-env.json");
+    let out23n = &Some(e23n.clone());
+    let env23n = || -> String { std::fs::read_to_string(&e23n).unwrap_or_default().trim().to_string() };
+    let j23n = t23("n-journal.ndjson");
+    let r23n = t23("n-res.json");
+    let k23n = t23("n-sink.ndjson");
+    let c23n = t23("n-ctx.json");
+    let _ = std::fs::copy(&c23, &c23n);
+    let missfx23 = t23("no-such-fixture.json");
+    let rc23n1 = run_drive_m9a_daily(false, &j23n, &c23n, &r23n, "unused-panel-cs", &s23, &k23n, &missfx23, out23n);
+    chk(
+        rc23n1 == 2 && env23n().contains("--i-drive") && !env23n().contains("夹具读不动"),
+        "m9a 驱动档的拒跑闸排在了夹具读取之后：缺 --i-drive 时先报夹具错，会把『参数漏写』伪装成『夹具喂错』——换头开关那句拒跑就此不是唯一出口",
+        &mut fails,
+        &mut total,
+    );
+    let rc23n2 = run_drive_m9a_daily(true, &j23n, &c23n, &r23n, "unused-panel-cs", &s23, &k23n, &missfx23, out23n);
+    chk(
+        rc23n2 == 1 && env23n().contains("--fixture-run 的夹具读不动") && env23n().contains("驱动协议坏了"),
+        "--fixture-run 指到不存在的文件时没当场 fail（或错话没点名旗标）：给了旗标却喂不到夹具，比不喂更容易被当成『跑过了』",
+        &mut fails,
+        &mut total,
+    );
+    let fx23n = t23("n-fixture-run.json");
+    let _ = std::fs::write(
+        &fx23n,
+        "{\"status\":\"ok\",\"detail\":\"队列跑完\",\"duration\":33.5,\"rescued\":true,\"logs\":[{\"level\":\"INFO\",\"text\":\"夹具第一行\"},{\"level\":\"WARN\",\"text\":\"夹具第二行\"}]}",
+    );
+    let mut rc23n3 = 0i32;
+    for (i, res_row) in [
+        "",
+        "{\"seq\":2,\"action\":\"updgate\",\"ok\":true,\"data\":{\"code\":0,\"line\":\"已是最新，无需更新\",\"joined\":\"已是最新，无需更新\"}}",
+        "{\"seq\":4,\"action\":\"takeover\",\"ok\":true}",
+        "{\"seq\":5,\"action\":\"mumu\",\"ok\":true,\"data\":true}",
+        "{\"seq\":6,\"action\":\"cfg\",\"ok\":true,\"data\":{\"changes\":[\"实例：1999\"]}}",
+    ]
+    .iter()
+    .enumerate()
+    {
+        if i > 0 {
+            let _ = std::fs::write(&r23n, res_row);
+        }
+        rc23n3 = run_drive_m9a_daily(true, &j23n, &c23n, &r23n, "unused-panel-cs", &s23, &k23n, &fx23n, out23n);
+    }
+    let rows23n = runrows(&j23n);
+    chk(
+        rc23n3 == 1
+            && env23n().contains("decide-daily-retry 起不来")
+            && rows23n.len() == 1
+            && rows23n[0]
+                == "{\"seq\":8,\"action\":\"run\",\"data\":{\"status\":\"ok\",\"detail\":\"队列跑完\",\"duration\":33.5,\"rescued\":true}}"
+            && jlines(&k23n).iter().filter(|l| l.contains("夹具第一行")).count() == 1
+            && jlines(&k23n).iter().filter(|l| l.contains("夹具第二行")).count() == 1,
+        "真出口这一路的 m9a run 真做不对：夹具多认的那枚 rescued 没落到账行键序末位（⑤ 的门就没法与 PS 侧 legacy 写的 res data 逐字节比），或夹具 logs 没按序落进同一本侧信道",
+        &mut fails,
+        &mut total,
+    );
+
+    let _ = std::fs::remove_dir_all(&d23);
+    chk(
+        !d23.exists(),
+        "B-2d④ 自检的临时目录没收干净：自检会在 %TEMP% 里留垃圾",
+        &mut fails,
+        &mut total,
+    );
+
     if fails.is_empty() {
+
         println!("RESULT SELFTEST-PASS checks={} contract={}", total, CONTRACT);
         return 0;
     }
@@ -10912,17 +14964,31 @@ fn usage() -> ! {
          \t  **唯一外部调用** = --panel-cs 指的那枚判定 exe：装配真身在这一步就是真跑 decide-daily-retry\n\
          \t  （照生产同一条 --in/--out 信封协议），所以缺它这一档直接拒跑；不喂它任何本机事实。\n\
          \n\
-         驱动档（R3③，换头专用）：gdprobe --drive-ark-daily --i-drive --journal <journal 文件> --ctx <上下文文件> --res <回执文件> --panel-cs <判定 exe 路径> --state <state 目录> [--out <文件>]\n\
+         驱动档（R3③，换头专用）：gdprobe --drive-ark-daily --i-drive --journal <journal 文件> --ctx <上下文文件> --res <回执文件> --panel-cs <判定 exe 路径> --state <state 目录> --log-sink <日志侧信道文件> [--out <文件>]\n\
          \t  gdcore.exe 出厂即带的本档（同一份 main.rs 编两枚 bin，gdprobe 与 gdcore 同体）：PS 侧换头后由调度器起它，\n\
          \t  一次一动作一进程 —— 进程从 journal 重放已办事项回到断点，把下一个要办的动作写成 ask 信封（seq/action/params）退出；\n\
          \t  壳照单执行完，把结果写 --res 回执，再起下一进程续推。\n\
          \t  已搬动作（B-1a 起：mark/obsrec/admin）不再走 ask —— 在本进程内真做（写 state 目录下的认栽标记/观测账本、查管理员令牌）并记账。\n\
-         \t  四样 = 一根会话：journal 是唯一权威账（init 行 + 记录行 + 末行 done），ctx 只在起新账时吞成 init，\n\
-         \t  res 是单条回执（读后即删），--state 指到生产同一处 state 目录（已搬动作的账要落回生产落点）。\n\
-         \t  缺 --i-drive 一律拒跑（默认档不许启用它），四样缺一同样拒跑 —— 断点记不住的会话不许开。\n\
+         \t  B-2c③ 起 run 也不走 ask：同进程内真做（走 --maa-run 那套循环骨架，现场 verb 仍外调 panel-cs），\n\
+         \t  现场输入取自 ctx 的 maaRun 子对象（十三枚，键名与 config\\settings.json 逐字同名；**整块 runtime 不许序列化进来** —— key 就在里面）。\n\
+         \t  --fixture-run <文件> 只给对拍门/自检：run 真做换吃这份夹具（{{status,detail,duration?,logs}}），协议形状一字不动，生产不接这个旗标。\n\
+         \t  五样 = 一根会话：journal 是唯一权威账（init 行 + 记录行 + 末行 done），ctx 只在起新账时吞成 init，\n\
+         \t  res 是单条回执（读后即删），--state 指到生产同一处 state 目录（已搬动作的账要落回生产落点），\n\
+         \t  --log-sink 是日志侧信道（B-2c②：链上日志按产生顺序逐行落这里，壳边跑边排空；重放段一行不写，信封 logs 留键恒空）。\n\
+         \t  缺 --i-drive 一律拒跑（默认档不许启用它），五样缺一同样拒跑 —— 断点记不住的会话不许开。\n\
          \t  与上面四档同理**不加载任何 DLL、不碰任何现场**，所以也不需要 --kind / --dir。\n\
          \t  **唯一外部调用** = --panel-cs 指的那枚判定 exe：链体重试分流真跑 decide-daily-retry\n\
          \t  （照生产同一条 --in/--out 信封协议），所以缺它这一档直接拒跑；不喂它任何本机事实。\n\
+         \n\
+         m9a 驱动档（B-2d④，换头专用）：gdprobe --drive-m9a-daily --i-drive --journal <journal 文件> --ctx <上下文文件> --res <回执文件> --panel-cs <判定 exe 路径> --state <state 目录> --log-sink <日志侧信道文件> [--out <文件>]\n\
+         \t  与上面那档**同一套协议、同一套记账**（journal 是唯一权威账 / res 读后即删 / --log-sink 边跑边排空 / 缺旗标一律 rc=2），\n\
+         \t  推的是 Start-GdR1999Daily 那条 1999 链：八格动作里**真做只有 run**（走 --m9a-run 那套循环骨架，现场 verb 仍外调 panel-cs），\n\
+         \t  其余七格（updgate / takeover / mumu / cfg / sleep / stop / audit）一律 ask 给 PS 侧执行 ——\n\
+         \t  三处与 ark 那路**故意**不同源，都记在 plan §11.39：没有桌面闸、没有 launch、run 不吃 chains（真身签名里就没有）。\n\
+         \t  ctx 只有两格：顶层 retry_once ＋ m9aRun（十五枚，键名与 config\\settings.json 逐字同名；\n\
+         \t  **整块 runtime 不许序列化进来** —— 视觉 key 就住在那个块里，进核的只有名册那七枚 runtime 键）。\n\
+         \t  role 是这一路自己的「B2d-drive-m9a-daily」，与 ark 那路的「R3-drive-ark-daily」不同源；拒跑七闸同序、同数量、不同句。\n\
+         \t  --fixture-run 与 ark 那档共用同一枚旗标和同一份夹具形状（这一路多认一枚可选 rescued），生产不接这个旗标。\n\
          \n\
          运行面回放档（B-2a，只给对拍门用）：gdcore --maa-run --script <剧本文件> --panel-cs <判定 exe 路径> [--out <文件>]\n\
          \t  与上面五档同理**不加载任何 DLL、不碰任何现场**，所以也不需要 --kind / --dir；生产不接线（这一档不是换头入口）。\n\
@@ -10931,6 +14997,16 @@ fn usage() -> ! {
          \t  判据一条都不在这里 —— 六枚 verb 每 tick 真跑 --panel-cs 那枚判定 exe（与 arkskip 档共用同一条 --in/--out 协议），\n\
          \t  所以缺它这一档直接拒跑；两枚兜底可用性本批恒按**不可用**喂，识别到的 effect 一律走真身那句作废话术。\n\
          \t  出口 = 每档一行投影串（动作序列 + 末行状态），供 probe-arkrun-rust-golden 与 PS 真身侧逐字比对。\n\
+         \n\
+         m9a 运行面回放档（B-2d②，只给对拍门用）：gdcore --m9a-run --script <剧本文件> --panel-cs <判定 exe 路径> [--out <文件>]\n\
+         \t  与上面那档同形同规矩（只吃夹具、不加载 DLL、不碰现场，也不需要 --kind / --dir），跑的是 Invoke-M9ARun 的循环骨架：\n\
+         \t  启动等待 → 按**当天日期**重算日志名读文件尾 → 逐行喂判定 verb → 回灌状态 → 收结论，五枚 verb 每 tick 真跑 --panel-cs。\n\
+         \t  两处与 ark 那档**故意**不同，都记在 plan §11.39：① 偏移按文件路径 keyed（跨 00:00 换文件，ark 侧是两枚固定变量），\n\
+         \t  所以剧本必须喂 days 日期表，投影在日期变化时落一条 D|；② 单档 Err（真身 :347 那句 throw）落成该档末行 E| 继续跑下一档，\n\
+         \t  不像 ark 那样整批中止 —— 那一格本身就是 M9A 一路的一种正常结论。\n\
+         \t  adb 两件（connect / 1999 pid）的 C# 真身已随 **B-2d③-a** 落（`Live.cs` 的 AdbConnect/AdbGamePid），\n\
+         \t  **生产接线也已随 ④ 的链体批落地**（§11.42 ⑦-2 那笔欠账结清：--drive-m9a-daily 的 run 真做走 RealHost）。\n\
+         \t  回放档里两枚仍一律由夹具喂数据，不许核里现取现场。\n\
          \n\
          自检：gdprobe --selftest        无头，不加载任何 DLL、不碰任何现场\n\
          \n\
@@ -11025,8 +15101,15 @@ fn run(args: &[String]) -> i32 {
     let mut drive_ctx = String::new();
     let mut drive_res = String::new();
     let mut drive_state = String::new();
-    // --maa-run（B-2a）那档的剧本文件：空 = 没给 → 该档自己拒跑（与 --arkskip 缺 --panel-cs 同一口径）。
-    let mut maa_script = String::new();
+    let mut drive_log_sink = String::new();
+    // --fixture-run（B-2c③，门/自检专用）：非空 = run 真做改吃这份夹具，**协议形状一字不动**。
+    // 生产不接线这个旗标（真做走 drive_real_run）；空 = 没给 → 走真做闭包。
+    let mut drive_fixture_run = String::new();
+    // --maa-run / --m9a-run 两档共用的剧本文件（B-2d② 起两路回放档同吃 `--script`）：
+    // 空 = 没给 → 该档自己拒跑（与 --arkskip 缺 --panel-cs 同一口径）。
+    // 之所以共用一个变量而不是各立一枚：两档互斥（mode 只能落一个），分立两枚就要多一处
+    // "给了 --script 却落到另一档"的哑分支。
+    let mut run_script = String::new();
     let mut flags = GateFlags::default();
     let mut i = 0usize;
     while i < args.len() {
@@ -11098,12 +15181,20 @@ fn run(args: &[String]) -> i32 {
                 mode = "drive-ark-daily";
                 i += 1;
             }
+            "--drive-m9a-daily" => {
+                mode = "drive-m9a-daily";
+                i += 1;
+            }
             "--maa-run" => {
                 mode = "maa-run";
                 i += 1;
             }
+            "--m9a-run" => {
+                mode = "m9a-run";
+                i += 1;
+            }
             "--script" => {
-                maa_script = need("--script", args, i);
+                run_script = need("--script", args, i);
                 i += 2;
             }
             "--i-drive" => {
@@ -11124,6 +15215,14 @@ fn run(args: &[String]) -> i32 {
             }
             "--state" => {
                 drive_state = need("--state", args, i);
+                i += 2;
+            }
+            "--log-sink" => {
+                drive_log_sink = need("--log-sink", args, i);
+                i += 2;
+            }
+            "--fixture-run" => {
+                drive_fixture_run = need("--fixture-run", args, i);
                 i += 2;
             }
             "--date" => {
@@ -11258,7 +15357,15 @@ fn run(args: &[String]) -> i32 {
         // 驱动档与上面四档同理，同样落在两必填**之前**返回：它只推链与记账、不加载任何 DLL、
         // 不碰任何现场，"要指哪枚装包"在这里没有意义；被必填拦死就等于换头调度器起步即断。
         // （照 sv/farm-intent 的样式，这条注释刻意不把那条必填的原话写出来 —— 自检的顺序门数整份源码。）
-        return run_drive_ark_daily(i_drive, &drive_journal, &drive_ctx, &drive_res, &panel_cs, &drive_state, &out_file);
+        return run_drive_ark_daily(i_drive, &drive_journal, &drive_ctx, &drive_res, &panel_cs, &drive_state, &drive_log_sink, &drive_fixture_run, &out_file);
+    }
+
+    if mode == "drive-m9a-daily" {
+        // m9a 那一路的驱动档（B-2d④）与上面八档同理，同样落在两必填**之前**返回：只推 1999 的链与记账、
+        // 不加载任何 DLL；而且它比 ark 那档更该躲开必填 —— 这一路的落点全在 ctx 的名册里，
+        // 那两枚必填在这里根本没有对应物（同 --m9a-run 那档给过的理由）。
+        // （照 sv/farm-intent 的样式，这条注释刻意不把那条必填的原话写出来 —— 自检的顺序门数整份源码。）
+        return run_drive_m9a_daily(i_drive, &drive_journal, &drive_ctx, &drive_res, &panel_cs, &drive_state, &drive_log_sink, &drive_fixture_run, &out_file);
     }
 
     if mode == "maa-run" {
@@ -11266,7 +15373,15 @@ fn run(args: &[String]) -> i32 {
         // 任何 DLL、不碰任何真装包现场，"要指哪枚装包"在这里没有意义；被必填拦死就等于这一档没开。
         // 与 ark 认关止损那档一样，循环骨架每 tick 真跑 panel-cs 的判定 verb，所以缺 --panel-cs
         // 由这一档自己拒跑（口径同上两档注释，刻意不把那条必填的原话写出来）。
-        return run_maa_run(&maa_script, &panel_cs, &out_file);
+        return run_maa_run(&run_script, &panel_cs, &out_file);
+    }
+
+    if mode == "m9a-run" {
+        // m9a 那一路的回放档（B-2d②）与上面六档同理落在两必填**之前**返回：它同样不加载 DLL、
+        // 不碰任何真装包现场，而且比 ark 那档更该躲开必填 —— 它的 ctx 形状根本不是"装包+目录"
+        // （M9A 的落点在 settings 的 paths 里，--kind/--dir 那两枚在这里没有对应物）。
+        // 缺 --panel-cs 由这一档自己拒跑：每 tick 真跑 decide-m9a-run-tick，缺它循环走不动。
+        return run_m9a_run(&run_script, &panel_cs, &out_file);
     }
 
     if mode == "preflight" {

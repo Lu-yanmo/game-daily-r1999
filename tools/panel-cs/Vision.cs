@@ -105,11 +105,53 @@ namespace GdPanel
             "5. 画面上没有挡住流程的弹窗 → blocking 给 false、clicks 给空数组。拿不准也一律给空数组。\n" +
             "6. 不要输出坐标以外的多余字段。";
 
-        internal static string BuildPrompt(string scene, bool allowReward)
+        // ==================== 启动器场景(sceneId='ark-launcher'，10-11 新增) ====================
+        // 由来(2026-10-11 06:00 那班)：端游到版本日会停在启动器的更新页上，要有人点『更新』它才开始拉资源。
+        // 旧判定只看"窗口标题出现了没"，而**更新页和主界面的标题都是"明日方舟"** —— 于是"窗口就绪"照样放行、
+        // MAA 对着一个没有游戏可连的页面把五个任务全跑错。标题分不开，只有画面分得开，所以这一路必须问模型。
+        // 为什么不能复用默认那五条规则：更新页上要点的那个按钮恰好就叫"更新/下载/修复"，正是规则 3 明令禁点的
+        // 那一类(它会推进状态) —— 拿默认提示词去问更新页，模型只会回 blocking=false，或干脆不给点位。
+        // 输出协议一个字没改(还是 blocking/what/clicks)：parse-vision-verdict、tools\vision\ask.py、
+        // 千分比换算全都不动，"这一路语义不同"只体现在话术与 verb 里的相位映射(Live.cs check-ark-launcher)。
+        // 默认路径逐字节不许漂移：probe-vision-golden 与 t13 对的是 BuildPrompt 的成品串。
+        const string LauncherHead =
+            "你是明日方舟端游**启动器/更新器**自动化流程里的\"看屏幕的人\"。给你一张启动器窗口的截图，" +
+            "请判断这一页现在能不能开始进游戏：是需要点一下某个按钮，还是正在下载资源，还是已经不用管了。";
+
+        const string LauncherBody =
+            "\n只输出一个 JSON 对象，不要 markdown 代码块、不要任何解释文字：\n" +
+            "{\"blocking\": true 或 false, \"what\": \"不超过20字，说明这一页在干什么\", \"clicks\": [{\"x\": 整数, \"y\": 整数, \"why\": \"不超过14字\"}]}\n" +
+            "\n" +
+            "必须遵守的规则：\n" +
+            "1. x、y 是相对这张图片宽、高的千分比(0-1000)，不是像素。换算：像素x = x/1000*图片宽。\n" +
+            "2. 这一路的 blocking 意思是\"还不能进游戏\"。要点的按钮**只限**这些：更新、立即下载、开始更新、修复、" +
+            "检查更新、开始游戏、进入游戏、继续。clicks 最多 3 个，按把握从大到小排，最像\"让更新/进游戏开始起来\"的那个排第一。\n" +
+            "3. 画面正在下载/校验/解压资源(有进度条、百分比、速度，或者写着\"正在更新\")→ blocking 给 true，" +
+            "但 clicks 必须给空数组：这时候点哪儿都可能把下载打断。\n" +
+            "4. 已经在游戏里了(登录完成、主界面、游戏内的 loading)→ blocking 给 false。\n" +
+            "5. 绝对不要给：充值、商城、购买、活动/公告弹窗的\"前往参与\"、退出登录、切换服务器、清除缓存。\n" +
+            "6. 拿不准 → blocking 给 true、clicks 给空数组(宁可多等一轮，不要放行一个可能挡住自动化的页面)。\n" +
+            "7. 不要输出坐标以外的多余字段。";
+
+        // 旧实现：给了 Scene 就**原样用**(裁尾那一步在靶子定义处做的)，只有默认 head 才 .TrimEnd()。
+        static string BuildArkPrompt(string scene, bool allowReward)
         {
-            // 旧实现：给了 Scene 就**原样用**(裁尾那一步在靶子定义处做的)，只有默认 head 才 .TrimEnd()。
             string head = string.IsNullOrEmpty(scene) ? ArkHead : scene;
             return head + Body1 + (allowReward ? Rule3Allow : Rule3Default) + Body2;
+        }
+
+        internal static string BuildPrompt(string scene, bool allowReward)
+        {
+            return BuildArkPrompt(scene, allowReward);
+        }
+
+        // sceneId 认 "ark-launcher"(不分大小写)，其余一律走默认那一条 —— 包括 sceneId 缺失的老调用方。
+        internal static string BuildPrompt(string sceneId, string scene, bool allowReward)
+        {
+            if (!string.IsNullOrEmpty(sceneId) &&
+                string.Equals(sceneId.Trim(), "ark-launcher", StringComparison.OrdinalIgnoreCase))
+                return LauncherHead + LauncherBody;
+            return BuildArkPrompt(scene, allowReward);
         }
 
         // PS 的 .TrimEnd()：只裁尾部空白
@@ -118,7 +160,7 @@ namespace GdPanel
         internal static object Prompt(Dictionary<string, object> inp)
         {
             Dictionary<string, object> data = new Dictionary<string, object>();
-            data["Prompt"] = BuildPrompt(Gd.Str(Gd.Get(inp, "scene")), Bool(Gd.Get(inp, "allowReward")));
+            data["Prompt"] = BuildPrompt(Gd.Str(Gd.Get(inp, "sceneId")), Gd.Str(Gd.Get(inp, "scene")), Bool(Gd.Get(inp, "allowReward")));
             return data;
         }
 

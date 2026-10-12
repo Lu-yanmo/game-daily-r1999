@@ -22,6 +22,18 @@
 #  日志回放。旧判据段在分流处逐行 # 前缀冻结(test-r1999 钉 $retryable 表达式与话术字面锚)。
 #  改分流规则/话术请改 Orchestration.cs 并复拍 tools\probe-live-golden.ps1，不要在这里加 if。
 # ──────────────────────────────────────────────────────────────────────────────
+#
+# ── 追加冻结(2026-10-12，换宿主 B-2d④「r1999 链体进核＋PS 侧 executor」)───────────
+# Start-GdR1999Daily 自此是**调度器**：默认关 = 一字不变走回退段 Invoke-GdR1999DailyLegacy(原身逐字保留，
+# 上面批次 5/批次 8 那两段冻结自此只对这一份成立)；开关拨开 = Invoke-GdR1999DailyRust 起内置件 gdcore.exe
+# 走 --drive-m9a-daily 的问-答-重放。链体(八格动作的顺序/Level/话术/异常边界)与 run 真做已迁到
+# tools\rustcore\src\main.rs 的 r1999_daily_chain(契约号 RustCore-R6.0)；执行器只剩现场七格
+# (updgate/takeover/mumu/cfg/sleep/stop/audit)与 ctx 名册十五枚的逐枚点名取键，**零自有日志**。
+# 两路共用同一把回退开关 Test-GdRustDailyPath(不开第三枚键，两路同进退)；接线点仍只此一处。
+# ⚠ 回退段必须排在文件末尾那节**之前**、逐行 # 前缀的冻结段一枚不许删：test-r1999 的四组静态锚
+#   与那把"更新器件名首现早于接管函数名首现"的行序锚都钉在这份身上(接管函数名在下面 executor 里还会出现一次)。
+# 改链体/话术/名册请改 main.rs 并复拍 B-2d⑤ 那枚等值门(probe-m9adrive-rust-golden.ps1，⑤ 立)，不要在这里加 if。
+# ──────────────────────────────────────────────────────────────────────────────
 
 function Set-GdR1999Ack {
     <# -Ack1999：确认"这一版的主线活动我已经手动打过" → 之后日常才允许跑活动方案 #>
@@ -78,8 +90,9 @@ function Show-GdR1999Preview {
     Write-GdLog "  MuMu 虚拟机 $($S.mumu.vmIndex)：$(if ($st.AndroidStarted) { '运行中' } else { '未运行(将自动启动)' })"
 }
 
-function Start-GdR1999Daily {
-    <# 真正跑一轮 1999：起 MuMu → 切实例 → 跑 M9A → 该重试就重试 → 关掉 M9A。返回 @{Status;Detail;Duration} #>
+function Invoke-GdR1999DailyLegacy {
+    <# 真正跑一轮 1999：起 MuMu → 切实例 → 跑 M9A → 该重试就重试 → 关掉 M9A。返回 @{Status;Detail;Duration}
+       (B-2d④ 起这一份是**回退段**：逐字保留，同名调度器与换头执行器在本节末尾另立) #>
     param([Parameter(Mandatory)]$S, [Parameter(Mandatory)]$Instance)
     $inst = $Instance
     Write-GdLog '--- 重返未来：1999(MuMu + M9A)---' -Level STEP
@@ -164,4 +177,206 @@ function Start-GdR1999Daily {
         }
     }
     return $r
+}
+
+# ===== B-2d④ 换头(2026-10-12)：调度器 + Rust 驱动档 executor =====
+# 上面那一整段自今起是**回退段**(Invoke-GdR1999DailyLegacy)，逐字保留、行为一字不变；
+# 同名入口 Start-GdR1999Daily 变成**调度器**：开关(Test-GdRustDailyPath，住 common.ps1)拨开 →
+# Invoke-GdR1999DailyRust 起内置件 gdcore.exe 走换头重入协议(驱动档 --drive-m9a-daily：问-答-重放)；
+# 拨关(默认) → 走回退段。这一路**共用 ark 那一路同一把开关**(两路同进退，不开第三枚键 —— 理由见
+# common.ps1 那处头注)；接线点仍只此一处：改协议先改 main.rs 再复拍门，不要在这里加规则。
+# ⚠ 本节必须排在回退段**之后**：tools\test-r1999.ps1:275 钉的是"更新器件名首现早于接管函数名首现"的
+#   行序锚，而下面 takeover 动作里就要写那枚接管函数 —— 本节挪到回退段之前，那把锚当场红。
+function Start-GdR1999Daily {
+    <# 调度器：两分支返回值同形(@{Status;Detail;Duration?})，调用方无感 ——
+       modules.ps1:419-423 只读这三格(时长/历史)，回退段那句 return $r 多带的 Rescued/Tasks 格没人读，
+       所以核内 done 信封只带三格不是少了东西，是"框架射程就只有这三格"(plan §11.39 ①-9)。 #>
+    param([Parameter(Mandatory)]$S, [Parameter(Mandatory)]$Instance)
+    if (Test-GdRustDailyPath -S $S) { return Invoke-GdR1999DailyRust -S $S -Instance $Instance }
+    return Invoke-GdR1999DailyLegacy -S $S -Instance $Instance
+}
+
+function Get-GdM9ADriveExe {
+    <# 内置件 gdcore.exe 的候选序：出货树形态 → cargo 形态，两者都不在返回 ''(调用方按"没有就当场报错"处理)。
+       为什么不复用 lib\ark-daily.ps1 那枚同名件：lib\r1999-module.ps1:27 的 Libs 里**没有 ark-daily.ps1**
+       (单跑 1999 这一路时它压根没被点)，跨文件取函数等于把"装载顺序"变成隐式依赖 ——
+       宁可这里留第二份候选序，并已把"两处一份字面"登记进 plan §11.44 的欠账清单。 #>
+    $cands = @(
+        (Join-Path $global:GD.Root 'tools\rustcore\gdcore.exe'),
+        (Join-Path $global:GD.Root 'tools\rustcore\target\release\gdcore.exe')
+    )
+    foreach ($c in $cands) { if (Test-Path -LiteralPath $c) { return $c } }
+    return ''
+}
+
+function Invoke-GdR1999DailyRust {
+    <# B-2d④ 换头执行器：把回退段那串同步逻辑换成"问-答-重放"——
+       每一轮起一个 gdcore.exe：它从 journal 重放已办事项回到断点，把下一个要办的动作写成 ask 信封
+       (seq/action/params)退出；这里照单执行完，把结果写 res 回执，再起下一轮。
+       链体事实源在 main.rs 的 r1999_daily_chain(改它=改协议)。**八格动作里真做只有 run**
+       (Invoke-M9ARun 那整段循环在核内真做，走 --m9a-run 同一套骨架)，所以白名单只有七枚、
+       且这里**没有 'run' case**：白名单与 case 双删是回归抓器 —— 两侧有一边漏改就当场抛，
+       不会被当成成功回执吞掉(与 ark 那一路 B-2c③ 同一处先例)。
+       本函数**不自己造日志**：链上每一句都由核内侧信道 --log-sink 产生、这里按字节偏移边跑边排空后
+       按原级别回放。更新闸与审计闸那两句"闸本身说了什么"由**链体**决定(退出码 0/非 0/抛三态)，
+       执行器只回 {code,line,joined} 三个读数 —— 这里多打一行就等于同一句日志打两遍。
+       ctx 名册十五枚**逐枚点名取键是硬约束**：$S.runtime 整块里住着视觉兜底的 API key
+       (visionApiKey)，序列化进来等于把 key 递进核、递进 ctx/journal 两本会留盘的账；
+       要什么取什么，多一枚都不许(算术验收：现场 runtime 四十一枚，进核只有名册那七枚)。
+       m9aCliArgs 走**三态**：键没写=真身 Get-GdM9ACliEnabled 的"没填"档=开命令行入口，
+       所以这里 $null 时**干脆不写这个键**，而不是写 false —— 塌成一档就把"裸启动"和"命令行"弄反了。 #>
+    param([Parameter(Mandatory)]$S, [Parameter(Mandatory)]$Instance)
+
+    $exe = Get-GdM9ADriveExe
+    if (-not $exe) { throw 'B-2d④ 换头拨开了但找不到内置件 gdcore.exe —— 先跑 tools\rustcore\build.ps1(或重打 exe)再试' }
+    $panel = Get-GdCliExe
+    $selfEngine = (Get-Process -Id $PID).Path   # 两处外挂子进程共用当前引擎自己，与回退段 :86 同一句
+
+    # 一次日常 = 一本账：ctx 换了 journal 就不能复用(内核按 init 与 ctx 全等校验)，每次开头清场重起。
+    $journal = Join-Path $global:GD.State 'rust-m9a-daily-journal.ndjson'
+    $ctxFile = Join-Path $global:GD.State 'rust-m9a-daily-ctx.json'
+    $resFile = Join-Path $global:GD.State 'rust-m9a-daily-res.json'
+    $sink = Join-Path $global:GD.State 'rust-m9a-daily-log-sink.ndjson'
+    foreach ($f in @($journal, $resFile, $sink)) { if (Test-Path -LiteralPath $f) { Remove-Item -LiteralPath $f -Force } }
+    # 侧信道一本会话一个文件(核侧只追加不截断)，偏移在这里归零、之后由 Read-GdSinkIncrement 按**字节**推进。
+    # 一律用 long：[ref] 会记住初值的类型，这里留 int 以后写 long 会被往回截(偏移算错=同一句日志重放)。
+    $sinkOffset = [long]0
+
+    # ---- ctx：壳写一遍的两格(顶层 retry_once ＋ m9aRun 名册十五枚)，键名与 config\settings.json 逐字同名 ----
+    # paths 三枚递的是**配置里的相对原值**(m9aDir/m9aExe/m9aLogDir)：核内那把 M9aPaths::of 自己
+    # 做 Join(m9aDir, m9aExe) 与 Join(m9aDir, m9aLogDir)，与真身 Get-M9APaths 的 Join-GdPath 组法同形 ——
+    # 这里若先拼成绝对路径，核内再拼一次就得到双重路径。conn 两枚取自 Get-M9AConnection(adb 是绝对落点，核内不拼)。
+    $conn = Get-M9AConnection -S $S -Instance $Instance
+    $rt = [ordered]@{
+        m9aInstanceArg           = [string]$S.runtime.m9aInstanceArg
+        m9aForceStart            = [bool]$S.runtime.m9aForceStart
+        visionMaxRescue          = [int]$S.runtime.visionMaxRescue
+        r1999StartTimeoutMinutes = [int]$S.runtime.r1999StartTimeoutMinutes
+        r1999TimeoutMinutes      = [int]$S.runtime.r1999TimeoutMinutes
+        stallTimeoutMinutes      = [int]$S.runtime.stallTimeoutMinutes
+    }
+    if ($null -ne $S.runtime.m9aCliArgs) { $rt.Add('m9aCliArgs', [bool]$S.runtime.m9aCliArgs) }
+    Write-GdJson -Path $ctxFile -Object ([pscustomobject]@{
+        retry_once = [bool]$S.runtime.retryOnce
+        m9aRun     = [pscustomobject]@{
+            paths    = [pscustomobject]@{
+                m9aDir    = [string]$S.paths.m9aDir
+                m9aExe    = [string]$S.paths.m9aExe
+                m9aLogDir = [string]$S.paths.m9aLogDir
+            }
+            conn     = [pscustomobject]@{ adb = [string]$conn.Adb; serial = [string]$conn.Serial }
+            instance = [pscustomobject]@{ id = [string]$Instance.Id; name = [string]$Instance.Name }
+            package  = [string]$S.re1999.package
+            runtime  = $rt
+        }
+    })
+
+    $round = 0
+    while ($true) {
+        $round += 1
+        if ($round -gt 500) { throw "B-2d④ 换头驱动轮次超上限(疑似死循环)：journal=$journal" }
+        # 信封落点每轮换新文件，防读到上一轮读数；写不下去时 gdcore 退 stdout 末行(内核侧既定纪律)
+        $envFile = Join-Path ([System.IO.Path]::GetTempPath()) ("gd-m9a-daily-env-" + [guid]::NewGuid().ToString('N') + ".json")
+        try {
+            # 边跑边排空侧信道：这一路一轮要跑十几分钟(队列+兜底)，卡住时一行不印就等于没留证。
+            $cap = Start-GdNativeStreamed -Exe $exe -SinkPath $sink -SinkOffset ([ref]$sinkOffset) -Arguments @(
+                '--drive-m9a-daily', '--i-drive', '--journal', $journal, '--ctx', $ctxFile,
+                '--res', $resFile, '--panel-cs', $panel, '--state', $global:GD.State,
+                '--log-sink', $sink, '--out', $envFile
+            ) -OnSinkRow {
+                param($r)
+                $lvl = [string]$r.Level
+                $txt = [string]$r.Text
+                if ($lvl -and ($lvl -ne 'INFO')) { Write-GdLog $txt -Level $lvl } else { Write-GdLog $txt }
+            }
+            $envText = ''
+            if (Test-Path -LiteralPath $envFile) { $envText = [System.IO.File]::ReadAllText($envFile) }
+            else {
+                foreach ($ln in @($cap.Lines)) { $t = ([string]$ln).TrimStart(); if ($t.StartsWith('{')) { $envText = $t } }
+            }
+            if (-not $envText) {
+                throw "B-2d④ 换头：gdcore 没给出信封(rc=$($cap.ExitCode))；输出末三行：$((@($cap.Lines) | Select-Object -Last 3) -join ' / ')"
+            }
+            $envelope = $envText | ConvertFrom-Json
+            if ([string]$envelope.role -ne 'B2d-drive-m9a-daily') {
+                throw "B-2d④ 换头：信封 role 不对($($envelope.role)) —— 这枚 gdcore.exe 不是 1999 驱动档那件？"
+            }
+            $want = Get-GdRustContract
+            if ([string]$envelope.contract -ne $want) {
+                throw "B-2d④ 换头：gdcore 契约号($($envelope.contract))与壳侧期望($want)不一致 —— 先重跑 tools\rustcore\build.ps1 再拨开关"
+            }
+            # 链体日志已在上面边跑边从侧信道按原级别回放完毕(空/INFO 走默认档，与回退段的 decide 回放同形)。
+            # 信封的 logs 键与 ark 那一路同规矩：留键不删键、恒为空数组，这里不读它。
+            $kind = [string]$envelope.kind
+            if ($kind -eq 'done') {
+                $dr = $envelope.result
+                $out = @{ Status = [string]$dr.status; Detail = [string]$dr.detail }
+                if ($null -ne $dr.duration) { $out.Duration = $dr.duration }
+                return $out
+            }
+            if ($kind -eq 'fail') { throw ([string]$envelope.error) }
+            if ($kind -ne 'ask') { throw "B-2d④ 换头：信封 kind 不认识($kind) —— 协议两侧不同源？" }
+
+            $seq = [int]$envelope.seq
+            $act = [string]$envelope.action
+            $prm = $envelope.params
+            if ($act -notin @('updgate', 'takeover', 'mumu', 'cfg', 'sleep', 'stop', 'audit')) {
+                # 白名单之外直接抛(绕开下面的动作 catch)：不认识的动作 = 协议不同源，不许被当成"动作失败"混过去。
+                # 名单里**没有 run**：那一格是这一路唯一的真做动作，在核内跑(B-2d④ 定档，与 ark 侧 B-2c③ 同法)。
+                throw "B-2d④ 换头：收到不认识的动作 '$act'(seq=$seq) —— 先改 main.rs 再改这里，不许放行"
+            }
+            $ok = $true
+            $data = $null
+            $err = $null
+            try {
+                switch ($act) {
+                    'updgate' {
+                        # 回退段那一段的"活"(起更新器子进程)原样搬来，两句闸话由链体按 code 三态决定；
+                        # 挑行与全量拼串两个口径也照回退段逐字同形，否则同一轮换头前后日志对不上。
+                        $gOut = @(& $selfEngine -NoProfile -ExecutionPolicy Bypass -File (Join-Path $global:GD.Root 'tools\m9a-update.ps1') -Apply 2>&1)
+                        $gCode = $LASTEXITCODE
+                        $gLine = (@($gOut | Where-Object { [string]$_ -match '已是最新|更新完成' }) | Select-Object -Last 1)
+                        $data = [pscustomobject]@{
+                            code   = [int]$gCode
+                            line   = [string]$gLine
+                            joined = ((@($gOut | ForEach-Object { [string]$_ })) -join ' / ')
+                        }
+                    }
+                    'takeover' {
+                        Invoke-GdTakeover -S $S -Names @((Get-M9APaths -S $S).Name) -Label 'M9A'
+                        $data = $true
+                    }
+                    'mumu' { $data = [bool](Start-GdMuMu -S $S) }
+                    'cfg' {
+                        # 只回 changes 数组，那句"  M9A：…"前缀是**链体**加的(回退段壳里有同一句) ——
+                        # 这里不许自带前缀，否则同一行打两遍前缀。
+                        $m9aCfg = Set-M9AInstance -S $S -Instance $Instance -Apply
+                        $data = [pscustomobject]@{ changes = @($m9aCfg.Changes) }
+                    }
+                    'sleep' { Start-Sleep -Seconds ([int]$prm); $data = $true }
+                    'stop' { Stop-M9A -S $S; $data = $true }
+                    'audit' {
+                        # 核内已经按状态名册判过"只在 ok/empty-queue 才问"，这里只管起工具与读数。
+                        $gOut = @(& $selfEngine -NoProfile -ExecutionPolicy Bypass -File (Join-Path $global:GD.Root 'tools\1999-event-audit.ps1') -Apply 2>&1)
+                        $gCode = $LASTEXITCODE
+                        $gLine = (@($gOut | ForEach-Object { [string]$_ }) | Where-Object { $_ -match '审计结论|无事发生|维持 event-pending' } | Select-Object -Last 1)
+                        $data = [pscustomobject]@{
+                            code   = [int]$gCode
+                            line   = [string]$gLine
+                            joined = ((@($gOut | ForEach-Object { [string]$_ })) -join ' / ')
+                        }
+                    }
+                }
+            } catch {
+                $ok = $false
+                $err = $_.Exception.Message
+            }
+            # 回执形状是协议：ok 真不许带 err 键、假不许带 data 键(main.rs drive_merge_res 逐字校验)
+            $rf = [ordered]@{ seq = $seq; action = $act; ok = $ok }
+            if ($ok) { $rf.data = $data } else { $rf.err = $err }
+            Write-GdJson -Path $resFile -Object $rf
+        } finally {
+            if (Test-Path -LiteralPath $envFile) { Remove-Item -LiteralPath $envFile -Force }
+        }
+    }
 }

@@ -97,6 +97,35 @@ namespace GdPanel
             string spS = Vision.BuildPrompt("你是模拟器里 1999 的画面。", false);
             b.Chk("给了 Scene 就原样替换 head(不裁不补)", () => spS.StartsWith("你是模拟器里 1999 的画面。\n只输出一个 JSON 对象"));
             b.Chk("Scene 分支共用五条规则段", () => spS.EndsWith("6. 不要输出坐标以外的多余字段。") && spS.Contains("**只会把弹窗关掉**的位置。3. 绝对不要给"));
+
+            // ---------- 启动器场景(10-11)：head/body 整段换掉，输出协议不变 ----------
+            string spL = Vision.BuildPrompt("ark-launcher", "", false);
+            b.Chk("sceneId=ark-launcher → head 换成启动器/更新器那一段", () => spL.StartsWith(
+                "你是明日方舟端游**启动器/更新器**自动化流程里的\"看屏幕的人\""));
+            b.Chk("启动器档不再出现\"关掉弹窗\"那套规则(规则 3 禁点的东西正好是启动器要点的东西)", () =>
+                !spL.Contains("绝对不要给\"领取\"\"前往参与\"\"确定\"\"开始行动\"\"充值\"这类会推进游戏状态的按钮")
+                && !spL.Contains("**只会把弹窗关掉**的位置"));
+            b.Chk("启动器档白名单逐字：更新/立即下载/开始更新/修复/检查更新/开始游戏/进入游戏/继续", () =>
+                spL.Contains("更新、立即下载、开始更新、修复、检查更新、开始游戏、进入游戏、继续"));
+            b.Chk("启动器档\"下载中\"这一格必须是 true+空 clicks(点了会打断下载)", () =>
+                spL.Contains("clicks 必须给空数组：这时候点哪儿都可能把下载打断"));
+            b.Chk("启动器档 blocking 语义改成\"还不能进游戏\"", () => spL.Contains("还不能进游戏"));
+            b.Chk("启动器档仍禁花钱/退登录/清缓存那几类", () =>
+                spL.Contains("充值") && spL.Contains("退出登录") && spL.Contains("清除缓存"));
+            b.Chk("启动器档拿不准 → true+空数组(和默认档的\"给空数组\"方向一致，但含义是等不是放)", () =>
+                spL.Contains("拿不准 → blocking 给 true、clicks 给空数组"));
+            b.Chk("启动器档输出协议没跑偏(还是 blocking/what/clicks + 千分比)", () =>
+                spL.Contains("只输出一个 JSON 对象") && spL.Contains("千分比")
+                && spL.Contains("\"clicks\": [{\"x\": 整数, \"y\": 整数, \"why\": \"不超过14字\"}]"));
+            b.Chk("启动器档以规则 7 收尾、尾部无多余换行", () => spL.EndsWith("7. 不要输出坐标以外的多余字段。") && !spL.EndsWith("\n"));
+            b.Chk("sceneId 传空/传别的/传大小写混的都走默认那条(老调用方一字不受影响)", () =>
+                Vision.BuildPrompt(null, "x", false) == Vision.BuildPrompt("x", false)
+                && Vision.BuildPrompt("", "x", false) == Vision.BuildPrompt("x", false)
+                && Vision.BuildPrompt("ARK-LAUNCHER ", "", false) == spL
+                && Vision.BuildPrompt("ark-mumu", "", false).Contains("明日方舟端游自动化流程"));
+            // 这条钉的是"两档话术互不渗"：启动器档里不许出现默认档的任何一条规则原文
+            b.Chk("启动器档不含默认档的规则 4/5 原文(不是拼在两档之后)", () =>
+                !spL.Contains("关闭按钮通常在该弹窗的右上角") && !spL.Contains("拿不准也一律给空数组"));
         }
         static int Count(string haystack, string needle)
         {

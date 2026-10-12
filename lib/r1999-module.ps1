@@ -51,6 +51,9 @@ Register-GdModule ([pscustomobject]@{
                 return [pscustomobject]@{ Mode = $d.Mode; Instance = $r.Instance; Decision = $d }
             }
             Preview   = { param($S, $Decision) Show-GdR1999Preview -S $S -Instance $Decision.Instance }
+            # B-2d④ 起 Start-GdR1999Daily 是**调度器**：同名，但内部照 Test-GdRustDailyPath 分流 ——
+            # 开关拨开走 Invoke-GdR1999DailyRust（链体在内置件里，本路 executor 只代做现场七格），
+            # 关着走 Invoke-GdR1999DailyLegacy（原身逐字保留）。这一行因此**不该加 if**，回退只管在这一把闸上。
             Run       = { param($S, $Decision) return (Start-GdR1999Daily -S $S -Instance $Decision.Instance) }
             Stop      = {
                 param($S)

@@ -100,6 +100,11 @@ if ($Verify) {
     & $exe --livetest
     if ($LASTEXITCODE -ne 0) { throw 'panel-cs --livetest 有红项' }
     Write-Host 'panel-cs --livetest OK'
+    # B-3②-a 轮骨架现场件七枚(Round.cs)的纯规则段回环：不弹 UAC/不打 webhook/不起气泡/不真杀进程/不读真任务，
+    # 写盘的两枚(通知与运行锁)打在 %TEMP% 临时树上(只读自检不许要求机器现场状态，同上一条纪律)
+    & $exe --roundtest
+    if ($LASTEXITCODE -ne 0) { throw 'panel-cs --roundtest 有红项' }
+    Write-Host 'panel-cs --roundtest OK'
     # 面板自证：读一次 -DumpSummary 协议 + 渲染 + 逐页布局断言 + 主题切换链
     & $exe --selftest
     if ($LASTEXITCODE -ne 0) { throw 'panel-cs --selftest 有红项' }

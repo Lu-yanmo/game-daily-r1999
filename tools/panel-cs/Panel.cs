@@ -43,6 +43,10 @@
 //   panel-cs.exe --livetest      不显示窗口：B-2b 现场件(Live.cs)七枚 verb 的纯规则段回环 —— 尺寸闸两分支、
 //                                六道闸门话术、请求装配九字段、子进程 stdout 回扫五档、内存位图跑亮度签名、
 //                                请求目录裁剪。真窗口与真 HTTP 一律不进门(只读自检不许要求机器现场状态)。
+//   panel-cs.exe --roundtest     不显示窗口：B-3②-a 轮骨架现场件(Round.cs)七枚 verb 的纯规则段回环 —— PS 的
+//                                `-ne $false` 真值语义、运行锁读侧(判活/判残留/双重转义/own 判据不分大小写)、
+//                                轮 ctx 逐枚点名取键(整块 runtime 绝不外泄)、通知三档容错与标题两句、提权拼参。
+//                                不弹 UAC、不打 webhook、不起气泡、不真杀进程、不读真计划任务；写盘两枚打在临时树上。
 //
 // 编译：pwsh -File tools\panel-cs\build.ps1   (用 C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe)
 
@@ -277,7 +281,7 @@ namespace GdPanel
                 Environment.Exit(GdCli.Run(argv[0], tail));
             }
             bool selftest = false, headless = false, dump = false, exptest = false, exttest = false, whytest = false, consoletest = false;
-            bool coretest = false, echotest = false, dectest = false, statetest = false, proctest = false, visiontest = false, orchtest = false, svtest = false, looptest = false, agenttest = false, livetest = false;
+            bool coretest = false, echotest = false, dectest = false, statetest = false, proctest = false, visiontest = false, orchtest = false, svtest = false, looptest = false, agenttest = false, livetest = false, roundtest = false;
             foreach (string a in argv)
             {
                 string l = a.ToLowerInvariant();
@@ -299,6 +303,7 @@ namespace GdPanel
                 if (l == "--looptest") looptest = true;
                 if (l == "--agenttest") agenttest = true;
                 if (l == "--livetest") livetest = true;
+                if (l == "--roundtest") roundtest = true;
                 if (l == "--no-beat") PanelForm.AutoBeatDefault = false;
             }
             // Core/契约自检同理走无头早退：它们只喂临时树，不需要(也不该)把面板整副构造起来。
@@ -313,6 +318,7 @@ namespace GdPanel
             if (looptest) Environment.Exit(GdLoopSelfTest.LoopTest());
             if (agenttest) Environment.Exit(GdAgentSelfTest.AgentTest());
             if (livetest) Environment.Exit(LiveSelfTest.LiveTest());
+            if (roundtest) Environment.Exit(RoundSelfTest.RoundTest());
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             PanelForm f = new PanelForm(headless);

@@ -22,40 +22,26 @@ namespace GdPanel
         // 为什么按 PID 判活，而不是"日志最近有没有新行"：实机量过，MAA 的 Infrast 那一段能连着
         // 10 分 41 秒一行都不写(2026-09-25 18:50:44 Recruit → 19:01:25 Infrast)。
         // 按日志新鲜度判会把"正在跑基建"看成"空闲"，照样放行走二次点火 —— 判据必须挂在进程活没活上。
-        static readonly Regex RunPidRe = new Regex(@"""pid""\s*:\s*(\d+)");
-        static readonly Regex RunLogRe = new Regex(@"""log""\s*:\s*""((?:[^""\\]|\\.)*)""");
-        static readonly Regex RunStartedRe = new Regex(@"""started""\s*:\s*""([^""]*)""");
-        static readonly Regex RunGamesRe = new Regex(@"""games""\s*:\s*""([^""]*)""");
-
+        //
+        // B-3②-a 起这一段的**解析与判活委托给 Round.LockAt**(tools\panel-cs\Round.cs)：写侧新立了
+        // start-run-lock/stop-run-lock 两枚 verb，同一把文件的两侧就是同一条契约，读侧不许再留第二份正则
+        // (§\rust-core-plan.md §11.50 ⑤-2 那句"不许分两批动"的兑现处；随行自证 = --exttest 那五格一字未改)。
+        // 面板这一路只保留它自己那两条规矩：①读不到进程细节时宁可当成还在跑(防二次点火，与 PS 的
+        // "残留算没在跑"由 unhandledMeansAlive 这一个布尔分开)；②自己起的那一轮不算"外部"。
         string ExtLockPath { get { return Path.Combine(root, @"state\running.json"); } }
 
         // 返回 true = 有别的进程正在跑这一轮。pid 已不在的残留标记按"没在跑"处理，
         // 免得一轮崩溃把面板永久锁死；那种残留由写方下一轮起跑时自己覆盖。
+        // ⚠ 这里必须写全装配限定名 GdPanel.Round：本窗体自己有一枚 Round(Control,int)(Panel.Widgets.cs:115
+        //    的圆角助手)，简单名在那个作用域里按 C# 的成员查找先命中方法，编译期当场报 CS0119。
         bool ReadExtRun(out int pid, out string log, out string started, out string games)
         {
-            pid = 0; log = ""; started = ""; games = "";
-            try
-            {
-                string path = ExtLockPath;
-                if (!File.Exists(path)) return false;
-                string text = File.ReadAllText(path);
-                Match mp = RunPidRe.Match(text);
-                if (!mp.Success) return false;
-                pid = int.Parse(mp.Groups[1].Value);
-                Match ml = RunLogRe.Match(text); if (ml.Success) log = ml.Groups[1].Value.Replace("\\\\", "\\");
-                Match mt = RunStartedRe.Match(text); if (mt.Success) started = mt.Groups[1].Value;
-                Match mg = RunGamesRe.Match(text); if (mg.Success) games = mg.Groups[1].Value;
-                // 自己起的那一轮走 busy 那条线：它已经有退出码和跟随逻辑，别当成"外部"重复报一次
-                if (child != null && !child.HasExited && child.Id == pid) return false;
-                try
-                {
-                    using (Process p = Process.GetProcessById(pid)) { return !p.HasExited; }
-                }
-                catch (ArgumentException) { return false; }
-                // 提权那一轮的进程面板读不到细节(完整性级别不同)→ 宁可当成还在跑，也别放行二次点火
-                catch { return true; }
-            }
-            catch { return false; }
+            GdPanel.Round.Lock lk = GdPanel.Round.LockAt(ExtLockPath, true);
+            pid = lk.Pid; log = lk.Log; started = lk.Started; games = lk.Games;
+            if (!lk.Found || !lk.Alive) return false;
+            // 自己起的那一轮走 busy 那条线：它已经有退出码和跟随逻辑，别当成"外部"重复报一次
+            if (child != null && !child.HasExited && child.Id == pid) return false;
+            return true;
         }
 
         // ---------- 子进程(和 panel.ps1 同一套：重定向到 TEMP 文件 + 定时器增量读) ----------

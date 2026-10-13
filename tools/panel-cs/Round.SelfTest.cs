@@ -1,28 +1,41 @@
-// tools/panel-cs/Round.SelfTest.cs —— --roundtest：B-3②-a(Round.cs)轮骨架现场七枚 verb 的纯规则段自检。
+// tools/panel-cs/Round.SelfTest.cs —— --roundtest：B-3②-a(Round.cs)轮骨架现场七枚 + ②-b1(Round.Data.cs)
+// 判定段/门表段数据面六枚的纯规则段自检。
 //
 // 体裁照 --livetest(§11.50 ②-1 与 Live.SelfTest.cs 头注那条纪律)：**只钉话术与算术，不钉现场**。
 //   * 不真弹 UAC(noSpawn)、不真打 webhook(fakeWebhookErr)、不起气泡(noSend 或 fakeToastErr)、
 //     不真杀进程(noKill)、不读真计划任务(fake 档)；
+//   * ②-b1 那六枚同一条规矩：**不真打 MAA 活动接口**(apiJson/apiErr 两枚夹具)、
+//     **缓存与活动数据读盘**要么给 cacheJson/dataJson 夹具、要么把路径指到临时树上的那份文件；
+//     写盘只写临时树的 state\，收尾整目录删掉；
 //   * 不要求这台机器装了 pwsh7、有管理员、有某个任务、有某个进程 —— 现场量一律夹具注入(旋钮身份见 Round.cs 头注)；
 //   * 临时树里**故意不建 config\settings.json**：只要有一格漏喂 settings 夹具，SettingsNow()/SafeSettings()
-//     就会去读那棵空树 ⇒ 当场红(那里还有一格专门钉这条守门)。唯一的例外是回落名册那一格，它喂 settings 而不靠现读；
-//   * 写盘的两枚(state\last-notice.json、state\running.json)全打在 InitForTest 的临时树上，收尾整目录删掉，不落仓内。
+//     就会去读那棵空树 ⇒ 当场红(那里还有一格专门钉这条守门，②-b1 的 read-ark-activity 同样有一格)。
+//     唯一的例外是回落名册那一格，它喂 settings 而不靠现读；
+//   * 写盘的几枚(state\last-notice.json、state\running.json、②-b1 的三本门表)全打在 InitForTest 的临时树上。
 //
 // 期望串逐字抄自 lib\common.ps1 的旧实现(Start-GdElevatedSelf / Send-GdNotice / Start-GdRunLock /
-// Stop-GdRunLock / Get-GdTaskState / Stop-GdProcessTree / Get-GdElevateBatchLine)与 lib\modules.ps1 的
-// Invoke-GdDailyRound(通知标题那两句)—— 生产接线(②-d)之前它们仍是事实源，这里红了就是移植走样，
-// 改 Round.cs，不改这里的期望(批次 1 起同一条纪律)。
+// Stop-GdRunLock / Get-GdTaskState / Stop-GdProcessTree / Get-GdElevateBatchLine)、lib\modules.ps1 的
+// Invoke-GdDailyRound(通知标题那两句)，以及 ②-b1 的六份真身(Get-ArkEvent / Get-R1999Event /
+// Set-GdArkShopState / Set-GdR1999Ack / Set-GdR1999ShopState / Get-Gd{Ack,ShopDone}Map)——
+// 生产接线(②-d)之前它们仍是事实源，这里红了就是移植走样，
+// 改 Round.cs / Round.Data.cs，不改这里的期望(批次 1 起同一条纪律)。
 //
-// 三处专门钉住的原样怪癖：① `-ne $false` 由**左侧类型**决定怎么折 $false ⇒ 字符串 "0" 算**开着**
+// 专门钉住的原样怪癖：① `-ne $false` 由**左侧类型**决定怎么折 $false ⇒ 字符串 "0" 算**开着**
 // (FlagEnabled 第一版把数字 TryParse 摊到字符串上就判反了，这一格就是那次的守门)；
 // ② Get-GdElevateBatchLine 的 '{0} {1}' 在空 ArgList 时留一个**尾随空格**，不 trim；
-// ③ Stop-GdProcessTree 名曰树、实为按进程名，返回的是**匹配到的进程数**(Killed 与 Matched 同值就是这一格)。
+// ③ Stop-GdProcessTree 名曰树、实为按进程名，返回的是**匹配到的进程数**(Killed 与 Matched 同值就是这一格)；
+// ④ activityCacheMaxHours 缺键＝0 ⇒ 缓存永远算过期，且那句 WARN 里插的是**原值**(缺键时是**空**，不是 0)；
+// ⑤ 领空话术里的 dow 用原始 0-6(判定层用"周日=7")；⑥ 1999 确认话术那个箭头前没有空格；
+// ⑦ 门表是**不分大小写**的表(PS 的 @{})；⑧ [math]::Round 与 Math.Round 同用银行家舍入(1.25→1.2)。
 //
 // 够不着的几样如实登记，不假装测过：
 //   * 提权两支的真身(本机 pwsh runas / cmd 载体)与"读不到退出码"那一抛 —— 要等 ②-b 的 UAC 实弹；
 //   * webhook 真 POST、气泡真弹、Schedule.Service COM 真读、Get-Process 真匹配 —— 夹具档一律绕开；
 //   * 判活两把尺(unhandledMeansAlive)的分岔只在"读不到进程细节"那一档(提权轮/完整性级别不同)，
 //     自检造不出那种进程，只钉"能读到时两把尺同值"；面板那侧的活体读回由 --exttest 五格随行自证。
+//   * **真打 MAA 活动接口那一条 catch**(Invoke-WebRequest 的 Exception.Message 长什么样) —— 夹具只钉了话术的壳；
+//   * **真 settings/真 state 盘**(临时树上的三本门表不等于玩家机器上那三本) —— 要等 ②-d 转接后的实跑；
+//   * PS 那侧**还在按老路读写**这两张表(转接前双写不算，这里的"落盘"只证明形状与文件名对得上)。
 // 本套件里唯一一次起子进程是 DeadPid() 那一发 `cmd /d /c exit`(瞬退、无窗)：残留那一格没有别的取法，
 // 与 --exttest 的同名助手同一先例。
 
@@ -75,6 +88,32 @@ namespace GdPanel
         static int I(object v) { return Gd.Int(v, int.MinValue); }
         static object Key(object data, string k) { return Gd.Get(Row(data), k); }
         static int Len(object v) { return Gd.List(v).Length; }
+        // 门表回的是**字典**，Len() 对字典会算"一个元素"(Gd.List 那条防摊开的守卫)，比格数必须用这把尺：
+        // 不是字典回 -1(形状错要红得明显)，是字典回格数(对齐 PS 的 $map.Count)。
+        static int Cnt(object v)
+        {
+            Dictionary<string, object> d = v as Dictionary<string, object>;
+            return d == null ? -1 : d.Count;
+        }
+
+        // ②-b1 数据面那六枚的回执里混着"小数(小时/天数)"与"话术数组"，这两把尺只为读它们而存在：
+        //   Dbl = 取数(缺键回 NaN，好让"该有数却没了"红得明显)；Ln = 取 Lines 里第 i 句(越界回 null)。
+        static double Dbl(object v)
+        {
+            if (v == null) return double.NaN;
+            try { return Convert.ToDouble(v, CultureInfo.InvariantCulture); } catch { return double.NaN; }
+        }
+        static string Ln(object v, int i)
+        {
+            object[] a = Gd.List(v);
+            return i < a.Length ? S(a[i]) : null;
+        }
+        // 抛出去的那句原话要逐字比(不只看"抛没抛")：Assert-GdGameId 的文案就是磁盘侧的用户可见话术。
+        static object ThrownMsg(Func<object> run)
+        {
+            try { run(); return null; }
+            catch (Exception ex) { return ex.Message; }
+        }
 
         // 哨兵串：只许住在夹具里，**绝不许出现在回执里**(泄漏面自己先过一道)。
         const string KeySentinel = "SENTINEL-VISION-KEY";
@@ -104,7 +143,7 @@ namespace GdPanel
         public static int RoundTest()
         {
             Box b = new Box();
-            Console.WriteLine("---- panel-cs --roundtest(B-3②-a 轮骨架现场七枚的纯规则段：不弹 UAC/不打 webhook/不起气泡/不真杀进程/不读真任务) ----");
+            Console.WriteLine("---- panel-cs --roundtest(B-3②-a 轮骨架现场七枚 + ②-b1 判定段/门表段数据面六枚的纯规则段：不弹 UAC/不打 webhook/不起气泡/不真杀进程/不读真任务/不打活动接口) ----");
             int mine = Process.GetCurrentProcess().Id;
             string tmp = Path.Combine(Path.GetTempPath(), "gd-roundtest-" + mine);
             try { if (Directory.Exists(tmp)) Directory.Delete(tmp, true); } catch { }
@@ -123,6 +162,11 @@ namespace GdPanel
             string state = GdEnv.State;
             string lockFile = Path.Combine(state, "running.json");
             string noticeFile = Path.Combine(state, "last-notice.json");
+            // ②-b1 数据面那五本账的落点：全在临时树的 state\ 上，收尾随整目录一起删。
+            string ackR1999 = Path.Combine(state, "r1999-event-ack.json");
+            string shopArk = Path.Combine(state, "ark-shop-done.json");
+            string shopR1999 = Path.Combine(state, "r1999-shop-done.json");
+            string probeFile = Path.Combine(state, "ark-event-probe.json");
             int dead = DeadPid();
 
             // ==================== 1) FlagEnabled：PS 的 `-ne $false` 语义 ====================
@@ -609,7 +653,7 @@ namespace GdPanel
                 return I(Key(d, "Matched")) == 0 && I(Key(d, "Killed")) == 0;
             });
 
-            // ==================== 12) CLI 接线：这七枚真的挂上了分发链 ====================
+            // ==================== 12) CLI 接线：那七枚真的挂上了分发链(②-a 批) ====================
             b.Chk("resolve-round-context 走 --in/--out：退出码 0、信封 verb 对、data 里有 Runtime", delegate
             {
                 string inPath = Path.Combine(tmp, "ctx-in.json");
@@ -646,6 +690,376 @@ namespace GdPanel
                     && S(Gd.Get(Row(GdJson.Read(noticeFile)), "title")) == "方舟日常已完成";
             });
 
+            // ==================== 13) read-ark-activity：三档顺序 + 那两句 WARN(网络与读盘全走夹具) ====================
+            b.Chk("接口夹具命中：Data=夹具、Source='MAA 活动接口'、CacheAgeHours 留空、一句 WARN 都不吭", delegate
+            {
+                object d = RoundData.ArkActivity(In(
+                    "settings", In("ark", In("activityApiUrl", "http://fake.invalid/act")),
+                    "apiUrl", "http://fake.invalid/act",
+                    "apiJson", In("events", new object[] { "CE-5" })));
+                return S(Key(d, "Source")) == "MAA 活动接口" && B(Key(d, "ApiUrlGiven")) && !B(Key(d, "Offline"))
+                    && !B(Key(d, "CacheStale")) && Key(d, "CacheAgeHours") == null && Len(Key(d, "Lines")) == 0
+                    && Key(d, "Data") != null;
+            });
+            b.Chk("offline 档：apiUrl 在场也不打接口，直接落本地缓存(source 里带'几小时前')", delegate
+            {
+                object d = RoundData.ArkActivity(In(
+                    "settings", In("ark", In("activityApiUrl", "http://fake.invalid/act", "activityCacheMaxHours", 24)),
+                    "offline", true, "cacheJson", In("a", 1), "cacheAgeHours", 3.0));
+                return B(Key(d, "Offline")) && S(Key(d, "Source")) == "MAA 本地缓存(3 小时前)"
+                    && Dbl(Key(d, "CacheAgeHours")) == 3.0 && !B(Key(d, "CacheStale")) && Len(Key(d, "Lines")) == 0;
+            });
+            b.Chk("原样怪癖：缓存小时数 Round(...,1) 与 PS 的 [math]::Round 同用**银行家舍入**(1.25→1.2，不是 1.3)", delegate
+            {
+                object d = RoundData.ArkActivity(In(
+                    "settings", In("ark", In("activityCacheMaxHours", 24)),
+                    "cacheJson", In("a", 1), "cacheAgeHours", 1.25));
+                return S(Key(d, "Source")) == "MAA 本地缓存(1.2 小时前)" && Dbl(Key(d, "CacheAgeHours")) == 1.2;
+            });
+            b.Chk("apiErr 夹具：接口那句 WARN 原话逐字，然后照真身落到缓存档", delegate
+            {
+                object d = RoundData.ArkActivity(In(
+                    "settings", In("ark", In("activityApiUrl", "http://fake.invalid/act", "activityCacheMaxHours", 24)),
+                    "apiErr", "模拟断流", "cacheJson", In("a", 1), "cacheAgeHours", 2.0));
+                return Ln(Key(d, "Lines"), 0) == "活动接口拉取失败(模拟断流)，改用本地缓存" && Len(Key(d, "Lines")) == 1
+                    && S(Key(d, "Source")) == "MAA 本地缓存(2 小时前)";
+            });
+            b.Chk("接口与缓存两头落空 → '既拉不到…按长草期处理' 那句、Source='无数据'、Data 为 null", delegate
+            {
+                object d = RoundData.ArkActivity(In("settings", In("ark", In())));
+                return S(Key(d, "Source")) == "无数据" && Key(d, "Data") == null && !B(Key(d, "ApiUrlGiven"))
+                    && Len(Key(d, "Lines")) == 1 && Ln(Key(d, "Lines"), 0) == "既拉不到活动接口、也没有本地缓存 → 按长草期处理";
+            });
+            b.Chk("原样怪癖：activityCacheMaxHours 缺键＝0 ⇒ 缓存永远算过期，且那句 WARN 里插的是**原值**(空)，不是 0", delegate
+            {
+                object d = RoundData.ArkActivity(In(
+                    "settings", In("ark", In()),                    // 整棵树没配这一项(真身 [int]$null = 0)
+                    "cacheJson", In("a", 1), "cacheAgeHours", 1.25));
+                return B(Key(d, "CacheStale")) && Len(Key(d, "Lines")) == 1
+                    && Ln(Key(d, "Lines"), 0) == "活动缓存超过  小时未刷新，结论可能滞后(MAA 启动后会自行更新)";
+            });
+            b.Chk("配了 24 且没过 → 不吭；配了 1 且过了 → 那句里带上'1'", delegate
+            {
+                object ok = RoundData.ArkActivity(In(
+                    "settings", In("ark", In("activityCacheMaxHours", 24)), "cacheJson", In("a", 1), "cacheAgeHours", 5.0));
+                object bad = RoundData.ArkActivity(In(
+                    "settings", In("ark", In("activityCacheMaxHours", 1)), "cacheJson", In("a", 1), "cacheAgeHours", 5.0));
+                return !B(Key(ok, "CacheStale")) && Len(Key(ok, "Lines")) == 0
+                    && B(Key(bad, "CacheStale"))
+                    && Ln(Key(bad, "Lines"), 0) == "活动缓存超过 1 小时未刷新，结论可能滞后(MAA 启动后会自行更新)";
+            });
+            b.Chk("原样怪癖：'拉到东西了没有'按 PS 的 -not $data 判 —— 空对象算**有**、空数组算**没有**", delegate
+            {
+                object emptyObj = RoundData.ArkActivity(In(
+                    "settings", In("ark", In("activityApiUrl", "http://fake.invalid/act")),
+                    "apiUrl", "http://fake.invalid/act", "apiJson", In(), "offline", false));
+                object emptyArr = RoundData.ArkActivity(In(
+                    "settings", In("ark", In("activityApiUrl", "http://fake.invalid/act")),
+                    "apiUrl", "http://fake.invalid/act", "apiJson", new object[0]));
+                return S(Key(emptyObj, "Source")) == "MAA 活动接口" && S(Key(emptyArr, "Source")) == "无数据";
+            });
+            b.Chk("真读盘那半段：缓存文件落在**临时树**上，按 mtime 现算小时数(刚写的 ⇒ 0 小时前、没过 24 的线)", delegate
+            {
+                string cache = Path.Combine(tmp, "act-cache.json");
+                GdJson.Write(cache, In("events", new object[] { "CE-5" }));
+                object d = RoundData.ArkActivity(In(
+                    "settings", In("ark", In("activityCacheMaxHours", 24)),
+                    "paths", In("maaDir", tmp, "maaActivityCache", "act-cache.json")));
+                return S(Key(d, "Source")) == "MAA 本地缓存(0 小时前)" && Key(d, "Data") != null
+                    && !B(Key(d, "CacheStale")) && Len(Key(d, "Lines")) == 0;
+            });
+            b.Chk("守门：漏喂 settings 又没喂 paths → 去读临时树那份(不在)当场抛，不静默当'没活动'", delegate
+            {
+                return Thrown<FileNotFoundException>(delegate { return RoundData.ArkActivity(In("offline", true)); });
+            });
+
+            // ==================== 14) read-r1999-activity：读盘 + DataAge(天) ====================
+            b.Chk("path 给了却不存在：Ready=false、Why='缺少 <路径>'、Reason 是那句'…，按长草处理'", delegate
+            {
+                string miss = Path.Combine(tmp, "没有这个文件.json");
+                object d = RoundData.R1999Activity(In("path", miss));
+                return !B(Key(d, "Ready")) && Key(d, "Data") == null && Key(d, "DataAgeDays") == null
+                    && S(Key(d, "Why")) == "缺少 " + miss
+                    && S(Key(d, "Reason")) == "缺少 " + miss + "，按长草处理";
+            });
+            b.Chk("m9aDir 没填 → 路径是空串，Why 换成那句人话(真身注释明写'缺少 ，按长草处理'玩家看不懂)", delegate
+            {
+                object d = RoundData.R1999Activity(In("settings", In("paths", In("m9aDir", "", "m9aActivityData", @"activity\cn.json"))));
+                return !B(Key(d, "Ready")) && S(Key(d, "Path")) == ""
+                    && S(Key(d, "Why")) == "M9A 目录还没填(先跑 setup.ps1)"
+                    && S(Key(d, "Reason")) == "M9A 目录还没填(先跑 setup.ps1)，按长草处理";
+            });
+            b.Chk("真读盘：临时树上那份回读得到、DataAge 现算(mtime 刚写 ⇒ 0 天)且不吭'缺少'", delegate
+            {
+                string p = Path.Combine(tmp, "m9a-cn.json");
+                GdJson.Write(p, In("version", 12, "events", new object[] { "ev1" }));
+                object d = RoundData.R1999Activity(In("path", p));
+                return B(Key(d, "Ready")) && S(Key(d, "Why")) == "" && Key(d, "Reason") == null
+                    && Dbl(Key(d, "DataAgeDays")) < 0.01
+                    && Gd.Map(Key(d, "Data")) != null && I(Gd.Get(Key(d, "Data"), "version")) == 12;
+            });
+            b.Chk("paths 拼接那半段：m9aDir+m9aActivityData 现拼(给了 path 就直答，不读 settings)", delegate
+            {
+                object joined = RoundData.R1999Activity(In(
+                    "settings", In("paths", In("m9aDir", tmp, "m9aActivityData", "ghost.json"))));
+                return S(Key(joined, "Path")) == Path.Combine(tmp, "ghost.json");
+            });
+            b.Chk("dataAgeDays 夹具原样带上回(那句'(活动数据 N 天前)'的**追加**动作属于判定，本 verb 不做——见头注双源第④处)", delegate
+            {
+                string p = Path.Combine(tmp, "m9a-cn.json");
+                object d = RoundData.R1999Activity(In("path", p, "dataJson", In("version", 1), "dataAgeDays", 1.25));
+                return B(Key(d, "Ready")) && Dbl(Key(d, "DataAgeDays")) == 1.2
+                    && S(Key(d, "Reason")) == "(null)";
+            });
+
+            // ==================== 15) read-decision-state：五本 state 读 + 那把 flag 尺的读数 ====================
+            b.Chk("空树三本：Ack/ShopDone 是空表(不是 null)、Probe 没探过=null、门默认开着", delegate
+            {
+                object d = RoundData.DecisionState(In("game", "ark", "settings", In("ark", In())));
+                // 门表回的是**字典**不是数组：Len() 走 Gd.List，它对字典回"一个元素"(那条防摊开的守卫)，
+                // 所以比格数必须用 Cnt(对齐 PS 的 $map.Count)，否则空表会被数成一。
+                return S(Key(d, "Game")) == "ark" && Cnt(Key(d, "Ack")) == 0 && Cnt(Key(d, "ShopDone")) == 0
+                    && Key(d, "Probe") == null && B(Key(d, "ShopDoneGateOpen")) && Len(Key(d, "Want")) == 3;
+            });
+            b.Chk("want 逐枚点名：只要 ack 时 ShopDone/Probe 都不去碰(省两次读盘，也不替调用方多取)", delegate
+            {
+                object d = RoundData.DecisionState(In("game", "ark", "settings", In("ark", In()), "want", new object[] { "ack" }));
+                return Key(d, "Ack") != null && Key(d, "ShopDone") == null && Key(d, "Probe") == null
+                    && Len(Key(d, "Want")) == 1;
+            });
+            b.Chk("盘上那本 shop-done 表回读得到，且键**不分大小写**(PS 的 @{} 就是这把尺，区分大小写会留孤儿格)", delegate
+            {
+                GdJson.Write(shopArk, In("done", In("CE-5", "2026-10-13 06:05")));
+                object d = RoundData.DecisionState(In("game", "ark", "settings", In("ark", In())));
+                Dictionary<string, object> map = Row(Key(d, "ShopDone"));
+                return map != null && map.ContainsKey("ce-5") && map.Count == 1 && S(map["CE-5"]) == "2026-10-13 06:05";
+            });
+            b.Chk("自证账本五键原样回读(Date/EventKey/Stage/Entered/Evidence)——判定层 Decisions.cs 就吃这五键", delegate
+            {
+                GdJson.Write(probeFile, In("Date", "10-13 06:12", "EventKey", "CE-5", "Stage", "CE-5/4",
+                                           "Entered", true, "Evidence", "作战完成"));
+                object d = RoundData.DecisionState(In("game", "ark", "settings", In("ark", In()), "want", new object[] { "probe" }));
+                Dictionary<string, object> pb = Row(Key(d, "Probe"));
+                return pb != null && S(pb["Date"]) == "10-13 06:12" && S(pb["EventKey"]) == "CE-5"
+                    && S(pb["Stage"]) == "CE-5/4" && B(pb["Entered"]) && S(pb["Evidence"]) == "作战完成";
+            });
+            b.Chk("EventKey 是空串 = '这一轮还没探'→ null(不能把空账本喂成一条结论)", delegate
+            {
+                GdJson.Write(probeFile, In("Date", "10-13 06:12", "EventKey", "", "Stage", "CE-5/4", "Entered", false));
+                object d = RoundData.DecisionState(In("game", "ark", "settings", In("ark", In()), "want", new object[] { "probe" }));
+                return Key(d, "Probe") == null;
+            });
+            b.Chk("账本读坏了 → 照样 null(真身 Get-GdArkEventProbe 那一层有 try：坏账本不该把整轮带走)", delegate
+            {
+                File.WriteAllText(probeFile, "{这不是合法的 JSON", new UTF8Encoding(false));
+                object d = RoundData.DecisionState(In("game", "ark", "settings", In("ark", In()), "want", new object[] { "probe" }));
+                return Key(d, "Probe") == null;
+            });
+            File.Delete(probeFile);
+            b.Chk("r1999 读的是 r1999 那本盘：ack 表分游戏各走各的文件", delegate
+            {
+                GdJson.Write(ackR1999, In("acked", In("mainline-3", "2026-10-12 07:00")));
+                object r = RoundData.DecisionState(In("game", "r1999", "settings", In("re1999", In()),
+                                                      "want", new object[] { "ack" }));
+                object a = RoundData.DecisionState(In("game", "ark", "settings", In("ark", In()),
+                                                      "want", new object[] { "ack" }));
+                return S(Key(r, "Game")) == "r1999" && Cnt(Key(r, "Ack")) == 1 && Cnt(Key(a, "Ack")) == 0;
+            });
+            b.Chk("块名不许按 id 拼：id 是 r1999、settings 块叫 re1999(Get-GdSettingsBlock 的回落分支)", delegate
+            {
+                object open = RoundData.DecisionState(In("game", "r1999", "settings", In("re1999", In("shopDoneStopsEvent", false)),
+                                                         "want", new object[] { "ack" }));
+                object named = RoundData.DecisionState(In("game", "r1999", "settings", In("re1999", In("shopDoneStopsEvent", true)),
+                                                           "settingsBlock", "re1999", "want", new object[] { "ack" }));
+                return !B(Key(open, "ShopDoneGateOpen")) && B(Key(named, "ShopDoneGateOpen"));
+            });
+            b.Chk("那把 flag 尺复用 C# 侧唯一真身(Round.FlagEnabled)：字符串 \"0\" 算开着、显式 false 才算关", delegate
+            {
+                object zero = RoundData.DecisionState(In("game", "ark", "settings", In("ark", In("shopDoneStopsEvent", "0")),
+                                                         "want", new object[] { "ack" }));
+                object off = RoundData.DecisionState(In("game", "ark", "settings", In("ark", In("shopDoneStopsEvent", false)),
+                                                        "want", new object[] { "ack" }));
+                return B(Key(zero, "ShopDoneGateOpen")) && !B(Key(off, "ShopDoneGateOpen"));
+            });
+            b.Chk("认不得的游戏 id 当场挡(它会被拼进状态文件名)，原话逐字对 Assert-GdGameId", delegate
+            {
+                return Thrown<GdRuleException>(delegate
+                {
+                    return RoundData.DecisionState(In("game", "__no_such__", "settings", In("ark", In())));
+                }) && S(ThrownMsg(delegate
+                {
+                    return RoundData.DecisionState(In("game", "__no_such__", "settings", In("ark", In())));
+                })) == "不认识的游戏 id：'__no_such__'(这棵树上认得：ark / r1999)";
+            });
+            b.Chk("名册可注入：将来模块清单多一款游戏由调用方点名 gameIds，不在这里硬编码第三路", delegate
+            {
+                object d = RoundData.DecisionState(In("game", "third", "gameIds", new object[] { "ark", "r1999", "third" },
+                                                      "settings", In("third", In()), "want", new object[] { "ack" }));
+                return S(Key(d, "Game")) == "third" && Cnt(Key(d, "Ack")) == 0;
+            });
+
+            // ==================== 16) set-ark-shop-state：四分支话术 + 真落盘(只落临时树) ====================
+            b.Chk("没有进行中的活动(空 key)：只 WARN 那一句、Action=none、**盘上一个字都不写**", delegate
+            {
+                if (File.Exists(shopArk)) File.Delete(shopArk);
+                object d = RoundData.ArkShopState(In("eventKey", "", "reason", "活动接口和缓存都拉不到"));
+                return S(Key(d, "Action")) == "none" && !B(Key(d, "Written")) && I(Key(d, "Count")) == 0
+                    && Ln(Key(d, "Lines"), 0) == "方舟当前没有进行中的活动可标记：活动接口和缓存都拉不到"
+                    && !File.Exists(shopArk);
+            });
+            b.Chk("标记：Action=mark、时间戳用喂进来的那个、盘上 done 表里就是这一格、回执 Count=1", delegate
+            {
+                if (File.Exists(shopArk)) File.Delete(shopArk);
+                object d = RoundData.ArkShopState(In("eventKey", "CE-5", "eventTip", "限时活动", "done", true,
+                                                     "nowText", "2026-10-13 07:00", "idlePlan", "CE-5",
+                                                     "settings", In("ark", In())));
+                if (S(Key(d, "Action")) != "mark" || !B(Key(d, "Written")) || I(Key(d, "Count")) != 1) return false;
+                if (Ln(Key(d, "Lines"), 0) != "已标记方舟活动 CE-5[限时活动] 商店领空 → 之后剩余理智只刷 CE-5") return false;
+                Dictionary<string, object> obj = Row(GdJson.Read(shopArk));
+                Dictionary<string, object> done = Row(Gd.Get(obj, "done"));
+                return done != null && S(done["CE-5"]) == "2026-10-13 07:00";
+            });
+            b.Chk("原样怪癖：回落那句人话里的 dow 用**原始 0-6**(周日读 planByWeekday.\"0\")，不是判定层那把'周日=7'", delegate
+            {
+                object sun = RoundData.ArkShopState(In("eventKey", "K", "eventTip", "t", "done", true, "nowText", "T",
+                                                       "dow", 0, "settings", In("ark", In("planByWeekday", In("1", "CE-5"),
+                                                                                          "defaultStage", "1-7"))));
+                object mon = RoundData.ArkShopState(In("eventKey", "K", "eventTip", "t", "done", true, "nowText", "T",
+                                                       "dow", 1, "settings", In("ark", In("planByWeekday", In("1", "CE-5"),
+                                                                                          "defaultStage", "1-7"))));
+                return Ln(Key(sun, "Lines"), 0).EndsWith("只刷 1-7") && Ln(Key(mon, "Lines"), 0).EndsWith("只刷 CE-5");
+            });
+            b.Chk("整表写回不丢别的格：连标两枚 ⇒ 盘上两格都在、Count=2(真身是取表→盖一格→整表写回)", delegate
+            {
+                // 从空表起：Count 是**整表**格数，前一格(CE-5/K)留下的账会把它抬上去，那不是在验"写回丢不丢"。
+                if (File.Exists(shopArk)) File.Delete(shopArk);
+                RoundData.ArkShopState(In("eventKey", "K1", "eventTip", "t", "done", true, "nowText", "07:00",
+                                          "idlePlan", "P", "settings", In("ark", In())));
+                object d = RoundData.ArkShopState(In("eventKey", "K2", "eventTip", "t", "done", true, "nowText", "07:05",
+                                                     "idlePlan", "P", "settings", In("ark", In())));
+                Dictionary<string, object> done = Row(Gd.Get(Row(GdJson.Read(shopArk)), "done"));
+                return I(Key(d, "Count")) == 2 && done != null && done.Count == 2
+                    && S(done["K1"]) == "07:00" && S(done["K2"]) == "07:05";
+            });
+            b.Chk("撤销：Action=reset、话术'…恢复自动刷活动代币'、盘上那一格真没了(别的格留下)", delegate
+            {
+                object d = RoundData.ArkShopState(In("eventKey", "K1", "done", false, "settings", In("ark", In())));
+                Dictionary<string, object> done = Row(Gd.Get(Row(GdJson.Read(shopArk)), "done"));
+                return S(Key(d, "Action")) == "reset" && B(Key(d, "Written")) && I(Key(d, "Count")) == 1
+                    && Ln(Key(d, "Lines"), 0) == "已撤销 K1 的领空标记 → 恢复自动刷活动代币"
+                    && done != null && !done.ContainsKey("K1") && done.ContainsKey("K2");
+            });
+            b.Chk("撤销落空(本来就没有)：Action=miss、Written=false、只 WARN 一句、**不建文件**(真身那句 return 在 Remove 之前)", delegate
+            {
+                File.Delete(shopArk);
+                object d = RoundData.ArkShopState(In("eventKey", "K9", "done", false, "settings", In("ark", In())));
+                return S(Key(d, "Action")) == "miss" && !B(Key(d, "Written")) && I(Key(d, "Count")) == 0
+                    && Ln(Key(d, "Lines"), 0) == "K9 本来就没有领空标记" && !File.Exists(shopArk);
+            });
+
+            // ==================== 17) set-r1999-ack：只有'标记'一档(这道门没有撤销口) ====================
+            b.Chk("没有待确认活动：只 WARN 那句、不写盘", delegate
+            {
+                if (File.Exists(ackR1999)) File.Delete(ackR1999);
+                object d = RoundData.R1999Ack(In("eventKey", "", "reason", "这一版没有主线活动"));
+                return S(Key(d, "Action")) == "none" && !B(Key(d, "Written"))
+                    && Ln(Key(d, "Lines"), 0) == "1999 当前没有待确认活动：这一版没有主线活动" && !File.Exists(ackR1999);
+            });
+            b.Chk("原样怪癖：确认话术里那个箭头前**没有空格**(真身原文如此，ark 那两句却有空格，不许统一)", delegate
+            {
+                if (File.Exists(ackR1999)) File.Delete(ackR1999);
+                object d = RoundData.R1999Ack(In("eventKey", "mainline-3", "eventTip", "第三章", "nowText", "2026-10-13 07:10"));
+                if (Ln(Key(d, "Lines"), 0) != "已确认 1999 活动 mainline-3[第三章]→ 日常将使用活动方案") return false;
+                Dictionary<string, object> acked = Row(Gd.Get(Row(GdJson.Read(ackR1999)), "acked"));
+                return acked != null && S(acked["mainline-3"]) == "2026-10-13 07:10";
+            });
+            b.Chk("重复确认同一格：Count 不增(整表写回是**覆盖**不是追加)", delegate
+            {
+                object d = RoundData.R1999Ack(In("eventKey", "mainline-3", "eventTip", "第三章", "nowText", "07:20"));
+                Dictionary<string, object> acked = Row(Gd.Get(Row(GdJson.Read(ackR1999)), "acked"));
+                return I(Key(d, "Count")) == 1 && acked.Count == 1 && S(acked["mainline-3"]) == "07:20";
+            });
+
+            // ==================== 18) set-r1999-shop-state：与 ark 那枚同构，差两句人话 + 回落值是实例名 ====================
+            b.Chk("标记：回落值从 re1999.planToInstance.idle **现读**(不是关卡名)，落的是 r1999 那本盘", delegate
+            {
+                if (File.Exists(shopR1999)) File.Delete(shopR1999);
+                object d = RoundData.R1999ShopState(In("eventKey", "ev1", "eventTip", "活动一", "done", true,
+                                                       "nowText", "07:30",
+                                                       "settings", In("re1999", In("planToInstance", In("idle", "长草实例")))));
+                if (Ln(Key(d, "Lines"), 0) != "已标记 1999 活动 ev1[活动一] 商店领空 → 之后跑[长草实例]实例") return false;
+                Dictionary<string, object> done = Row(Gd.Get(Row(GdJson.Read(shopR1999)), "done"));
+                return done != null && S(done["ev1"]) == "07:30" && !File.Exists(shopArk);
+            });
+            b.Chk("idleInstance 直答优先于现读(转接期壳里已经算好了就别再读一遍 settings)", delegate
+            {
+                object d = RoundData.R1999ShopState(In("eventKey", "ev2", "eventTip", "t", "done", true,
+                                                       "nowText", "07:31", "idleInstance", "指定实例"));
+                return Ln(Key(d, "Lines"), 0).EndsWith("跑[指定实例]实例");
+            });
+            b.Chk("撤销那两句与 ark 同构但**结尾那句不一样**('恢复活动方案' vs '恢复自动刷活动代币')", delegate
+            {
+                object r = RoundData.R1999ShopState(In("eventKey", "ev2", "done", false));
+                object m = RoundData.R1999ShopState(In("eventKey", "ev9", "done", false));
+                return S(Key(r, "Action")) == "reset" && Ln(Key(r, "Lines"), 0) == "已撤销 ev2 的领空标记 → 恢复活动方案"
+                    && S(Key(m, "Action")) == "miss" && Ln(Key(m, "Lines"), 0) == "ev9 本来就没有领空标记"
+                    && !File.Exists(shopArk);
+            });
+
+            // ==================== 19) CLI 接线：这六枚真的挂上了分发链(名册两处同批的自证) ====================
+            b.Chk("read-decision-state 走 --in/--out：退出码 0、信封 verb 对、data 里五键齐", delegate
+            {
+                string inPath = Path.Combine(tmp, "ds-in.json");
+                string outPath = Path.Combine(tmp, "ds-out.json");
+                GdJson.Write(inPath, In("game", "ark", "settings", In("ark", In())));
+                int code = GdCli.Run("read-decision-state", new string[] { "--in=" + inPath, "--out=" + outPath });
+                Dictionary<string, object> env = GdJson.ReadEnvelope(outPath);
+                Dictionary<string, object> data = Row(Gd.Get(env, "data"));
+                return code == 0 && Gd.Truthy(Gd.Get(env, "ok")) && S(Gd.Get(env, "verb")) == "read-decision-state"
+                    && data != null && data.ContainsKey("Ack") && data.ContainsKey("ShopDone")
+                    && data.ContainsKey("ShopDoneGateOpen") && data.ContainsKey("Probe") && data.ContainsKey("Game");
+            });
+            b.Chk("set-ark-shop-state 走 CLI：那份表落在**临时树**的 state\\ 上(真跑才会落进真 state)", delegate
+            {
+                if (File.Exists(shopArk)) File.Delete(shopArk);
+                string inPath = Path.Combine(tmp, "shop-in.json");
+                string outPath = Path.Combine(tmp, "shop-out.json");
+                GdJson.Write(inPath, In("eventKey", "CLI-1", "eventTip", "t", "done", true,
+                                         "nowText", "08:00", "idlePlan", "P"));
+                int code = GdCli.Run("set-ark-shop-state", new string[] { "--in=" + inPath, "--out=" + outPath });
+                if (code != 0 || !File.Exists(shopArk)) return false;
+                return Path.GetFullPath(shopArk).StartsWith(Path.GetFullPath(tmp), StringComparison.OrdinalIgnoreCase)
+                    && S(Gd.Get(Row(Gd.Get(Row(GdJson.Read(shopArk)), "done")), "CLI-1")) == "08:00";
+            });
+            b.Chk("read-ark-activity 走 CLI 且漏喂 settings：退出码 2(前置那一档)＋原话进 error，不静默回'无数据'", delegate
+            {
+                string inPath = Path.Combine(tmp, "act-in.json");
+                string outPath = Path.Combine(tmp, "act-out.json");
+                GdJson.Write(inPath, In("offline", true));
+                int code = GdCli.Run("read-ark-activity", new string[] { "--in=" + inPath, "--out=" + outPath });
+                Dictionary<string, object> env = GdJson.ReadEnvelope(outPath);
+                return code == 2 && !Gd.Truthy(Gd.Get(env, "ok"))
+                    && S(Gd.Get(env, "error")).Contains("还没有 config\\settings.json");
+            });
+            b.Chk("认不得的游戏 id 走 CLI：退出码 2＋规则原话(GdRuleException 与前置同档)", delegate
+            {
+                string inPath = Path.Combine(tmp, "bad-in.json");
+                string outPath = Path.Combine(tmp, "bad-out.json");
+                GdJson.Write(inPath, In("game", "__no_such__", "settings", In("ark", In())));
+                int code = GdCli.Run("read-decision-state", new string[] { "--in=" + inPath, "--out=" + outPath });
+                Dictionary<string, object> env = GdJson.ReadEnvelope(outPath);
+                return code == 2 && S(Gd.Get(env, "error")).Contains("不认识的游戏 id：'__no_such__'");
+            });
+            b.Chk("名册第二处(usage 长串)随行自证：未知子命令那句报错里必须同时数到本批六枚", delegate
+            {
+                string outPath = Path.Combine(tmp, "usage-out.json");
+                int code = GdCli.Run("no-such-verb", new string[] { "--out=" + outPath });
+                string err = S(Gd.Get(GdJson.ReadEnvelope(outPath), "error"));
+                return code == 1 && err.Contains("read-ark-activity") && err.Contains("read-r1999-activity")
+                    && err.Contains("read-decision-state") && err.Contains("set-ark-shop-state")
+                    && err.Contains("set-r1999-ack") && err.Contains("set-r1999-shop-state");
+            });
+
             // 收尾：临时树整目录删掉(纪律＝门/自检的临时件不落仓内)
             try { if (File.Exists(lockFile)) File.Delete(lockFile); } catch { }
             try { Directory.Delete(tmp, true); }
@@ -653,7 +1067,7 @@ namespace GdPanel
 
             int rc = b.Result("--roundtest");
             if (rc == 0)
-                Console.WriteLine("结论: PASS(轮骨架现场七枚的话术/算术/夹具闸都对；提权实弹与真 webhook/气泡/真任务/真杀进程仍登记 unobserved)");
+                Console.WriteLine("结论: PASS(②-a 那七枚 + ②-b1 这六枚的话术/算术/夹具闸都对；提权实弹、真 webhook/气泡/真任务/真杀进程、真打活动接口与真 settings/真 state 盘仍登记 unobserved)");
             return rc;
         }
     }

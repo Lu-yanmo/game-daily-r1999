@@ -354,7 +354,7 @@ namespace GdPanel
         static string RoundStr(double d) { return d.ToString("R", Inv); }
 
         // ==================== verb: apply-ark-daily-intent(原 Resolve-GdArkDecision 的构造段) ====================
-        // 命令行意图(-Stage 手造 / -Force 跳确认门 / farm 专用轮与需求优先合算) → 本轮方舟方案对象。
+        // 命令行意图(-Stage 手造 / -Force 越自证结论 / farm 专用轮与需求优先合算) → 本轮方舟方案对象。
         // 需求优先语义(用户硬要求)：farm 关**去重排最前**、长草关在后；"方舟方案：…"日志行与 Farm 挂回留壳。
 
         internal static object ArkIntent(Dictionary<string, object> inp)
@@ -372,11 +372,13 @@ namespace GdPanel
                     "Reason", "命令行指定刷 " + stage, "EventKey", null, "EventTip", null, "Source", "manual");
             if (force && Gd.Str(Gd.Get(ark, "Mode")) == "event-pending")
             {
+                // 这句在 10-12 第 1 刀改过口："活动确认门"已退场，-Force 现在越的是"今天的自证结论"，
+                // 越门这件事本身一模一样(event-pending → event、理智全刷活动关)，所以 Mode 名册一字未动。
                 string hint = Gd.Str(Gd.Get(ark, "StageHint"));
                 ark = Gd.Out("Mode", "event", "Stage", hint, "StageHint", hint, "ClearSanity", true,
-                    "Reason", "(-Force) 跳过活动确认门，直接刷 " + hint,
+                    "Reason", "(-Force) 不管今天的自证结论(进得去与否)，强行刷 " + hint,
                     "EventKey", Gd.Get(ark, "EventKey"), "EventTip", Gd.Get(ark, "EventTip"), "Source", Gd.Get(ark, "Source"));
-                warnings.Add("-Force：本轮忽略活动确认门");
+                warnings.Add("-Force：本轮忽略活动图自证结论");
             }
 
             object[] farmStages = farmOpt == null ? new object[0] : Gd.List(Gd.Get(farmOpt, "Stages"));
@@ -727,6 +729,62 @@ namespace GdPanel
             }
             return Gd.Out("Found", found, "Date", date, "Stage", stage, "LastBattle", lastBattle,
                 "SawGuiPlan", sawGuiPlan, "Survivors", survivors, "Selected", selected);
+        }
+
+        // ==================== verb: decide-ark-event-probe(2026-10-12 第 1 刀：每轮自证活动图通没打通) ====================
+        // 需求原话(用户)：「活动要打，需要打通活动」「直接用尝试用 maa 进入活动最后一关，如果通了就说明通关了」。
+        // 于是每轮把活动**最后一关**当探针递下去，跑完从同一批现场读数里判"进得去没进得去"，
+        // 结论落 state\ark-event-probe.json，下一轮由 Get-ArkEvent 喂进 decide-ark 的 probe 入参。
+        // 判据支点(本文件上面 MaaStageObserve 那段两刀注释)：加载期那一刀按**账号解锁进度**修剪，
+        // GUI 那一刀按**星期**修剪；活动关不受周轮换限制 ⇒ 它被剪时只剩一个解释：**没解锁到它**。
+        // 实测锚(10-12 20:34 探针轮，YW-8)：进得去时 gui 会话内是 `GetFightStage: from ["YW-8"], selected YW-8`。
+        // 输入四件(stage=本轮试打的那关、obs=observe-maa-stage-open 的原样回执、date/eventKey 由壳注入)：
+        // C# 侧照样不读盘不读钟，比的就是"名单里有没有这个名字"。
+        // 输出六件里 Valid 是**探针有效性**：理智更早跳过、没连上、名单压根没抄到 ⇒ Valid=false，
+        // 壳侧据此**不落地**(留着昨天的结论也没意义，隔天本来就重判)，绝不当成"没打通"——
+        // 把采集失败误判成未解锁，会白把一天的活动图换成长草图。
+        internal static object ArkEventProbe(Dictionary<string, object> inp)
+        {
+            string date = Gd.Str(Gd.Get(inp, "date"));
+            string evKey = Gd.Str(Gd.Get(inp, "eventKey"));
+            string stage = Gd.Str(Gd.Get(inp, "stage"));
+            Dictionary<string, object> obs = Gd.Map(Gd.Get(inp, "obs"));
+
+            if (stage.Length == 0)
+                return Gd.Out("Date", date, "EventKey", evKey, "Stage", stage, "Valid", false,
+                    "Entered", false, "Evidence", "上一轮没有可当探针的活动关(判定给不出最后一关) → 这条结论不落地");
+            if (obs == null)
+                return Gd.Out("Date", date, "EventKey", evKey, "Stage", stage, "Valid", false,
+                    "Entered", false, "Evidence", "本轮没有关卡开放观测(采集段没做起来) → 这条结论不落地，下轮照常再试");
+
+            List<string> surv = new List<string>();
+            foreach (object v in Gd.List(Gd.Get(obs, "Survivors")))
+            {
+                string s = Gd.Str(v);
+                if (s.Length > 0) surv.Add(s);
+            }
+            bool sawPlan = Gd.Truthy(Gd.Get(obs, "SawGuiPlan"));
+            string selected = Gd.Str(Gd.Get(obs, "Selected"));
+            bool lastBattle = Gd.Truthy(Gd.Get(obs, "LastBattle"));
+            string replay = lastBattle ? "；注意本轮内核走的是「回到上次作战」重放" : "";
+
+            if (!sawPlan)
+                return Gd.Out("Date", date, "EventKey", evKey, "Stage", stage, "Valid", false,
+                    "Entered", false,
+                    "Evidence", "本轮 MAA 没抄出关卡名单(GetFightStage 那行没出现，多半理智更早跳过或没连上) → 判不了，这条结论不落地");
+
+            if (selected.Length > 0 && selected == stage)
+                return Gd.Out("Date", date, "EventKey", evKey, "Stage", stage, "Valid", true, "Entered", true,
+                    "Evidence", "MAA 的关卡名单里选中了 " + stage + "(名单共 " + surv.Count.ToString(CultureInfo.InvariantCulture) + " 关)" + replay);
+            if (surv.Contains(stage))
+                return Gd.Out("Date", date, "EventKey", evKey, "Stage", stage, "Valid", true, "Entered", true,
+                    "Evidence", "MAA 的关卡名单含 " + stage + "(名单共 " + surv.Count.ToString(CultureInfo.InvariantCulture) + " 关，当前选中 " + (selected.Length > 0 ? selected : "无") + ")" + replay);
+            if (surv.Count == 0)
+                return Gd.Out("Date", date, "EventKey", evKey, "Stage", stage, "Valid", true, "Entered", false,
+                    "Evidence", "MAA 本轮的关卡名单被剪空(from [\"\"]) → " + stage + " 进不去" + replay);
+            return Gd.Out("Date", date, "EventKey", evKey, "Stage", stage, "Valid", true, "Entered", false,
+                "Evidence", "MAA 名单里 " + surv.Count.ToString(CultureInfo.InvariantCulture) + " 关没有 " + stage
+                          + "(名单：" + string.Join("、", surv.ToArray()) + "，当前选中 " + (selected.Length > 0 ? selected : "无") + ")" + replay);
         }
     }
 }

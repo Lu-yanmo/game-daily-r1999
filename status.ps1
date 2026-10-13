@@ -67,8 +67,10 @@ function Get-GdStatusModule {
 # 注册表要先装满，后面的 Sync-GdEntryVerbs / 体检分段问的都是它
 [void](Import-GdModules -Quiet)
 
-# 提示语里"下一步敲什么"必须跟着本仓库入口的参数名走：合体工程 → -AckArk/-RShopDone，单游戏仓库 → -Ack/-ShopReset。
+# 提示语里"下一步敲什么"必须跟着本仓库入口的参数名走：合体工程 → -ArkShopDone/-RShopDone，单游戏仓库 → -ShopDone/-ShopReset。
 # 以前这六行映射只写在 daily-clear.ps1 里，于是 status 打出来的是短名、合体入口却不认(2026-09-24 发现)。
+# 追加(2026-10-12 第 1 刀)：方舟的 -AckArk 已从入口退场(活动改每轮机器自证)，所以这里的举例不再用它，
+# 但 Sync 本身照常注册 ark 的那枚 Ack 占位名 —— Rust 链体的 entryverb ask 名册没变，见 lib\ark-module.ps1 的注释。
 if (Test-GdFunc 'Sync-GdEntryVerbs') { Sync-GdEntryVerbs }
 
 $mods = @(Get-GdStatusModule)
@@ -123,7 +125,9 @@ foreach ($m in $mods) {
     Invoke-GdTolerant { & $mm.Hooks.StatusSection $S }
 }
 
-Show-GdSectionHeader '活动确认 / 商店领空状态'
+# 标题用"活动门"而不是"活动确认"：两路的第一道门已经不是一种东西了 ——
+# ark 是每轮机器自证(Show-GdGateState 里读 state\ark-event-probe.json)，r1999 仍是人敲的确认门。
+Show-GdSectionHeader '活动门 / 商店领空状态'
 foreach ($m in $mods) { Show-GdGateState -Game ([string]$m.Id) }
 
 Show-GdSectionHeader '最近 5 条运行记录'

@@ -154,9 +154,9 @@ namespace GdPanel
             object data = Gd.Get(inp, "data");
             string source = Gd.Str(Gd.Get(inp, "source"));
             if (source.Length == 0) source = "无数据";
-            Dictionary<string, object> ack = Gd.Map(Gd.Get(inp, "ack")) ?? new Dictionary<string, object>();
+            // ack / verbAck 两枚入参自 10-12 第 1 刀起不再读(-AckArk 退场)：壳侧仍会传(1999 那一路共用同一段
+            // body 构造)，判定层不碰它们即可 —— 少一行读取就少一个"提示语指向一枚已经不存在的开关"的假文案。
             Dictionary<string, object> shopDone = Gd.Map(Gd.Get(inp, "shopDone")) ?? new Dictionary<string, object>();
-            string verbAck = Gd.Str(Gd.Get(inp, "verbAck"));
             string verbShopReset = Gd.Str(Gd.Get(inp, "verbShopReset"));
             int dow = Gd.Int(Gd.Get(inp, "dow"), 0);
 
@@ -260,23 +260,47 @@ namespace GdPanel
             }
             if (stage.Length == 0) stage = Gd.Str(Gd.Get(Gd.List(ev["Stages"])[0], "Value"));
 
-            bool acked = ack.ContainsKey(Gd.Str(ev["Id"]));
             string evKey = Gd.Str(ev["Id"]);
             string evTip = Gd.Str(ev["Tip"]);
 
-            if (Gd.Truthy(Gd.Get(arkBlock, "eventRequiresAck")) && !acked)
+            // ===== 每轮自证(2026-10-12 第 1 刀，判据由用户定档「进得去最后一关＝已通关」) =====
+            // 上一轮"把活动最后一关递下去试打"的结论由现场侧读 MAA 两份日志得出(lib\ark-daily.ps1 收尾段
+            // → state\ark-event-probe.json)，判定层照旧不读盘不读钟，只比"日期＋活动代号＋一个布尔"。
+            // 名册一字未动(仍 idle / event / event-pending 三档、回执键集不变)⇒ 两枚契约号都不升；
+            // 变的是 event-pending 的**进入条件与 ClearSanity**：旧="没敲 -AckArk 就整轮不烧理智"，
+            // 新="今天试过、那关被 MAA 剪掉了 ⇒ 判为你还没解锁它 ⇒ 当日剩余轮改刷长草套餐(理智照烧、不再空试活动)"。
+            // 为什么"被剪＝未解锁"这句敢写在判据里(Orchestration.cs 顶部那段两刀注释)：加载期那一刀按账号
+            // 解锁进度修剪、GUI 那一刀按星期修剪；活动关不受周轮换限制，所以它被剪时只剩一个解释。
+            // 实测锚(10-12 20:34 探针轮)：进得去时 gui 会话内是 `GetFightStage: from ["YW-8"], selected YW-8`、
+            // asst 侧 Fight 链 first:["StageBegin"] 而非 LastOrCurBattleBegin(重放旧关=探针无效，另判)。
+            // acked 那一路从此不再挡门，只留作"这台机器以前确认过"的历史痕迹读着不报错(见注脚)。
+            Dictionary<string, object> probe = Gd.Map(Gd.Get(inp, "probe"));
+            bool probedToday = probe != null
+                && Gd.Str(Gd.Get(probe, "Date")) == Gd.Fmt(now, "yyyy-MM-dd")
+                && Gd.Str(Gd.Get(probe, "EventKey")) == evKey;
+            bool entered = probedToday && Gd.Truthy(Gd.Get(probe, "Entered"));
+
+            if (probedToday && !entered)
             {
-                string tail = emptied.Count > 0 ? "；另有 " + emptied.Count.ToString(CultureInfo.InvariantCulture) + " 个活动已标记领空" : "";
+                string evi = Gd.Str(Gd.Get(probe, "Evidence"));
+                string tail2 = emptied.Count > 0
+                    ? "；另有 " + emptied.Count.ToString(CultureInfo.InvariantCulture) + " 个活动商店已领空，已跳过" : "";
                 return Gd.Out(
-                    "Mode", "event-pending", "Stage", idlePlan, "StageHint", stage, "ClearSanity", false,
-                    "Reason", "活动[" + evTip + "](" + Gd.Str(ev["Group"]) + "/" + evKey + "，至 " + Gd.Fmt(ev["End"])
-                              + ") 进行中但你还没确认可自动刷 → 本轮不消耗理智。确认后运行 daily-clear.ps1 " + verbAck + tail,
+                    "Mode", "event-pending", "Stage", idlePlan, "StageHint", stage, "ClearSanity", true,
+                    "Reason", "活动[" + evTip + "](" + Gd.Str(ev["Group"]) + "/" + evKey + ") 今天试打过 " + stage
+                              + "，被 MAA 剪掉 → 判为你还没打通到这关，当日剩余轮改刷长草计划 " + idlePlan
+                              + "(理智照烧，不再空试；你打通后下一轮自动切回活动图，要现在就强刷：daily-clear.ps1 -Force)" + tail2
+                              + (evi.Length > 0 ? "。证据：" + evi : ""),
                     "EventKey", evKey, "EventTip", evTip, "Source", source, "ShopDone", false);
             }
+
             string skipNote = emptied.Count > 0 ? "；另有 " + emptied.Count.ToString(CultureInfo.InvariantCulture) + " 个活动商店已领空，已跳过" : "";
             return Gd.Out(
                 "Mode", "event", "Stage", stage, "StageHint", stage, "ClearSanity", true,
-                "Reason", "活动[" + evTip + "]已确认自动刷 → 理智全刷 " + stage + "(" + Gd.Fmt(ev["Start"]) + " ~ " + Gd.Fmt(ev["End"]) + ")" + skipNote,
+                "Reason", "活动[" + evTip + "](" + Gd.Fmt(ev["Start"]) + " ~ " + Gd.Fmt(ev["End"]) + ") "
+                          + (entered ? "今天已自证进得去 " + stage + " → 理智全刷 " + stage
+                                     : "本轮即以最后一关 " + stage + " 为探针：进得去就按活动图刷，被剪则当日改刷长草")
+                          + skipNote,
                 "EventKey", evKey, "EventTip", evTip, "Source", source, "ShopDone", false);
         }
 

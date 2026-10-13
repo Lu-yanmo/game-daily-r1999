@@ -2,12 +2,13 @@
   tools/panel.ps1 —— 每日清体力的图形状态面板(Windows Forms；不装任何东西，依赖 PowerShell 7)。
 
   和菜单的分工：菜单适合"我知道要干哪一件事"，面板适合"瞟一眼今天怎么样"。
-  一屏显示：今天会刷什么、两道确认门的状态、定时任务下次几点跑、上一轮结果；
+  一屏显示：今天会刷什么、两道门的状态(方舟活动每轮自证 / 1999 活动确认 / 商店领空)、定时任务下次几点跑、上一轮结果；
   手边留动作：今天会跑什么(预演) / 开始跑一轮 / 环境体检 / 我打过活动了 / 商店已领空 / 打开日志目录。
 
   面板只是外壳，判定一律转调现成脚本(daily-clear.ps1 / status.ps1 / run-via-task.ps1)：
     - 不自己算结论，命令行和面板看到的是同一套判定；
-    - 参数名运行时探测，所以合并仓库(-Games/-AckArk)和单游戏发布仓库(-Ack)都能用；
+    - 参数名运行时探测，所以合并仓库(-Games / -ArkShopDone)和单游戏发布仓库(-ShopDone)都能用；
+      方舟的活动确认开关已于 2026-10-12 退场(改为每轮自证)，探测不到就降级成一句说明，见 $flagAck 那两处；
     - 开跑要"二次点击"确认，整个面板除了启动失败不会弹任何模态框。
 
   子进程输出怎么进来的(踩过的坑，别再改回去)：
@@ -245,11 +246,27 @@ function Get-PanelSummaryParts {
     foreach ($g in $script:games) {
         # 每条门状态都带上 Game(= 模块 id)：左侧导航按这一路过滤卡片时靠它，不再靠"文本前缀像不像"。
         if (-not $haveDecisions) { $gateRows += @{ Text = ($g + ' 判定库不在，门状态未知'); Kind = 'warn'; Game = [string]$g }; continue }
-        $ack = @{}; $shop = @{}
-        try { $ack = Get-GdAckMap -Game $g } catch { }
+        # 第一道门按两路分开报(2026-10-12 第 1 刀)：ark 已经换成"每轮机器自证"(拿活动最后一关当探针)，
+        # 报的是 state\ark-event-probe.json 的最新一条；r1999 没有自证通道，照旧报 ack 表。不许统一措辞。
+        if ($g -eq 'ark') {
+            $pb = $null
+            try { if (Get-Command Get-GdArkEventProbe -ErrorAction SilentlyContinue) { $pb = Get-GdArkEventProbe } } catch { $pb = $null }
+            if ($pb) {
+                $txt = '进得去 → 理智照刷活动图'
+                $kind = 'ok'
+                if (-not $pb.Entered) { $txt = '进不去 → 当日改刷长草(打通后下一轮自动切回)'; $kind = 'warn' }
+                $gateRows += @{ Text = ($g + ' 活动自证(' + [string]$pb.Date + ') ' + [string]$pb.EventKey + '/' + [string]$pb.Stage + '：' + $txt); Kind = $kind; Game = [string]$g }
+            }
+            else { $gateRows += @{ Text = ($g + ' 活动自证：还没有结论(下一轮即以活动最后一关为探针)'); Kind = 'dim'; Game = [string]$g } }
+        }
+        else {
+            $ack = @{}
+            try { $ack = Get-GdAckMap -Game $g } catch { }
+            if ($ack.Count) { $gateRows += @{ Text = (($g + ' 活动确认：已确认 ' + (($ack.Keys | Sort-Object) -join ','))); Kind = 'ok'; Game = [string]$g } }
+            else { $gateRows += @{ Text = ($g + ' 活动确认：未确认 → 新活动先跳过'); Kind = 'warn'; Game = [string]$g } }
+        }
+        $shop = @{}
         try { $shop = Get-GdShopDoneMap -Game $g } catch { }
-        if ($ack.Count) { $gateRows += @{ Text = (($g + ' 活动确认：已确认 ' + (($ack.Keys | Sort-Object) -join ','))); Kind = 'ok'; Game = [string]$g } }
-        else { $gateRows += @{ Text = ($g + ' 活动确认：未确认 → 新活动先跳过'); Kind = 'warn'; Game = [string]$g } }
         if ($shop.Count) { $gateRows += @{ Text = (($g + ' 商店领空：已标记 ' + (($shop.Keys | Sort-Object) -join ',') + '(剩余理智转长草)')); Kind = 'ok'; Game = [string]$g } }
         else { $gateRows += @{ Text = ($g + ' 商店领空：未标记'); Kind = 'dim'; Game = [string]$g } }
     }
@@ -780,7 +797,7 @@ function Get-PanelHeadlessStats {
 <#
   版式(2026-09-25 重做，之前是"一整块灰底 TextBox + 一排系统默认按钮")：
     头部深色带：标题 + 一句"面板只转达不判定" + 右边状态灯(空闲/正在跑) + 刷新时刻
-    四张白卡：定时任务 / 上一轮 / 两道确认门 / 环境 —— 每张卡里的行按"要不要人操心"着色，
+    四张白卡：定时任务 / 上一轮 / 两道门(方舟自证·1999确认·领空) / 环境 —— 每张卡里的行按"要不要人操心"着色，
              绿=就绪、黄=还没就绪(未注册·未确认·会弹 UAC)、红=已经出过问题(上一轮 stalled/配置没填全)
     动作区分两档：实心蓝=唯一那个会真开跑的；描边白=只读或改状态的；小片=两道门和开目录
     日志区：深色，逐行按 Write-GdLog 自带的级别上色(时间戳刷灰，级别标签隐去——颜色就是它)
@@ -1085,7 +1102,7 @@ function Set-PanelChip {
 $script:cardTimes = New-PanelCard $script:x0         86 300 132 '定时任务' 'Top,Left'
 $script:cardLast  = New-PanelCard ($script:x0 + 312) 86 300 132 '上一轮'   'Top,Left'
 $script:cardEnv   = New-PanelCard ($script:x0 + 624) 86 292 132 '环境'     'Top,Right'
-$script:cardGates = New-PanelCard $script:x0        226 $script:cw 132 '两道确认门(新活动要先你手动打过 / 商店领空后不再刷活动)' 'Top,Left,Right'
+$script:cardGates = New-PanelCard $script:x0        226 $script:cw 132 '两道门(方舟活动每轮自证 / 1999 新活动要先手动打过 / 商店领空后不再刷活动)' 'Top,Left,Right'
 
 # ---- 动作区：主动作只有一个，其余分两档 ----
 $act = New-Object System.Windows.Forms.Panel
@@ -1273,7 +1290,9 @@ $btnStatus.Add_Click({ Start-PanelTask -Script (Join-Path $root 'status.ps1') -T
 $btnRefresh.Add_Click({ Refresh-PanelSummary; Append-PanelLog '已刷新上面的状态。' })
 
 $script:ackBtn.Add_Click({
-    if (-not $flagAck) { Append-PanelLog '这个仓库的入口脚本没有"活动确认"参数，这个按钮不做事。'; return }
+    # 空名不等于"按钮坏了"(2026-10-12 第 1 刀)：方舟的 -Ack 确认门已退场(每轮自证)，1999 在合体入口里叫 -Ack1999。
+    # 与 C# 面板 Panel.Actions.cs 的同一分支保持同一句实话。
+    if (-not $flagAck) { Append-PanelLog '这个入口没有"活动确认"参数：方舟一路已改为每轮自证(拿活动最后一关当探针，进得去就按活动图刷，被剪掉就判还没打通、当日改刷长草)，不需要人点；上面门卡片里显示的就是最新一条自证结论。1999 那一路仍要人确认，合体入口里是 -Ack1999。'; return }
     $now = Get-Date
     if ($script:ackAt -and ($now - $script:ackAt).TotalSeconds -lt 12) {
         $script:ackAt = $null

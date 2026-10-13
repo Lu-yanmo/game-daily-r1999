@@ -105,11 +105,27 @@ function Test-GdShopDoneEnabled {
 }
 
 function Show-GdGateState {
-    <# status.ps1 的[6]段：把某一款的两道手动门当前状态打出来。放在这里是因为只有这一层拿得到两张表 #>
+    <# status.ps1 的[6]段：把某一款的两道手动门当前状态打出来。放在这里是因为只有这一层拿得到两张表。
+       追加(2026-10-12 第 1 刀)：方舟的第一道门(活动要不要自动刷)已换成"每轮机器自证"——
+       这里就改报那本账(state\ark-event-probe.json)的最新一条；1999 那一路照旧报 ack 表(它没有自证通道)。 #>
     param([Parameter(Mandatory)][string]$Game)
-    $m = Get-GdAckMap -Game $Game
-    if ($m.Count -eq 0) { Write-Host "  ${Game}: 无已确认活动(新活动会先跳过清体力)" }
-    else { foreach ($k in $m.Keys) { Write-Host "  ${Game}已确认: $k → $($m[$k])" } }
+    if ($Game -eq 'ark') {
+        Write-Host "  ark: 活动图每轮自证(拿最后一关当探针，进得去就按活动图刷)"
+        $pb = $null
+        try {
+            if (Get-Command Get-GdArkEventProbe -ErrorAction SilentlyContinue) { $pb = Get-GdArkEventProbe }
+        } catch { $pb = $null }
+        if ($pb) {
+            $txt = if ($pb.Entered) { '进得去 → 下一轮照常刷活动图' } else { '进不去 → 判为还没打通，当日改刷长草' }
+            Write-Host "  ark自证($($pb.Date)) $($pb.EventKey)/$($pb.Stage)：$txt" -ForegroundColor $(if ($pb.Entered) { 'Green' } else { 'Yellow' })
+        } else {
+            Write-Host "  ark自证: 还没有结论(下一轮即以活动最后一关为探针)"
+        }
+    } else {
+        $m = Get-GdAckMap -Game $Game
+        if ($m.Count -eq 0) { Write-Host "  ${Game}: 无已确认活动(新活动会先跳过清体力)" }
+        else { foreach ($k in $m.Keys) { Write-Host "  ${Game}已确认: $k → $($m[$k])" } }
+    }
     $d = Get-GdShopDoneMap -Game $Game
     if ($d.Count) { foreach ($k in $d.Keys) { Write-Host "  ${Game}商店已领空: $k → $($d[$k])(剩余理智转长草)" -ForegroundColor Yellow } }
 }

@@ -61,15 +61,31 @@ namespace GdPanel
         static Dictionary<string, object> ArkIn(object data, long now, string source,
             Dictionary<string, object> ack, Dictionary<string, object> shopDone, int dow)
         {
+            return ArkIn(data, now, source, ack, shopDone, dow, null);
+        }
+
+        // 第 7 枚入参 probe = 上一轮"拿活动最后一关当探针试打"的现场结论(state\ark-event-probe.json 同构)。
+        // ack / verbAck 判定层已不读，夹具照样喂：壳侧那一段 body 构造是 ark 与 1999 共用的，喂着才像真输入。
+        static Dictionary<string, object> ArkIn(object data, long now, string source,
+            Dictionary<string, object> ack, Dictionary<string, object> shopDone, int dow,
+            Dictionary<string, object> probe)
+        {
             if (ack == null) ack = new Dictionary<string, object>();
             if (shopDone == null) shopDone = new Dictionary<string, object>();
             Dictionary<string, object> ark = Gd.Out(
                 "defaultStage", "CE-5,LS-5",
-                "planByWeekday", Gd.Out("3", "LS-6"),
-                "eventRequiresAck", true);
+                "planByWeekday", Gd.Out("3", "LS-6"));
             return Gd.Out(
                 "ark", ark, "dow", dow, "now", now, "data", data, "source", source,
-                "ack", ack, "shopDone", shopDone, "verbAck", "-Ack", "verbShopReset", "-ShopReset");
+                "ack", ack, "shopDone", shopDone, "verbAck", "-Ack", "verbShopReset", "-ShopReset",
+                "probe", probe);
+        }
+
+        // 探针结论的现场形状（判定层只认 Date / EventKey / Entered / Evidence 四格，Stage 是留给日志看的）
+        static Dictionary<string, object> ProbeToday(string key, bool entered, string evidence)
+        {
+            return Gd.Out("Date", "2026-09-23", "EventKey", key, "Stage", "AI-8",
+                "Entered", entered, "Evidence", evidence);
         }
 
         static Dictionary<string, object> SideStory(object groups)
@@ -125,7 +141,7 @@ namespace GdPanel
                     return keys[0] == "b" && keys[1] == "a" && keys[2] == "c";
                 });
 
-                // ---------- decide-ark：长草 / 确认门 / 领空 / 提示语 ----------
+                // ---------- decide-ark：长草 / 每轮自证 / 领空 / 提示语 ----------
                 b.Chk("ark 无活动 → 长草计划(planByWeekday 没有的 dow 回落 defaultStage)", delegate
                 {
                     Dictionary<string, object> a5 = Gd.Map(Decisions.Ark(ArkIn(SideStory(Gd.Out()), now, "假数据", null, null, 5)));
@@ -148,26 +164,48 @@ namespace GdPanel
                 Dictionary<string, object> oneGrp = Gd.Out("zztest-event",
                     EventObj("测试活动", "2026-09-20 04:00:00", "2026-09-26 18:00:00",
                         Stage("AI-8", "10001"), Stage("CE-5", "3004")));
-                b.Chk("ark 未确认 → event-pending：不烧理智、活动关只是提示、提示语 -Ack", delegate
+                b.Chk("ark 没探过(probe 缺) → event：本轮即以最后一关为探针，理智照刷", delegate
                 {
                     Dictionary<string, object> r = Gd.Map(Decisions.Ark(ArkIn(SideStory(oneGrp), now, "假数据", null, null, 5)));
-                    return (string)r["Mode"] == "event-pending" && !(bool)r["ClearSanity"]
-                        && (string)r["Stage"] == "CE-5,LS-5" && (string)r["StageHint"] == "AI-8"
-                        && (string)r["Reason"] == "活动[测试活动](sideStory/zztest-event，至 09-26 18:00) 进行中但你还没确认可自动刷 → 本轮不消耗理智。确认后运行 daily-clear.ps1 -Ack"
+                    return (string)r["Mode"] == "event" && (bool)r["ClearSanity"] && (string)r["Stage"] == "AI-8"
+                        && (string)r["Reason"] == "活动[测试活动](09-20 04:00 ~ 09-26 18:00) 本轮即以最后一关 AI-8 为探针：进得去就按活动图刷，被剪则当日改刷长草"
                         && (string)r["EventKey"] == "zztest-event" && !(bool)r["ShopDone"];
                 });
-                b.Chk("ark 已确认 → event：理智全刷代币关", delegate
+                b.Chk("ark 当日自证进得去 → event：文案写'今天已自证'、理智全刷代币关", delegate
                 {
-                    Dictionary<string, object> ack = Gd.Out("zztest-event", true);
-                    Dictionary<string, object> r = Gd.Map(Decisions.Ark(ArkIn(SideStory(oneGrp), now, "假数据", ack, null, 5)));
+                    Dictionary<string, object> r = Gd.Map(Decisions.Ark(
+                        ArkIn(SideStory(oneGrp), now, "假数据", null, null, 5, ProbeToday("zztest-event", true, ""))));
                     return (string)r["Mode"] == "event" && (bool)r["ClearSanity"] && (string)r["Stage"] == "AI-8"
-                        && (string)r["Reason"] == "活动[测试活动]已确认自动刷 → 理智全刷 AI-8(09-20 04:00 ~ 09-26 18:00)";
+                        && (string)r["StageHint"] == "AI-8"
+                        && (string)r["Reason"] == "活动[测试活动](09-20 04:00 ~ 09-26 18:00) 今天已自证进得去 AI-8 → 理智全刷 AI-8";
                 });
-                b.Chk("ark eventRequiresAck=false → 未确认也直接刷", delegate
+                b.Chk("ark 当日试打被剪 → event-pending：改刷长草但理智照烧、提示语指 -Force", delegate
                 {
-                    Dictionary<string, object> inp = ArkIn(SideStory(oneGrp), now, "假数据", null, null, 5);
-                    Gd.Map(inp["ark"])["eventRequiresAck"] = false;
-                    Dictionary<string, object> r = Gd.Map(Decisions.Ark(inp));
+                    Dictionary<string, object> r = Gd.Map(Decisions.Ark(
+                        ArkIn(SideStory(oneGrp), now, "假数据", null, null, 5, ProbeToday("zztest-event", false, "名单里没有 AI-8"))));
+                    return (string)r["Mode"] == "event-pending" && (bool)r["ClearSanity"]
+                        && (string)r["Stage"] == "CE-5,LS-5" && (string)r["StageHint"] == "AI-8"
+                        && (string)r["Reason"] == "活动[测试活动](sideStory/zztest-event) 今天试打过 AI-8，被 MAA 剪掉 → 判为你还没打通到这关，当日剩余轮改刷长草计划 CE-5,LS-5(理智照烧，不再空试；你打通后下一轮自动切回活动图，要现在就强刷：daily-clear.ps1 -Force)。证据：名单里没有 AI-8"
+                        && (string)r["EventKey"] == "zztest-event" && !(bool)r["ShopDone"];
+                });
+                b.Chk("ark 被剪但现场没抓到证据串 → 文案不带'。证据：'尾巴", delegate
+                {
+                    Dictionary<string, object> r = Gd.Map(Decisions.Ark(
+                        ArkIn(SideStory(oneGrp), now, "假数据", null, null, 5, ProbeToday("zztest-event", false, ""))));
+                    return (string)r["Mode"] == "event-pending" && !((string)r["Reason"]).Contains("。证据：");
+                });
+                b.Chk("ark 昨天的结论不作数(日期不等) → 重新拿最后一关当探针", delegate
+                {
+                    Dictionary<string, object> p = ProbeToday("zztest-event", false, "");
+                    p["Date"] = "2026-09-22";
+                    Dictionary<string, object> r = Gd.Map(Decisions.Ark(ArkIn(SideStory(oneGrp), now, "假数据", null, null, 5, p)));
+                    return (string)r["Mode"] == "event" && (string)r["Stage"] == "AI-8"
+                        && ((string)r["Reason"]).Contains("本轮即以最后一关 AI-8 为探针");
+                });
+                b.Chk("ark 结论属于别的活动(代号不等) → 不吃这条", delegate
+                {
+                    Dictionary<string, object> r = Gd.Map(Decisions.Ark(
+                        ArkIn(SideStory(oneGrp), now, "假数据", null, null, 5, ProbeToday("zztest-event2", false, ""))));
                     return (string)r["Mode"] == "event" && (string)r["Stage"] == "AI-8";
                 });
                 b.Chk("ark 唯一活动已领空 → 回落长草 + ShopDone + 恢复提示 -ShopReset", delegate
@@ -179,26 +217,40 @@ namespace GdPanel
                         && (string)r["EventKey"] == "zztest-event"   // 领空后仍能报出活动 id(供撤销)
                         && (string)r["Reason"] == "活动[测试活动]商店已标记领空 → 剩余理智改刷长草计划 CE-5,LS-5(要恢复刷活动：daily-clear.ps1 -ShopReset)(数据源：假数据)";
                 });
-                b.Chk("ark 两活动：A 领空 + B 未确认 → pending 且带'另有 1 个'尾巴", delegate
+                b.Chk("ark 两活动：A 领空 + 当日 B 被剪 → pending 且带'另有 1 个…已跳过'尾巴", delegate
+                {
+                    Dictionary<string, object> grp = Gd.Out(
+                        "zztest-event", EventObj("测试活动A", "2026-09-20 04:00:00", "2026-09-26 18:00:00", Stage("AI-8", "10001")),
+                        "zztest-event2", EventObj("测试活动B", "2026-09-20 04:00:00", "2026-09-29 04:00:00", Stage("LS-5", "3004")));
+                    Dictionary<string, object> sd = Gd.Out("zztest-event", true);
+                    Dictionary<string, object> p = ProbeToday("zztest-event2", false, "");
+                    p["Stage"] = "LS-5";
+                    Dictionary<string, object> r = Gd.Map(Decisions.Ark(ArkIn(SideStory(grp), now, "假数据", null, sd, 5, p)));
+                    return (string)r["Mode"] == "event-pending" && (bool)r["ClearSanity"]
+                        && (string)r["EventKey"] == "zztest-event2" && (string)r["Stage"] == "CE-5,LS-5"
+                        && (string)r["Reason"] == "活动[测试活动B](sideStory/zztest-event2) 今天试打过 LS-5，被 MAA 剪掉 → 判为你还没打通到这关，当日剩余轮改刷长草计划 CE-5,LS-5(理智照烧，不再空试；你打通后下一轮自动切回活动图，要现在就强刷：daily-clear.ps1 -Force)；另有 1 个活动商店已领空，已跳过";
+                });
+                b.Chk("ark 两活动：A 领空 + B 未探过 → 自动改刷 B 并带跳过说明", delegate
                 {
                     Dictionary<string, object> grp = Gd.Out(
                         "zztest-event", EventObj("测试活动A", "2026-09-20 04:00:00", "2026-09-26 18:00:00", Stage("AI-8", "10001")),
                         "zztest-event2", EventObj("测试活动B", "2026-09-20 04:00:00", "2026-09-29 04:00:00", Stage("LS-5", "3004")));
                     Dictionary<string, object> sd = Gd.Out("zztest-event", true);
                     Dictionary<string, object> r = Gd.Map(Decisions.Ark(ArkIn(SideStory(grp), now, "假数据", null, sd, 5)));
-                    return (string)r["Mode"] == "event-pending" && (string)r["EventKey"] == "zztest-event2"
-                        && ((string)r["Reason"]).EndsWith("daily-clear.ps1 -Ack；另有 1 个活动已标记领空");
+                    return (string)r["Mode"] == "event" && (string)r["EventKey"] == "zztest-event2" && (string)r["Stage"] == "LS-5"
+                        && ((string)r["Reason"]).EndsWith("；另有 1 个活动商店已领空，已跳过");
                 });
-                b.Chk("ark 两活动：A 领空 + B 已确认 → 自动改刷 B 并带跳过说明", delegate
+                b.Chk("ark 两活动：A 领空 + 当日 B 进得去 → 刷 B，文案写'今天已自证'", delegate
                 {
                     Dictionary<string, object> grp = Gd.Out(
                         "zztest-event", EventObj("测试活动A", "2026-09-20 04:00:00", "2026-09-26 18:00:00", Stage("AI-8", "10001")),
                         "zztest-event2", EventObj("测试活动B", "2026-09-20 04:00:00", "2026-09-29 04:00:00", Stage("LS-5", "3004")));
-                    Dictionary<string, object> ack = Gd.Out("zztest-event2", true);
                     Dictionary<string, object> sd = Gd.Out("zztest-event", true);
-                    Dictionary<string, object> r = Gd.Map(Decisions.Ark(ArkIn(SideStory(grp), now, "假数据", ack, sd, 5)));
-                    return (string)r["Mode"] == "event" && (string)r["EventKey"] == "zztest-event2" && (string)r["Stage"] == "LS-5"
-                        && ((string)r["Reason"]).EndsWith("；另有 1 个活动商店已领空，已跳过");
+                    Dictionary<string, object> p = ProbeToday("zztest-event2", true, "");
+                    p["Stage"] = "LS-5";
+                    Dictionary<string, object> r = Gd.Map(Decisions.Ark(ArkIn(SideStory(grp), now, "假数据", null, sd, 5, p)));
+                    return (string)r["Mode"] == "event" && (string)r["Stage"] == "LS-5" && (bool)r["ClearSanity"]
+                        && (string)r["Reason"] == "活动[测试活动B](09-20 04:00 ~ 09-29 04:00) 今天已自证进得去 LS-5 → 理智全刷 LS-5；另有 1 个活动商店已领空，已跳过";
                 });
                 b.Chk("ark 多活动按结束先后排队(先刷快结束的)", delegate
                 {
@@ -413,14 +465,25 @@ namespace GdPanel
                 });
 
                 // ---------- verb 接线(信封/退出码) ----------
-                b.Chk("verb decide-ark：--in/--out 回环，data 即判定对象", delegate
+                b.Chk("verb decide-ark：--in/--out 回环，data 即判定对象(未探过 → event 探针档)", delegate
                 {
                     string ip = Path.Combine(tmp, "in1.json"), op = Path.Combine(tmp, "out1.json");
                     GdJson.Write(ip, ArkIn(SideStory(oneGrp), now, "假数据", null, null, 5));
                     int code = GdCli.Run("decide-ark", new string[] { "--in=" + ip, "--out=" + op });
                     Dictionary<string, object> env = Gd.Map(GdJson.Read(op));
                     return code == 0 && (bool)env["ok"] && (int)env["exit"] == 0 && (int)env["proto"] == 1
-                        && (string)Gd.Map(env["data"])["Mode"] == "event-pending";
+                        && (string)Gd.Map(env["data"])["Mode"] == "event"
+                        && (string)Gd.Map(env["data"])["Stage"] == "AI-8";
+                });
+                b.Chk("verb decide-ark：probe 走真 JSON 往返也能挡门(当日被剪 → event-pending)", delegate
+                {
+                    string ip = Path.Combine(tmp, "in1b.json"), op = Path.Combine(tmp, "out1b.json");
+                    GdJson.Write(ip, ArkIn(SideStory(oneGrp), now, "假数据", null, null, 5,
+                        ProbeToday("zztest-event", false, "名单里没有 AI-8")));
+                    int code = GdCli.Run("decide-ark", new string[] { "--in=" + ip, "--out=" + op });
+                    Dictionary<string, object> d = Gd.Map(Gd.Map(GdJson.Read(op))["data"]);
+                    return code == 0 && (string)d["Mode"] == "event-pending" && (bool)d["ClearSanity"]
+                        && (string)d["Stage"] == "CE-5,LS-5" && ((string)d["Reason"]).Contains("被 MAA 剪掉");
                 });
                 b.Chk("verb 缺 --in → 1；顶层非对象 → 1；未知参数 → 1", delegate
                 {

@@ -109,7 +109,9 @@ class TestVerbGate(unittest.TestCase):
         self.assertFalse(EN.check_verb_args(['-Games', 'zzz'])['Ok'])
 
     def test_max_args(self):
-        many = ['-DryRun', '-AckArk', '-Ack1999', '-ArkShopDone', '-RShopDone',
+        # 10-12 第 1 刀：-AckArk 已随入口参数退场，白名单少一枚 ⇒ 这里改用剩下的合法开关凑满超限
+        # (合法项必须逐枚点名：check_verb_args 是先查"不在白名单"再查个数，混进非法参数会走错分支)。
+        many = ['-DryRun', '-Ack1999', '-ArkShopDone', '-RShopDone',
                 '-ArkShopReset', '-RShopReset', '-FarmArk', '-Games', 'ark']
         r = EN.check_verb_args(many)
         self.assertFalse(r['Ok'])
@@ -1105,7 +1107,8 @@ class TestTwoClickPlan(unittest.TestCase):
 
     def test_pending_wins_over_the_confirm_hook(self):
         # 两个口子同时给了：计划档优先。机读口不该有人在子进程里等一颗键盘上的 y。
-        queue = [self._ask('要真跑', '{"type":"run-verb","args":["-AckArk"]}'), self._ask('好')]
+        # 夹具用 -Ack1999：它仍入口真参数、仍算 mutating(-AckArk 已于 10-12 随入口退场，白名单不收非法参数)。
+        queue = [self._ask('要真跑', '{"type":"run-verb","args":["-Ack1999"]}'), self._ask('好')]
         pending = []
         EN.send_exchange(self.paths, '跑一轮', [], self._model(queue), self._verb,
                          spec_parser=fake_spec_parser, snapshot_fn=lambda: '',
@@ -1113,7 +1116,7 @@ class TestTwoClickPlan(unittest.TestCase):
                          confirm_fn=lambda d: self.confirm_calls.append(d) or True)
         self.assertEqual(self.confirm_calls, [])
         self.assertEqual(self.verb_calls, [])
-        self.assertEqual(pending, [{'Args': ['-AckArk'], 'Desc': '-AckArk'}])
+        self.assertEqual(pending, [{'Args': ['-Ack1999'], 'Desc': '-Ack1999'}])
 
     def test_plan_receipt_tells_the_model_it_was_not_run(self):
         seen = {}
@@ -1122,7 +1125,7 @@ class TestTwoClickPlan(unittest.TestCase):
             if not seen.get('second'):
                 seen['second'] = True
                 return {'Ok': True, 'Text': self._ask('要真跑',
-                                                      '{"type":"run-verb","args":["-AckArk"]}')}
+                                                      '{"type":"run-verb","args":["-Ack1999"]}')}
             seen['receipt'] = '\n'.join(m['content'] for m in msgs)
             return {'Ok': True, 'Text': self._ask('收到')}
         EN.plan_exchange(self.paths, '跑一轮', [], model, self._verb,
@@ -1151,23 +1154,26 @@ class TestTwoClickPlan(unittest.TestCase):
             self.assertIn('形状', ld['Why'])             # 坏代号先拒，绝不去拼路径
         self.assertIsNone(EN.plan_items({'items': []}))
         self.assertIsNone(EN.plan_items({'items': [{'args': []}]}))
-        self.assertIsNone(EN.plan_items({'items': [{'args': ['-AckArk', '']}]}))
+        # 夹具一律用入口真参数：plan_items 只看形状不查白名单，但写一枚已退场的 -AckArk 会误导后人。
+        self.assertIsNone(EN.plan_items({'items': [{'args': ['-ArkShopDone', '']}]}))
         self.assertEqual(EN.plan_items({'items': [{'args': ['-DryRun']}]})[0]['Desc'], '-DryRun')
 
     def test_save_and_load_roundtrip(self):
+        # 夹具换 -FarmArk(入口真参数、mutating)：这几条测的是盘上往返与清理，跟具体开关名无关，
+        # 但白名单不收 -AckArk(10-12 退场)之后，留着它会让第二击那几条的"合法/被拒"分组失去意义。
         sv = EN.save_plan(self.paths, {'id': '20260929-121530-ab12',
-                                       'items': [{'args': ['-AckArk'], 'desc': '真跑方舟'}]})
+                                       'items': [{'args': ['-FarmArk'], 'desc': '真跑方舟'}]})
         self.assertTrue(sv['Ok'])
         self.assertTrue(sv['Plan']['created'])            # created 自动补了一个
         ld = EN.load_plan(self.paths, '20260929-121530-ab12')
         self.assertTrue(ld['Ok'])
-        self.assertEqual(ld['Items'][0]['Args'], ['-AckArk'])
+        self.assertEqual(ld['Items'][0]['Args'], ['-FarmArk'])
 
     def test_old_plans_get_pruned_and_the_current_one_stays(self):
         ids = ['2026092%d-121530-ab%02d' % (i, i) for i in range(5)]
         for pid in ids:
             self.assertTrue(EN.save_plan(self.paths, {'id': pid, 'created': pid,
-                                                      'items': [{'args': ['-AckArk']}]}, keep=2)['Ok'])
+                                                      'items': [{'args': ['-FarmArk']}]}, keep=2)['Ok'])
         left = sorted(p.stem for p in self.paths.plans_dir.glob('*.json'))
         self.assertEqual(left, ids[-2:])                  # 每次只留最近 2 份，且刚写的那份永不被清掉
 
@@ -1182,11 +1188,11 @@ class TestTwoClickPlan(unittest.TestCase):
         self.assertIn('白名单', r['Results'][0]['Detail'])
 
     def test_second_click_runs_with_allowed_flag(self):
-        plan = {'items': [{'args': ['-FarmArk', '-AckArk'], 'desc': '刷一轮方舟'}]}
+        plan = {'items': [{'args': ['-FarmArk', '-Games', 'ark'], 'desc': '刷一轮方舟'}]}
         r = EN.run_plan(self.paths, plan, self._verb)
         self.assertTrue(r['Ok'])
         self.assertEqual(r['Why'], '')
-        self.assertEqual(self.verb_calls, [{'args': ['-FarmArk', '-AckArk'], 'allowed': True}])
+        self.assertEqual(self.verb_calls, [{'args': ['-FarmArk', '-Games', 'ark'], 'allowed': True}])
         rows = [json.loads(ln) for ln in
                 self.paths.journal.read_text(encoding='utf-8').splitlines() if ln.strip()]
         self.assertEqual(rows[-1]['op'], 'run-plan')                        # 真跑过什么留得下账
@@ -1200,7 +1206,7 @@ class TestTwoClickPlan(unittest.TestCase):
         def verb(args, allowed=False):
             calls.append(list(args))
             return {'Ran': True, 'Exit': 1 if len(calls) == 1 else 0, 'Detail': '假失败'}
-        plan = {'items': [{'args': ['-AckArk'], 'desc': 'A'}, {'args': ['-Ack1999'], 'desc': 'B'}]}
+        plan = {'items': [{'args': ['-FarmArk'], 'desc': 'A'}, {'args': ['-Ack1999'], 'desc': 'B'}]}
         r = EN.run_plan(self.paths, plan, verb)
         self.assertEqual(len(calls), 1)                  # 第一步没成，第二步绝不接着烧理智
         self.assertEqual(r['Results'][1]['Status'], '未执行')
@@ -1210,7 +1216,7 @@ class TestTwoClickPlan(unittest.TestCase):
     def test_second_click_survives_a_verb_that_throws(self):
         def verb(args, allowed=False):
             raise RuntimeError('子进程起了个意外')
-        plan = {'items': [{'args': ['-AckArk'], 'desc': 'A'}]}
+        plan = {'items': [{'args': ['-Ack1999'], 'desc': 'A'}]}
         r = EN.run_plan(self.paths, plan, verb)
         self.assertFalse(r['Ok'])
         self.assertEqual(r['Results'][0]['Status'], '没成')
@@ -1219,7 +1225,7 @@ class TestTwoClickPlan(unittest.TestCase):
     # ---- 机读口没有 stdin：默认确认钩子的第二层兜底 ----
 
     def test_default_confirm_without_stdin_is_not_confirmed(self):
-        queue = [self._ask('要真跑', '{"type":"run-verb","args":["-AckArk"]}'), self._ask('了解')]
+        queue = [self._ask('要真跑', '{"type":"run-verb","args":["-Ack1999"]}'), self._ask('了解')]
         old = sys.stdin
         sys.stdin = None                                  # GUI 起子进程时的真实形状：input() 抛 RuntimeError
         buf, sys.stdout = sys.stdout, io.StringIO()       # 那句"按不确认处理"是人话，别喷进自检输出

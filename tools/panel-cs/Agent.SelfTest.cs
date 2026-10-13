@@ -204,7 +204,7 @@ namespace GdPanel
             {
                 string why;
                 Dictionary<string, object> env = GdAgentLink.ParseEnvelope(
-                    "{\"ok\": true, \"items\": [{\"desc\": \"真跑方舟\", \"args\": [\"-AckArk\", \"-Games\", \"ark\"]}], \"plan_id\": \"x\"}", out why);
+                    "{\"ok\": true, \"items\": [{\"desc\": \"真跑方舟\", \"args\": [\"-ArkShopDone\", \"-Games\", \"ark\"]}], \"plan_id\": \"x\"}", out why);
                 List<Dictionary<string, object>> rows = GdAgentLink.Rows(env, "items");
                 return rows.Count == 1 && GdAgentLink.Str(rows[0], "desc") == "真跑方舟";
             });

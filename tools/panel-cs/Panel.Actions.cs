@@ -106,7 +106,14 @@ namespace GdPanel
 
         void OnAckClick(object sender, EventArgs e)
         {
-            if (ackFlagName.Length == 0) { AppendLog("这个仓库的入口脚本没有\"活动确认\"参数，这个按钮不做事。"); return; }
+            // 空名有两种来路，都不等于"按钮坏了"(2026-10-12 第 1 刀)：方舟这一路的 -Ack 确认门已经退场
+            // (每轮拿活动最后一关当探针自证，进得去就刷)，而 1999 在合体入口里叫 -Ack1999、不在这枚候选表里。
+            // 所以这里只把"这门现在怎么算"说清楚，绝不写成"这个按钮不做事"让人以为功能坏了。
+            if (ackFlagName.Length == 0)
+            {
+                AppendLog("这个入口没有\"活动确认\"参数：方舟一路已于 2026-10-12 改为每轮自证(拿活动最后一关当探针，进得去就按活动图刷，被 MAA 剪掉就判还没打通、当日改刷长草)，不需要人点；门卡片里显示的就是最新一条自证结论。1999 那一路仍要人确认，合体入口里是 -Ack1999。");
+                return;
+            }
             DateTime now = DateTime.Now;
             if ((now - ackAt).TotalSeconds < 12)
             {

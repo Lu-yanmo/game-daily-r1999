@@ -1190,7 +1190,7 @@ function Test-GdExportLeaks {
 # 所以二进制今天不受它保护 —— 文本门绿不等于包干净。下面两道件就是把这一格补上：
 # 期望契约号有一份(壳侧)、要扫的东西有一份(仍走 Get-GdLocalOnlyValues 这个唯一口径 + 从环境现推的短串)、
 # 逐字节扫法有一份(两副眼镜：cargo 产物里是 UTF-8/ASCII，csc 产物里是 UTF-16，只看一副就有半边盲区)。
-function Get-GdRustContract { 'RustCore-R6.0' }   # 与 tools\rustcore\src\main.rs 的 const CONTRACT 同改；同一轮内不许单侧动
+function Get-GdRustContract { 'RustCore-R7.0' }   # 与 tools\rustcore\src\main.rs 的 const CONTRACT 同改；同一轮内不许单侧动
 
 function Test-GdRustDailyPath {
     <# R3③ 换头开关(2026-10-06)：判据三把，原文住 docs\r0-adrs.md §5.4 / 方案 §11.4 ——
@@ -1343,7 +1343,9 @@ function Start-GdNativeStreamed {
         [string[]]$Arguments = @(),
         [Parameter(Mandatory)][string]$SinkPath,
         [Parameter(Mandatory)][ref]$SinkOffset,
-        [scriptblock]$OnSinkRow
+        [scriptblock]$OnSinkRow,
+        # 第二道保险的等待上限(毫秒)：只在"子进程已退、管道却没等到 EOF"这一支生效，健康路径上 Wait 当场为真。
+        [int]$StreamDrainTimeoutMs = 5000
     )
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = $Exe
@@ -1370,11 +1372,20 @@ function Start-GdNativeStreamed {
         }
     }
     $code = $p.ExitCode
+    # 第二道保险(10-13 现场定因)：子进程已退，但**被它起的进程继承了 stdout/stderr 管道的写端** ⇒ EOF 永不到，
+    # 旧码在这里取 `.Result` 那一句能把整轮钉死到计划任务按执行时限砍班(读数见 docs\b2e-eventstream-feasibility.md §6)。
+    # 现在每路只等有界：等满就放弃那一路的**兜底文本** —— 信封的正常落点是 --out 那个文件，不依赖 stdout，
+    # 只有"信封写不下去、退 stdout 末行"那一条备用路会受影响，所以放弃计数必须随返回值交出去、由调用方自己印 WARN。
+    # 不许静默：卡住、被放弃、真的没输出，是三种病，得能分档读。
+    $timeouts = 0
     $lines = @()
-    $lines += @([string]$outTask.Result -split "`r?`n")
-    $lines += @([string]$errTask.Result -split "`r?`n")
+    foreach ($tk in @($outTask, $errTask)) {
+        $text = ''
+        if ($tk.Wait($StreamDrainTimeoutMs)) { $text = [string]$tk.Result } else { $timeouts += 1 }
+        $lines += @($text -split "`r?`n")
+    }
     $p.Dispose()
-    return [pscustomobject]@{ ExitCode = $code; Lines = @($lines) }
+    return [pscustomobject]@{ ExitCode = $code; Lines = @($lines); StreamTimeouts = $timeouts }
 }
 
 # ---------- GdCore 进程内内核加载器(K0 收官件，形态=丙·宿主各自现编；契约全文 docs\gd-core-contract.md) ----------

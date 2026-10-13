@@ -33,7 +33,15 @@ use std::ffi::c_void;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::process::exit;
 
-const CONTRACT: &str = "RustCore-R6.0";
+// 升号依据（ADR-3：号只在"出口形状变了"的那一批动）：`RustCore-R6.0` → `RustCore-R7.0`，
+// 连接段 `--scope` 的**取值域多了一档**（`adb-live-run`：唯一真调 `AsstStart` 的一档），
+// 于是同一枚 `--connect` 出口对外可观察的形状变了 —— 新增一档入参取值 + 信封 `calls` 里新增
+// `AsstStart=* / AsstStop=* / worker=* / FreeLibrary=skipped-worker-alive` 那几枚标签 +
+// `ok` 的覆盖面多一条（任务面没收束不算 ok）。三条都是对外可见，不是"加字段"。
+// ⚠ 改号必须与 `lib\common.ps1` 的 `Get-GdRustContract`、`tools\build-exe.ps1` 的内嵌名册、
+// `tools\rustcore\probe-connect.ps1`、`docs\r0-keyfacts.json` 顶层**同批**动，
+// 由 `probe-events-golden.ps1` 的 H3 半逐一对齐（壳侧字面量还要求只剩一种拼法）。
+const CONTRACT: &str = "RustCore-R7.0";
 const ROLE: &str = "R0-readonly";
 
 // ---------------------------------------------------------------- Win32 直调
@@ -3130,12 +3138,12 @@ fn fi_ark_intent(inp: &JVal) -> JVal {
             ("Stage", JVal::S(hint.clone())),
             ("StageHint", JVal::S(hint.clone())),
             ("ClearSanity", JVal::B(true)),
-            ("Reason", JVal::S(format!("(-Force) 跳过活动确认门，直接刷 {}", hint))),
+            ("Reason", JVal::S(format!("(-Force) 不管今天的自证结论(进得去与否)，强行刷 {}", hint))),
             ("EventKey", fi_kv(&ark, "EventKey")),
             ("EventTip", fi_kv(&ark, "EventTip")),
             ("Source", fi_kv(&ark, "Source")),
         ]);
-        warnings.push(JVal::S("-Force：本轮忽略活动确认门".to_string()));
+        warnings.push(JVal::S("-Force：本轮忽略活动图自证结论".to_string()));
     }
 
     let (farm_stages, farm_reason): (Vec<JVal>, String) = if matches!(farm_opt, JVal::Null) {
@@ -4293,12 +4301,15 @@ fn ark_daily_chain(
         fx.log("INFO", &format!("  MAA：{}", ch));
     }
     if jv_str(&jv_get_ci(&input.decision, "Mode")).eq_ignore_ascii_case("event-pending") {
-        // 入口参数名：单游戏仓库未 Sync 过的表给短名；合体工程 Sync 后是 -AckArk —— 那是
-        // 装配输入（表状态），不在本刀范围，8 档也不触这支。
-        let ack = fx.entryverb("ark", "Ack")?;
+        // 第 1 刀(2026-10-12)改口：event-pending 不再是"跳过理智作战、等人工 -AckArk"，而是
+        // "今天拿活动最后一关当探针被 MAA 剪掉 ⇒ 判为还没打通 ⇒ 当日改刷长草但理智照烧"。
+        // 那句指向日后不存在的开关的旧话术随之作废(旧串仍留在 arkskip/live 两门的 old 侧基线里，
+        // 那是历史真身，不许改 —— 本次有意漂移就登记在那两处)。
+        // entryverb 这枚 ask 照旧发：协议名册与两侧投影一字不动（返回值不再进文案，故弃读）。
+        let _ack = fx.entryverb("ark", "Ack")?;
         fx.log(
             "WARN",
-            &format!("本轮跳过理智作战(只跑公招/基建/信用/领奖)；自己打过活动图后跑 daily-clear.ps1 {}", ack),
+            "本轮不打活动图(今天试打被 MAA 剪掉，判为还没打通) → 理智照烧、刷长草计划；你打通后下一轮自动切回活动图",
         );
     }
     let mut r = ark_daily_step(fx, "方舟", &cfg.chains, false, input.launch)?;
@@ -8559,6 +8570,15 @@ impl MaaHost for RealHost {
     fn start_process(&mut self, exe: &str, dir: &str, args: &[String]) -> Result<(), String> {
         let mut cmd = std::process::Command::new(exe);
         cmd.current_dir(dir);
+        // 三枚 stdio 一律指空设备。默认是 Inherit，被起的进程于是**继承了本核的 stdout 管道写端**：
+        // 核退出后，壳侧 Start-GdNativeStreamed 拿到 ExitCode 之后还要过收 stdout 那一行，而那根管道
+        // 唯一剩下的写端在对方进程手里 —— 它起的是常驻 GUI，跑完任务照常在，于是 EOF 永不来，
+        // 整轮卡在收尾之前（10-13 现场定因，读数与逐轮对照见 docs\b2e-eventstream-feasibility.md §6）。
+        // 这一路本来就不读被起进程的任何输出（返回值只有成/败），null 既是最小修法，也是唯一
+        // 不新增读流、不改跨进程出口形状的修法 —— 两枚契约号因此都不必动。
+        cmd.stdin(std::process::Stdio::null());
+        cmd.stdout(std::process::Stdio::null());
+        cmd.stderr(std::process::Stdio::null());
         // Start-Process -ArgumentList 的现场等价物：非空才带（ark 一路裸启动，参数面一个字节都不进）。
         if !args.is_empty() {
             cmd.args(args);
@@ -9198,15 +9218,41 @@ fn scan_forbidden_processes() -> Result<Vec<String>, String> {
 
 /// 连接段在某档下**允许**调用的符号序列。三条硬限制写死在这里，不靠文案：
 ///   1) 只出 `kind.callable` 里的名字（没签名源的一个都不出）；
-///   2) 永远不出 `AsstStart` / `MaaTaskerPostTask` —— R0 不执行任何任务，
-///      "最小任务"这一档只到 append + set_params（排队但不启动）；
+///   2) `shape` / `resource` / `adb-live` 三档永远不出 `AsstStart` / `MaaTaskerPostTask`
+///      —— 这三档的"最小任务"只到 append + set_params（排队但不启动）。第四档 `adb-live-run`
+///      （B-2e 乙-2，10-13 开闸）是唯一允许启动队列的一档，判据只住在下面 `runs_task` 那一处；
 ///   3) `w32cu` 档是空序列（那枚没有本地签名源，连接段对它只查导出）。
-/// 三档射程里唯一"真碰设备"的那一档。资源段不算：它只让 DLL 读自己的目录，不碰任何现场。
+/// 真碰设备的有两档：`adb-live`（连上就算）与 `adb-live-run`（连上并且把队列跑完）。
+/// 资源段不算：它只让 DLL 读自己的目录，不碰任何现场。
 /// 这条判据被**三处共用**（计划装配 / 实际调用 / 参数硬门），所以必须是一个函数而不是一串比较 ——
 /// 三处各写各的 `scope != "shape"`，就会有一处把"读事件形状"悄悄升级成"连设备"。
+///
+/// 第四档的名字**不在这里写第二遍**：它往下走 `runs_task`。理由是那条"一枚档名只剩一处 spelling"的
+/// needle 门（§7 那组），它管的就是"装配改了执行不会跟着改"这一族 —— 把 `adb-live-run` 在这里也点一次，
+/// 判据本身就变成两处 spelling，下一批改档名时会有一处漏掉。`adb-live` 那枚字面量维持原样，
+/// 所以既有三档读数逐字可比。
 fn reaches_connect(scope: &str) -> bool {
-    scope == "adb-live"
+    scope == "adb-live" || runs_task(scope)
 }
+
+/// "这一档到底要不要把任务队列真跑起来"的唯一判据（B-2e 乙-2）。
+///
+/// 它与 `reaches_connect` 是**两回事**，不是它的子集写第二遍：`adb-live` 那档一字未变 ⇒ 既有读数
+/// 继续可比，新增的一档才带真副作用。字符串判据同样**不许做前缀匹配**（自检那几格钉着），
+/// 否则 `adb-live` 会被判成跑任务 —— 那就是把"看着只是连一下"的一轮偷偷升级成"动了账号"的一轮。
+///
+/// 这一跳的形状是被签名源逼出来的，不是风格选择：遗留侧只有**阻塞式** `AsstStart`
+/// （asst.py 逐字核实 restype=c_bool、argtypes 一枚 void_p，async 变体压根没进我们的 callable 清单），
+/// 它占住调用线程直到队列散场 ⇒ 执行段把它丢进工作线程、主线程只等 `--timeout-ms` 那一个窗口。
+/// 无界等待正是 §6 那颗 stdio 雷的形状（整轮卡在收尾之前），所以这一档**必须**带上界。
+fn runs_task(scope: &str) -> bool {
+    scope == "adb-live-run"
+}
+
+/// CLI 认的档名册 —— 它只回答"这个名字存不存在"，射程与副作用**一律由上面两枚判据说话**。
+/// 这里刻意不写成 `v != "shape" && v != ...` 的比较链：那会把第四档的档名在源码里点第二遍，
+/// 而"一枚档名只剩一处 spelling"那条 needle 门管的就是"装配改了执行不会跟着改"这一族。
+const KNOWN_SCOPES: &[&str] = &["shape", "resource", "adb-live", "adb-live-run"];
 
 /// config 的缺省**按侧给**，唯一口径：
 /// mf 侧 `MaaAdbControllerCreate` 的第 5 枚要 **JSON 对象** —— 非对象字面量会被框架在建控制器处当场判掉
@@ -9246,6 +9292,16 @@ fn connect_plan(kind_name: &str, scope: &str, load_resource: bool, minimal_task:
                 v.push("AsstAppendTask");
                 v.push("AsstSetTaskParams");
             }
+            // 第四档才真启动（B-2e 乙-2）。`AsstStop` 一并排进计划，但它不是"总要调"的一条而是
+            // **收尾备选**：正常跑完时执行段自己写一条 `AsstStop=not-needed` 留痕，
+            // `fill_not_attempted` 对留过痕的不碰 —— 于是"没需要"与"压根没试"分得开。
+            // `AsstRunning` 刻意**不**排进来：真启动那一跳堵在工作线程里，主线程并发去读运行标志
+            // 是本档没有依据的一种猜想（签名源只给了 start/stop/running 三枚同族声明，没说能并发），
+            // 而"队列跑完没有"这件事本档由事件流的终态判据来证，不靠多调一枚符号装样子。
+            if minimal_task && runs_task(scope) {
+                v.push("AsstStart");
+                v.push("AsstStop");
+            }
             v.push("AsstDestroy");
         }
         "mf" => {
@@ -9269,16 +9325,30 @@ fn connect_plan(kind_name: &str, scope: &str, load_resource: bool, minimal_task:
     v
 }
 
-fn plan_is_safe(kind: &Kind, plan: &[&'static str]) -> Option<String> {
+fn plan_is_safe(kind: &Kind, plan: &[&'static str], scope: &str) -> Option<String> {
     for name in plan {
         if !kind.callable.iter().any(|c| c == name) {
             return Some(format!("调用序列里混进了无签名源的符号：{}", name));
         }
     }
-    for banned in ["AsstStart", "MaaTaskerPostTask", "AsstAttachWindow", "AsstAsyncAttachWindow"] {
+    for banned in ["MaaTaskerPostTask", "AsstAttachWindow", "AsstAsyncAttachWindow"] {
         if plan.contains(&banned) {
             return Some(format!("调用序列里出现了本轮禁止的 {}：R0 不执行任务、不挂窗口", banned));
         }
+    }
+    // 启动与停止这两枚**只对第四档开放**，判据仍只住 `runs_task` 一处（与上面那条射程判据同构）。
+    for gated in ["AsstStart", "AsstStop"] {
+        if plan.contains(&gated) && !runs_task(scope) {
+            return Some(format!("调用序列里出现了 {}：非 adb-live-run 档不执行任务", gated));
+        }
+    }
+    // 反手还有一条，而且它才是这一档要紧的那条：**档名承诺了跑任务，计划里却没有启动符号**
+    // = 把"跑"悄悄退成"排队"，读数看着像跑过、其实一步没动 —— "ok 从不证 X"同族第五种。
+    // 宁可退 2 出一条带归因的信封，不许印一句"任务已启动"。
+    // 这条顺带把 mf 侧挡死了：框架侧的任务提交（`MaaTaskerPostTask`）没有签名源、也仍在禁止列里，
+    // 所以 `--kind mf --scope adb-live-run` 得到的是"这一档没排启动符号"，而不是半跑半不跑的混合形状。
+    if runs_task(scope) && !plan.contains(&"AsstStart") {
+        return Some("adb-live-run 档的计划里没有 AsstStart：这一档的存在理由就是把队列跑起来（不排队跑=假绿）".to_string());
     }
     None
 }
@@ -9292,6 +9362,12 @@ type AsstDestroyFn = unsafe extern "C" fn(*mut c_void);
 type AsstConnectFn = unsafe extern "C" fn(*mut c_void, *const i8, *const i8, *const i8) -> u8;
 type AsstAppendTaskFn = unsafe extern "C" fn(*mut c_void, *const i8, *const i8) -> i32;
 type AsstSetTaskParamsFn = unsafe extern "C" fn(*mut c_void, i32, *const i8) -> u8;
+// 第四档真启动那两枚（B-2e 乙-2）。签名源＝装包 Python 绑定里 start/stop 那两段声明：
+// restype 都是 c_bool（这里照 AsstConnectFn 的既有口径收成 u8，非零即真）、argtypes 一枚 void_p。
+// 遗留侧**没有** async 启动的声明进我们的 callable 清单，所以 start 是阻塞的 —— 这条决定了
+// 执行段必须把它丢到工作线程上，而不是在主线程里直接调。
+type AsstStartFn = unsafe extern "C" fn(*mut c_void) -> u8;
+type AsstStopFn = unsafe extern "C" fn(*mut c_void) -> u8;
 type MaaResourceCreateFn = unsafe extern "C" fn() -> *mut c_void;
 type MaaResourceDestroyFn = unsafe extern "C" fn(*mut c_void);
 type MaaSinkAddFn = unsafe extern "C" fn(*mut c_void, *mut c_void, *mut c_void) -> i64;
@@ -9566,7 +9642,7 @@ fn connect_run(kind: &'static Kind, o: &ConnectOpts, gate_reasons: Vec<String>) 
     }
 
     let plan = connect_plan(kind.name, &o.scope, o.load_resource, !o.minimal_task.is_empty());
-    if let Some(bad) = plan_is_safe(kind, &plan) {
+    if let Some(bad) = plan_is_safe(kind, &plan, &o.scope) {
         r.why = bad;
         return stamp(r);
     }
@@ -9641,16 +9717,28 @@ fn connect_run(kind: &'static Kind, o: &ConnectOpts, gate_reasons: Vec<String>) 
     }
     r.resource_load = resource_outcome(&r.calls, o.load_resource);
     if o.do_free {
-        let c = unsafe { FreeLibrary(hmod) };
-        r.freed = c != 0;
-        r.calls.push(format!("FreeLibrary={}", if r.freed { "true" } else { "false" }));
+        if worker_unresolved(&r.calls) {
+            // 工作线程还堵在（或死在）对方 DLL 里面时，FreeLibrary 是**第二次凭空进入对方的栈**：
+            // 句柄那一层已经跳过 `AsstDestroy` 了，模块这一层也必须跳过。读数如实留一条"因现场没清而没做"，
+            // 不假装释放成功（`freed` 维持 false）—— 进程退出交内核收，这是本档接受的那笔账。
+            r.calls.push("FreeLibrary=skipped-worker-alive".to_string());
+        } else {
+            let c = unsafe { FreeLibrary(hmod) };
+            r.freed = c != 0;
+            r.calls.push(format!("FreeLibrary={}", if r.freed { "true" } else { "false" }));
+        }
     }
     // ok 的覆盖面在 10-02 加过一次、10-03 又加宽一格：它原先只证"DLL 进得来 + 回调没炸"，于是那两遍
     // "空句柄、后面一步都不做"照样换到 CONNECT-OK —— 这是"ok 从不证 X"同族的第三次；10-03 首跑又印出
     // 了第四次（`ok:true` 与 `MaaAdbControllerCreate=null` 同现），所以第三件扩成**计划里那几枚句柄**：
     // 任一没拿到（null / absent / not-attempted）⇒ ok 必须是 false。
     // 判据仍只住一处（只从 calls 里已有的标签读，与 resource_outcome 同构），信封字段一枚没加。
-    r.ok = r.calls.iter().any(|c| c.starts_with("dll=")) && r.cb_panics == 0 && !handle_lost(&r.calls);
+    // B-2e 乙-2 开闸后加第五件：任务面没收到终局（`task_stalled`）也不算 ok。前三档压根出不了
+    // 那几枚标签 ⇒ 既有三档读数逐字不受影响（同上面"覆盖面加宽 vs 把别的档带红"那条分界）。
+    r.ok = r.calls.iter().any(|c| c.starts_with("dll="))
+        && r.cb_panics == 0
+        && !handle_lost(&r.calls)
+        && !task_stalled(&r.calls);
     stamp(r)
 }
 
@@ -9722,19 +9810,261 @@ unsafe fn run_ark(hmod: *mut c_void, o: &ConnectOpts, r: &mut ConnectReport) -> 
                         let got = g(core, id, j2.as_ptr());
                         r.calls.push(format!("AsstSetTaskParams={}", got));
                     }
+                    // 第四档真启动（B-2e 乙-2，10-13 开闸）。**前三档走到这里就是原样**：
+                    // 排队 + 设参、不调 AsstStart —— "R0 的连接段不执行任务，所以排队读只到回执为止"
+                    // 那句话对 shape / resource / adb-live 三档仍然逐字成立，本刀只加了一枚 `runs_task`
+                    // 判据，没有把整段重写。
+                    // 排队回执为 0（任务名不被认 / 没连上）时不启动：计划里那两枚由 fill_not_attempted
+                    // 补成 `not-attempted`，"没试"与"试了没成"仍然分得开。
+                    if runs_task(&o.scope) {
+                        let (clean, receipt, stop_issued) = start_task(r, hmod, core, o);
+                        if receipt == Some(false) {
+                            why = "AsstStart 返回 false：这一侧压根没让队列起步（跑没跑成看事件流终态，**别拿信封的 ok 当它**）".to_string();
+                        }
+                        if !clean {
+                            return "任务面没收束：工作线程还堵在 AsstStart 里，本轮不销毁句柄、不 FreeLibrary（进程退出交内核收）".to_string();
+                        }
+                        // 10-13 两枪真跑（12:35 / 12:42，同形）把本刀带的一条**前提**当场打掉了：对方日志里
+                        // `asst::Assistant::start | enter` 与 `| leave, 0 ms` 落在**同一毫秒**，而任务链在
+                        // 另一根线程上继续跑，一直跑到我方销毁它为止。⇒ 遗留侧的 `AsstStart` **不阻塞**，
+                        // "回执 1 + worker=joined" 只证**启动调用回了话**，一并不证队列散场。
+                        // 所以这一档不许等调用，得等**事件流里的终态**：判据仍只有 `terminal_of` 一处
+                        // （与 `--events` 那一档同一条，不在这里另起第二套成败口径），上界照用 `--timeout-ms`。
+                        // 等不到 = 队列还在跑，此时**真叫停**（只在上头那一枪没打过时才叫，见 `stop_issued`）
+                        // 并再给一枚短窗收 `TaskChainStopped` 的回执；
+                        // 连回执都收不到才留 `terminal=none`，由 `task_stalled` 把 ok 否掉 ——
+                        // 原先那句 `AsstStart` 回执一到就写的 `AsstStop=not-needed` 是把"启动调用回了话"
+                        // 说成"它跑完了"，已按实测撤掉，这条留痕改由下面的终态判据给。
+                        // 同一枪还打掉**第二条**前提：`terminal=` 只给"末条命中"，而真事件流里
+                        // `TaskChainError` 之后还会到一条 `AllTasksCompleted`（那条的本义是队列散场），
+                        // 于是 `terminal=succeeded` 与"这轮跑砸了"能同现 ⇒ 这里同时留一枚 `terminal_seen=`
+                        // 命中册（`terminal_hits`），把"这一轮见过哪几枚终态、什么序"如实交出来。
+                        // 判据仍只有 `terminal_of` 一处，`--events` 的 `verdict` 一字未动。
+                        // 反面也写清楚：`AsstStart` 符号缺失时**不进这个等待**。那一形的队列压根没建起来，
+                        // 等满一个上界只会多造一条 `terminal=none` 的假读数 —— 那种形状由
+                        // `AsstStart=absent` 自己说话（它已在 task_stalled 名单里），而计划里那枚 `AsstStop`
+                        // 由 fill_not_attempted 补成 `not-attempted`，"没起步"与"起步了没下文"仍然分得开。
+                        if receipt.is_some() || stop_issued {
+                            match ring_terminal_until(r.main_thread, o.timeout_ms) {
+                                Some((v, seen)) => {
+                                    r.calls.push(format!("terminal={}", v));
+                                    r.calls.push(format!("terminal_seen={}", seen.join(",")));
+                                    // 队列自己散场了才不需要 stop。这条留痕**必须写**：计划里排着 AsstStop，
+                                    // 不写就会被 fill_not_attempted 补成"压根没试"，而真相是"没需要" ——
+                                    // 两枚读数的意思相反。
+                                    r.calls.push("AsstStop=not-needed".to_string());
+                                }
+                                None => {
+                                    if !stop_issued {
+                                        if let Some(q) = take(r, hmod, "AsstStop") {
+                                            let g: AsstStopFn = std::mem::transmute(q);
+                                            let got = g(core);
+                                            r.calls.push(format!("AsstStop={}", got));
+                                        }
+                                    }
+                                    match ring_terminal_until(r.main_thread, STOP_GRACE_MS) {
+                                        Some((v, seen)) => {
+                                            r.calls.push(format!("terminal={}", v));
+                                            r.calls.push(format!("terminal_seen={}", seen.join(",")));
+                                        }
+                                        None => r.calls.push("terminal=none".to_string()),
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
-        // 这里**故意不调 AsstStart**：R0 的连接段不执行任务，所以排队读只到回执为止。
     }
 
-    sleep_with_events(o.timeout_ms);
+    // 前三档的收尾窗**一字未动**（同一个函数、同一条 3 秒上限）⇒ 既有读数逐字可比。
+    // 第四档不走这里：它上面已经按上界等过终态了，再固定睡三秒只会把"等到了"和"等死了"糊成一枚读数。
+    if !runs_task(&o.scope) {
+        sleep_with_events(o.timeout_ms);
+    }
     if let Some(p) = take(r, hmod, "AsstDestroy") {
         let f: AsstDestroyFn = std::mem::transmute(p);
         f(core);
         r.calls.push("AsstDestroy=done".to_string());
     }
     why
+}
+
+/// 第四档的真启动（B-2e 乙-2，10-13 开闸）。
+///
+/// 返回 `(能不能安全收尾, AsstStart 的回执, 这一路有没有真打过 AsstStop)`。回执是 `None` 表示压根没拿到
+/// （符号缺失 / 工作线程没了 / 上界到了没回话），与 `Some(false)`（对方说没跑成）是三件事，分开留痕 ——
+/// 这是本仓"没做 / 做了没回执 / 做了但失败"三分法的第四次落地。
+/// 第三枚不是状态位而是**防重枪的凭据**：叫停只许由一处发起，调用方拿它决定还要不要再补一枪
+/// （对同一句柄连发两次 AsstStop 没有依据 —— 签名源只说"停止并清空所有任务"，没说重复调用安全）。
+///
+/// 三处形状都是被东西逼出来的，不是风格选择：
+///   1) 这一跳丢给工作线程、主线程只等 `--timeout-ms` 那一个窗口。**理由在 10-13 换过一次**：
+///      签名源（asst.py：restype=c_bool、argtypes 一枚 void_p，async 变体没进我们的 callable）那侧写的是
+///      **阻塞式**，而两枪现场实测 `asst::Assistant::start | leave, 0 ms` —— 这一版根本不阻塞。
+///      工作线程这层**照留**：它防的是"这一版不阻塞、下一版或另一侧真阻塞"时的无界等待
+///      （**无界等待就是 §6 那颗 stdio 雷的形状**，整轮卡在收尾之前），而"跑没跑完"从此不由这里判，
+///      交回事件流终态那一层（`ring_terminal_until`）。**一个函数只判一件事**。
+///      ⇒ 本函数里**不再**写 `AsstStop=not-needed`：回执一到就说"没需要 stop"，正是把"调用回了话"
+///      当成"队列散场"，那条前提已被实测打掉。
+///   2) 跨线程只递 `usize`（裸指针不是 `Send`）；转出与转回成对落在同一个函数里，不外溢。
+///   3) 超时不等于失败：我方主动 `AsstStop`（签名源核实 = 停止并清空所有任务），再按**同一个上界**
+///      看工作线程回没回来。没回来就返回 `false`，调用方跳过 `AsstDestroy`、主流程跳过 `FreeLibrary`
+///      —— 别人还堵在 DLL 里面时销毁句柄是第二颗雷，进程退出交给内核收。
+unsafe fn start_task(
+    r: &mut ConnectReport,
+    hmod: *mut c_void,
+    core: *mut c_void,
+    o: &ConnectOpts,
+) -> (bool, Option<bool>, bool) {
+    let Some(p) = take(r, hmod, "AsstStart") else {
+        // `take` 已经留过 `AsstStart=absent` 那枚更响的读数（fill_not_attempted 对留痕的不碰），
+        // 这里不重复登记，只把"没起步"如实交回：句柄是我们自己建的，销毁照走。
+        return (true, None, false);
+    };
+    let f: AsstStartFn = std::mem::transmute(p);
+    let (tx, rx) = std::sync::mpsc::channel::<u8>();
+    let core_raw = core as usize;
+    let worker = std::thread::spawn(move || {
+        let got = unsafe { f(core_raw as *mut c_void) };
+        let _ = tx.send(got);
+    });
+    let bound = o.timeout_ms.max(1);
+    match rx.recv_timeout(Duration::from_millis(bound)) {
+        Ok(got) => {
+            r.calls.push(format!("AsstStart={}", got));
+            let _ = worker.join();
+            r.calls.push("worker=joined".to_string());
+            (true, Some(got != 0), false)
+        }
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+            // 通道先断 = 工作线程已经没了（ panic 被 Runtime 吞掉那种 ）。对方栈上的状态无从知晓：
+            // 不追调 AsstStop（那是一次凭空的二次进入），不销毁句柄，读数只留这一枚标签。
+            r.calls.push("AsstStart=worker-died".to_string());
+            (false, None, false)
+        }
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+            r.calls.push("AsstStart=timeout".to_string());
+            let mut stop_issued = false;
+            if let Some(q) = take(r, hmod, "AsstStop") {
+                let g: AsstStopFn = std::mem::transmute(q);
+                let got = g(core);
+                r.calls.push(format!("AsstStop={}", got));
+                stop_issued = true;
+            }
+            let deadline = filetime_now() + bound * 10_000;
+            while !worker.is_finished() && filetime_now() < deadline {
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            if worker.is_finished() {
+                let _ = worker.join();
+                r.calls.push("worker=joined".to_string());
+                // stop 发出去了、线程也回来了，但 AsstStart 的回执这一路**拿不到**（通道已过期）：
+                // 回执给 None，不许把"跑完了"和"叫停了"混成一枚 true。
+                (true, None, stop_issued)
+            } else {
+                r.calls.push("worker=not-joined".to_string());
+                (false, None, stop_issued)
+            }
+        }
+    }
+}
+
+/// 叫停之后收回执的那枚短窗。上限**沿用前三档收尾窗那条 3 秒**（`sleep_with_events` 里的同一个数）：
+/// 本仓不许为一档新形状另立一条上界，否则"等多久算久"会变成两处口径。
+const STOP_GRACE_MS: u64 = 3_000;
+
+/// "这一轮的环里出现过哪几枚终态" —— **保序**、相邻同枚折叠，成败词仍只从 `terminal_of` 取
+/// （不另起第二套词汇表，也**不改** `--events` 那一档的 `verdict` 判据，那条一字未动）。
+///
+/// 这枚读数不是装饰，是 10-13 首枪真跑（ark × adb-live-run × Award）逼出来的：同一枚环里
+/// `TaskChainError`（环序 13）之后**还到了一条** `AllTasksCompleted`（环序 14，只差 0 ms）⇒
+/// 按"末条命中"给的 `terminal=succeeded` 与"这一轮任务跑砸了"**同现**。
+/// 读上游给的 details 才看清语义：`AllTasksCompleted` 带的是 `finished_tasks`（里面就含着报错那条），
+/// 它说的是**队列散场**，不是**任务成功** —— 所以"末条命中"只许当**收束读数**用，
+/// 成败必须由这份命中册一起看。这是"`ok` 从不证 X"那一族的第五次，也是本仓第一次拿**真事件流**
+/// 把一条从夹具里定的映射推到对面上复核（此前 `AllTasksCompleted → succeeded` 只有回放样本撑）。
+///
+/// 反面：`terminal_seen=` **不进任何名单** —— 它是读数不是判据，ok 那一侧只认"有没有下文"
+/// （`terminal=none`），成败这一格由命中册话说。两份名单都按精确相等比，故天然扫不中它。
+fn terminal_hits(events: &[NormEvent]) -> Vec<&'static str> {
+    let mut hits: Vec<&'static str> = Vec::new();
+    for e in events {
+        if let Some(v) = terminal_of(&e.name) {
+            if hits.last() != Some(&v) {
+                hits.push(v);
+            }
+        }
+    }
+    hits
+}
+
+/// 第四档等终态：在事件环里找这一轮的终态，上界到了回 `None`（**不等于失败**，只等于"没下文"）。
+///
+/// 回来的是 `(末条命中的成败, 这一轮环里出现过的全部终态·保序折叠)` —— 第二枚不是修饰，是 10-13
+/// 首枪逼出来的（见 `terminal_hits`）。同一次环读里一起取，**不另起第二次读环**：
+/// 分两次扫同一个环，两枚读数可能各看到一半下文，那比少一枚读数更难查。
+///
+/// 三处形状同样是被逼出来的：
+///   1) 成败口径**只有 `terminal_of` 一处** —— 与 `--events` 那一档同一条判据。在这里另起一套
+///      "看 AsstStart 回执判成败"的口径，就会出现连接段说成功、事件流说失败各说各话。
+///   2) 取**环序里最后命中的那条**（与 `event_verdict` 同一条规矩）：实测 `*Starting` 先到、终态后到，
+///      先命中一条就 return 会把下文读丢。
+///   3) 读环只走 `normalize_ring` 这一处归一入口，不自己解析 raw：raw 里带路径与账号信息，
+///      判据只吃归一后的事件名。`main_thread` 是 `normalize_ring` 的既有形参，**不参与本判据**，
+///      而且这里刻意**不按线程筛** —— 任务链的事件在对方 worker 线程上（10-13 两枪实测跨线程），
+///      筛主线程会把终态整批筛没，那正是"看着像没收束"的假红形状。
+///   4) 到点后**还会再读一遍环**才回 `None`（先读环、后判截止）：落在窗口边上的终态不该被丢掉。
+///
+/// ⚠ 从环头读起是成立的，前提是这一枚进程只跑一次连接会话（换头协议的独占实例）⇒ 环里不会有上一轮的
+///   事件。若将来改成一进程跑多轮，这里必须换成带 `from` 游标的版本，否则会把上一轮的终态当本轮的下文。
+fn ring_terminal_until(main_thread: u32, bound_ms: u64) -> Option<(&'static str, Vec<&'static str>)> {
+    let deadline = filetime_now() + bound_ms.max(1) * 10_000;
+    loop {
+        let hits = terminal_hits(&normalize_ring(main_thread, 0));
+        if let Some(last) = hits.last() {
+            return Some((*last, hits));
+        }
+        if filetime_now() >= deadline {
+            return None;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// "任务面到底收束了没有" —— 与 `handle_lost` / `resource_outcome` 同构的一条判据，
+/// 只从 calls 里已有的标签读，不另起状态位。六枚标签任一在场就不许印 `ok:true`：
+/// `AsstStart=timeout`（上界到了队列还在跑）、`worker=not-joined`（对方栈上还有我们的人）、
+/// `AsstStart=worker-died`（工作线程没了、回执无从取得）、
+/// `AsstStart=absent`（这一档承诺跑任务而符号缺失）、`AsstStart=not-attempted`（计划排了却没试到）、
+/// `terminal=none`（叫停后连事件流的终态回执都没收到 —— 这一枚是 10-13 改等终态时补进来的：
+/// 既然 `ok` 的覆盖面已对外写成"任务面收到了终局"，等不到终局就必须由同一枚判据否掉，
+/// 不许 usage 里那句话与实际形状脱节）。
+/// 前三档压根不会有这六枚标签里的任何一枚（`AsstStart` 只在第四档进计划）⇒ **既有读数不受影响**，
+/// 这是"把覆盖面加宽"与"把别的档带红"之间那条分界线的又一次兑现。
+///
+/// 反面写清楚：`AsstStart=0` **不在**这份名单里。ok 从来不证任务成败（这句在本仓已经写了四遍），
+/// 队列跑过而没跑成属事件流终态那一层的读数（`terminal=failed` 照样是收到了终局），
+/// 不在"连接段起步了没有"这一格里。
+fn task_stalled(calls: &[String]) -> bool {
+    stalled_tag(calls, &["AsstStart=timeout", "worker=not-joined", "AsstStart=worker-died",
+                         "AsstStart=absent", "AsstStart=not-attempted", "terminal=none"])
+}
+
+/// "工作线程那一侧有没有下文" —— 上面那份名单的**真子集**，且只取"对方栈上可能还挂着我们的人"那两枚。
+/// 这条只管一件事：还要不要 `FreeLibrary`。`AsstStart=absent` / `not-attempted` 刻意**不在**这里 ——
+/// 那两种形状下压根没起步，句柄与模块都是干净的，跳过释放反而是条假读数。
+/// 判据分家的理由写在这两枚函数各自的注释里，不许后来者合并成一条。
+fn worker_unresolved(calls: &[String]) -> bool {
+    stalled_tag(calls, &["worker=not-joined", "AsstStart=worker-died"])
+}
+
+/// 两份名单共用的那一句"逐枚精确比对"。相等而非 `starts_with`：`AsstStart=1` / `AsstStart=0`
+/// 这些带回执的标签不能被 `AsstStart=` 前缀一并扫中，否则 ok 判据就自己把第四档的正常成功形状判红了。
+fn stalled_tag(calls: &[String], tags: &[&str]) -> bool {
+    tags.iter()
+        .any(|tag| calls.iter().any(|c| c == tag))
 }
 
 unsafe fn run_mf(hmod: *mut c_void, o: &ConnectOpts, r: &mut ConnectReport) -> String {
@@ -9916,30 +10246,51 @@ fn selftest() -> i32 {
         &mut total,
     );
 
-    // 6. 连接段三档射程的真值表 —— 全是纯逻辑，不需要装包、不需要 GUI、不需要模拟器在场。
+    // 6. 连接段四档射程的真值表 —— 全是纯逻辑，不需要装包、不需要 GUI、不需要模拟器在场。
     //    档名要能自己说清射程：中档旧名叫 adb-negative，承诺的是"拿假地址试一次负例连接"，
     //    实测后这条路取消了（设备不在场就没有负例，唯一诚实的形状是这一档压根不连）。
     //    名字留着会继续骗读数，所以改成 resource，并把三档一起钉死。
-    let tiers: [(&str, bool); 3] = [("shape", false), ("resource", false), ("adb-live", true)];
-    for (sc, want) in tiers {
+    //    第四档 `adb-live-run`（B-2e 乙-2）是**两枚判据分开钉**的：碰设备 ≠ 真跑任务。
+    //    两列各判各的，就是为了让"把连一下偷偷升级成动了账号"这种形状当场红。
+    let tiers: [(&str, bool, bool); 4] = [
+        ("shape", false, false),
+        ("resource", false, false),
+        ("adb-live", true, false),
+        ("adb-live-run", true, true),
+    ];
+    for (sc, want, want_run) in tiers {
         chk(
             reaches_connect(sc) == want,
-            &format!("{} 档的射程判据不是 {}：三档真值表错了，最高危那一档就没被看住", sc, want),
+            &format!("{} 档的射程判据不是 {}：四档真值表错了，最高危那一档就没被看住", sc, want),
+            &mut fails,
+            &mut total,
+        );
+        chk(
+            runs_task(sc) == want_run,
+            &format!("{} 档的跑任务判据不是 {}：真副作用的开闸判据错了", sc, want_run),
             &mut fails,
             &mut total,
         );
     }
     chk(!reaches_connect(""), "空档名判成碰设备", &mut fails, &mut total);
+    chk(!runs_task(""), "空档名判成真跑任务", &mut fails, &mut total);
     chk(!reaches_connect("adb"), "adb 判成碰设备：字符串判据不许做前缀匹配", &mut fails, &mut total);
     chk(!reaches_connect("live"), "live 判成碰设备（同上）", &mut fails, &mut total);
+    chk(!runs_task("adb-live"), "adb-live 判成真跑任务：那一档只连不动账号，升级它要另一档的名字", &mut fails, &mut total);
+    chk(!runs_task("adb-live-run-x"), "带尾巴的档名判成真跑任务：跑任务判据也不许做前缀匹配", &mut fails, &mut total);
 
     // (kind 名, 档, 载资源, 最小任务) 的展开表：每档该出哪些符号、该缺哪些，逐条对
-    let cases: [(&str, &str, bool, bool); 9] = [
+    let cases: [(&str, &str, bool, bool); 12] = [
         ("ark", "shape", true, true),
         ("ark", "resource", true, false),
         ("ark", "resource", false, true),
         ("ark", "adb-live", true, false),
         ("ark", "adb-live", true, true),
+        ("ark", "adb-live-run", true, true),
+        // 第四档但没给最小任务：计划里排不上启动符号 ⇒ 这一档的存在理由落空，必须**拒**
+        ("ark", "adb-live-run", true, false),
+        // framework 侧的任务提交没有本地签名源、且仍在禁止列里 ⇒ 第四档对它只能拒，不许半跑半不跑
+        ("mf", "adb-live-run", true, true),
         ("mf", "shape", true, true),
         ("mf", "resource", true, true),
         ("mf", "adb-live", true, false),
@@ -9964,17 +10315,27 @@ fn selftest() -> i32 {
             continue;
         }
         chk(!plan.is_empty(), &format!("{}：非 shape 档给出空计划（执行侧会当成什么都不做）", label), &mut fails, &mut total);
-        chk(plan_is_safe(k, &plan).is_none(), &format!("{}：连接段计划不安全", label), &mut fails, &mut total);
+        // 该拒 / 不该拒按判据现算，不在表里手工标：第四档若排不出启动符号就是"把跑退成排队"，
+        // 宁可一条带归因的信封都不出 —— 表里那三格拒例（ark 没给最小任务、mf 整侧）全靠这一句自己说话。
+        let should_refuse = runs_task(sc) && !(mt && kn == "ark");
+        let safety = plan_is_safe(k, &plan, sc);
+        if should_refuse {
+            chk(safety.is_some(), &format!("{}：这一档承诺跑任务却排不出启动符号，必须拒（不排队跑=假绿）", label), &mut fails, &mut total);
+        } else {
+            chk(safety.is_none(), &format!("{}：连接段计划不安全", label), &mut fails, &mut total);
+        }
         chk(plan.iter().all(|p| k.callable.iter().any(|c| c == p)), &format!("{}：计划里混进了无签名源的符号", label), &mut fails, &mut total);
-        // 启动类符号一次都不许出现：R0 的最小任务只到"排队 + 回执"，不执行
-        chk(!has("AsstStart"), &format!("{}：计划里出现了 AsstStart", label), &mut fails, &mut total);
+        // 启动类符号只在第四档出现：其余三档的"最小任务"仍然只到"排队 + 回执"，不执行
+        let start_expected = runs_task(sc) && mt && kn == "ark";
+        chk(has("AsstStart") == start_expected, &format!("{}：启动符号出现得不合规则（只有第四档、ark 侧、给了最小任务时才有）", label), &mut fails, &mut total);
+        chk(has("AsstStop") == start_expected, &format!("{}：收尾备选与启动符号不相配（一个排了一个没排）", label), &mut fails, &mut total);
         chk(!has("MaaTaskerPostTask"), &format!("{}：计划里出现了任务提交", label), &mut fails, &mut total);
         chk(!has("AsstAttachWindow") && !has("AsstAsyncAttachWindow"), &format!("{}：计划里出现了挂窗口（本轮禁止）", label), &mut fails, &mut total);
-        // 资源段与连接段是分得开的两件事：只有 adb-live 允许出现连接类符号
+        // 资源段与连接段是分得开的两件事：只有碰设备的两档允许出现连接类符号
         if reaches_connect(sc) {
-            chk(plan.iter().any(|p| connect_words.contains(p)), &format!("{}：adb-live 档却没有连接类符号（射程写窄了）", label), &mut fails, &mut total);
+            chk(plan.iter().any(|p| connect_words.contains(p)), &format!("{}：碰设备档却没有连接类符号（射程写窄了）", label), &mut fails, &mut total);
         } else {
-            chk(!plan.iter().any(|p| connect_words.contains(p)), &format!("{}：非 adb-live 档出现了连接类符号 = 偷偷碰设备", label), &mut fails, &mut total);
+            chk(!plan.iter().any(|p| connect_words.contains(p)), &format!("{}：非碰设备档出现了连接类符号 = 偷偷碰设备", label), &mut fails, &mut total);
         }
         chk(has("AsstLoadResource") == (kn == "ark" && lr), &format!("{}：载资源判据落错（ark 侧）", label), &mut fails, &mut total);
         chk(has("MaaResourcePostPipeline") == (kn == "mf" && lr), &format!("{}：载资源判据落错（mf 侧）", label), &mut fails, &mut total);
@@ -9993,9 +10354,22 @@ fn selftest() -> i32 {
                     &mut total,
                 );
             }
-            chk(has("AsstAppendTask") == (mt && reaches_connect(sc)), &format!("{}：最小任务符号出现得不合规则（只在 adb-live 档、且给了最小任务时才有）", label), &mut fails, &mut total);
+            chk(has("AsstAppendTask") == (mt && reaches_connect(sc)), &format!("{}：最小任务符号出现得不合规则（只在碰设备那两档、且给了最小任务时才有）", label), &mut fails, &mut total);
             chk(has("AsstSetTaskParams") == (mt && reaches_connect(sc)), &format!("{}：排队与设参两条不相配", label), &mut fails, &mut total);
             chk(has("AsstDestroy"), &format!("{}：没有收尾销毁：独占轮会留下句柄", label), &mut fails, &mut total);
+            // 第四档的**次序**：启动必须排在设参之后、销毁之前。排反了两种都是真事故 ——
+            // 设在销毁之后 = 永远跑不到；抢在设参之前 = 队列带着空参数开跑（对方按"参数已就绪"为前置）。
+            if start_expected {
+                let i_params = plan.iter().position(|p| *p == "AsstSetTaskParams");
+                let i_start = plan.iter().position(|p| *p == "AsstStart");
+                let i_destroy = plan.iter().position(|p| *p == "AsstDestroy");
+                chk(
+                    matches!((i_params, i_start, i_destroy), (Some(a), Some(b), Some(c)) if a < b && b < c),
+                    &format!("{}：真启动没排在设参之后、销毁之前", label),
+                    &mut fails,
+                    &mut total,
+                );
+            }
         }
         if kn == "mf" {
             chk(has("MaaResourceDestroy"), &format!("{}：没有收尾销毁：独占轮会留下句柄", label), &mut fails, &mut total);
@@ -10027,6 +10401,27 @@ fn selftest() -> i32 {
         &mut total,
     );
     chk(SRC.matches("reaches_connect(").count() >= 5, "reaches_connect 的使用点太少：计划/调用/参数硬门没共用同一条判据", &mut fails, &mut total);
+
+    // 第四档（B-2e 乙-2）同一条规矩再走一遍：真副作用的开闸判据**只许有一处 spelling**。
+    // 字面量写成一枚运行期拼出来的串以外的形式都会把自己数进去，所以照上面那条的写法用转义形式，
+    // 源码里那一处函数体是未转义的，两边不互撞（这一族的坑本轮之前已经踩过两次）。
+    let run_spell: &str = "scope == \"adb-live-run\"";
+    chk(
+        SRC.matches(run_spell).count() == 1,
+        "按档名判真跑任务的地方不止一处：开闸判据有了第二处 spelling，改了装配执行段不会跟着改",
+        &mut fails,
+        &mut total,
+    );
+    // 下界判据：计划装配 / 安全判据（两处）/ 执行段 / 自检的分派都得走同一枚函数。
+    chk(SRC.matches("runs_task(").count() >= 6, "runs_task 的使用点太少：四档里\"碰设备\"与\"真跑任务\"又分家了", &mut fails, &mut total);
+    // 档名册与射程判据不许各写一套：CLI 那边只认清单，比较链一律不许回来。
+    let scope_chain_spell: &str = &["v != \"adb-live", "-run\""].concat();
+    chk(
+        !SRC.contains(scope_chain_spell),
+        "CLI 里又写了一条按档名的比较链：档名册与射程判据分家，改档名时会有一处漏掉",
+        &mut fails,
+        &mut total,
+    );
 
     // 无签名源的挂载函数：查存在性（在 connect 清单里），但**绝不许调**（不在 callable 里）
     let has_in = |list: &[&str], n: &str| list.iter().any(|x| *x == n);
@@ -10091,6 +10486,33 @@ fn selftest() -> i32 {
     chk(!handle_lost(&vec!["MaaAdbControllerCreate=handle".to_string()]), "控制器拿到了句柄却被判成没起步", &mut fails, &mut total);
     chk(handle_lost(&vec!["AsstCreateEx=not-attempted".to_string()]), "计划里排着却没试到的句柄该算没拿到（not-attempted 与 null 同属「没起步」）", &mut fails, &mut total);
     chk(handle_lost(&vec!["MaaResourceCreate=absent".to_string()]), "符号缺失（absent）没被算成没起步：三件全空也换得到 CONNECT-OK", &mut fails, &mut total);
+    // B-2e 乙-2：真启动那一档的"收束了没有"两份判据。形状全部由合成标签给，不碰 DLL、不碰现场。
+    // 五枚 stalled 标签逐枚单测（不是"塞一整串看整体"）：一整串红了无从知道是哪枚没进名单。
+    for tag in ["AsstStart=timeout", "worker=not-joined", "AsstStart=worker-died",
+                "AsstStart=absent", "AsstStart=not-attempted", "terminal=none"] {
+        chk(task_stalled(&vec![tag.to_string()]), &format!("{} 没进「任务面没收束」的名单：ok 又能盖一层", tag), &mut fails, &mut total);
+    }
+    chk(!task_stalled(&Vec::new()), "前三档（压根没有启动标签）被新覆盖面带红", &mut fails, &mut total);
+    // 反面四格，都是这一档真会印出来的形状，不是设想：
+    //   `AsstStart=0` = 队列跑过但没跑成 —— 那是事件流终态那一层的读数，不许混进"起步了没有"这格；
+    //   `terminal=failed` / `terminal=succeeded` = 收到了终局（成败由 `terminal_of` 那一层说，
+    //     本判据只问"有没有下文"，问成败就把一枚判据拆成两套口径）；
+    //   `AsstStop=not-needed` = 计划里排了而没需要，与 not-attempted 分家的那条。
+    chk(!task_stalled(&vec!["AsstStart=1".to_string(), "terminal=succeeded".to_string(), "AsstStop=not-needed".to_string(), "worker=joined".to_string()]),
+        "跑成了的一轮被判成没收束：这一档当场就自红了", &mut fails, &mut total);
+    chk(!task_stalled(&vec!["AsstStart=0".to_string(), "terminal=failed".to_string()]),
+        "跑砸了的一轮被判成没收束：ok 只问收没收束，成败在终态那一层", &mut fails, &mut total);
+    chk(!task_stalled(&vec!["terminal=stopped-x".to_string()]),
+        "带尾巴的标签被判成没收束：两份名单都是精确相等，不做前缀", &mut fails, &mut total);
+    // 跳过释放的那两枚必须是 stalled 名单的**真子集**；absent / not-attempted / timeout 反过来必须留在外面
+    //（那三种形状下要么压根没起步、要么线程已经回来了，跳过 FreeLibrary 会是条假读数）。
+    chk(worker_unresolved(&vec!["worker=not-joined".to_string()]), "线程还堵在对方栈里却准备 FreeLibrary", &mut fails, &mut total);
+    chk(worker_unresolved(&vec!["AsstStart=worker-died".to_string()]), "线程死在里面却准备 FreeLibrary", &mut fails, &mut total);
+    chk(!worker_unresolved(&vec!["AsstStart=absent".to_string()]), "符号缺失被当成现场没清：模块明明是干净的", &mut fails, &mut total);
+    chk(!worker_unresolved(&vec!["AsstStart=timeout".to_string(), "worker=joined".to_string()]),
+        "叫停后线程回来了却被判成现场没清：这一轮的模块释放被无端跳过", &mut fails, &mut total);
+    chk(task_stalled(&vec!["worker=not-joined".to_string()]) && worker_unresolved(&vec!["worker=not-joined".to_string()]),
+        "两份判据的真子集关系断了：一份红一份不红，ok 与释放会各说各话", &mut fails, &mut total);
     let null_calls: Vec<String> = vec!["AsstCreateEx=null".to_string(), "AsstLoadResource=not-attempted".to_string()];
     chk(create_null_reason(&null_calls, true).contains("not-attempted"), "空句柄的归因没把资源面读数带出来：话术又会把人指回「对方不给句柄」", &mut fails, &mut total);
     chk(create_null_reason(&Vec::new(), false).contains("前置"), "没给载资源时空句柄的归因该落在前置门上，不是随便一句", &mut fails, &mut total);
@@ -10287,6 +10709,39 @@ fn selftest() -> i32 {
     chk(normalize(&mk_event(4, "framework", "", "Resource.Loading.Succeeded", 111), 111).state == "Succeeded", "framework 侧终态名归错", &mut fails, &mut total);
     chk(asst_domain("9999") == "unknown" && asst_domain("not-a-number") == "unknown", "号段外或非数字没兜住（会静默进某一档）", &mut fails, &mut total);
     chk(state_of("Summary.JsonCpp") == "JsonCpp", "认不出尾段时没退成最后一段", &mut fails, &mut total);
+    // B-2e 乙-2 第二枪：`terminal=` 只给「末条命中」，而真事件流里 `TaskChainError` 之后还会到一条
+    //   `AllTasksCompleted`（那条的本义是队列散场，它带的 details 是 finished_tasks）——
+    //   所以命中册 `terminal_hits` 必须单独有门。这一格不是装饰：首枪实测就是靠它才看出
+    //   「succeeded」与「这轮砸了」同现。事件全用手搓的，不加载 DLL、不推环。
+    let hit_ring: Vec<NormEvent> = vec![
+        normalize(&mk_event(1, "asst", "10001", "TaskChainStart", 222), 111),
+        normalize(&mk_event(2, "asst", "10000", "TaskChainError", 222), 111),
+        normalize(&mk_event(3, "asst", "3", "AllTasksCompleted", 222), 111),
+    ];
+    chk(terminal_hits(&hit_ring) == vec!["failed", "succeeded"],
+        "命中册没按环序把两枚终态都记下来：『这一轮见过哪几枚终态』又只剩末条", &mut fails, &mut total);
+    chk(hit_ring.last().is_some() && terminal_hits(&hit_ring).last() == Some(&"succeeded"),
+        "末条口径与 terminal_of 分家了：命中册最后一枚就该是 terminal= 的那一枚", &mut fails, &mut total);
+    // 空环与「只起始不见收尾」都必须交空册 —— 前者是压根没回调，后者正是 AsstStart 之后无下文的形状。
+    chk(terminal_hits(&Vec::new()).is_empty(), "空环给不出空命中册", &mut fails, &mut total);
+    chk(terminal_hits(&vec![normalize(&mk_event(1, "asst", "10001", "TaskChainStart", 222), 111)]).is_empty(),
+        "只有 TaskChainStart 就出了命中册：把「起了个头」读成了终态", &mut fails, &mut total);
+    // 折叠只对相邻同枚生效：中间夹了别的终态再回头，那一枚必须重新记（succeeded,stopped,succeeded 是真形状）。
+    let folded: Vec<NormEvent> = vec![
+        normalize(&mk_event(1, "asst", "3", "AllTasksCompleted", 222), 111),
+        normalize(&mk_event(2, "asst", "3", "AllTasksCompleted", 222), 111),
+        normalize(&mk_event(3, "asst", "10002", "TaskChainStopped", 222), 111),
+        normalize(&mk_event(4, "asst", "3", "AllTasksCompleted", 222), 111),
+    ];
+    chk(terminal_hits(&folded) == vec!["succeeded", "stopped", "succeeded"],
+        "相邻同枚没折、或不相邻的也被折了：命中册既会虚胖也会漏掉「散场后又报错」这种回头形状", &mut fails, &mut total);
+    // 命中册是**读数**不是判据：它不许进任何一份名单，否则 ok 会跟着册子的长短一起漂。
+    chk(!task_stalled(&vec!["terminal_seen=failed,succeeded".to_string()]),
+        "命中册被算进「任务面没收束」：读数当了判据，两枚终态同现的一轮会当场自红", &mut fails, &mut total);
+    chk(!task_stalled(&vec!["terminal_seen=none".to_string()]),
+        "terminal_seen= 里的 none 没被当成标签本体：精确相等那一条被前缀放宽了", &mut fails, &mut total);
+    chk(!worker_unresolved(&vec!["terminal_seen=failed,succeeded".to_string()]),
+        "命中册被算进「现场没清」：模块释放会跟着册子形状走", &mut fails, &mut total);
 
     // 13. R1 的三条判据：序号对账 / 终态判据 / 出口裁剪。
     //     ① **连续不等于没丢**：没有"已知应到数"只能报 unverified，这是 `loss_semantics` 那一格
@@ -11366,14 +11821,14 @@ fn selftest() -> i32 {
     let afk = xg(&af, "Ark");
     chk(
         xs(&afk, "Mode") == "event" && xs(&afk, "Stage") == "CT-1"
-            && xs(&afk, "Reason") == "(-Force) 跳过活动确认门，直接刷 CT-1"
+            && xs(&afk, "Reason") == "(-Force) 不管今天的自证结论(进得去与否)，强行刷 CT-1"
             && xs(&afk, "EventKey") == "act1" && xs(&afk, "EventTip") == "sidestory" && xs(&afk, "Source") == "event",
-        "farm/intent·ark：-Force 跳确认门 → event 档取 StageHint，Reason 带(-Force)原话",
+        "farm/intent·ark：-Force 越自证结论 → event 档取 StageHint，Reason 带(-Force)原话",
         &mut fails,
         &mut total,
     );
     chk(
-        xl(&xg(&af, "Warnings")).len() == 1 && x_at(&xg(&af, "Warnings"), 0) == "-Force：本轮忽略活动确认门",
+        xl(&xg(&af, "Warnings")).len() == 1 && x_at(&xg(&af, "Warnings"), 0) == "-Force：本轮忽略活动图自证结论",
         "farm/intent·ark：-Force 的 WARN 文案原样交给壳去打",
         &mut fails,
         &mut total,
@@ -14921,7 +15376,7 @@ fn usage() -> ! {
          \t  gdprobe --preflight       只读环境闸：助手进程在不在场，不加载任何 DLL\n\
          \n\
          连接段：gdprobe --connect --kind <ark|mf> --dir <装包目录> --user-dir <我方写入目录>\n\
-         \t              --scope <shape|resource|adb-live> [--no-load-resource] [--resource-path <资源落点目录>]\n\
+         \t              --scope <shape|resource|adb-live|adb-live-run> [--no-load-resource] [--resource-path <资源落点目录>]\n\
          \t              [--adb <路径>] [--address <host:port>] [--config <json>]\n\
          \t              [--agent-path <MaaAgentBinary 目录>] [--minimal-task <类型>] [--timeout-ms N]\n\
          \t              [--screencap-mask N] [--input-mask N] [--free]\n\
@@ -14930,11 +15385,25 @@ fn usage() -> ! {
          \t  档位射程：shape = 只加载与查导出、一枚函数都不调；\n\
          \t\t\tresource = 起实例 / 建资源 / 绑回调，不碰设备、不提权、不点击；\n\
          \t\t\t\t落点默认 mf=<装包>\\\\resource、ark=<装包根>，--resource-path 可指名模块子树（整目录会被框架判重复键）；\n\
-         \t\t\t\t资源加载成没成看信封 resource_load，**别拿 ok 当它**（ok 只证 DLL 进得来 + 回调没炸 + 计划里那几枚句柄都拿到了）；\n\
-         \t\t\tadb-live = 唯一真碰设备的一档（建控制器 + 发连接回执）。\n\
+         \t\t\t\t资源加载成没成看信封 resource_load，**别拿 ok 当它**（ok 只证 DLL 进得来 + 回调没炸 + 计划里那几枚句柄都拿到了 + 第四档的任务面收到了终局）；\n\
+         \t\t\tadb-live = 真碰设备的一档（建控制器 + 发连接回执），连上就算、**不把任务队列跑起来**；\n\
+         \t\t\t\tadb-live-run = 在它之上真启动队列（唯一调 AsstStart 的一档，会动账号，必须给 --minimal-task）；\n\
+         \t\t\t\t\t这一档等的是**事件流里的终态**：等待上界复用 --timeout-ms，成败判据仍是 terminal_of 那一处（与 --events 同一条，\n\
+         \t\t\t\t\t取环序里最后命中的那条，不按线程筛 —— 10-13 两枪实测任务链的事件在对方 worker 线程上）；\n\
+         \t\t\t\t\t同两枪还把本刀的一条前提打掉了：遗留侧 AsstStart **不阻塞**（enter 与 leave 落在同一毫秒），\n\
+         \t\t\t\t\t所以 calls 里的 AsstStart=1 + worker=joined 只证启动调用回了话，**一并不证队列散场** ——\n\
+         \t\t\t\t\t队列有没有下文由 terminal=succeeded / failed / stopped / none 这枚标签说；\n\
+         \t\t\t\t\t**但 terminal=succeeded 不证任务成功**：同一枪实测 TaskChainError 之后还会到一条 AllTasksCompleted\n\
+         \t\t\t\t\t（那条的本义是「队列散场」，它带的 details 是 finished_tasks、里面就含着报错那条），\n\
+         \t\t\t\t\t末条命中判成 succeeded 而这一轮其实是砸的 —— 所以 calls 里另留一枚 terminal_seen= 命中册\n\
+         \t\t\t\t\t（这一轮见过哪几枚终态、按环序、相邻同枚折叠；成败词仍只由 terminal_of 一处给）；\n\
+         \t\t\t\t\t上界到了没等到终态就主动 AsstStop（= 停止并清空所有任务，只叫一枪不补第二枪），\n\
+         \t\t\t\t\t再给一枚短窗收 TaskChainStopped 的回执（上限沿用前三档收尾窗那条 3 秒，不另立数），\n\
+         \t\t\t\t\t仍无下文才留 terminal=none 并由 ok 判据否掉；工作线程没回来就不销毁句柄、不释放模块，读数只留标签不猜。\n\
          \t  --config 缺省按侧给：mf = {{}}（JSON 对象 —— 非对象字面量会被框架在建控制器处直接判掉）、ark = General；\n\
          \t  --agent-path 是 mf 侧第六枚（上游 Python 绑定核实：agent_path = 装包内 MaaAgentBinary 目录），缺省空串原样传。\n\
-         \t  连接段永远不调 AsstStart / 任务提交：R0 的\"最小任务\"只到排队 + 回执。\n\
+         \t  启动类符号按档放开：shape / resource / adb-live 三档**仍然**一枚都不调 AsstStart，\"最小任务\"只到排队 + 回执；\n\
+         \t  只有 adb-live-run 真跑队列（B-2e 乙-2，10-13 开闸）。任务提交（MaaTaskerPostTask）与挂窗口两枚全线仍禁止。\n\
          \t  没有本地签名源的函数（ark 侧 AsstAttachWindow / AsstConnected 等）只查导出、不调用。\n\
          \n\
          事件流档（R1）：gdprobe --events [--fixture <asst|framework|both>] [--expected N] [--seq-gap N] [--out <文件>]\n\
@@ -15247,8 +15716,11 @@ fn run(args: &[String]) -> i32 {
             }
             "--scope" => {
                 let v = need("--scope", args, i);
-                if v != "shape" && v != "resource" && v != "adb-live" {
-                    eprintln!("未知 scope：{}（只有 shape / resource / adb-live）", v);
+                // 档名册按**清单**收，不再逐枚写 `v != "..."` 的比较链：第四档那枚字面量在源码里
+                // 只许存在一处（`runs_task` 函数体），这里再点一遍就会把那条 needle 门数成两处。
+                // 判据仍只住射程/跑任务那两枚函数，这里只管"这个名字我们不认"。
+                if !KNOWN_SCOPES.contains(&v.as_str()) {
+                    eprintln!("未知 scope：{}（只有 shape / resource / adb-live / adb-live-run）", v);
                     exit(1);
                 }
                 scope = v;

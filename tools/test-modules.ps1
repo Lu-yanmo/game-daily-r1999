@@ -261,6 +261,17 @@ foreach ($m in @(Get-GdModules)) {
         }
     }
     foreach ($verb in $verbs) {
+        if ($id -eq 'ark' -and $verb -eq 'Ack') {
+            # 2026-10-12 第 1 刀：方舟的活动确认门从入口退场了(-AckArk 不再被 daily-clear.ps1 认识，
+            # 活动图改每轮机器自证)。但 EntryVerbs.Merged 的 Ack 键与 Hooks.Ack 那一格都还在——
+            # 前者是 Rust 链体那枚 entryverb("ark","Ack") 的 ask 名册位(返回值弃读，删键=形状变要升契约号)，
+            # 后者是 lib\modules.ps1 的七枚必需钩子名册。所以这一路反过来钉：入口**必须不认识** -AckArk。
+            # 谁哪天把参数加回来，这格就红，提醒他要么真装回人肉门、要么改这里。
+            $arkAckNote = '名册位与钩子仍在，值弃读'
+            if ($dailyTable.ContainsKey('AckArk')) { $arkAckNote = 'daily-clear.ps1 又认识 AckArk 了' }
+            Check '[ark] Ack 已退场：入口不再认识 -AckArk(活动图改每轮自证)' (-not $dailyTable.ContainsKey('AckArk')) $arkAckNote
+            continue
+        }
         $flag = Get-GdEntryVerb -Game $id -Verb $verb        # 函数返回的是带前导连字符的完整开关名(判定日志直接拼进提示语)
         Check "[$id] $verb 的开关名 $flag 是入口真认识的参数" ($dailyTable.ContainsKey($flag.TrimStart('-')))
     }

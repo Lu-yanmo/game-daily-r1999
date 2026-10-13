@@ -35,12 +35,14 @@ CONFIG_KINDS = {
 }
 
 # ---------- run-verb 白名单(照搬 Get-GdAgentVerbRules；参数表 = daily-clear.ps1 的真开关) ----------
-SWITCHES = ['-DryRun', '-AckArk', '-Ack1999', '-ArkShopDone', '-RShopDone',
+# -AckArk 已于 2026-10-12 第 1 刀随入口参数一起退场：方舟的活动图不再靠人确认，而是每轮拿活动
+# 最后一关当探针自证(进得去就刷)。白名单跟着入口走 —— 收着它只会让 agent 建议出一条"找不到参数"的命令。
+SWITCHES = ['-DryRun', '-Ack1999', '-ArkShopDone', '-RShopDone',
             '-ArkShopReset', '-RShopReset', '-FarmArk']
 VALUED = {'-Games': ['ark', 'r1999', 'all'], '-RPlan': ['auto', 'idle', 'event', 'rerun'],
           '-ArkStage': 'stages'}
 MAX_ARGS = 8
-MUTATING_SWITCHES = ['-AckArk', '-Ack1999', '-ArkShopDone', '-RShopDone',
+MUTATING_SWITCHES = ['-Ack1999', '-ArkShopDone', '-RShopDone',
                      '-ArkShopReset', '-RShopReset', '-FarmArk']
 
 

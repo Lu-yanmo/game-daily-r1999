@@ -108,7 +108,7 @@ namespace GdPanel
             MakeCard(cardLast, X0 + 312, 86, 300, 132, "上一轮", AnchorStyles.Top | AnchorStyles.Left);
             MakeCard(cardEnv, X0 + 624, 86, 292, 132, "环境", AnchorStyles.Top | AnchorStyles.Right);
             // 第二行原来被"两道门"整行占满；让出右半边给「实验功能」(门最多 5 行、600px 宽装得下最长那条)
-            MakeCard(cardGates, X0, 226, 600, 132, "两道确认门(新活动要先你手动打过 / 商店领空后不再刷活动)", AnchorStyles.Top | AnchorStyles.Left);
+            MakeCard(cardGates, X0, 226, 600, 132, "两道门(方舟活动每轮自证 / 1999 新活动要先手动打过 / 商店领空后不再刷活动)", AnchorStyles.Top | AnchorStyles.Left);
             MakeCard(cardExp, X0 + 612, 226, CW - 612, 132, "实验功能", AnchorStyles.Top | AnchorStyles.Right);
             // 2026-09-26：这张卡从"一个按钮 + 两行字"变成"一行字 + 三个勾选 + 一个按钮"。
             // 为什么用勾选而不是原来那个「关掉它/打开它」：现在卡上有两路兜底开关(端游 / 模拟器)

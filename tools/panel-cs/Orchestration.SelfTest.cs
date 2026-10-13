@@ -67,6 +67,7 @@ namespace GdPanel
             RetryGroup(b);
             SkipGroup(b);
             ObserveGroup(b);
+            ProbeGroup(b);
             return b.Result("--orchtest");
         }
 
@@ -266,12 +267,12 @@ namespace GdPanel
 
             Dictionary<string, object> r = D(Orchestration.ArkIntent(Inp("ark", PendArk, "stage", "", "force", true, "farm", false)));
             Dictionary<string, object> f = D(r["Ark"]);
-            b.Chk("-Force 跳确认门 → event 档取 StageHint，Reason 带(-Force)原话", () =>
+            b.Chk("-Force 越自证结论 → event 档取 StageHint，Reason 带(-Force)原话", () =>
                 (string)f["Mode"] == "event" && (string)f["Stage"] == "CT-1"
-                && (string)f["Reason"] == "(-Force) 跳过活动确认门，直接刷 CT-1"
+                && (string)f["Reason"] == "(-Force) 不管今天的自证结论(进得去与否)，强行刷 CT-1"
                 && (string)f["EventKey"] == "act1" && (string)f["EventTip"] == "sidestory" && (string)f["Source"] == "event");
             b.Chk("-Force 的 WARN 文案原样交给壳去打", () =>
-                Gd.List(r["Warnings"]).Length == 1 && Gd.Str(Gd.List(r["Warnings"])[0]) == "-Force：本轮忽略活动确认门");
+                Gd.List(r["Warnings"]).Length == 1 && Gd.Str(Gd.List(r["Warnings"])[0]) == "-Force：本轮忽略活动图自证结论");
 
             Dictionary<string, object> fn = D(Orchestration.ArkIntent(Inp("ark", IdleArk, "stage", "", "force", true, "farm", false)));
             b.Chk("-Force 对非 event-pending 不动手(空 Warn，ark 原样)", () =>
@@ -547,8 +548,70 @@ namespace GdPanel
                 !Of(emptyAll) && !Ol(emptyAll) && !Oo(emptyAll) && Ov(emptyAll).Length == 0);
         }
 
-        static object Obs(string asst, string gui, string date) { return Orchestration.MaaStageObserve(Inp("asstText", asst, "guiText", gui, "date", date)); }
-        static bool Of(object r) { return Gd.Truthy(Gd.Get(D(r), "Found")); }
+        // ---------- 2026-10-12 第 1 刀新增：decide-ark-event-probe(每轮自证活动图进得去没) ----------
+        // 夹具就是上面 observe 组那几种现场形状，逐字同款；探针轮(10-12 20:34)的真锚是
+        // `GetFightStage: from ["YW-8"], selected YW-8` ⇒ 进得去那一格照它抄。
+        static void ProbeGroup(Box b)
+        {
+            Dictionary<string, object> ovYes = Gd.Out("Found", true, "Date", "2026-10-12", "Stage", "YW-8",
+                "LastBattle", false, "SawGuiPlan", true, "Survivors", new object[] { "YW-8" }, "Selected", "YW-8");
+            Dictionary<string, object> ovInList = Gd.Out("Found", true, "Date", "2026-10-12", "Stage", "CE-5",
+                "LastBattle", false, "SawGuiPlan", true, "Survivors", new object[] { "LS-5", "YW-8" }, "Selected", "LS-5");
+            Dictionary<string, object> ovTrimmed = Gd.Out("Found", true, "Date", "2026-10-12", "Stage", "CE-5",
+                "LastBattle", false, "SawGuiPlan", true, "Survivors", new object[] { "LS-5", "SK-5" }, "Selected", "LS-5");
+            Dictionary<string, object> ovEmpty = Gd.Out("Found", true, "Date", "2026-10-12", "Stage", "",
+                "LastBattle", true, "SawGuiPlan", true, "Survivors", new object[0], "Selected", "");
+            Dictionary<string, object> ovNoPlan = Gd.Out("Found", false, "Date", "2026-10-12", "Stage", "YW-8",
+                "LastBattle", false, "SawGuiPlan", false, "Survivors", new object[0], "Selected", "");
+
+            b.Chk("探针·进得去(名单里就是它且被选中)：Valid+Entered，证据带名单条数", () =>
+            {
+                Dictionary<string, object> r = Gd.Map(Orchestration.ArkEventProbe(
+                    Inp("date", "2026-10-12", "eventKey", "zztest-event", "stage", "YW-8", "obs", ovYes)));
+                return (bool)r["Valid"] && (bool)r["Entered"] && (string)r["Stage"] == "YW-8"
+                    && (string)r["Date"] == "2026-10-12" && (string)r["EventKey"] == "zztest-event"
+                    && (string)r["Evidence"] == "MAA 的关卡名单里选中了 YW-8(名单共 1 关)";
+            });
+            b.Chk("探针·名单含它但当前选中的是别的关 → 照样算进得去", () =>
+            {
+                Dictionary<string, object> r = Gd.Map(Orchestration.ArkEventProbe(
+                    Inp("date", "2026-10-12", "eventKey", "e", "stage", "YW-8", "obs", ovInList)));
+                return (bool)r["Valid"] && (bool)r["Entered"]
+                    && ((string)r["Evidence"]).Contains("名单含 YW-8") && ((string)r["Evidence"]).Contains("当前选中 LS-5");
+            });
+            b.Chk("探针·名单里没有它 → 判未解锁(Entered=false 但 Valid=true，这条要落地)", () =>
+            {
+                Dictionary<string, object> r = Gd.Map(Orchestration.ArkEventProbe(
+                    Inp("date", "2026-10-12", "eventKey", "e", "stage", "YW-8", "obs", ovTrimmed)));
+                return (bool)r["Valid"] && !(bool)r["Entered"]
+                    && (string)r["Evidence"] == "MAA 名单里 2 关没有 YW-8(名单：LS-5、SK-5，当前选中 LS-5)";
+            });
+            b.Chk("探针·名单被剪空(from [\"\"]) → 进不去，重放行只补一句注解", () =>
+            {
+                Dictionary<string, object> r = Gd.Map(Orchestration.ArkEventProbe(
+                    Inp("date", "2026-10-12", "eventKey", "e", "stage", "YW-8", "obs", ovEmpty)));
+                return (bool)r["Valid"] && !(bool)r["Entered"]
+                    && ((string)r["Evidence"]).Contains("被剪空")
+                    && ((string)r["Evidence"]).EndsWith("；注意本轮内核走的是「回到上次作战」重放");
+            });
+            b.Chk("探针·名单压根没抄到(SawGuiPlan=false) → Valid=false 不落地，绝不当成没打通", () =>
+            {
+                Dictionary<string, object> r = Gd.Map(Orchestration.ArkEventProbe(
+                    Inp("date", "2026-10-12", "eventKey", "e", "stage", "YW-8", "obs", ovNoPlan)));
+                return !(bool)r["Valid"] && !(bool)r["Entered"] && ((string)r["Evidence"]).Contains("判不了");
+            });
+            b.Chk("探针·obs 缺或目标关空 → 一律 Valid=false 不抛", () =>
+            {
+                Dictionary<string, object> a = Gd.Map(Orchestration.ArkEventProbe(
+                    Inp("date", "2026-10-12", "eventKey", "e", "stage", "YW-8")));
+                Dictionary<string, object> c = Gd.Map(Orchestration.ArkEventProbe(
+                    Inp("date", "2026-10-12", "eventKey", "e", "stage", "", "obs", ovYes)));
+                return !(bool)a["Valid"] && !(bool)a["Entered"] && !(bool)c["Valid"]
+                    && ((string)c["Evidence"]).Contains("没有可当探针的活动关");
+            });
+        }
+
+        static object Obs(string asst, string gui, string date) { return Orchestration.MaaStageObserve(Inp("asstText", asst, "guiText", gui, "date", date)); }        static bool Of(object r) { return Gd.Truthy(Gd.Get(D(r), "Found")); }
         static string Og(object r) { return Gd.Str(Gd.Get(D(r), "Stage")); }
         static bool Ol(object r) { return Gd.Truthy(Gd.Get(D(r), "LastBattle")); }
         static bool Oo(object r) { return Gd.Truthy(Gd.Get(D(r), "SawGuiPlan")); }

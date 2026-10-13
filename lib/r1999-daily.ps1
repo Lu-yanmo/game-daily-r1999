@@ -27,7 +27,8 @@
 # Start-GdR1999Daily 自此是**调度器**：默认关 = 一字不变走回退段 Invoke-GdR1999DailyLegacy(原身逐字保留，
 # 上面批次 5/批次 8 那两段冻结自此只对这一份成立)；开关拨开 = Invoke-GdR1999DailyRust 起内置件 gdcore.exe
 # 走 --drive-m9a-daily 的问-答-重放。链体(八格动作的顺序/Level/话术/异常边界)与 run 真做已迁到
-# tools\rustcore\src\main.rs 的 r1999_daily_chain(契约号 RustCore-R6.0)；执行器只剩现场七格
+# tools\rustcore\src\main.rs 的 r1999_daily_chain；**这一档的契约号随批次逐次升，本行不钉死它** ——
+# 现值只由 lib\common.ps1 的 Get-GdRustContract 一处理，落冻结段里写死一枚数字就是双源事实(本仓已为此改过三次口)；执行器只剩现场七格
 # (updgate/takeover/mumu/cfg/sleep/stop/audit)与 ctx 名册十五枚的逐枚点名取键，**零自有日志**。
 # 两路共用同一把回退开关 Test-GdRustDailyPath(不开第三枚键，两路同进退)；接线点仍只此一处。
 # ⚠ 回退段必须排在文件末尾那节**之前**、逐行 # 前缀的冻结段一枚不许删：test-r1999 的四组静态锚
@@ -290,6 +291,11 @@ function Invoke-GdR1999DailyRust {
                 if ($lvl -and ($lvl -ne 'INFO')) { Write-GdLog $txt -Level $lvl } else { Write-GdLog $txt }
             }
             $envText = ''
+            if ([int]$cap.StreamTimeouts -gt 0) {
+                # 这一路今天没发作，是因为 M9A.exe 跑完自己会退、写端随之关 —— 那是运气不是已验，
+                # 所以这道保险两边都上：放弃时必须留一行可查的 WARN，不许让"放弃"长得像"没事"。
+                Write-GdLog "B-2d④ 换头：收流有界等待超时，已放弃 $([int]$cap.StreamTimeouts) 路 stdout/stderr(被起进程仍持管道写端；stdout 兜底那一路本轮不可用)" -Level WARN
+            }
             if (Test-Path -LiteralPath $envFile) { $envText = [System.IO.File]::ReadAllText($envFile) }
             else {
                 foreach ($ln in @($cap.Lines)) { $t = ([string]$ln).TrimStart(); if ($t.StartsWith('{')) { $envText = $t } }

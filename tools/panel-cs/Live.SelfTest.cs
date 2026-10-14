@@ -746,8 +746,12 @@ namespace GdPanel
             return rc;
         }
 
-        // 启动器夹具：一张"已经拍好的启动器截图"(1600x900、客户区从原点起) + 问模型夹具档，外加计数
-        static Dictionary<string, object> FixShot(params object[] kv)
+        // 这一枚与下面 LWaitJson／LClearJson／LBlankJson 三枚纯读数夹具改 internal，是给 --roundtest 用的
+        // (B-3②-b2)：Chain.LauncherReady 的相位就靠这几枚钉住，判定本体仍一枚不在这儿重写。
+        // ⚠ **只借这四枚，LaunchKnobs／AskKnobs 不借** —— 它们的 scriptPath 钉死 gd-livetest-<pid>\ask.py，
+        // 而 --roundtest 是另一个进程、另一棵临时树，直接复用会让 VisionAsk 的第二道前置当场红
+        // ("缺少 tools\vision\ask.py")、相位一律落 uncertain —— 那是自检验证不了的东西，不是 Chain 的缺陷。
+        internal static Dictionary<string, object> FixShot(params object[] kv)
         {
             Dictionary<string, object> d = In("Ok", true, "CanContinue", true, "Path", @"C:\launcher.png",
                 "ImgW", 1600, "ImgH", 900, "ClientLeft", 0, "ClientTop", 0, "ClientW", 1600, "ClientH", 900,
@@ -769,13 +773,13 @@ namespace GdPanel
 
         const string LClickJson =
             @"{""ok"":true,""text"":""{\""blocking\"":true,\""what\"":\""资源更新页，要点更新\"",\""clicks\"":[{\""x\"":500,\""y\"":820,\""why\"":\""『更新』按钮\""}]}\"""",""model"":""q""}";
-        const string LWaitJson =
+        internal const string LWaitJson =
             @"{""ok"":true,""text"":""{\""blocking\"":true,\""what\"":\""正在下载资源 47%\"",\""clicks\"":[]}\"""",""model"":""q""}";
-        const string LClearJson =
+        internal const string LClearJson =
             @"{""ok"":true,""text"":""{\""blocking\"":false,\""what\"":\""已经在游戏主界面\"",\""clicks\"":[]}\"""",""model"":""q""}";
         const string LOobJson =
             @"{""ok"":true,""text"":""{\""blocking\"":true,\""what\"":\""更新页\"",\""clicks\"":[{\""x\"":1500,\""y\"":-20,\""why\"":\""越界的假坐标\""}]}\"""",""model"":""q""}";
-        const string LBlankJson = @"{""ok"":true,""text"":"""",""model"":""q""}";
+        internal const string LBlankJson = @"{""ok"":true,""text"":"""",""model"":""q""}";
 
         // 取 Stats/子表的整数格(Stats 的 AvgLum 落 long，这里统一按 long 比)
         static long Row2(Dictionary<string, object> d, string k) { return Convert.ToInt64(d[k], System.Globalization.CultureInfo.InvariantCulture); }

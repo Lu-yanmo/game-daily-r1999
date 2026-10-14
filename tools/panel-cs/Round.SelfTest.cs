@@ -1,5 +1,5 @@
 // tools/panel-cs/Round.SelfTest.cs —— --roundtest：B-3②-a(Round.cs)轮骨架现场七枚 + ②-b1(Round.Data.cs)
-// 判定段/门表段数据面六枚的纯规则段自检。
+// 判定段/门表段数据面六枚 + ②-b2(Chain.cs)链体丙档直答件十枚的纯规则段自检。
 //
 // 体裁照 --livetest(§11.50 ②-1 与 Live.SelfTest.cs 头注那条纪律)：**只钉话术与算术，不钉现场**。
 //   * 不真弹 UAC(noSpawn)、不真打 webhook(fakeWebhookErr)、不起气泡(noSend 或 fakeToastErr)、
@@ -7,6 +7,10 @@
 //   * ②-b1 那六枚同一条规矩：**不真打 MAA 活动接口**(apiJson/apiErr 两枚夹具)、
 //     **缓存与活动数据读盘**要么给 cacheJson/dataJson 夹具、要么把路径指到临时树上的那份文件；
 //     写盘只写临时树的 state\，收尾整目录删掉；
+//   * ②-b2 那十枚同一条规矩：**不真起子进程**(MuMu/端游/MAA/M9A 全由 nativeRuns / windows / running 三本夹具代答)、
+//     **不真发输入**(needs-click 那一档只做登记，见下面够不着清单)、**配置写盘只写临时树的 chain\ 与 maa\ 两格**
+//     (MAA config.json 与 M9A appsettings.json 各一份，前置内容按序由 Wf 复位)；
+//     外置缓存(stageTableCache/itemMapsCache 两把进程内小抄)一律由入参喂 table / itemIndex，**下毒那一格排在族首**；
 //   * 不要求这台机器装了 pwsh7、有管理员、有某个任务、有某个进程 —— 现场量一律夹具注入(旋钮身份见 Round.cs 头注)；
 //   * 临时树里**故意不建 config\settings.json**：只要有一格漏喂 settings 夹具，SettingsNow()/SafeSettings()
 //     就会去读那棵空树 ⇒ 当场红(那里还有一格专门钉这条守门，②-b1 的 read-ark-activity 同样有一格)。
@@ -16,9 +20,12 @@
 // 期望串逐字抄自 lib\common.ps1 的旧实现(Start-GdElevatedSelf / Send-GdNotice / Start-GdRunLock /
 // Stop-GdRunLock / Get-GdTaskState / Stop-GdProcessTree / Get-GdElevateBatchLine)、lib\modules.ps1 的
 // Invoke-GdDailyRound(通知标题那两句)，以及 ②-b1 的六份真身(Get-ArkEvent / Get-R1999Event /
-// Set-GdArkShopState / Set-GdR1999Ack / Set-GdR1999ShopState / Get-Gd{Ack,ShopDone}Map)——
+// Set-GdArkShopState / Set-GdR1999Ack / Set-GdR1999ShopState / Get-Gd{Ack,ShopDone}Map)、
+// ②-b2 的十份真身(Invoke-GdTakeover / Stop-MaaAndGame / Stop-M9A / Get-GdMaa{FightSkip,StageObservation} /
+// Start-GdArkClient＋Wait-GdArkLauncherReady / Start-GdMuMu / Set-MaaDailyConfig / Set-M9AInstance /
+// Update-GdArkFarmLedger —— 逐条出处见 Chain.cs 头注的两段双源登记)——
 // 生产接线(②-d)之前它们仍是事实源，这里红了就是移植走样，
-// 改 Round.cs / Round.Data.cs，不改这里的期望(批次 1 起同一条纪律)。
+// 改 Round.cs / Round.Data.cs / Chain.cs，不改这里的期望(批次 1 起同一条纪律)。
 //
 // 专门钉住的原样怪癖：① `-ne $false` 由**左侧类型**决定怎么折 $false ⇒ 字符串 "0" 算**开着**
 // (FlagEnabled 第一版把数字 TryParse 摊到字符串上就判反了，这一格就是那次的守门)；
@@ -27,6 +34,9 @@
 // ④ activityCacheMaxHours 缺键＝0 ⇒ 缓存永远算过期，且那句 WARN 里插的是**原值**(缺键时是**空**，不是 0)；
 // ⑤ 领空话术里的 dow 用原始 0-6(判定层用"周日=7")；⑥ 1999 确认话术那个箭头前没有空格；
 // ⑦ 门表是**不分大小写**的表(PS 的 @{})；⑧ [math]::Round 与 Math.Round 同用银行家舍入(1.25→1.2)。
+//   ②-b2 那十枚的原样怪癖另立六笔(Chain.cs 的第 7~12 笔：maxChecks 当 maxClicks 用、$clicks++ 在 if 之前、
+//   拼参数不加引号、命中不睡超时多睡一轮、两份进程内缓存只在现场读那一路建、总结句带路径不进话术)，
+//   本文件引用时照 Chain.cs 的编号说"第 N 笔"，不与上面①~⑧混号。
 //
 // 够不着的几样如实登记，不假装测过：
 //   * 提权两支的真身(本机 pwsh runas / cmd 载体)与"读不到退出码"那一抛 —— 要等 ②-b 的 UAC 实弹；
@@ -36,6 +46,15 @@
 //   * **真打 MAA 活动接口那一条 catch**(Invoke-WebRequest 的 Exception.Message 长什么样) —— 夹具只钉了话术的壳；
 //   * **真 settings/真 state 盘**(临时树上的三本门表不等于玩家机器上那三本) —— 要等 ②-d 转接后的实跑；
 //   * PS 那侧**还在按老路读写**这两张表(转接前双写不算，这里的"落盘"只证明形状与文件名对得上)。
+//   ②-b2 那十枚另登记以下几样够不着，同样不假装测过：
+//   * **needs-click 那一档的真点击**(PostMessage 打到真窗口)与它点完那 30 秒睡眠 —— 自检不许碰输入注入，
+//     也不许给既有 verb 加 dry-run 键(§11.50 ②-1 那条判据)，相位序列只喂到 waiting／clear 两档；
+//   * **真起端游进程、真等它出窗口**、以及经 start-ark-client 走完整路的`端游窗口就绪`＋暖身＋启动器更新页
+//     (名册是静态夹具：命中就早退、不命中就撞超时，所以 LauncherReady 那五档改成**直调**自证)；
+//   * **asst.log 尾 16MB 那把尺的本体**(自检喂的是小文件，只钉"取尾"这条路径被走到、形状对)；
+//   * **takeover 那轮之后硬编码的 4 秒睡眠本体**(自检喂 sleepSeconds=0 免挂钟，钉的是它前面的名册与话术)；
+//   * **`MAA 配置回读不一致`／`M9A 实例切换回读失败`那两抛**(要的是"写进去又读回别的"，夹具造不出)；
+//   * **`认不出这一档相位`那一句**(模型回的东西不在映射表里 —— 自检把 launcherAsks 钉在四档内，那档走不到)。
 // 本套件里唯一一次起子进程是 DeadPid() 那一发 `cmd /d /c exit`(瞬退、无窗)：残留那一格没有别的取法，
 // 与 --exttest 的同名助手同一先例。
 
@@ -140,10 +159,106 @@ namespace GdPanel
             catch (Exception ex) { return ex is T; }
         }
 
+        // ==================== ②-b2(Chain.cs 链体直答件)的夹具助手 ====================
+        // 三族，各自钉一件事：
+        //   * Nat —— nativeRuns 的一项(**大写** Code/Out/Err)；Chain 递给 parse-mumu-state 的那三格才是
+        //     小写 code/out/err，两本账不许拧(Gd.Get 对夹具是大小写敏感的，写错就是静默读到 null)。
+        //   * Wf／WLog —— 临时树里落一份文件(日志按行给，读侧按 \r?\n 切，这里统一 \n)；空内容那一档
+        //     要的是"路径就绪但没字节"，与"路径不存在"必须分成两格。
+        //   * AskOne —— 启动器那一路的一枚"问模型"夹具，档位与 --livetest 的 LaunchKnobs 同形，
+        //     但 scriptPath 必须指到**本棵临时树**里的 ask.py(LiveSelfTest.AskKnobs 钉死 livetest 那棵树，不借)。
+        static Dictionary<string, object> Nat(int code, string outText, string errText)
+        {
+            return In("Code", code, "Out", outText, "Err", errText);
+        }
+
+        static string Wf(string dir, string leaf, string text)
+        {
+            try { Directory.CreateDirectory(dir); } catch { }
+            string p = Path.Combine(dir, leaf);
+            File.WriteAllText(p, text, new UTF8Encoding(false));
+            return p;
+        }
+
+        static string WLog(string dir, string leaf, params string[] rows)
+        {
+            return Wf(dir, leaf, string.Join("\n", rows));
+        }
+
+        static Dictionary<string, object> AskOne(string askDir, string fakeOut)
+        {
+            return In("handle", 987654321L, "path", Path.Combine(askDir, "launcher.png"),
+                      "shot", LiveSelfTest.FixShot(),
+                      "hasKey", true, "noSpawn", true, "model", "m-fake", "timeoutSeconds", 45,
+                      "pythonExe", @"C:\fake\python.exe", "scriptPath", Path.Combine(askDir, "ask.py"),
+                      "askDir", askDir, "fakeCode", 0, "fakeOut", fakeOut, "fakeErr", "");
+        }
+
+        // MuMuManager `info -v` 的两档回话(真身那三格 JSON 键是小写蛇形，这是**对方**的形状，照抄)：
+        const string MuMuOnJson = @"{""name"":""MuMu安卓设备"",""is_android_started"":true,""is_process_started"":true}";
+        const string MuMuOffJson = @"{""name"":""MuMu安卓设备"",""is_android_started"":false,""is_process_started"":true}";
+
+        // MAA 配置树与 appsettings 的最小形状：Gd.Get 对喂进来的夹具**大小写敏感**，键名逐字照两家自己的盘。
+        static Dictionary<string, object> Queue(string name, string type, object isEnable, string stagePlan)
+        {
+            return In("Name", name, "TaskType", type, "IsEnable", isEnable,
+                      "StagePlan", new object[] { stagePlan });
+        }
+
+        static Dictionary<string, object> MaaTree(params object[] queues)
+        {
+            Dictionary<string, object> def = In(
+                "Gui", In("StartUpSettings", In("RunDirectly", true)),
+                "TaskQueue", queues);
+            return In("Configurations", In("Default", def));
+        }
+
+        // settings 夹具：Chain 那一路只按名取 runtime 的三枚开关(takeOverAssistant／quitAssistantAfter／
+        // closeArknightsAfter)与 ark 的三格(finishAllSanityWith／keepQueuesEnabled／disableQueues、窗口标题式)。
+        // 漏了这一格就会去读临时树上**故意不建**的 config\settings.json ⇒ 当场红，这就是"漏喂就红"的守门。
+        // 四块一律给齐(ark/mumu/paths 给空表)：空表 ≠ 没这一格，Gd.Get 到空表里取键仍旧是 null。
+        static Dictionary<string, object> St(params object[] runtimeKv)
+        {
+            return In("runtime", In(runtimeKv), "ark", In(), "mumu", In(), "paths", In());
+        }
+
+        static Dictionary<string, object> StArk(Dictionary<string, object> ark, params object[] runtimeKv)
+        {
+            return In("runtime", In(runtimeKv), "ark", ark, "mumu", In(), "paths", In());
+        }
+
+        // Get-MaaPaths 的五格：全指到临时树的 maaDir 下；日志两格由**顶层**夹具 guiLog/asstLog 再顶一次
+        // (这两格正是 self-check 把"读日志尾"钉住的把手，真跑一侧不许送)。
+        static Dictionary<string, object> MaaPaths(string dir)
+        {
+            return In("maaDir", dir, "maaExe", "maa.exe", "maaConfig", "config.json",
+                      "maaGuiLog", "gui.log", "maaAsstLog", "asst.log");
+        }
+
+        // 材料表夹具最小的一枚(id → {name})：两张表的现算全在 Chain.BuildItemMaps，这里只给形状。
+        static Dictionary<string, object> ItemIdx()
+        {
+            return In("30031", In("name", "先锋封装芯片"));
+        }
+
+        // 盘上那份 MAA 配置：Fight 那一档留着"没被改过"的旧值(IsEnable=false、没有 DropId 那九格)，
+        // 好让 apply 真写盘那一格有活干；"采集"故意开着，用来钉 ExpectedChains 的去重与顺序。
+        const string MaaCfgText =
+            "{\"Configurations\":{\"Default\":{\"Gui\":{\"StartUpSettings\":{\"RunDirectly\":true}},"
+          + "\"TaskQueue\":["
+          + "{\"Name\":\"战斗\",\"TaskType\":\"Fight\",\"IsEnable\":false,\"StagePlan\":[]},"
+          + "{\"Name\":\"采集\",\"TaskType\":\"Collection\",\"IsEnable\":true,\"StagePlan\":[]}]}}}";
+
+        // M9A 的 appsettings：**点号字面键**是 M9A 自己的形状(Gd.Get 不拆点号，正好当字面键取)。
+        const string M9aTodoText = "{\"Instances.LastActive\":\"old-id\","
+          + "\"Instances.LastActiveName\":\"旧实例\",\"NoAutoStart\":\"True\"}";
+        const string M9aDoneText = "{\"Instances.LastActive\":\"new-id\","
+          + "\"Instances.LastActiveName\":\"新实例\",\"NoAutoStart\":\"False\"}";
+
         public static int RoundTest()
         {
             Box b = new Box();
-            Console.WriteLine("---- panel-cs --roundtest(B-3②-a 轮骨架现场七枚 + ②-b1 判定段/门表段数据面六枚的纯规则段：不弹 UAC/不打 webhook/不起气泡/不真杀进程/不读真任务/不打活动接口) ----");
+            Console.WriteLine("---- panel-cs --roundtest(B-3②-a 轮骨架现场七枚 + ②-b1 判定段/门表段数据面六枚 + ②-b2 链体丙档直答件十枚的纯规则段：不弹 UAC/不打 webhook/不起气泡/不真杀进程/不读真任务/不打活动接口/不真起子进程/不发输入/不写真配置到玩家目录) ----");
             int mine = Process.GetCurrentProcess().Id;
             string tmp = Path.Combine(Path.GetTempPath(), "gd-roundtest-" + mine);
             try { if (Directory.Exists(tmp)) Directory.Delete(tmp, true); } catch { }
@@ -151,11 +266,48 @@ namespace GdPanel
             {
                 GdLog.Line("--roundtest 连临时树都建不起来(后面写盘那几格必红)：" + ex.Message, "ERROR");
             }
+            // ②-b2 链体那一路的落点，全在这棵临时树里(收尾整目录删)：
+            //   * chainDir —— 日志夹具与 MuMuManager 那一枚"只要存在就行"的空文件；
+            //   * maaDir —— MAA 的目录形状(config.json 真身、gui/asst 日志由顶层夹具另指)；
+            //   * ledgerDir 的三个子目录 —— 每格账本独占一份 stateDir，格与格之间不许互相看见；
+            //   * arkExe —— 只喂给路径闸的那一枚空文件(名字固定，好和 windows 夹具的 Name 对齐)。
+            string chainDir = Path.Combine(tmp, "chain");
+            string maaDir = Path.Combine(tmp, "maa");
+            string ledgerDir = Path.Combine(tmp, "ledger");
+            string maaCfgFile = Path.Combine(maaDir, "config.json");
+            string m9aFile = Path.Combine(chainDir, "appsettings.json");
+            string mumuExe = Path.Combine(chainDir, "MuMuManager.exe");
+            string arkExe = Path.Combine(tmp, "ark", "Arknights.exe");
+            string askDir = Path.Combine(tmp, "ask");
+            // 一份"paths 填齐了"的夹具，给 stop／apply／ledger 那几族共用：
+            // maaExe 定进程名(maa)、arknightsExe 定端游名与 closeArknightsAfter 的那道闸、m9aExe 定 M9A 名。
+            Dictionary<string, object> allPaths = MaaPaths(maaDir);
+            allPaths["arknightsExe"] = arkExe;
+            allPaths["m9aExe"] = "m9a.exe";
             // 临时树里只造"回落名册"那一格要的 lib\maa.ps1；**故意不造 config\settings.json**。
             try
             {
                 Directory.CreateDirectory(Path.Combine(tmp, "lib"));
                 File.WriteAllText(Path.Combine(tmp, "lib", "maa.ps1"), "#");
+            }
+            catch { }
+            // ②-b2 的链体那一路再补三样，全落在这棵临时树上、随收尾整目录删：
+            //   * ask\ask.py —— VisionAsk 的第二道前置只认 File.Exists(不执行它，noSpawn 那一档不起 Python)；
+            //   * ark\Arknights.exe —— start-ark-client 的路径闸也只认 File.Exists，空文件足够，
+            //     文件名固定这一枚是为了让 BaseName 和 windows 夹具里的 "Name" 对得上；
+            //   * 启动器那一档的截图落点(ask\ 目录本身)—— WindowShot 被 shot 夹具顶掉，但 path 的
+            //     父目录要能落，后面 ledger 那几格的 state\ 子目录同理。
+            try
+            {
+                Directory.CreateDirectory(Path.Combine(tmp, "ask"));
+                File.WriteAllText(Path.Combine(tmp, "ask", "ask.py"), "#");
+                Directory.CreateDirectory(Path.Combine(tmp, "ark"));
+                File.WriteAllText(Path.Combine(tmp, "ark", "Arknights.exe"), "");
+                Directory.CreateDirectory(chainDir);
+                Directory.CreateDirectory(maaDir);
+                File.WriteAllText(mumuExe, "");
+                File.WriteAllText(maaCfgFile, MaaCfgText, new UTF8Encoding(false));
+                File.WriteAllText(m9aFile, M9aTodoText, new UTF8Encoding(false));
             }
             catch { }
             GdEnv.InitForTest(tmp);
@@ -1060,6 +1212,616 @@ namespace GdPanel
                     && err.Contains("set-r1999-ack") && err.Contains("set-r1999-shop-state");
             });
 
+            // ==================== 20) takeover-processes：接管关闭那把闸(真值判，缺键=关) ====================
+            b.Chk("没开接管(takeOverAssistant 缺键)且助手在跑：当场抛原话，一枚都不接管", delegate
+            {
+                object msg = ThrownMsg(delegate
+                {
+                    return Chain.Takeover(In("names", new object[] { "maa" }, "label", "MAA",
+                        "running", new object[] { "maa" }, "sleepSeconds", 0, "settings", St()));
+                });
+                return S(msg) == "MAA(maa) 正在运行；要么手动关掉再跑，要么把 settings.runtime.takeOverAssistant 设为 true";
+            });
+            b.Chk("开了接管：一句 WARN、Stopped 只记真在跑那枚(空名与不在跑都 continue)、label 缺省「助手」、回执四键", delegate
+            {
+                object d = Chain.Takeover(In("names", new object[] { "", "maa", "ark" },
+                    "running", new object[] { "maa" }, "sleepSeconds", 0,
+                    "settings", St("takeOverAssistant", true), "noKill", true,
+                    "fakeProcs", new object[] { 11 }));
+                return B(Key(d, "Done")) && S(Key(d, "Label")) == "助手" && Cnt(d) == 4
+                    && Len(Key(d, "Stopped")) == 1 && S(Gd.List(Key(d, "Stopped"))[0]) == "maa"
+                    && Len(Key(d, "Lines")) == 1
+                    && Ln(Key(d, "Lines"), 0) == "助手 正在运行 → 先关掉再改配置(避免它退出时把配置写回旧值)";
+            });
+            b.Chk("原样怪癖第 1 笔：明写 false 与缺键**同档**(都当场拒绝)，与 Round.FlagEnabled 那把 -ne $false 反着走", delegate
+            {
+                object off = ThrownMsg(delegate
+                {
+                    return Chain.Takeover(In("names", new object[] { "m9a" }, "label", "M9A",
+                        "running", new object[] { "m9a" }, "sleepSeconds", 0,
+                        "settings", St("takeOverAssistant", false)));
+                });
+                object miss = ThrownMsg(delegate
+                {
+                    return Chain.Takeover(In("names", new object[] { "m9a" }, "label", "M9A",
+                        "running", new object[] { "m9a" }, "sleepSeconds", 0, "settings", St()));
+                });
+                return S(off) == "M9A(m9a) 正在运行；要么手动关掉再跑，要么把 settings.runtime.takeOverAssistant 设为 true"
+                    && S(off) == S(miss);
+            });
+            b.Chk("running 给了空名册：一枚都不算在跑、零句、Stopped 空(自检不许现查真进程)", delegate
+            {
+                object d = Chain.Takeover(In("names", new object[] { "maa", "ark" }, "running", new object[0],
+                    "sleepSeconds", 0, "settings", St("takeOverAssistant", true)));
+                return Len(Key(d, "Stopped")) == 0 && Len(Key(d, "Lines")) == 0 && B(Key(d, "Done"));
+            });
+
+            // ==================== 21) stop-maa-and-game：两档分开的开关，只有真关掉才吭那一句 ====================
+            b.Chk("两枚都开 ⇒ 两句各带进程数(MaaClosed 与 ArkClosed 同值＝同一份 fakeProcs，原样怪癖第 2 笔)", delegate
+            {
+                object d = Chain.StopMaaAndGame(In("settings", St("quitAssistantAfter", true, "closeArknightsAfter", true),
+                    "paths", allPaths, "noKill", true, "fakeProcs", new object[] { 1, 2 }));
+                return I(Key(d, "MaaClosed")) == 2 && I(Key(d, "ArkClosed")) == 2 && Cnt(d) == 4
+                    && Len(Key(d, "Lines")) == 2
+                    && Ln(Key(d, "Lines"), 0) == "已关闭 MAA(2 个进程)"
+                    && Ln(Key(d, "Lines"), 1) == "已关闭明日方舟端游(2 个进程)";
+            });
+            b.Chk("只开 quitAssistantAfter ⇒ 端游那档一枚不数、一句不吭", delegate
+            {
+                object d = Chain.StopMaaAndGame(In("settings", St("quitAssistantAfter", true),
+                    "paths", allPaths, "noKill", true, "fakeProcs", new object[] { 5, 6, 7 }));
+                return I(Key(d, "MaaClosed")) == 3 && I(Key(d, "ArkClosed")) == 0
+                    && Len(Key(d, "Lines")) == 1 && Ln(Key(d, "Lines"), 0) == "已关闭 MAA(3 个进程)";
+            });
+            b.Chk("两枚都缺键(真值判＝关)：0/0、零句(与 Round.FlagEnabled 那族缺键算开正好相反)", delegate
+            {
+                object d = Chain.StopMaaAndGame(In("settings", St(), "paths", allPaths,
+                    "noKill", true, "fakeProcs", new object[] { 1, 2 }));
+                return I(Key(d, "MaaClosed")) == 0 && I(Key(d, "ArkClosed")) == 0 && Len(Key(d, "Lines")) == 0;
+            });
+            b.Chk("原样怪癖第 6 笔：closeArknightsAfter 开着但 paths.arknightsExe 没填 ⇒ 空名不算在跑、不抛、只有 MAA 那一句", delegate
+            {
+                object d = Chain.StopMaaAndGame(In("settings", St("quitAssistantAfter", true, "closeArknightsAfter", true),
+                    "paths", In("maaDir", maaDir, "maaExe", "maa.exe"), "noKill", true,
+                    "fakeProcs", new object[] { 1 }));
+                return I(Key(d, "MaaClosed")) == 1 && I(Key(d, "ArkClosed")) == 0
+                    && Len(Key(d, "Lines")) == 1 && Ln(Key(d, "Lines"), 0) == "已关闭 MAA(1 个进程)";
+            });
+
+            // ==================== 22) stop-m9a：只有一档，话术是 M9A 不是 MAA(两侧不许统一) ====================
+            b.Chk("quitAssistantAfter 开 ⇒ 「已关闭 M9A(1 个进程)」，M9aClosed 一格", delegate
+            {
+                object d = Chain.StopM9A(In("settings", St("quitAssistantAfter", true), "paths", allPaths,
+                    "noKill", true, "fakeProcs", new object[] { 3 }));
+                return I(Key(d, "M9aClosed")) == 1 && Len(Key(d, "Lines")) == 1
+                    && Ln(Key(d, "Lines"), 0) == "已关闭 M9A(1 个进程)" && Cnt(d) == 3;
+            });
+            b.Chk("缺键 ⇒ 0、零句(m9a 那一路只有这一枚开关，没有端游档)", delegate
+            {
+                object d = Chain.StopM9A(In("settings", St(), "paths", allPaths,
+                    "noKill", true, "fakeProcs", new object[] { 3 }));
+                return I(Key(d, "M9aClosed")) == 0 && Len(Key(d, "Lines")) == 0;
+            });
+
+            // ==================== 23) read-maa-fight-skip：读日志尾那半，判据一枚不在这里重写 ====================
+            b.Chk("gui.log 不在 ⇒ Found=false＋Reason=gui-log-missing(答手据此发 Null，与\"读到但没认栽\"是两回事)", delegate
+            {
+                object d = Chain.ReadFightSkip(In("paths", allPaths, "guiLog", Path.Combine(chainDir, "ghost-gui.log")));
+                return !B(Key(d, "Found")) && S(Key(d, "Reason")) == "gui-log-missing" && Cnt(d) == 2;
+            });
+            b.Chk("gui.log 在但没字节 ⇒ Reason=gui-log-empty(路径就绪与读得出内容是两档，别糊成一格)", delegate
+            {
+                string p = Wf(chainDir, "gui-empty.log", "");
+                object d = Chain.ReadFightSkip(In("paths", allPaths, "guiLog", p));
+                return !B(Key(d, "Found")) && S(Key(d, "Reason")) == "gui-log-empty";
+            });
+            b.Chk("正常档：会话内两句各计一次，Plan 取最后一条 from 的引号串，Evidence 逐字清洗过前缀", delegate
+            {
+                string p = WLog(chainDir, "gui-skip-1.log",
+                    "[INF]<1> MaaAssistantArknights GUI started",
+                    "[INF]<2> GetFightStage: from [\"CE-5\",\"CE-6\"], selected CE-5",
+                    "[INF]<3> 关卡计划内没有当日开放的关卡",
+                    "[INF]<4> 剩余理智作战 任务跳过");
+                object d = Chain.ReadFightSkip(In("paths", allPaths, "guiLog", p));
+                object[] plan = Gd.List(Key(d, "Plan"));
+                object[] evi = Gd.List(Key(d, "Evidence"));
+                return B(Key(d, "Found")) && B(Key(d, "Skipped")) && I(Key(d, "TaskSkips")) == 1
+                    && plan.Length == 2 && S(plan[0]) == "CE-5" && evi.Length == 2
+                    && S(evi[0]) == "关卡计划内没有当日开放的关卡" && S(evi[1]) == "剩余理智作战 任务跳过";
+            });
+            b.Chk("那两句在最后一次 GUI started **之前** ⇒ 一概不算(会话自切是判据的支点，不是装饰)", delegate
+            {
+                string p = WLog(chainDir, "gui-skip-2.log",
+                    "[INF]<1> 关卡计划内没有当日开放的关卡",
+                    "[INF]<2> 剩余理智作战 任务跳过",
+                    "[INF]<3> MaaAssistantArknights GUI started");
+                object d = Chain.ReadFightSkip(In("paths", allPaths, "guiLog", p));
+                return B(Key(d, "Found")) && !B(Key(d, "Skipped")) && I(Key(d, "TaskSkips")) == 0
+                    && Len(Key(d, "Evidence")) == 0 && Len(Key(d, "Plan")) == 0;
+            });
+            b.Chk("第二档(加载期修剪)：from [] 空计划 ＋ 任务跳过 ⇒ 也算认栽，Plan 仍原样是空表", delegate
+            {
+                string p = WLog(chainDir, "gui-skip-3.log",
+                    "[INF]<1> MaaAssistantArknights GUI started",
+                    "[INF]<2> GetFightStage: from [], selected ",
+                    "[INF]<3> 理智作战 任务跳过");
+                object d = Chain.ReadFightSkip(In("paths", allPaths, "guiLog", p));
+                return B(Key(d, "Skipped")) && Len(Key(d, "Plan")) == 0 && I(Key(d, "TaskSkips")) == 1
+                    && Ln(Key(d, "Evidence"), 0) == "理智作战 任务跳过";
+            });
+
+            // ==================== 24) read-maa-stage-observation：只抄账，不改任何配置 ====================
+            b.Chk("两本日志都没读到 ⇒ LogsRead=false＋Reason=no-logs(与\"读到了但没递 Fight\"分开)", delegate
+            {
+                object d = Chain.ReadStageObservation(In("paths", allPaths,
+                    "guiLog", Path.Combine(chainDir, "ghost-gui.log"),
+                    "asstLog", Path.Combine(chainDir, "ghost-asst.log")));
+                return !B(Key(d, "Found")) && !B(Key(d, "LogsRead")) && S(Key(d, "Reason")) == "no-logs" && Cnt(d) == 3;
+            });
+            b.Chk("成功档七键：asst 尾窗给 stage 与重放行，gui 的 from/selected 原样抄，日期由夹具注入", delegate
+            {
+                string asst = WLog(chainDir, "asst-obs-1.log",
+                    @"append_task Fight {""stage"":""CE-5""}",
+                    @"[INF]<9> first:[""LastOrCurBattleBegin""] ""taskchain"":""Fight""");
+                string gui = WLog(chainDir, "gui-obs-1.log",
+                    "[INF]<2> GetFightStage: from [\"CE-5\",\"CE-6\"], selected 6");
+                object d = Chain.ReadStageObservation(In("paths", allPaths, "asstLog", asst, "guiLog", gui,
+                    "nowText", "2026-10-14"));
+                return B(Key(d, "Found")) && B(Key(d, "LogsRead")) && S(Key(d, "Date")) == "2026-10-14"
+                    && S(Key(d, "Stage")) == "CE-5" && B(Key(d, "LastBattle")) && B(Key(d, "SawGuiPlan"))
+                    && Len(Key(d, "Survivors")) == 2 && S(Key(d, "Selected")) == "6" && Cnt(d) == 8;
+            });
+            b.Chk("剪空形状原样抄：from [\"\"] 的空串占位不算存活关名，selected 后面没东西就是空串(不粉饰成上一关)", delegate
+            {
+                string asst = WLog(chainDir, "asst-obs-2.log", @"append_task Fight {""stage"":""""}");
+                string gui = WLog(chainDir, "gui-obs-2.log", "[INF]<2> GetFightStage: from [\"\"], selected ");
+                object d = Chain.ReadStageObservation(In("paths", allPaths, "asstLog", asst, "guiLog", gui,
+                    "nowText", "2026-10-14"));
+                return B(Key(d, "Found")) && S(Key(d, "Stage")).Length == 0
+                    && !B(Key(d, "LastBattle")) && Len(Key(d, "Survivors")) == 0
+                    && S(Key(d, "Selected")).Length == 0 && B(Key(d, "SawGuiPlan"));
+            });
+
+            // ==================== 25) start-ark-client：路径闸／窗口名册／dry-run／等窗口超时 ====================
+            b.Chk("路径闸在前：exe 不在就当场抛原话(头尾两句逐字，中间那格是收到什么就打什么)", delegate
+            {
+                object msg = ThrownMsg(delegate
+                {
+                    return Chain.StartArkClient(In("arknightsExe", Path.Combine(chainDir, "ghost.exe"),
+                        "settings", St(), "paths", allPaths));
+                });
+                string txt = S(msg);
+                return txt.StartsWith("端游路径不对：") && txt.EndsWith("(改 settings.paths.arknightsExe)");
+            });
+            b.Chk("dryRun **绕不过**路径闸(真身那句 throw 就排在 $DryRun 分支之前)：CLI 那一路实测 rc=2，这一格把实测转成门", delegate
+            {
+                object msg = ThrownMsg(delegate
+                {
+                    return Chain.StartArkClient(In("arknightsExe", Path.Combine(chainDir, "ghost.exe"),
+                        "dryRun", true, "settings", St(), "paths", allPaths, "windows", new object[0]));
+                });
+                return S(msg).StartsWith("端游路径不对：") && S(msg).EndsWith("(改 settings.paths.arknightsExe)");
+            });
+            b.Chk("窗口名册命中 ⇒ 恰一句「端游窗口已存在：[Name#Id] Title」并早退(不 sleep、不问模型、不起进程)", delegate
+            {
+                object d = Chain.StartArkClient(In("arknightsExe", arkExe, "settings", St(), "paths", allPaths,
+                    "windows", new object[] { In("Name", "Arknights", "Id", 4321L, "Title", "明日方舟") }));
+                Dictionary<string, object> w = Row(Key(d, "Window"));
+                return B(Key(d, "Started")) && Len(Key(d, "Lines")) == 1
+                    && Ln(Key(d, "Lines"), 0) == "端游窗口已存在：[Arknights#4321] 明日方舟"
+                    && w != null && S(w["Name"]) == "Arknights" && I(w["Id"]) == 4321 && S(w["Title"]) == "明日方舟";
+            });
+            b.Chk("不在跑且没窗口 ＋ dryRun ⇒ 两句(启动端游／[dry-run] 跳过实际启动)、Started=false、Window=null(真起那一句记 unobserved)", delegate
+            {
+                object d = Chain.StartArkClient(In("arknightsExe", arkExe, "dryRun", true,
+                    "settings", St(), "paths", allPaths, "windows", new object[0], "running", new object[0]));
+                return !B(Key(d, "Started")) && Key(d, "Window") == null && Len(Key(d, "Lines")) == 2
+                    && Ln(Key(d, "Lines"), 0) == "启动端游：" + arkExe
+                    && Ln(Key(d, "Lines"), 1) == "[dry-run] 跳过实际启动";
+            });
+            b.Chk("进程在跑但窗口没出 ⇒ 三句(WARN／等待超时／等了 N 秒…)，原样怪癖第 10 笔那轮多睡不在话术里", delegate
+            {
+                object d = Chain.StartArkClient(In("arknightsExe", arkExe, "settings", St(), "paths", allPaths,
+                    "windows", new object[0], "running", new object[] { "Arknights" },
+                    "windowTimeoutSeconds", 1, "pollSeconds", 1));
+                return !B(Key(d, "Started")) && Len(Key(d, "Lines")) == 3
+                    && Ln(Key(d, "Lines"), 0) == "端游进程在跑但还没有窗口(Arknights)，等它出登录界面"
+                    && Ln(Key(d, "Lines"), 1) == "等待超时(1s)：端游窗口"
+                    && Ln(Key(d, "Lines"), 2) == "等了 1 秒还没看到端游窗口(要登录/在更新/路径不对?)";
+            });
+            b.Chk("标题中但进程名不中 ⇒ 仍算没窗口(名册先按名过滤)；名的大小写不分、标题走 -match(不分大小写)", delegate
+            {
+                object a = Chain.StartArkClient(In("arknightsExe", arkExe, "dryRun", true, "settings", St(),
+                    "paths", allPaths, "windows", new object[] { In("Name", "other", "Id", 1L, "Title", "明日方舟") },
+                    "running", new object[0]));
+                object b2 = Chain.StartArkClient(In("arknightsExe", arkExe, "settings", St(), "paths", allPaths,
+                    "windows", new object[] { In("Name", "ARKNIGHTS", "Id", 9L, "Title", "Arknights") }));
+                return Len(Key(a, "Lines")) == 2 && !B(Key(a, "Started"))
+                    && B(Key(b2, "Started")) && Ln(Key(b2, "Lines"), 0) == "端游窗口已存在：[ARKNIGHTS#9] Arknights";
+            });
+
+            // ==================== 26) LauncherReady(直调)：相位五档里的四档 ＋ 开关／dry-run／超时 ====================
+            // 经 start-ark-client 走不到这里(名册是静态夹具，命中就早退、不命中就撞超时)，故 Chain 把可见性放到 internal。
+            b.Chk("arkAutoUpdateClick 明写关掉 ⇒ 直接放行、零句(顶层夹具那一枚；缺顶层时回落 settings.runtime 同一档)", delegate
+            {
+                List<object> off = new List<object>();
+                bool r1 = Chain.LauncherReady(In("arkAutoUpdateClick", false), off);
+                List<object> off2 = new List<object>();
+                bool r2 = Chain.LauncherReady(In("settings", St("arkAutoUpdateClick", false), "dryRun", true), off2);
+                return r1 && r2 && off.Count == 0 && off2.Count == 0;
+            });
+            b.Chk("dry-run ⇒ 那一句「[dry-run] 跳过启动器更新页检查」并放行(问模型一次都不问)", delegate
+            {
+                List<object> lines = new List<object>();
+                bool got = Chain.LauncherReady(In("settings", St(), "dryRun", true), lines);
+                return got && lines.Count == 1 && S(lines[0]) == "[dry-run] 跳过启动器更新页检查";
+            });
+            b.Chk("相位序列 waiting→clear：两句逐字、返 true(launcherAsks 按**问模型次数**取，clicks 自己那把尺没动)", delegate
+            {
+                List<object> lines = new List<object>();
+                bool got = Chain.LauncherReady(In("settings", St(), "launcherAsks", new object[] {
+                        AskOne(askDir, LiveSelfTest.LWaitJson), AskOne(askDir, LiveSelfTest.LClearJson) },
+                        "waitSeconds", 60, "sleepSeconds", 0), lines);
+                return got && lines.Count == 2
+                    && S(lines[0]) == "启动器检查：这一页还不能进游戏(模型说：正在下载资源 47%)，没有该点的地方，继续等"
+                    && S(lines[1]) == "启动器检查：已经不在更新页了(模型说：已经在游戏主界面)，可以开始了";
+            });
+            b.Chk("模型回话是空文本 ⇒ uncertain 那一句、放行(判不出=交回原路，这一枚不许把日常链拦死)", delegate
+            {
+                List<object> lines = new List<object>();
+                bool got = Chain.LauncherReady(In("settings", St(), "launcherAsks", new object[] { AskOne(askDir, LiveSelfTest.LBlankJson) },
+                        "waitSeconds", 60, "sleepSeconds", 0), lines);
+                return got && lines.Count == 1
+                    && S(lines[0]) == "启动器检查：模型回话里抠不出 JSON，按原样放行";
+            });
+            b.Chk("到点还没进游戏 ⇒ 问了 1 次、点过 0 次那两句 ＋ 返 false(止损不是新闸门)", delegate
+            {
+                List<object> lines = new List<object>();
+                bool got = Chain.LauncherReady(In("settings", St(), "launcherAsks", new object[] { AskOne(askDir, LiveSelfTest.LWaitJson) },
+                        "waitSeconds", 1, "sleepSeconds", 1), lines);
+                return !got && lines.Count == 2
+                    && S(lines[1]) == "启动器检查：等了 1 秒(问模型 1 次、点过 0 次)还没进游戏，这一轮到此为止";
+            });
+            b.Chk("这一棵树上没有 ask.py ⇒ 问不动那一句原话进话术、放行(第二道前置只认 File.Exists，不执行它)", delegate
+            {
+                Dictionary<string, object> knob = AskOne(askDir, LiveSelfTest.LClearJson);
+                knob["scriptPath"] = Path.Combine(askDir, "ghost.py");
+                List<object> lines = new List<object>();
+                bool got = Chain.LauncherReady(In("settings", St(), "launcherAsks", new object[] { knob },
+                        "waitSeconds", 60, "sleepSeconds", 0), lines);
+                return got && lines.Count == 1
+                    && S(lines[0]) == @"启动器检查：问模型没成功(缺少 tools\vision\ask.py(问模型这一层的实现)，这一棵树上问不了模型)，分不清是不是更新页，按原样放行";
+            });
+            b.Chk("窗口没了(no-window) ⇒ 那一句 ＋ 返 false：检查没有对象，等下去也不会自己长回来", delegate
+            {
+                List<object> lines = new List<object>();
+                bool got = Chain.LauncherReady(In("settings", St(), "procName", "gd-no-such-ark-proc", "waitSeconds", 60), lines);
+                return !got && lines.Count == 1
+                    && S(lines[0]) == "启动器检查：端游窗口没找到(可能已经关了)，这一轮不再检查更新页";
+            });
+
+            // ==================== 27) start-mumu：info → launch → 轮询到 AndroidStarted(整枚直答) ====================
+            b.Chk("MuMu 目录没填 ⇒ 不把空串递给 RunNative，而是那句专门的话再抛(链体读到就是这一档)", delegate
+            {
+                object msg = ThrownMsg(delegate
+                {
+                    return Chain.StartMuMu(In("vmIndex", "0", "settings", St(), "paths", allPaths));
+                });
+                return S(msg) == "MuMuManager 无法读取虚拟机信息(0)：MuMu 目录还没填(先跑 setup.ps1)";
+            });
+            b.Chk("dryRun 同样绕不过「目录没填」那道可读性闸(真身 throw 排在 $DryRun 分支之前)：CLI 实测 rc=2，这一格把实测转成门", delegate
+            {
+                object msg = ThrownMsg(delegate
+                {
+                    return Chain.StartMuMu(In("vmIndex", "0", "dryRun", true, "settings", St(), "paths", allPaths));
+                });
+                return S(msg) == "MuMuManager 无法读取虚拟机信息(0)：MuMu 目录还没填(先跑 setup.ps1)";
+            });
+            b.Chk("已在运行 ⇒ 一句「已在运行」并早退，Name 取对方回话里的 name(小写蛇形，是对侧的形状)", delegate
+            {
+                Chain.ResetNativeCursor();
+                object d = Chain.StartMuMu(In("vmIndex", "0", "manager", mumuExe, "settings", St(), "paths", allPaths,
+                    "nativeRuns", new object[] { Nat(0, MuMuOnJson, "") }));
+                return B(Key(d, "Started")) && S(Key(d, "Name")) == "MuMu安卓设备" && Len(Key(d, "Lines")) == 1
+                    && Ln(Key(d, "Lines"), 0) == "MuMu 虚拟机 0(MuMu安卓设备)已在运行"
+                    && Chain.NativeCallsUsed == 1 && Cnt(d) == 4;
+            });
+            b.Chk("没在跑 ＋ dryRun ⇒ 两句(启动 MuMu 虚拟机／[dry-run] 跳过实际启动)，launch 那一发不打", delegate
+            {
+                Chain.ResetNativeCursor();
+                object d = Chain.StartMuMu(In("vmIndex", "0", "manager", mumuExe, "dryRun", true,
+                    "settings", St(), "paths", allPaths, "nativeRuns", new object[] { Nat(0, MuMuOffJson, "") }));
+                return !B(Key(d, "Started")) && Len(Key(d, "Lines")) == 2
+                    && Ln(Key(d, "Lines"), 0) == "启动 MuMu 虚拟机 0(MuMu安卓设备)"
+                    && Ln(Key(d, "Lines"), 1) == "[dry-run] 跳过实际启动" && Chain.NativeCallsUsed == 1;
+            });
+            b.Chk("off→launch→on 三步：夹具按序消费、命中那一档不睡，NativeCallsUsed 恰 3(原样怪癖第 10 笔不在话术里)", delegate
+            {
+                Chain.ResetNativeCursor();
+                object d = Chain.StartMuMu(In("vmIndex", "0", "manager", mumuExe, "settings", St(), "paths", allPaths,
+                    "bootTimeoutSeconds", 5, "pollSeconds", 1, "nativeRuns", new object[] {
+                        Nat(0, MuMuOffJson, ""), Nat(0, "", ""), Nat(0, MuMuOnJson, "") }));
+                return B(Key(d, "Started")) && Len(Key(d, "Lines")) == 1
+                    && Ln(Key(d, "Lines"), 0) == "启动 MuMu 虚拟机 0(MuMu安卓设备)"
+                    && Chain.NativeCallsUsed == 3;
+            });
+            b.Chk("settings 里没填 mumuBootTimeoutSeconds ⇒ 递给等待的是 0(真身 [int]$null 就是 0)，当场判超时、不粉饰成默认值", delegate
+            {
+                Chain.ResetNativeCursor();
+                object d = Chain.StartMuMu(In("vmIndex", "0", "manager", mumuExe, "settings", St(), "paths", allPaths,
+                    "pollSeconds", 1, "nativeRuns", new object[] { Nat(0, MuMuOffJson, "") }));
+                return !B(Key(d, "Started")) && Len(Key(d, "Lines")) == 2
+                    && Ln(Key(d, "Lines"), 1) == "等待超时(0s)：MuMu 安卓系统启动";
+            });
+            b.Chk("launch 返回码非 0 ⇒ 那句是 Err 在前 Out 在后(真身 -join 就这个顺序)，再叠等待超时、Started=false", delegate
+            {
+                Chain.ResetNativeCursor();
+                object d = Chain.StartMuMu(In("vmIndex", "0", "manager", mumuExe, "settings", St(), "paths", allPaths,
+                    "bootTimeoutSeconds", 1, "pollSeconds", 1, "nativeRuns", new object[] {
+                        Nat(0, MuMuOffJson, ""), Nat(2, "启动失败", "坏") }));
+                return !B(Key(d, "Started")) && Len(Key(d, "Lines")) == 3
+                    && Ln(Key(d, "Lines"), 1) == "launch 返回码 2：坏启动失败"
+                    && Ln(Key(d, "Lines"), 2) == "等待超时(1s)：MuMu 安卓系统启动";
+            });
+
+            // ==================== 28) apply-maa-daily-config：现场检查＋递给 plan-maa-queue＋备份写盘回读 ====================
+            // ⚠ 无表那一档必须排在本族**第一格**：StageTableNow 的现场读一旦建了空表就进程内缓存到死(原样怪癖第 11 笔)，
+            //   后面几格一律显式喂 table 夹具，才不会被这一格的缓存顶掉。
+            b.Chk("关卡表建不起来(现场读空) ⇒ 三句按序：无表 WARN→活动档仍写但 WARN→理智计划；预览不落一个字节", delegate
+            {
+                object d = Chain.ApplyMaaDailyConfig(In("settings", St(), "paths", allPaths,
+                    "running", new object[0],
+                    "config", MaaTree(Queue("战斗", "Fight", false, null)),
+                    "decision", In("Mode", "activity", "ClearSanity", false, "Stage", "CE-5")));
+                return Len(Key(d, "Lines")) == 3
+                    && Ln(Key(d, "Lines"), 0) == "未能建立 MAA 关卡表，理智计划不会被校验"
+                    && Ln(Key(d, "Lines"), 1) == "活动关卡 CE-5 还不在 MAA 本地关卡表(资源可能没更到)，仍按接口结果写入"
+                    && Ln(Key(d, "Lines"), 2) == "理智计划 CE-5(拿不到 MAA 关卡表，未校验)"
+                    && Ln(Key(d, "Changes"), 0) == "(无需改动)" && Len(Key(d, "ExpectedChains")) == 0
+                    && !B(Key(d, "Applied")) && Cnt(d) == 7 && S(Key(d, "Path")) == maaCfgFile;
+            });
+            b.Chk("MAA 在跑且 apply=true ⇒ 当场抛「请先关闭」，不读盘不写盘(改配置会被它退出时盖回去)", delegate
+            {
+                object msg = ThrownMsg(delegate
+                {
+                    return Chain.ApplyMaaDailyConfig(In("settings", St(), "paths", allPaths,
+                        "running", new object[] { "maa" }, "apply", true));
+                });
+                return S(msg) == "MAA 正在运行，请先关闭再改配置";
+            });
+            b.Chk("MAA 在跑但只是预览 ⇒ 那句 WARN 排在理智计划之前，Applied=false", delegate
+            {
+                object d = Chain.ApplyMaaDailyConfig(In("settings", St(), "paths", allPaths,
+                    "running", new object[] { "maa" }, "table", In("CE-5", 6),
+                    "config", MaaTree(Queue("战斗", "Fight", false, null)),
+                    "decision", In("Mode", "idle", "ClearSanity", false, "Stage", "CE-5")));
+                return Len(Key(d, "Lines")) == 2
+                    && Ln(Key(d, "Lines"), 0) == "MAA 正在运行：预览不受影响，真正跑时会先接管关闭(残留的高权限 MAA 需要由提权那一轮来收)"
+                    && Ln(Key(d, "Lines"), 1) == "理智计划 CE-5(共 1 关，单圈理智 6)" && !B(Key(d, "Applied"));
+            });
+            b.Chk("配置不在 ⇒ 抛「MAA 配置不存在：」带全路径(闸在读盘之前，别去 parse 一个不存在的树)", delegate
+            {
+                object msg = ThrownMsg(delegate
+                {
+                    return Chain.ApplyMaaDailyConfig(In("settings", St(),
+                        "paths", In("maaDir", maaDir, "maaExe", "maa.exe", "maaConfig", "ghost.json"),
+                        "running", new object[0]));
+                });
+                return S(msg).StartsWith("MAA 配置不存在：") && S(msg).EndsWith("ghost.json");
+            });
+            b.Chk("真写盘：IsEnable＋StagePlan＋默认档护甲九项 = 恰 11 处改动，回读三项落地、末句是校验通过(备份：…)", delegate
+            {
+                Wf(maaDir, "config.json", MaaCfgText);
+                object d = Chain.ApplyMaaDailyConfig(In("settings", StArk(In("finishAllSanityWith", "战斗")),
+                    "paths", allPaths, "running", new object[0], "apply", true,
+                    "table", In("CE-5", 6),
+                    "decision", In("Mode", "idle", "ClearSanity", true, "Stage", "CE-5", "FarmMode", "")));
+                object[] ch = Gd.List(Key(d, "Changes"));
+                if (ch.Length != 11 || Len(Key(d, "ExpectedChains")) != 2
+                    || S(Gd.List(Key(d, "ExpectedChains"))[0]) != "Fight") return false;
+                if (S(ch[0]) != "战斗 → IsEnable=True" || S(ch[1]) != "战斗 → StagePlan = CE-5") return false;
+                if (S(ch[2]) != "战斗 → EnableTargetDrop = True(默认档护甲)"
+                    || S(ch[3]) != "战斗 → DropId = 4001(默认档护甲)"
+                    || S(ch[4]) != "战斗 → DropCount = 999999(默认档护甲)"
+                    || S(ch[5]) != "战斗 → IsInventoryTarget = False(默认档护甲)"
+                    || S(ch[9]) != "战斗 → UseStone = False(默认档护甲)") return false;
+                if (!Ln(Key(d, "Lines"), 1).StartsWith("MAA 配置已更新并校验通过(备份：")) return false;
+                object[] q = Gd.List(Gd.Get(Row(Gd.Get(Gd.Get(GdJson.Read(maaCfgFile), "Configurations"), "Default")), "TaskQueue"));
+                if (q.Length != 2) return false;
+                Dictionary<string, object> fight = Row(q[0]);
+                return B(fight["IsEnable"]) && S(Gd.List(fight["StagePlan"])[0]) == "CE-5"
+                    && S(fight["DropId"]) == "4001" && I(fight["TimesLimit"]) == 20 && B(Key(d, "Applied"));
+            });
+            b.Chk("没有 Fight 队列 ⇒ 一处都不改(\"(无需改动)\")、期望链空表，理智计划那一句照旧打", delegate
+            {
+                object d = Chain.ApplyMaaDailyConfig(In("settings", St(), "paths", allPaths,
+                    "running", new object[0], "table", In("CE-5", 6),
+                    "config", MaaTree(Queue("启动", "StartUp", false, null)),
+                    "decision", In("Mode", "idle", "ClearSanity", false, "Stage", "CE-5")));
+                return Len(Key(d, "Lines")) == 1 && Ln(Key(d, "Lines"), 0) == "理智计划 CE-5(共 1 关，单圈理智 6)"
+                    && Len(Key(d, "Changes")) == 1 && Ln(Key(d, "Changes"), 0) == "(无需改动)"
+                    && Len(Key(d, "ExpectedChains")) == 0 && S(Key(d, "Stage")) == "CE-5";
+            });
+
+            // ==================== 29) apply-m9a-instance：点号字面键那两格 ＋ 三句原话 ====================
+            b.Chk("M9A 在跑且 m9aCliArgs 缺键(null⇒开) ⇒ 那句 WARN ＋ Changes 只一格「交给命令行 -i 转发」", delegate
+            {
+                object d = Chain.ApplyM9AInstance(In("settings", St(), "paths", allPaths,
+                    "running", new object[] { "m9a" }, "appSettings", m9aFile,
+                    "instance", In("Id", "new-id", "Name", "新实例")));
+                return Len(Key(d, "Lines")) == 1
+                    && Ln(Key(d, "Lines"), 0) == "M9A 正在运行：改实例这一步跳过，启动时由命令行 -i/-f 接管(会转发给正在跑的实例)"
+                    && Ln(Key(d, "Changes"), 0) == "(M9A 在跑，交给命令行 -i 转发)" && !B(Key(d, "Applied"));
+            });
+            b.Chk("原样怪癖三族里的 M9ACliOn：明写 false ⇒ 在跑就是硬闸(与 takeover 那族同判，与 arkAutoUpdateClick 那族反判)", delegate
+            {
+                object msg = ThrownMsg(delegate
+                {
+                    return Chain.ApplyM9AInstance(In("settings", St("m9aCliArgs", false), "paths", allPaths,
+                        "running", new object[] { "m9a" }, "appSettings", m9aFile,
+                        "instance", In("Id", "new-id", "Name", "新实例"), "m9aCliArgs", false));
+                });
+                return S(msg) == "M9A 正在运行，请先关闭再改实例";
+            });
+            b.Chk("appsettings 不在 ⇒ 抛「M9A appsettings 不存在：」＋那格路径(闸在读盘之前)", delegate
+            {
+                object msg = ThrownMsg(delegate
+                {
+                    return Chain.ApplyM9AInstance(In("settings", St(), "paths", allPaths,
+                        "running", new object[0], "appSettings", Path.Combine(chainDir, "ghost-appsettings.json"),
+                        "instance", In("Id", "x", "Name", "y")));
+                });
+                return S(msg).StartsWith("M9A appsettings 不存在：") && S(msg).EndsWith("ghost-appsettings.json");
+            });
+            b.Chk("真切换：两处改动逐字(旧 id→新 id(名)、NoAutoStart True→False)＋末句「已切到[新实例](备份：」＋盘上三键", delegate
+            {
+                Wf(chainDir, "appsettings.json", M9aTodoText);
+                object d = Chain.ApplyM9AInstance(In("settings", St(), "paths", allPaths,
+                    "running", new object[0], "appSettings", m9aFile, "apply", true,
+                    "instance", In("Id", "new-id", "Name", "新实例")));
+                Dictionary<string, object> back = Row(GdJson.Read(m9aFile));
+                return Len(Key(d, "Changes")) == 2
+                    && Ln(Key(d, "Changes"), 0) == "Instances.LastActive: old-id → new-id(新实例)"
+                    && Ln(Key(d, "Changes"), 1) == "NoAutoStart: True → False(启动即自动开始)"
+                    && Ln(Key(d, "Lines"), 0).StartsWith("M9A 实例已切到[新实例](备份：")
+                    && S(back["Instances.LastActive"]) == "new-id" && S(back["Instances.LastActiveName"]) == "新实例"
+                    && S(back["NoAutoStart"]) == "False" && B(Key(d, "Applied"));
+            });
+            b.Chk("已经是那一枚 ⇒ \"(已是 新实例，无需改动)\"、一句都不吭、apply 那一档开着也不落笔(盘上原文一字未变)", delegate
+            {
+                Wf(chainDir, "appsettings.json", M9aDoneText);
+                object d = Chain.ApplyM9AInstance(In("settings", St(), "paths", allPaths,
+                    "running", new object[0], "appSettings", m9aFile, "apply", true,
+                    "instance", In("Id", "new-id", "Name", "新实例")));
+                return Len(Key(d, "Lines")) == 0 && Len(Key(d, "Changes")) == 1
+                    && Ln(Key(d, "Changes"), 0) == "(已是 新实例，无需改动)"
+                    && B(Key(d, "Applied"))                        // Applied 回声的是"这一档要落笔"，不是"落了几笔"
+                    && File.ReadAllText(m9aFile) == M9aDoneText;   // 没进写盘那条路：原文一个字节都没换
+            });
+
+            // ==================== 30) update-ark-farm-ledger：offset 续读＋两本账＋一句总结 ====================
+            // 每格独占一份 stateDir(格与格之间不许互相看见)，材料表一律显式喂 itemIndex
+            // (现场读那一路会进程内缓存，临时树上没有 item_index.json ⇒ 缓存一份空表就是给后面的格下毒)。
+            b.Chk("gui.log 不 ready ⇒ 全零＋Summary 空串(链体那句 bare string 要的就是空，不是报错)", delegate
+            {
+                object d = Chain.UpdateFarmLedger(In("paths", allPaths, "itemIndex", ItemIdx(),
+                    "guiLog", Path.Combine(chainDir, "ghost-gui.log"),
+                    "stateDir", Path.Combine(ledgerDir, "s0")));
+                return B(Key(d, "Done")) && S(Key(d, "Summary")).Length == 0 && I(Key(d, "Blocks")) == 0
+                    && I(Key(d, "Plus")) == 0 && I(Key(d, "Unknown")) == 0 && Len(Key(d, "Lines")) == 0;
+            });
+            b.Chk("首跑没缓存＋一场掉落 ⇒ 那两句用「；」串起来，账本落在**给定**的 stateDir 上", delegate
+            {
+                string s = Path.Combine(ledgerDir, "s1");
+                string gui = WLog(chainDir, "gui-ledger-1.log",
+                    "[INF]<11> CE-5 掉落统计", "[INF]<12> 先锋封装芯片: 2 (+2)");
+                object d = Chain.UpdateFarmLedger(In("paths", allPaths, "itemIndex", ItemIdx(),
+                    "guiLog", gui, "stateDir", s));
+                Dictionary<string, object> inv = Row(Gd.Get(Row(GdJson.Read(Path.Combine(s, "ark-inventory.json"))), "byId"));
+                return S(Key(d, "Summary")) == "没有库存缓存，初值按 0 起账(会先多刷一轮才收敛)；记了 1 场掉落、入账 +2"
+                    && I(Key(d, "Blocks")) == 1 && I(Key(d, "Plus")) == 2
+                    && inv != null && I(Gd.Get(Row(inv["30031"]), "count")) == 2;
+            });
+            b.Chk("offset 续读：第二场只算新追加的那一块，账从 2 加到 5(整份重算就是重复入账)", delegate
+            {
+                string s = Path.Combine(ledgerDir, "s2");
+                string gui = WLog(chainDir, "gui-ledger-2.log",
+                    "[INF]<11> CE-5 掉落统计", "[INF]<12> 先锋封装芯片: 2 (+2)");
+                Chain.UpdateFarmLedger(In("paths", allPaths, "itemIndex", ItemIdx(), "guiLog", gui, "stateDir", s));
+                File.AppendAllText(gui, "\n[INF]<13> CE-5 掉落统计\n[INF]<14> 先锋封装芯片: 5 (+3)", new UTF8Encoding(false));
+                object d = Chain.UpdateFarmLedger(In("paths", allPaths, "itemIndex", ItemIdx(), "guiLog", gui, "stateDir", s));
+                Dictionary<string, object> inv = Row(Gd.Get(Row(GdJson.Read(Path.Combine(s, "ark-inventory.json"))), "byId"));
+                Dictionary<string, object> dt = Row(Gd.Get(Row(GdJson.Read(Path.Combine(s, "ark-droptable.json"))), "30031"));
+                return S(Key(d, "Summary")) == "记了 1 场掉落、入账 +3" && I(Key(d, "Plus")) == 3
+                    && I(Gd.Get(Row(inv["30031"]), "count")) == 5
+                    && dt != null && I(Gd.Get(Row(dt["CE-5"]), "runs")) == 2
+                    && I(Gd.Get(Row(dt["CE-5"]), "qty")) == 5;
+            });
+            b.Chk("首跑有 DepotData 缓存 ⇒ 按它标定初值(计数是**字符串**那一格照抄)，再加本场 +2 ⇒ 9", delegate
+            {
+                string s = Path.Combine(ledgerDir, "s3");
+                string depot = Wf(chainDir, "DepotData.json", @"{""data"":{""30031"":""7""}}");
+                string gui = WLog(chainDir, "gui-ledger-3.log",
+                    "[INF]<11> CE-5 掉落统计", "[INF]<12> 先锋封装芯片: 2 (+2)");
+                object d = Chain.UpdateFarmLedger(In("paths", allPaths, "itemIndex", ItemIdx(),
+                    "guiLog", gui, "stateDir", s, "depotData", depot));
+                Dictionary<string, object> inv = Row(Gd.Get(Row(GdJson.Read(Path.Combine(s, "ark-inventory.json"))), "byId"));
+                return S(Key(d, "Summary")) == "已按 MAA 库存缓存标定初值(1 项，估算)；记了 1 场掉落、入账 +2"
+                    && I(Gd.Get(Row(inv["30031"]), "count")) == 9;
+            });
+            b.Chk("材料表认不出的名字 ⇒ 入账 +0、那一句带前 3 个名字、另落一本 ark-farm-drops.json(不并入账本)", delegate
+            {
+                string s = Path.Combine(ledgerDir, "s4");
+                string gui = WLog(chainDir, "gui-ledger-4.log",
+                    "[INF]<11> CE-5 掉落统计", "[INF]<12> 神秘材料: 1 (+1)");
+                object d = Chain.UpdateFarmLedger(In("paths", allPaths, "itemIndex", ItemIdx(),
+                    "guiLog", gui, "stateDir", s));
+                object[] drops = Gd.List(GdJson.Read(Path.Combine(s, "ark-farm-drops.json")));
+                return S(Key(d, "Summary")) == "没有库存缓存，初值按 0 起账(会先多刷一轮才收敛)；记了 1 场掉落、入账 +0；1 个名字没在材料表认出来(神秘材料)"
+                    && I(Key(d, "Plus")) == 0 && I(Key(d, "Unknown")) == 1
+                    && drops.Length == 1 && S(drops[0]) == "神秘材料";
+            });
+            b.Chk("原样怪癖第 12 笔：offset.path 是本机绝对路径 ⇒ 只落盘，不进 Summary／不进 Lines(泄漏面先过自检这一道)", delegate
+            {
+                string s = Path.Combine(ledgerDir, "s5");
+                string gui = WLog(chainDir, "gui-ledger-5.log",
+                    "[INF]<11> CE-5 掉落统计", "[INF]<12> 先锋封装芯片: 2 (+2)");
+                object d = Chain.UpdateFarmLedger(In("paths", allPaths, "itemIndex", ItemIdx(),
+                    "guiLog", gui, "stateDir", s));
+                string sum = S(Key(d, "Summary"));
+                foreach (object o in Gd.List(Key(d, "Lines"))) if (S(o).Contains(tmp)) return false;
+                Dictionary<string, object> off = Row(Gd.Get(Row(GdJson.Read(Path.Combine(s, "ark-inventory.json"))), "offset"));
+                return !sum.Contains(tmp) && sum.Length > 0 && off != null && S(off["path"]) == gui;
+            });
+
+            // ==================== 31) CLI 接线：这十枚真的挂上了分发链(名册两处同批的自证) ====================
+            b.Chk("takeover-processes 走 --in/--out：退出码 0、四键齐、那一句 WARN 在信封的 data 里", delegate
+            {
+                string inPath = Path.Combine(tmp, "tk-in.json");
+                string outPath = Path.Combine(tmp, "tk-out.json");
+                GdJson.Write(inPath, In("names", new object[] { "maa" }, "running", new object[] { "maa" },
+                    "settings", St("takeOverAssistant", true), "sleepSeconds", 0, "noKill", true,
+                    "fakeProcs", new object[] { 11 }));
+                int code = GdCli.Run("takeover-processes", new string[] { "--in=" + inPath, "--out=" + outPath });
+                Dictionary<string, object> env = GdJson.ReadEnvelope(outPath);
+                Dictionary<string, object> data = Row(Gd.Get(env, "data"));
+                return code == 0 && Gd.Truthy(Gd.Get(env, "ok")) && S(Gd.Get(env, "verb")) == "takeover-processes"
+                    && data != null && data.Count == 4 && Len(data["Stopped"]) == 1
+                    && Ln(data["Lines"], 0) == "助手 正在运行 → 先关掉再改配置(避免它退出时把配置写回旧值)";
+            });
+            b.Chk("read-maa-fight-skip 走 CLI：读不到日志不是错误，退出码 0＋Found=false 那一档照摆", delegate
+            {
+                string inPath = Path.Combine(tmp, "fs-in.json");
+                string outPath = Path.Combine(tmp, "fs-out.json");
+                GdJson.Write(inPath, In("paths", allPaths, "guiLog", Path.Combine(chainDir, "ghost-gui.log")));
+                int code = GdCli.Run("read-maa-fight-skip", new string[] { "--in=" + inPath, "--out=" + outPath });
+                Dictionary<string, object> env = GdJson.ReadEnvelope(outPath);
+                Dictionary<string, object> data = Row(Gd.Get(env, "data"));
+                return code == 0 && data != null && !Gd.Truthy(data["Found"])
+                    && S(data["Reason"]) == "gui-log-missing";
+            });
+            b.Chk("apply-maa-daily-config 漏喂 settings：退出码 2＋「还没有 config\\settings.json」原话(临时树故意不建那一枚)", delegate
+            {
+                string inPath = Path.Combine(tmp, "mc-in.json");
+                string outPath = Path.Combine(tmp, "mc-out.json");
+                GdJson.Write(inPath, In("decision", In("Mode", "idle", "ClearSanity", false, "Stage", "CE-5")));
+                int code = GdCli.Run("apply-maa-daily-config", new string[] { "--in=" + inPath, "--out=" + outPath });
+                Dictionary<string, object> env = GdJson.ReadEnvelope(outPath);
+                return code == 2 && !Gd.Truthy(Gd.Get(env, "ok"))
+                    && S(Gd.Get(env, "error")).Contains("还没有 config\\settings.json");
+            });
+            b.Chk("名册第二处(usage 长串)随行自证：未知子命令那句报错里必须同时数到本批十枚", delegate
+            {
+                string outPath = Path.Combine(tmp, "usage2-out.json");
+                int code = GdCli.Run("no-such-verb", new string[] { "--out=" + outPath });
+                string err = S(Gd.Get(GdJson.ReadEnvelope(outPath), "error"));
+                return code == 1 && err.Contains("takeover-processes") && err.Contains("stop-maa-and-game")
+                    && err.Contains("stop-m9a") && err.Contains("read-maa-fight-skip")
+                    && err.Contains("read-maa-stage-observation") && err.Contains("start-ark-client")
+                    && err.Contains("start-mumu") && err.Contains("apply-maa-daily-config")
+                    && err.Contains("apply-m9a-instance") && err.Contains("update-ark-farm-ledger");
+            });
+
             // 收尾：临时树整目录删掉(纪律＝门/自检的临时件不落仓内)
             try { if (File.Exists(lockFile)) File.Delete(lockFile); } catch { }
             try { Directory.Delete(tmp, true); }
@@ -1067,7 +1829,8 @@ namespace GdPanel
 
             int rc = b.Result("--roundtest");
             if (rc == 0)
-                Console.WriteLine("结论: PASS(②-a 那七枚 + ②-b1 这六枚的话术/算术/夹具闸都对；提权实弹、真 webhook/气泡/真任务/真杀进程、真打活动接口与真 settings/真 state 盘仍登记 unobserved)");
+                Console.WriteLine("结论: PASS(②-a 那七枚 + ②-b1 那六枚 + ②-b2 这十枚的话术/算术/夹具闸都对；提权实弹、真 webhook/气泡/真任务/真杀进程、真打活动接口与真 settings/真 state 盘，"
+                    + "以及 ②-b2 的 needs-click 真点击、真起端游/等窗口、asst.log 尾 16MB 本体、takeover 那 4 秒、两枚回读不一致抛、认不出相位那一档仍登记 unobserved)");
             return rc;
         }
     }

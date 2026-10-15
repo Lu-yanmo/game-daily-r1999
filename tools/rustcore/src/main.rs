@@ -6488,6 +6488,18 @@ fn round_ctx_parse(v: &JVal) -> Result<RoundCtx, String> {
 /// `lib\<OrchestrationLib>`（合体判据，`entryverb` 那格另读）。
 /// 返回 Err 的两句是骨架里**唯一**在进十段之前就发生的失败 ⇒ 调用方一律按 Fail 信封出（rc=1），
 /// 真身那边它们是 terminating error，由入口的 catch 收尾，形状本来就不是"退出码 2"。
+/// `Select-GdModules` 里"认不出来的 id 当场报错"那一句（throw 原文逐字）。
+/// 括号里那格名册：真身列现装注册表的 id（= 文件名序），核内列**这棵树上清单在位**的那几枚 ——
+/// 同一把尺换了事实源，只在清单被裁坏时文案才分岔（登记在册）。
+fn round_no_module_msg(id: &str, registered: &[&'static GdModule]) -> String {
+    let names: Vec<&str> = registered.iter().map(|m| m.id).collect();
+    format!(
+        "没有这个模块：{}(这棵树上有：{})。要跑某一款就先把它的 <id>-module.ps1 放进 lib\\",
+        id,
+        names.join(" / ")
+    )
+}
+
 fn select_gd_modules(ctx: &RoundCtx, root: &str) -> Result<Vec<&'static GdModule>, String> {
     let lib_dir = std::path::Path::new(root).join("lib");
     let has = |f: &str| lib_dir.join(f).exists();
@@ -6509,15 +6521,15 @@ fn select_gd_modules(ctx: &RoundCtx, root: &str) -> Result<Vec<&'static GdModule
     let mut skipped: Vec<String> = Vec::new();
     for id in &want {
         match gd_module_by_id(id) {
-            None => {
-                let names: Vec<&str> = registered.iter().map(|m| m.id).collect();
-                return Err(format!(
-                    "没有这个模块：{}(这棵树上有：{})。要跑某一款就先把它的 <id>-module.ps1 放进 lib\\",
-                    id,
-                    names.join(" / ")
-                ));
-            }
+            None => return Err(round_no_module_msg(id, &registered)),
             Some(m) => {
+                // 真身这一档查的是**现装注册表**（`<id>-module.ps1` 被 dot-source 进 `$global:GdModules`
+                // 才算注册），查不到当场 throw。核内没有注册表，等价判据只能落在清单文件在不在位上 ——
+                // §11.55 ④ 补的就是这一档：原来只查助手库，"清单没进树但助手库在"那一路被照跑，
+                // 而真身是报错退出（"认不出来的 id 不许变成静默少跑一款"那句立项理由）。
+                if !has(m.manifest_file) {
+                    return Err(round_no_module_msg(id, &registered));
+                }
                 if !has(m.assistant_lib) {
                     skipped.push(format!("{} 已注册但这一路没装(lib\\{} 不在)，本轮跳过它", id, m.assistant_lib));
                     continue;
@@ -7057,6 +7069,42 @@ fn round_join_cn(vals: &[&'static str], sep: &str) -> String {
     kept.join(sep)
 }
 
+/// .NET `Math.Round(x, 0)` 的舍入档：**向偶数舍**（`MidpointRounding.ToEven` 是默认值）。
+/// `f64::round` 是"半程向上"，直接抄会把 22.5 舍成 23，与真身实测的 22 分岔。
+fn gd_round_half_to_even(x: f64) -> f64 {
+    let f = x.floor();
+    let d = x - f;
+    if d > 0.5 {
+        f + 1.0
+    } else if d < 0.5 {
+        f
+    } else if (f / 2.0).fract() == 0.0 {
+        f
+    } else {
+        f + 1.0
+    }
+}
+
+/// 汇总与历史那一行的分钟数（真身 `"$([math]::Round($r.Duration / 60, 1)) 分钟"`）。
+/// 两件事必须一起复刻，实测在 `--selftest` 24k 那一段（十六枚时长逐个对拍 PS 现测读数）：
+/// ① 先放大到"分钟×10"再向偶数舍 ⇒ 135 秒是 2.2 分钟、75 秒是 1.2 分钟、45 秒是 0.8 分钟；
+/// ② 舍完走 double 的最短可往返表示 ⇒ 60 秒是「1 分钟」而不是「1.0 分钟」，1 秒是「0 分钟」。
+///    `{:.1}` 给不出 ②，`f64::round` 给不出 ①，两处都不是"顺手统一格式"。
+fn round_minutes_display(secs: f64) -> String {
+    let scaled = gd_round_half_to_even(secs / 6.0);
+    format!(" {} 分钟", scaled / 10.0)
+}
+
+/// 回执里 `Available` 那一格的读法 —— 真身 `Get-Command … -ErrorAction SilentlyContinue` 那把守卫
+/// 换头以后的替身。**键缺席按"在"处理**：外侧答手没有义务为"命令在场"多写一格，而真身里"命令在但
+/// 起挂了"那一档本来就走 catch 出 WARN；显式 false 才是"这棵树上压根没这枚命令"⇒ 整段一句不吭。
+fn round_answer_available(d: &JVal) -> bool {
+    match jv_get_ci(d, "Available") {
+        JVal::Null => true,
+        v => jv_truthy(&v),
+    }
+}
+
 /// **十段轮骨架**（真身 = `lib\modules.ps1` 的 `Invoke-GdDailyRound`，逐行复刻）。
 /// 段的划分与顺序照 `DRIVE_WHY_ROUND` 那十枚名：选路／环境／提权闸／门表／判定／锁／监督／睡眠屏蔽／
 /// 逐路链体／收尾汇总通知。dry-run 预览挂在判定之后（真身就在那个位置 return 0）。
@@ -7237,8 +7285,10 @@ fn daily_round_chain(
 
     // ---------- 段 7 监督 agent ----------
     // 真身用 `Get-Command` 守卫（自检的假环境不点这一枚），且起不来只少一份旁观、绝不影响主流程。
-    // 换头以后这一格外发，于是"命令在不在"变成回执里那一枚 `Available` —— 没守卫那一档就等于骨架自己
-    // 决定要不要监督，那是把旁观层的开关搬进编排层，不许。
+    // 换头以后这一格外发，于是"命令在不在"变成回执里那一枚 `Available`：**没这枚命令那一档是真身的一句
+    // 都不吭**（守卫不成立 ⇒ 整段跳过，连"没起来"那句 WARN 都不该有）。骨架自己不许决定要不要监督，
+    // 那是把旁观层的开关搬进编排层。`Available` 这一格缺席时按"在"处理 —— 外侧答手没义务凭空多给一格，
+    // 而真身里"命令在但起挂了"那一档本来就是走 catch 出 WARN。
     let sup = fx.ans(
         "round",
         ROUND_SUPERVISOR_START_ACT,
@@ -7247,9 +7297,11 @@ fn daily_round_chain(
     );
     match sup {
         Ok(d) => {
-            let e = jv_str(&jv_get_ci(&d, "Err"));
-            if !e.is_empty() {
-                fx.fx_log("WARN", &format!("监督 agent 没起来：{}(这一轮没人监督，主流程不受影响)", e));
+            if round_answer_available(&d) {
+                let e = jv_str(&jv_get_ci(&d, "Err"));
+                if !e.is_empty() {
+                    fx.fx_log("WARN", &format!("监督 agent 没起来：{}(这一轮没人监督，主流程不受影响)", e));
+                }
             }
         }
         Err(ArkAbort::Fail(msg)) => {
@@ -7292,20 +7344,33 @@ fn daily_round_chain(
                 if keep {
                     // 屏保那一格（读 SPI + 关闭 + 清旧机制那本 state 文件）留外发：核不越界去抢
                     // user32 那枚（extern 块的头注写了依据）。四档话术在骨架，判据在外侧。
-                    let sv = fx.ans("round", ROUND_SCREENSAVER_ACT, JVal::Null, |d| d.clone())?;
-                    if !jv_truthy(&jv_get_ci(&sv, "Read")) {
-                        fx.fx_log("WARN", "读屏保状态失败，本轮不动屏保");
-                    } else if jv_truthy(&jv_get_ci(&sv, "WasActive")) {
-                        if jv_truthy(&jv_get_ci(&sv, "Disabled")) {
-                            fx.fx_log("INFO", "屏保已关闭(策略：只关不复，收尾不再恢复)");
-                        } else {
-                            fx.fx_log(
-                                "WARN",
-                                "关闭屏保失败：会话可能已被屏保桌面接管(方舟会因此早退)；长期解法见 status.ps1 的「屏保」那一行(解除命令 tools\\unarm-screensaver.ps1 -Apply)",
-                            );
+                    // ⚠ 这一格的 Fail **不许冒泡**：真身整段 `Enter-GdNoSleep` 只有一个 try/catch，
+                    // 屏保那几句全在 try 内 ⇒ 拿不到读数只留一句「禁止睡眠失败：…」，本轮照跑
+                    // （§11.55 ③ 抓出来的真红之一：写成 `?` 等于把"屏保读不动"升级成本轮崩）。
+                    let sv = fx.ans("round", ROUND_SCREENSAVER_ACT, JVal::Null, |d| d.clone());
+                    let sv = match sv {
+                        Ok(d) => Some(d),
+                        Err(ArkAbort::Fail(msg)) => {
+                            fx.fx_log("WARN", &format!("禁止睡眠失败：{}", msg));
+                            None // 真身 catch 到句尾：四档一句都不打，但本轮照跑、收尾照旧撤屏蔽
                         }
-                    } else {
-                        fx.fx_log("INFO", "屏保本来就是关闭状态(稳态)");
+                        Err(other) => return Err(other),
+                    };
+                    if let Some(sv) = sv {
+                        if !jv_truthy(&jv_get_ci(&sv, "Read")) {
+                            fx.fx_log("WARN", "读屏保状态失败，本轮不动屏保");
+                        } else if jv_truthy(&jv_get_ci(&sv, "WasActive")) {
+                            if jv_truthy(&jv_get_ci(&sv, "Disabled")) {
+                                fx.fx_log("INFO", "屏保已关闭(策略：只关不复，收尾不再恢复)");
+                            } else {
+                                fx.fx_log(
+                                    "WARN",
+                                    "关闭屏保失败：会话可能已被屏保桌面接管(方舟会因此早退)；长期解法见 status.ps1 的「屏保」那一行(解除命令 tools\\unarm-screensaver.ps1 -Apply)",
+                                );
+                            }
+                        } else {
+                            fx.fx_log("INFO", "屏保本来就是关闭状态(稳态)");
+                        }
                     }
                 }
             }
@@ -7371,9 +7436,11 @@ fn daily_round_chain(
     let sup_stop = fx.ans("round", ROUND_SUPERVISOR_STOP_ACT, JVal::Null, |d| d.clone());
     match sup_stop {
         Ok(d) => {
-            let e = jv_str(&jv_get_ci(&d, "Err"));
-            if !e.is_empty() {
-                fx.fx_log("WARN", &format!("监督 agent 没停干净：{}", e));
+            if round_answer_available(&d) {
+                let e = jv_str(&jv_get_ci(&d, "Err"));
+                if !e.is_empty() {
+                    fx.fx_log("WARN", &format!("监督 agent 没停干净：{}", e));
+                }
             }
         }
         Err(ArkAbort::Fail(msg)) => {
@@ -7415,7 +7482,7 @@ fn daily_round_chain(
             all_ok = false;
         }
         let mins = match r.duration {
-            Some(d) if d != 0.0 => format!(" {:.1} 分钟", d / 60.0),
+            Some(d) if d != 0.0 => round_minutes_display(d),
             _ => String::new(),
         };
         let dec = &plan[i].1;
@@ -17924,6 +17991,236 @@ fn selftest() -> i32 {
             src_round.matches("=> {").count() + src_round.matches("=> DirectOut").count() + src_round.matches("(\"round\", ROUND_ADMIN_ACT) => {").count() >= 20
                 && src_round.contains("_ => return Ok(None)"),
             "答手那张表少了兜底那一臂（Ok(None) = 照旧外发），或臂数掉到 20 以下：名册一散成两处，「谁来答」就没了唯一事实源",
+            &mut fails,
+            &mut total,
+        );
+
+        // ---------- 24k 分钟那一格的渲染（真身 "$([math]::Round($r.Duration / 60, 1)) 分钟"）----------
+        // 期望值全部来自现测（pwsh 7.6.6 逐枚跑出来的十七行），一枚都不许按"看起来应该"填：
+        // **向偶数舍**（135s→2.2 不是 2.3、75s→1.2、45s→0.8）与 **double 最短表示**（60s→「1 分钟」、
+        // 1s→「0 分钟」、3600s→「60 分钟」）是两把独立的尺，`{:.1}` 只中第二把、`f64::round` 只中第一把。
+        let mins24k: [(f64, &str); 17] = [
+            (60.0, " 1 分钟"),
+            (90.0, " 1.5 分钟"),
+            (120.0, " 2 分钟"),
+            (133.0, " 2.2 分钟"),
+            (135.0, " 2.2 分钟"),
+            (141.0, " 2.4 分钟"),
+            (150.0, " 2.5 分钟"),
+            (270.0, " 4.5 分钟"),
+            (900.0, " 15 分钟"),
+            (1080.0, " 18 分钟"),
+            (3600.0, " 60 分钟"),
+            (3665.0, " 61.1 分钟"),
+            (59.0, " 1 分钟"),
+            (75.0, " 1.2 分钟"),
+            (45.0, " 0.8 分钟"),
+            (8.0, " 0.1 分钟"),
+            (1.0, " 0 分钟"),
+        ];
+        let mut bad24k: Vec<String> = Vec::new();
+        for (sec24k, want24k) in mins24k.iter() {
+            let got24k = round_minutes_display(*sec24k);
+            if got24k != *want24k {
+                bad24k.push(format!("{}s→[{}]应为[{}]", sec24k, got24k, want24k));
+            }
+        }
+        chk(
+            bad24k.is_empty(),
+            &format!(
+                "汇总/通知里分钟那一格与真身分岔（舍入档或数字表示有一处没复刻）：{}",
+                bad24k.join(" / ")
+            ),
+            &mut fails,
+            &mut total,
+        );
+
+        // ---------- 24l 段 7／段 8 的三档现场形状（守卫档一句不吭、屏保崩只 WARN 不崩本轮）----------
+        // 这三档都在**外发**那一族，故走 ask/res：假 executor 只改被点名那一格的回执，其余照 24h 的册子答。
+        // blockSleep=true + keepScreenOn=true 是把段 8 整段请出场的唯一办法（`es` 由假钩子接，绝不碰真 API）。
+        for (scen24l, ask_act, ask_ok, ask_available) in [
+            ("sv-missing", "", true, false),
+            ("sv-error", "", true, true),
+            ("screen-fail", ROUND_SCREENSAVER_ACT, false, true),
+        ]
+        .iter()
+        {
+            let jl = t24(&format!("j-{}.ndjson", scen24l));
+            let rl = t24(&format!("r-{}.json", scen24l));
+            let kl = t24(&format!("k-{}.ndjson", scen24l));
+            let cl = t24(&format!("c-{}.json", scen24l));
+            let _ = std::fs::write(
+                &cl,
+                &format!(
+                    "{{\"ids\":[\"ark\"],\"gates\":[],\"opt\":{{}},\"force\":false,\"dryRun\":false,\"skipCleanup\":false,\"noElevate\":false,\"nameField\":\"Id\",\"noticeOwner\":\"每日\",\"tag\":\"{}\",\"logLeaf\":\"\",\"logPath\":\"\",\"pid\":4242,\"maaRun\":{{\"maaDir\":\"{}\\\\maa\",\"maaExe\":\"MAA.exe\",\"guiLog\":\"\",\"asstLog\":\"\",\"stateDir\":\"{}\",\"maxTicks\":2,\"tickSeconds\":1,\"startTimeoutMinutes\":1,\"timeoutMinutes\":1,\"stallTimeoutMinutes\":1,\"retryOnce\":false,\"launchArkFromHelper\":true,\"closeGameAfter\":false,\"rescueAvailable\":false,\"grabFrontAvailable\":false}},\"m9aRun\":{{\"paths\":{{\"m9aDir\":\"\",\"m9aExe\":\"\",\"m9aLogDir\":\"\"}},\"conn\":{{\"adb\":\"\",\"serial\":\"\"}},\"instance\":{{\"id\":\"1\",\"name\":\"1999\"}},\"package\":\"\",\"runtime\":{{\"m9aInstanceArg\":\"\",\"m9aForceStart\":false,\"visionMaxRescue\":0,\"r1999StartTimeoutMinutes\":1,\"r1999TimeoutMinutes\":1,\"stallTimeoutMinutes\":1}}}}}}",
+                    scen24l, d24j, s24j
+                ),
+            );
+            let mut done_l = (9i32, String::new());
+            for _ in 0..24 {
+                done_l = {
+                    let mut call_l = |v: &str, _b: &JVal| -> Result<JVal, String> {
+                        if v == "resolve-round-context" {
+                            let mut d = r24_reply(v, &paths_ok24);
+                            if let JVal::O(ref mut o) = d {
+                                for (k, val) in o.iter_mut() {
+                                    if k == "Runtime" {
+                                        *val = jv_o(vec![
+                                            ("blockSleep", JVal::B(true)),
+                                            ("keepScreenOn", JVal::B(true)),
+                                            ("retryOnce", JVal::B(false)),
+                                        ]);
+                                    }
+                                }
+                            }
+                            return Ok(d);
+                        }
+                        Ok(r24_reply(v, &paths_ok24))
+                    };
+                    let mut nap_l = |_s: u32| {};
+                    let mut es_l = |f: u32| -> u32 {
+                        if f & ES_QUERY_ONLY != 0 {
+                            ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED
+                        } else {
+                            1
+                        }
+                    };
+                    let mut hk_l = RoundHooks { call: &mut call_l, nap: &mut nap_l, es: &mut es_l };
+                    let mut dec_l = |_st: &str, _ro: bool| -> Result<(bool, Vec<(String, String)>), String> {
+                        Ok((false, Vec::new()))
+                    };
+                    let mut dec9_l = |_st: &str, _rs: bool, _ro: bool| -> Result<(bool, Vec<(String, String)>), String> {
+                        Ok((false, Vec::new()))
+                    };
+                    let mut run_l = |_sc: &MaaScen, _ch: &[String]| -> Result<ArkRunOut, String> {
+                        Ok(ArkRunOut {
+                            status: "ok".to_string(),
+                            detail: "夹具一轮".to_string(),
+                            duration: Some(120.0),
+                        })
+                    };
+                    let mut run9_l = |_sc: &M9aScen| -> Result<M9aRunOut, String> {
+                        Ok(M9aRunOut {
+                            status: "ok".to_string(),
+                            detail: "x".to_string(),
+                            duration: Some(60.0),
+                            rescued: false,
+                        })
+                    };
+                    drive_round_daily_envelope(
+                        true, &jl, &cl, &rl, "unused-panel-cs", &s24, &kl, &root_all, &mut hk_l, &mut dec_l,
+                        &mut dec9_l, &mut run_l, &mut run9_l,
+                    )
+                };
+                let evl = jv_parse(&done_l.1).unwrap_or(JVal::Null);
+                if jv_str(&jv_get(&evl, "kind")) != "ask" {
+                    break;
+                }
+                let seq_l = jv_int(&jv_get(&evl, "seq"), 0);
+                let act_l = jv_str(&jv_get(&evl, "action"));
+                let is_sup = act_l == ROUND_SUPERVISOR_START_ACT || act_l == ROUND_SUPERVISOR_STOP_ACT;
+                let is_target = !ask_act.is_empty() && act_l == *ask_act;
+                let rf = if is_target && !ask_ok {
+                    format!(
+                        "{{\"seq\":{},\"action\":{},\"ok\":false,\"err\":{}}}",
+                        seq_l,
+                        jstr(&act_l),
+                        jstr("屏保读数拿不到（夹具）")
+                    )
+                } else if is_sup {
+                    format!(
+                        "{{\"seq\":{},\"action\":{},\"ok\":true,\"data\":{{\"Available\":{},\"Err\":{}}}}}",
+                        seq_l,
+                        jstr(&act_l),
+                        if *ask_available { "true" } else { "false" },
+                        jstr(if *ask_available { "起挂了（夹具）" } else { "这棵树上没有 Start-GdSupervisor" })
+                    )
+                } else {
+                    format!("{{\"seq\":{},\"action\":{},\"ok\":true,\"data\":{{\"Done\":true}}}}", seq_l, jstr(&act_l))
+                };
+                let _ = std::fs::write(&rl, rf);
+            }
+            let sinkl: Vec<String> = std::fs::read_to_string(&kl)
+                .unwrap_or_default()
+                .lines()
+                .filter(|l| !l.trim().is_empty())
+                .map(|l| l.to_string())
+                .collect();
+            let reached_done = jv_str(&jv_get(&jv_parse(&done_l.1).unwrap_or(JVal::Null), "kind")) == "done";
+            if *scen24l == "sv-missing" {
+                chk(
+                    reached_done
+                        && !sinkl.iter().any(|l| l.contains("监督 agent 没起来"))
+                        && !sinkl.iter().any(|l| l.contains("监督 agent 没停干净")),
+                    &format!(
+                        "回执里 Available=false 那一档没接住（真身是 Get-Command 守卫不成立 ⇒ 整段一句不吭，骨架不许替旁观层决定要不要监督）：done={} 侧行={:?}",
+                        reached_done,
+                        sinkl.iter().filter(|l| l.contains("监督")).collect::<Vec<_>>()
+                    ),
+                    &mut fails,
+                    &mut total,
+                );
+            } else if *scen24l == "sv-error" {
+                chk(
+                    reached_done
+                        && sinkl.iter().any(|l| l.contains("监督 agent 没起来：起挂了（夹具）(这一轮没人监督，主流程不受影响)"))
+                        && sinkl.iter().any(|l| l.contains("监督 agent 没停干净：起挂了（夹具）")),
+                    &format!(
+                        "命令在场但起挂/停不干净那一档话术走样（这两句必须逐字，且都挡不住本轮）：done={} 侧行={:?}",
+                        reached_done,
+                        sinkl.iter().filter(|l| l.contains("监督")).collect::<Vec<_>>()
+                    ),
+                    &mut fails,
+                    &mut total,
+                );
+            } else {
+                chk(
+                    reached_done
+                        && done_l.0 == 0
+                        && sinkl.iter().any(|l| l.contains("禁止睡眠失败：屏保读数拿不到（夹具）"))
+                        && !sinkl.iter().any(|l| l.contains("屏保已关闭"))
+                        && !sinkl.iter().any(|l| l.contains("读屏保状态失败"))
+                        && !sinkl.iter().any(|l| l.contains("屏保本来就是关闭状态"))
+                        && sinkl.iter().any(|l| l.contains("=== 本轮结束")),
+                    &format!(
+                        "屏保那一格崩了不该崩本轮（真身整段一个 try/catch ⇒ 只留一句「禁止睡眠失败：…」，四档一句都不打、收尾照旧撤屏蔽）：done={} rc={} 侧行={}",
+                        reached_done,
+                        done_l.0,
+                        sinkl.join(" § ").chars().take(700).collect::<String>()
+                    ),
+                    &mut fails,
+                    &mut total,
+                );
+            }
+        }
+
+        // ---------- 24m 选路：清单没进树那一档必须当场报错，不许照跑 ----------
+        // 真身查的是现装注册表（`<id>-module.ps1` dot-source 进 `$global:GdModules` 才算注册）；
+        // 核内没有注册表，等价判据只能落在**清单文件在不在位**上。只查助手库等于把"清单没进树"
+        // 那一路静默接管（真身报错退出、核内照跑两路）。
+        // 这一档要请出场的树：ark 全装、r1999 只有助手库在场（清单缺席）。
+        let root_nomanifest = t24("root-no-manifest");
+        let _ = std::fs::create_dir_all(format!("{}\\lib", root_nomanifest));
+        for f in ["ark-module.ps1", "maa.ps1", "m9a.ps1"].iter() {
+            let _ = std::fs::write(format!("{}\\lib\\{}", root_nomanifest, f), "# fake\n");
+        }
+        let mut rc_nom = round_ctx_empty();
+        rc_nom.ids = vec!["ark".to_string(), "r1999".to_string()];
+        let pick_nom = select_gd_modules(&rc_nom, &root_nomanifest);
+        chk(
+            matches!(pick_nom, Err(ref e) if e.contains("没有这个模块：r1999(这棵树上有：ark)") && e.contains("<id>-module.ps1 放进 lib")),
+            &format!(
+                "清单没进树那一档没照真身报错（助手库在场就当这一路能用 ⇒ 静默接管真身要当场退出的那一路）：{:?}",
+                pick_nom.as_ref().err()
+            ),
+            &mut fails,
+            &mut total,
+        );
+        // 反手一格：注册判据不许补过头——两路清单都在位的树照旧选出两路，且序按命令行传入序。
+        let pick_back = select_gd_modules(&rc_nom, &root_all);
+        chk(
+            pick_back.as_ref().map(|v| v.iter().map(|m| m.id).collect::<Vec<_>>() == vec!["ark", "r1999"]).unwrap_or(false),
+            &format!("补注册判据补过头了（清单在位的那两路也不再选出来，或传入序被改成名册序）：{:?}", pick_back.as_ref().err()),
             &mut fails,
             &mut total,
         );

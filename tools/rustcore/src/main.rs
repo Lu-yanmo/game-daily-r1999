@@ -33,15 +33,17 @@ use std::ffi::c_void;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::process::exit;
 
-// 升号依据（ADR-3：号只在"出口形状变了"的那一批动）：`RustCore-R6.0` → `RustCore-R7.0`，
-// 连接段 `--scope` 的**取值域多了一档**（`adb-live-run`：唯一真调 `AsstStart` 的一档），
-// 于是同一枚 `--connect` 出口对外可观察的形状变了 —— 新增一档入参取值 + 信封 `calls` 里新增
-// `AsstStart=* / AsstStop=* / worker=* / FreeLibrary=skipped-worker-alive` 那几枚标签 +
-// `ok` 的覆盖面多一条（任务面没收束不算 ok）。三条都是对外可见，不是"加字段"。
+// 升号依据（ADR-3：号只在"出口形状变了"的那一批动）：`RustCore-R7.0` → `RustCore-R8.0`，
+// 变的是**同一处形状**的两半，所以只升一次（§11.52 ④ 把这批钉成 ②-b3，理由在此）：
+// ① 新出口 `--daily-round`（role 取值域多出第三枚 `B3b-round-daily`，ask 的 action 名册是
+//    十六格链体之外的**十段轮骨架**，拒跑闸多一道 `--root`）；
+// ② 答手形状变（`DriveFx.direct` 从"有/没有闭包"两档变成"闭包可能答 None ⇒ 照旧 ask"三档，
+//    回执类型 `Result<Option<DirectOut>, String>`）。
+// 两半是同一处对外可见的形状变：没有 ①，② 只是内部重构不该升号；没有 ②，① 那十段一格都答不动。
 // ⚠ 改号必须与 `lib\common.ps1` 的 `Get-GdRustContract`、`tools\build-exe.ps1` 的内嵌名册、
 // `tools\rustcore\probe-connect.ps1`、`docs\r0-keyfacts.json` 顶层**同批**动，
 // 由 `probe-events-golden.ps1` 的 H3 半逐一对齐（壳侧字面量还要求只剩一种拼法）。
-const CONTRACT: &str = "RustCore-R7.0";
+const CONTRACT: &str = "RustCore-R8.0";
 const ROLE: &str = "R0-readonly";
 
 // ---------------------------------------------------------------- Win32 直调
@@ -59,7 +61,29 @@ extern "system" {
     fn Process32NextW(h_snapshot: *mut c_void, lp_entry: *mut ProcessEntry32W) -> i32;
     fn CloseHandle(h_object: *mut c_void) -> i32;
     fn GetLocalTime(lp_system_time: *mut SystemTime);
+    // B-3②-b3：睡眠屏蔽。这三枚标志的生效范围是**调用它的那根线程/进程**（句柄语义，见
+    // tools\gdinterop\GdPower.cs 的注释与 lib\common.ps1 的 Enter-GdNoSleep / Exit-GdNoSleep），
+    // 所以它天生不是 verb —— 外发给壳答，等于让另一个进程去设一个对本进程无效的开关。
+    // 这是 B-3 里唯一一处「该在核内新立 Win32 面」的例外，依据写在 docs\rust-core-plan.md §11.50 ①-8。
+    // ⚠ 这里只做 ES_CONTINUOUS / ES_SYSTEM_REQUIRED / ES_DISPLAY_REQUIRED 三枚**设置**与一枚**查询**；
+    //   屏保那一格（user32 的 SystemParametersInfo）仍留壳侧 —— panel-cs 的 resolve-screensaver-verdict
+    //   与 tools\gdinterop\GdPower.cs 已经管着它，核不越界去抢（同 §11.52 ④「既有 verb 形状一字不动」）。
+    fn SetThreadExecutionState(es_flags: u32) -> u32;
 }
+
+/// `SetThreadExecutionState` 的三枚设置标志 + 一枚查询标志，值取自 winbase.h，
+/// 与 tools\gdinterop\GdPower.cs:19-21 那三枚**逐字同值**（两处同源，改一处必改两处）。
+/// 查询形态是 `ES_CONTINUOUS | ES_QUERY_ONLY`：只回读当前状态、不改，返回值即当前位型。
+/// ⚠ ES_QUERY_ONLY 的数值**在本仓任何一份文档里都没有钉过**（§11.50 ①-8 只说"用 ES_QUERY 复验"），
+///   所以这里按头文件写、并在自证那一发当场测；测不到就照口径记 unobserved。
+///   自证只读 system/display 两位（`round_answer` 的 nosleep 那格），`ES_USER_PRESENT` 不参与判据，
+///   留在名册里只为"读到的位型能对回头文件"这一件事。
+const ES_CONTINUOUS: u32 = 0x8000_0000;
+const ES_SYSTEM_REQUIRED: u32 = 0x0000_0001;
+const ES_DISPLAY_REQUIRED: u32 = 0x0000_0002;
+#[allow(dead_code)]
+const ES_USER_PRESENT: u32 = 0x0000_0004;
+const ES_QUERY_ONLY: u32 = 0x0000_0010;
 
 /// 本地时间戳（B-1a 已搬动作 mark/obsrec 用）——GetLocalTime 的 SYSTEMTIME 布局。
 #[repr(C)]
@@ -4648,6 +4672,17 @@ const DRIVE_WHY: &str = "驱动档是换头专用口：本进程只推链与记�
 /// 却说错了"的第二处事实源，所以另立一句、把真做的那一格点名。
 const DRIVE_WHY_M9A: &str = "驱动档是换头专用口：本进程只推 1999 的链与记账，链体与 run 真做在本进程内跑，其余七格现场动作由 PS 侧照 ask 的 seq/action 执行后写 --res 回执再重入（缺 --i-drive 直接拒跑）";
 
+/// B-3②-b3 轮骨架的 why：**第三枚 role 才有第三句 why**。这句不许照抄上面任何一句 ——
+/// 那两句说的是"链体"，本档管的是**轮**：十段骨架在本进程内逐段走，链体只是它的第九段
+/// 各自要调的东西（ark 一路 + r1999 一路挂在一本账上）。
+/// ⚠ **名册句不带枚数**（§11.55 ② 定档）：这一档"哪些格直答、哪些格外发"按**族**点名就够，
+/// 写成数字就变成第二份事实源 —— 直答面随 b1/b2 的 verb 一颗一颗长，话术每改一次就要重数一遍，
+/// 数错的那一句还会被当成判据。链体可直答的那些格由 `round_direct` 一家说了算，
+/// `updgate`／`audit` 两格在射程外（真身是再起一个 pwsh 子进程，见 §11.52 ②）。
+/// 话术里不许吹"全自动"：外发那几格此刻仍由外侧照 ask 办，本批 `lib\*.ps1` 一行未动（②-d 才转接）；
+/// 也不许吹"完全不经 PS"：`updgate`／`audit` 那两格的工具子进程照旧是 pwsh（§11.52 的降级话术）。
+const DRIVE_WHY_ROUND: &str = "轮骨架档是换头专用口：本进程逐段走十段轮骨架（选路/环境/提权闸/门表/判定/锁/监督/睡眠屏蔽/逐路链体/收尾汇总通知），链体现场件与本轮的提权读态·通知在本进程内直答，门表·判定·预览·收尾·监督·历史·提权与屏保读数照 ask 的 seq/action 由外侧执行后写 --res 回执再重入（缺 --i-round 直接拒跑）";
+
 /// 七道拒跑闸（顺序即优先级）。七句都点名所缺旗标 —— 自检逐句咬字。
 /// 第七闸是 B-2c②「日志侧信道」加上的：链上日志不再攒在内存里等收尾，而是按产生顺序
 /// 逐行追加进 --log-sink 指的侧信道文件，由 PS 侧边跑边排空 —— 没有落点就等于整轮日志不落盘，
@@ -4718,6 +4753,49 @@ fn drive_m9a_refusal(
     }
     if log_sink.is_empty() {
         return Some("驱动档要 --log-sink 指到日志侧信道文件：1999 链上日志按产生顺序逐行落这里，攒在内存里等收尾等于整轮不落盘".to_string());
+    }
+    None
+}
+
+/// B-3②-b3 轮骨架的拒跑闸：前七闸**同序同句形**（驱动协议没变，变的是这一档叫什么名），
+/// 第八闸是本档独有的 `--root`。为什么必须新立一枚旗标：这一档要在位性现问"这棵树上装了哪几路"
+/// （判据 = `lib\maa.ps1` / `lib\m9a.ps1` 在不在），而这两条判据**不在任何一枚 ctx verb 的回执里**
+/// —— panel-cs 那些 verb 管的是现场动作，不管工程树形状。本机路径只作参数喂进来，
+/// 不进 journal、不进 ask 信封、不进日志（§11.52 ④「本机值不进机读面」那条纪律在这里同样成立）。
+/// 顺序仍是判据，自检逐句咬字。
+fn round_refusal(
+    i_round: bool,
+    journal: &str,
+    ctx: &str,
+    res: &str,
+    panel_cs: &str,
+    state: &str,
+    log_sink: &str,
+    root: &str,
+) -> Option<String> {
+    if !i_round {
+        return Some("轮骨架档是换头专用口：缺 --i-round / --daily-round 系列参数时直接拒跑（默认档不许启用它）".to_string());
+    }
+    if journal.is_empty() {
+        return Some("轮骨架档要 --journal 指到会话 journal 文件：十段的断点没落点，重入记不住".to_string());
+    }
+    if ctx.is_empty() {
+        return Some("轮骨架档要 --ctx 指到轮上下文文件：ids/gates/opt/force/dryRun/nameField/noticeOwner/tag 与 maaRun/m9aRun 没来路".to_string());
+    }
+    if res.is_empty() {
+        return Some("轮骨架档要 --res 指到回执文件：外发那些段动作干完之后的落点没给".to_string());
+    }
+    if panel_cs.is_empty() {
+        return Some("轮骨架档要 --panel-cs 指到判定 exe：现场件（锁/通知/进程树/兜底）全在这一枚上，缺它一段都走不动".to_string());
+    }
+    if state.is_empty() {
+        return Some("轮骨架档要 --state 指到 state 目录：运行锁与本轮账要落到生产同一处".to_string());
+    }
+    if log_sink.is_empty() {
+        return Some("轮骨架档要 --log-sink 指到日志侧信道文件：十段日志按产生顺序逐行落这里，攒在内存里等收尾等于整轮不落盘".to_string());
+    }
+    if root.is_empty() {
+        return Some("轮骨架档要 --root 指到工程根：这一档要现问「这棵树上装了哪几路」（lib\\maa.ps1 / lib\\m9a.ps1 在不在），判定不在任何一枚 verb 里".to_string());
     }
     None
 }
@@ -4868,6 +4946,35 @@ struct DriveFx<'a> {
     pending: Option<(i64, &'static str, JVal)>,
     /// 驱动协议错。log 没有 Result 通道，只能落这里；下个动作 check_io 冒泡。
     io_err: Option<String>,
+    /// B-3②-b3 **第三答手**：链体那些现场格（ark 一路 + m9a 一路）在 panel-cs 里有了直答件之后，
+    /// 驱动档不再需要 PS 侧替它办 —— 这一枚闭包就是"核自己答"。三档取值（`ans` 里分派，顺序即判据）：
+    /// - 重放段（journal 已有这行）→ `take_act` 还原，**绝不调闭包**（副作用不重做）；
+    /// - 新区且闭包答 `Some` → 现场真做、账行落 journal、`Lines` 只进侧信道；
+    /// - 新区且闭包答 `None`（**或闭包压根为空**＝`--drive-ark-daily` / `--drive-m9a-daily` 两枚现出口）
+    ///   → 退回 `ask`，**两枚现出口逐字节不变**：这一刀改的是"谁来答"，不是"问什么"。
+    /// 为什么把"不答"做成闭包的返回值而不是只靠 `Option<闭包>`：哪些格有直答件这件事必须有**一份来源**
+    /// （答手自己那张名册），在两枚现出口里它恒为空、在轮骨架里它在场但对**骨架自己外发的那些格**与
+    /// **链体射程外那两格**（`updgate`／`audit`，真身是再起 pwsh 子进程）答 `None` ——
+    /// 若"不答"只能靠"闭包为空"表达，轮骨架就得为每枚不同 role 各造一枚闭包，名册反而散成两份。
+    direct: Option<&'a mut dyn FnMut(&str, &str, &JVal) -> Result<Option<DirectOut>, String>>,
+}
+
+/// 第三答手的一格回执：`data` 进 journal（与 PS executor 当年写的 res `data` 同形，投影在答手里做完），
+/// `lines` 是 panel-cs 那侧的 `Lines`（**纯字符串数组**：`Chain.cs` 的 `Say(lines, lvl, msg)` 只
+/// `lines.Add(msg)`，级别只进子进程自己的 stdout，信封里根本没这枚格）。因此级别在这里无从得知 ——
+/// 逐行按 INFO 进侧信道，这条分岔已登记（docs §11.55）；**绝不进 journal**（账上多一行就等于改两侧投影）。
+struct DirectOut {
+    data: JVal,
+    lines: Vec<String>,
+}
+
+impl DirectOut {
+    fn only(data: JVal) -> DirectOut {
+        DirectOut { data, lines: Vec::new() }
+    }
+    fn with_lines(data: JVal, lines: Vec<String>) -> DirectOut {
+        DirectOut { data, lines }
+    }
 }
 
 impl<'a> DriveFx<'a> {
@@ -4880,6 +4987,7 @@ impl<'a> DriveFx<'a> {
         m9a_scen: M9aScen,
         run_m9a: &'a mut dyn FnMut(&M9aScen) -> Result<M9aRunOut, String>,
         rows: Vec<JVal>,
+        direct: Option<&'a mut dyn FnMut(&str, &str, &JVal) -> Result<Option<DirectOut>, String>>,
     ) -> Self {
         let replay_end = rows.len();
         DriveFx {
@@ -4896,6 +5004,7 @@ impl<'a> DriveFx<'a> {
             written: 0,
             pending: None,
             io_err: None,
+            direct,
         }
     }
     /// 链上日志的唯一实现（B-2d④ 起两路 trait 各有一枚 `log`，body 必须同一处）：
@@ -5024,6 +5133,56 @@ impl<'a> DriveFx<'a> {
         self.pending = Some((seq as i64, action, params));
         Err(ArkAbort::Ask)
     }
+    /// B-3②-b3 第三答手的唯一入口（链体十六格与轮骨架格共用这一把）。
+    /// `role` 必须是**调用它的那枚 trait impl 的字面**（`impl ArkDailyFx` 里恒 "ark"、
+    /// `impl R1999DailyFx` 里恒 "r1999"），不是构造期字段 —— 一轮里同一枚 DriveFx 会先后服务
+    /// 两路链，把 role 焊在 new 上就只有第一条链拿得到自己的名字。
+    /// `decode` 只在三档都成立后跑：重放段喂账上的 data、直答喂答手的 data、`ask` 那档根本不返回。
+    /// 所以**同一枚 decode 就是三档的同一把尺**——老驱动档的 replay 形状与新直答的落账形状
+    /// 在这里被迫一致，这正是这一刀要的判据（两侧各写一份 decode 迟早漂）。
+    fn ans<T, F: FnOnce(&JVal) -> T>(
+        &mut self,
+        role: &'static str,
+        action: &'static str,
+        params: JVal,
+        decode: F,
+    ) -> Result<T, ArkAbort> {
+        self.check_io()?;
+        if self.replaying() {
+            return match self.take_act(action)? {
+                DriveTake::Data(d) => Ok(decode(&d)),
+                DriveTake::Fail(m) => Err(ArkAbort::Fail(m)),
+            };
+        }
+        let out = match self.direct.as_mut() {
+            Some(f) => f(role, action, &params),
+            None => Ok(None),
+        };
+        match out {
+            // 答手不答这一格（轮骨架外发那十三格）⇒ 与闭包为空走同一句 `ask`：
+            // 问法、信封形状、重放依据全部照旧，这一刀改的只是"谁来答"。
+            // ⚠ 链体射程外那两格（`updgate`／`audit`）**根本不进这一枚** —— 它们走 `gate`，
+            // 那里没有答手；"直答件答不了"与"直答件选择不答"是两件事，名册别混。
+            Ok(None) => self.ask(action, params),
+            Ok(Some(o)) => {
+                // Lines 只进侧信道（不进账）。写侧信道失败落 io_err，与 fx_log 同一把语义。
+                for ln in &o.lines {
+                    if let Err(m) = drive_sink_row(self.log_sink, "INFO", ln) {
+                        self.io_err = Some(format!("日志侧信道追加失败：{}", m));
+                    }
+                }
+                self.check_io()?;
+                self.append_soft(action, o.data.clone());
+                self.check_io()?;
+                Ok(decode(&o.data))
+            }
+            Err(m) => {
+                self.append_err(action, &m);
+                self.check_io()?;
+                Err(ArkAbort::Fail(m))
+            }
+        }
+    }
 }
 
 impl ArkDailyFx for DriveFx<'_> {
@@ -5033,77 +5192,29 @@ impl ArkDailyFx for DriveFx<'_> {
         self.fx_log(level, text);
     }
     fn desk(&mut self) -> Result<String, ArkAbort> {
-        self.check_io()?;
-        if self.replaying() {
-            match self.take_act("desk")? {
-                DriveTake::Data(d) => Ok(jv_str(&d)),
-                DriveTake::Fail(m) => Err(ArkAbort::Fail(m)),
-            }
-        } else {
-            self.ask("desk", JVal::Null)
-        }
+        self.ans("ark", "desk", JVal::Null, |d| jv_str(d))
     }
     fn svdetail(&mut self) -> Result<String, ArkAbort> {
-        self.check_io()?;
-        if self.replaying() {
-            match self.take_act("svdetail")? {
-                DriveTake::Data(d) => Ok(jv_str(&d)),
-                DriveTake::Fail(m) => Err(ArkAbort::Fail(m)),
-            }
-        } else {
-            self.ask("svdetail", JVal::Null)
-        }
+        self.ans("ark", "svdetail", JVal::Null, |d| jv_str(d))
     }
     fn takeover(&mut self) -> Result<(), ArkAbort> {
-        self.check_io()?;
-        if self.replaying() {
-            match self.take_act("takeover")? {
-                DriveTake::Data(_) => Ok(()),
-                DriveTake::Fail(m) => Err(ArkAbort::Fail(m)),
-            }
-        } else {
-            self.ask("takeover", JVal::Null)
-        }
+        self.ans("ark", "takeover", JVal::Null, |_| ())
     }
     fn cfg(&mut self, kind: ArkCfgKind) -> Result<ArkCfgOut, ArkAbort> {
-        self.check_io()?;
         let params = match &kind {
             ArkCfgKind::Main => jv_o(vec![("kind", jv_s("main"))]),
             ArkCfgKind::Lean { stage } => jv_o(vec![("kind", jv_s("lean")), ("stage", jv_s(stage))]),
         };
-        if self.replaying() {
-            match self.take_act("cfg")? {
-                DriveTake::Data(d) => Ok(ArkCfgOut {
-                    changes: jv_list(&jv_get_ci(&d, "changes")).into_iter().map(jv_str).collect(),
-                    chains: jv_list(&jv_get_ci(&d, "chains")).into_iter().map(jv_str).collect(),
-                }),
-                DriveTake::Fail(m) => Err(ArkAbort::Fail(m)),
-            }
-        } else {
-            self.ask("cfg", params)
-        }
+        self.ans("ark", "cfg", params, |d| ArkCfgOut {
+            changes: jv_list(&jv_get_ci(d, "changes")).into_iter().map(jv_str).collect(),
+            chains: jv_list(&jv_get_ci(d, "chains")).into_iter().map(jv_str).collect(),
+        })
     }
     fn entryverb(&mut self, game: &str, verb: &str) -> Result<String, ArkAbort> {
-        self.check_io()?;
-        if self.replaying() {
-            match self.take_act("entryverb")? {
-                DriveTake::Data(d) => Ok(jv_str(&d)),
-                DriveTake::Fail(m) => Err(ArkAbort::Fail(m)),
-            }
-        } else {
-            self.ask("entryverb", jv_o(vec![("game", jv_s(game)), ("verb", jv_s(verb))]))
-        }
+        self.ans("ark", "entryverb", jv_o(vec![("game", jv_s(game)), ("verb", jv_s(verb))]), |d| jv_str(d))
     }
     fn launch(&mut self) -> Result<bool, ArkAbort> {
-        self.check_io()?;
-        if self.replaying() {
-            match self.take_act("launch")? {
-                DriveTake::Data(d) => Ok(jv_truthy(&d)),
-                DriveTake::Fail(m) => Err(ArkAbort::Fail(m)),
-            }
-        } else {
-            self.ask("launch", JVal::Null)
-        }
+        self.ans("ark", "launch", JVal::Null, |d| jv_truthy(d))
     }
     fn run(&mut self, chains: &[String]) -> Result<ArkRunOut, ArkAbort> {
         self.check_io()?;
@@ -5147,46 +5258,22 @@ impl ArkDailyFx for DriveFx<'_> {
         }
     }
     fn stop(&mut self) -> Result<(), ArkAbort> {
-        self.check_io()?;
-        if self.replaying() {
-            match self.take_act("stop")? {
-                DriveTake::Data(_) => Ok(()),
-                DriveTake::Fail(m) => Err(ArkAbort::Fail(m)),
-            }
-        } else {
-            self.ask("stop", JVal::Null)
-        }
+        self.ans("ark", "stop", JVal::Null, |_| ())
     }
     fn sleep(&mut self, seconds: u32) -> Result<(), ArkAbort> {
-        self.check_io()?;
-        if self.replaying() {
-            match self.take_act("sleep")? {
-                DriveTake::Data(_) => Ok(()),
-                DriveTake::Fail(m) => Err(ArkAbort::Fail(m)),
-            }
-        } else {
-            self.ask("sleep", JVal::I(seconds as i64))
-        }
+        self.ans("ark", "sleep", JVal::I(seconds as i64), |_| ())
     }
     fn skip(&mut self) -> Result<Option<ArkSkipData>, ArkAbort> {
-        self.check_io()?;
-        if self.replaying() {
-            match self.take_act("skip")? {
-                DriveTake::Data(d) => {
-                    if matches!(d, JVal::Null) {
-                        return Ok(None);
-                    }
-                    Ok(Some(ArkSkipData {
-                        skipped: jv_truthy(&jv_get_ci(&d, "skipped")),
-                        plan: jv_list(&jv_get_ci(&d, "plan")).into_iter().map(jv_str).collect(),
-                        evidence: jv_list(&jv_get_ci(&d, "evidence")).into_iter().map(jv_str).collect(),
-                    }))
-                }
-                DriveTake::Fail(m) => Err(ArkAbort::Fail(m)),
+        self.ans("ark", "skip", JVal::Null, |d| {
+            if matches!(d, JVal::Null) {
+                return None;
             }
-        } else {
-            self.ask("skip", JVal::Null)
-        }
+            Some(ArkSkipData {
+                skipped: jv_truthy(&jv_get_ci(d, "skipped")),
+                plan: jv_list(&jv_get_ci(d, "plan")).into_iter().map(jv_str).collect(),
+                evidence: jv_list(&jv_get_ci(d, "evidence")).into_iter().map(jv_str).collect(),
+            })
+        })
     }
     fn mark(&mut self, stages: &[String], reason: &str) -> Result<String, ArkAbort> {
         self.check_io()?;
@@ -5212,26 +5299,10 @@ impl ArkDailyFx for DriveFx<'_> {
         }
     }
     fn ledger(&mut self) -> Result<String, ArkAbort> {
-        self.check_io()?;
-        if self.replaying() {
-            match self.take_act("ledger")? {
-                DriveTake::Data(d) => Ok(jv_str(&d)),
-                DriveTake::Fail(m) => Err(ArkAbort::Fail(m)),
-            }
-        } else {
-            self.ask("ledger", JVal::Null)
-        }
+        self.ans("ark", "ledger", JVal::Null, |d| jv_str(d))
     }
     fn obs(&mut self) -> Result<JVal, ArkAbort> {
-        self.check_io()?;
-        if self.replaying() {
-            match self.take_act("obs")? {
-                DriveTake::Data(d) => Ok(d),
-                DriveTake::Fail(m) => Err(ArkAbort::Fail(m)),
-            }
-        } else {
-            self.ask("obs", JVal::Null)
-        }
+        self.ans("ark", "obs", JVal::Null, |d| d.clone())
     }
     fn obsrec(&mut self, obs: &JVal) -> Result<Option<i64>, ArkAbort> {
         self.check_io()?;
@@ -5297,61 +5368,21 @@ impl R1999DailyFx for DriveFx<'_> {
         self.gate("audit")
     }
     fn takeover(&mut self) -> Result<(), ArkAbort> {
-        self.check_io()?;
-        if self.replaying() {
-            match self.take_act("takeover")? {
-                DriveTake::Data(_) => Ok(()),
-                DriveTake::Fail(m) => Err(ArkAbort::Fail(m)),
-            }
-        } else {
-            self.ask("takeover", JVal::Null)
-        }
+        self.ans("r1999", "takeover", JVal::Null, |_| ())
     }
     fn mumu(&mut self) -> Result<bool, ArkAbort> {
-        self.check_io()?;
-        if self.replaying() {
-            match self.take_act("mumu")? {
-                DriveTake::Data(d) => Ok(jv_truthy(&d)),
-                DriveTake::Fail(m) => Err(ArkAbort::Fail(m)),
-            }
-        } else {
-            self.ask("mumu", JVal::Null)
-        }
+        self.ans("r1999", "mumu", JVal::Null, |d| jv_truthy(d))
     }
     fn cfg(&mut self) -> Result<M9aCfgOut, ArkAbort> {
-        self.check_io()?;
-        if self.replaying() {
-            match self.take_act("cfg")? {
-                DriveTake::Data(d) => Ok(M9aCfgOut {
-                    changes: jv_list(&jv_get_ci(&d, "changes")).into_iter().map(jv_str).collect(),
-                }),
-                DriveTake::Fail(m) => Err(ArkAbort::Fail(m)),
-            }
-        } else {
-            self.ask("cfg", JVal::Null)
-        }
+        self.ans("r1999", "cfg", JVal::Null, |d| M9aCfgOut {
+            changes: jv_list(&jv_get_ci(d, "changes")).into_iter().map(jv_str).collect(),
+        })
     }
     fn stop(&mut self) -> Result<(), ArkAbort> {
-        self.check_io()?;
-        if self.replaying() {
-            match self.take_act("stop")? {
-                DriveTake::Data(_) => Ok(()),
-                DriveTake::Fail(m) => Err(ArkAbort::Fail(m)),
-            }
-        } else {
-            self.ask("stop", JVal::Null)
-        }
+        self.ans("r1999", "stop", JVal::Null, |_| ())
     }
     fn sleep(&mut self, seconds: u32) -> Result<(), ArkAbort> {
-        self.check_io()?;
-        if self.replaying() {
-            match self.take_act("sleep")? {
-                DriveTake::Data(_) => Ok(()),
-                DriveTake::Fail(m) => Err(ArkAbort::Fail(m)),
-            }
-        } else {
-            self.ask("sleep", JVal::I(seconds as i64))
-        }
+        self.ans("r1999", "sleep", JVal::I(seconds as i64), |_| ())
     }
     fn run(&mut self) -> Result<M9aRunOut, ArkAbort> {
         self.check_io()?;
@@ -5509,6 +5540,12 @@ struct DriveRole {
 const DRIVE_ROLE_ARK: DriveRole = DriveRole { role: "R3-drive-ark-daily", why: DRIVE_WHY };
 const DRIVE_ROLE_M9A: DriveRole = DriveRole { role: "B2d-drive-m9a-daily", why: DRIVE_WHY_M9A };
 
+/// B-3②-b3：轮骨架这一档的 role。**新字面 = 新取值域** —— 三枚 role 各自对应一份不同的
+/// journal 名册（轮骨架走十段、ark 链体与 m9a 链体各走自己那一本），把它们挤进同一枚字面，
+/// "这一本账是谁的"就当场问不出来。这也是本批升 `R7.0 → R8.0` 的依据：
+/// ask 信封的 `role` 是出口形状的一部分，出现了历史两枚都不认识的新取值。
+const DRIVE_ROLE_ROUND: DriveRole = DriveRole { role: "B3b-round-daily", why: DRIVE_WHY_ROUND };
+
 /// ask 信封的内层：链体停在哪个动作上（seq/action/params），壳照单执行后写 res 回执再重入。
 /// 三枚模板里 role/why 是唯一的差别，记账机制与键序两路完全同源 —— 所以这里只有一份字面。
 fn drive_env_ask(rl: DriveRole, seq: i64, action: &str, params: &JVal) -> String {
@@ -5665,6 +5702,9 @@ fn drive_ark_daily_envelope(
     let mut m9a_stub = |_sc: &M9aScen| -> Result<M9aRunOut, String> {
         Err("内部错：ark 链体不许调 m9a 那一路的 run 闭包（DriveFx 分派写错了）".to_string())
     };
+    // B-3②-b3 护栏「两枚现出口逐字节不变」：这一路**不给**第三答手（`direct` 为空），
+    // `ans` 在新区直接退回 `ask` ⇒ `--drive-ark-daily` 的 ask 信封、journal、退出码一律如旧。
+    let no_direct: Option<&mut dyn FnMut(&str, &str, &JVal) -> Result<Option<DirectOut>, String>> = None;
     let mut fx = DriveFx::new(
         journal,
         state,
@@ -5674,6 +5714,7 @@ fn drive_ark_daily_envelope(
         M9aScen::default(),
         &mut m9a_stub,
         rows,
+        no_direct,
     );
     let r = ark_daily_chain(&input, &mut fx, decide);
     match r {
@@ -5889,6 +5930,8 @@ fn drive_m9a_daily_envelope(
     let mut ark_stub = |_sc: &MaaScen, _ch: &[String]| -> Result<ArkRunOut, String> {
         Err("内部错：m9a 链体不许调 ark 那一路的 run 闭包（DriveFx 分派写错了）".to_string())
     };
+    // 同上：`--drive-m9a-daily` 也不给第三答手，两枚现出口的形状一字不动。
+    let no_direct: Option<&mut dyn FnMut(&str, &str, &JVal) -> Result<Option<DirectOut>, String>> = None;
     let mut fx = DriveFx::new(
         journal,
         state,
@@ -5898,6 +5941,7 @@ fn drive_m9a_daily_envelope(
         scen,
         run_m9a,
         rows,
+        no_direct,
     );
     let r = r1999_daily_chain(&input, &mut fx, decide);
     match r {
@@ -5998,6 +6042,1727 @@ fn run_drive_m9a_daily(
                 };
                 let pair =
                     drive_m9a_daily_envelope(i_drive, journal, ctx, res, panel_cs, state, log_sink, &mut dec, &mut run);
+                rc = pair.0;
+                json = pair.1;
+            }
+        }
+    }
+    emit(&json, out);
+    rc
+}
+
+// ------------------------------------------------------------------ B-3②-b3 轮骨架：清单数据面
+//
+// 这一整块是 `lib\ark-module.ps1` / `lib\r1999-module.ps1` 那两份**清单**里能被纯数据表达的格子
+// 的复刻（十段骨架要读的只有这些：短名、要不要管理员、三句提示、环境探测行、入口 verb 名册）。
+// ⚠ 双源登记（§11.52 ④ 第⑤条同族）：清单改这些字段必须同批改这里，否则宿主版读到的是旧话术。
+// 为什么不做成"从盘上现解析清单"：PS 清单的真身是 `[pscustomobject]` + 七枚 `scriptblock` 钩子，
+// 钩子搬不动（§11.50 ④-4 已定档），剩下这几格是纯数据 —— 抄进码面比"在 Rust 里解析 PS"诚实。
+// 清单的**钩子**该干什么，本块一概不管：Resolve/Preview/Ack/ShopState/Run/Stop 那六枚仍按 ask
+// 交给外侧执行（见 `daily_round_chain` 的 action 名册）。
+
+/// 清单 `Hooks.EnvProbes` 返回的那本 `[ordered]@{ 标签 = 路径 }` 的一行，折成三格纯数据：
+/// - `rel_key` 为空 ⇒ 这一行就是 `paths.<base_key>` 本身（真身写 `$S.paths.maaDir`）；
+/// - `rel_key` 非空 ⇒ 这一行是 `Join-GdPath paths.<base_key> @(paths.<rel_key>)`，走 `gd_join_path`。
+/// `label` 是话术的一部分（"缺失：MAA 配置 → …"这一行玩家见过），不许换成英文键名。
+#[derive(Clone, Copy)]
+struct GdEnvRow {
+    label: &'static str,
+    base_key: &'static str,
+    rel_key: &'static str,
+}
+
+/// 清单 `EntryVerbs.Merged` 的一行（`Ack` → `-AckArk`）。
+/// 这张表是 `entryverb` 那格直答的**唯一来源**：§11.50 ④-4 抓过的坑就是"回落成短名 `-Ack` 了事"——
+/// 真身 `Get-GdEntryVerb` 先查名册、查不到才回落 `'-' + $Verb`，所以宿主版必须带着名册＋在位性现问。
+#[derive(Clone, Copy)]
+struct GdEntryVerbRow {
+    verb: &'static str,
+    flag: &'static str,
+}
+
+/// 一份模块清单里十段骨架要读的那些格。
+/// `stop_act` 是本批**新立**的一格静态动作名（`"stop:ark"` 等，不是清单里的字面）：
+/// 骨架的收尾段按模块分派"停哪一路"，而 `DriveFx` 的断点格是 `&'static str`（`&'a mut dyn …` 让它对 `'a`
+/// 不变、reborrow 不缩短生命周期），把动作名焊在静态清单上正好同时满足"分派表只有一份"与借用检查。
+/// ⚠ 曾经配了对的 `run_act` 已删（§11.55 ③ 判定）：两路的 run 在 B-2c③／B-2d② 就变成**核内真做**，
+/// 骨架再也不会把"跑哪一路"外发 —— 留着它就是一份没人读的第二个事实源。
+/// `manifest_file` 判的是"这一路注册没注册"（真身 = `lib\*-module.ps1` 扫不扫得到），
+/// `assistant_lib` 判的是"这一路装没装"（`Get-GdModules -AvailableOnly` / `Test-GdModuleInstalled`），
+/// `orchestration_lib` 判的是"这棵树把几路当游戏在管"（`Test-GdMergedEntry` 的判据）—— 三枚**各自独立**，
+/// 合成一枚就把"注册／装载／合体"三种状态糊成一档了。
+/// ⚠ 下面五枚 `*_act` 是 b3 落码时**新立的静态动作名**，不是清单里的字面，也不是可有可无的装饰：
+/// `DriveFx` 的断点格与 `ask`／`take_act` 的 `action` 形参是 `&'static str`（`DriveFx<'a>` 里的
+/// `&'a mut dyn FnMut<…>` 让它对 `'a` 不变、reborrow 也缩短不了生命周期），于是**骨架里不可能用
+/// `format!` 现造动作名** —— 想在第十段"按模块分派"又不能动态拼串，唯一诚实的去处就是把名字焊进静态清单。
+/// 先例是本结构原本的 `stop_act`；这五枚与它同一档，两枚模块各写一份字面 ⇒ 名册仍是闭合的、可现扫的。
+/// `probe_act` 只有 ark 有（`round-probe:ark` = 活动图每轮自证，真身在 `lib\ark-module.ps1` 的 Run 钩子里），
+/// r1999 那一路**这一格根本不存在**（清单的 Run 钩子没这一段），所以它置空串、骨架按空串跳过；
+/// 空串不是"名字待定"，是"这一路没这格"的显式读数。
+/// ⚠ 同一模块的门表两枚（Ack / ShopDone / ShopReset）共用 `round-gate:<id>`：靠 journal 里的
+/// **位置**＋`params` 里那枚 `verb` 区分。这是合法的 —— `params` 进 ask 信封、不进重放判据
+/// （`take_act` 只逐行比 `action`），所以重复的 action 名不会让重放认错账。
+#[derive(Clone, Copy)]
+struct GdModule {
+    id: &'static str,
+    short_name: &'static str,
+    assistant_lib: &'static str,
+    orchestration_lib: &'static str,
+    manifest_file: &'static str,
+    requires_admin: bool,
+    elevation_flag: &'static str,
+    admin_why: &'static str,
+    admin_hint: &'static str,
+    admin_ok_note: &'static str,
+    env_rows: &'static [GdEnvRow],
+    entry_verbs: &'static [GdEntryVerbRow],
+    stop_act: &'static str,
+    resolve_act: &'static str,
+    preview_act: &'static str,
+    gate_act: &'static str,
+    history_act: &'static str,
+    probe_act: &'static str,
+}
+
+const GD_ENV_ARK: &[GdEnvRow] = &[
+    GdEnvRow { label: "MAA 目录", base_key: "maaDir", rel_key: "" },
+    GdEnvRow { label: "MAA 配置", base_key: "maaDir", rel_key: "maaConfig" },
+    GdEnvRow { label: "方舟端游", base_key: "arknightsExe", rel_key: "" },
+];
+
+const GD_ENV_R1999: &[GdEnvRow] = &[
+    GdEnvRow { label: "M9A 目录", base_key: "m9aDir", rel_key: "" },
+    GdEnvRow { label: "M9A appsettings", base_key: "m9aDir", rel_key: "m9aAppSettings" },
+    GdEnvRow { label: "MuMu Manager", base_key: "mumuDir", rel_key: "mumuManager" },
+];
+
+const GD_VERBS_ARK: &[GdEntryVerbRow] = &[
+    GdEntryVerbRow { verb: "Ack", flag: "-AckArk" },
+    GdEntryVerbRow { verb: "ShopDone", flag: "-ArkShopDone" },
+    GdEntryVerbRow { verb: "ShopReset", flag: "-ArkShopReset" },
+    GdEntryVerbRow { verb: "Farm", flag: "-FarmArk" },
+];
+
+const GD_VERBS_R1999: &[GdEntryVerbRow] = &[
+    GdEntryVerbRow { verb: "Ack", flag: "-Ack1999" },
+    GdEntryVerbRow { verb: "ShopDone", flag: "-RShopDone" },
+    GdEntryVerbRow { verb: "ShopReset", flag: "-RShopReset" },
+];
+
+/// ark 那一路的清单。`RequiresAdmin=true` 且 `ElevationFlag='arkRequiresElevation'`：
+/// 真身那句 `$S.runtime.arkRequiresElevation -ne $false` 已由 `resolve-round-context` 的
+/// `Elevation` 折成真值（`Round.FlagEnabled`），核内不再抄第二把 PowerShell 真值尺。
+const GD_MODULE_ARK: GdModule = GdModule {
+    id: "ark",
+    short_name: "方舟",
+    assistant_lib: "maa.ps1",
+    orchestration_lib: "ark-daily.ps1",
+    manifest_file: "ark-module.ps1",
+    requires_admin: true,
+    elevation_flag: "arkRequiresElevation",
+    admin_why: "端游要管理员权限(MAA 未提权时连不上客户端)",
+    admin_hint: "MAA 可能连不上端游",
+    admin_ok_note: "端游/MAA 需要",
+    env_rows: GD_ENV_ARK,
+    entry_verbs: GD_VERBS_ARK,
+    stop_act: "stop:ark",
+    resolve_act: "round-resolve:ark",
+    preview_act: "round-preview:ark",
+    gate_act: "round-gate:ark",
+    history_act: "round-history:ark",
+    probe_act: "round-probe:ark",
+};
+
+/// r1999 那一路的清单。三句 Admin 话术是**空串**（原样怪癖：字段齐但没话要说，`Assert` 认这个形状），
+/// `Where-Object { $_ }` 那一步把它们滤掉 ⇒ 拼出来的 `$why/$hint/$okNote` 是空串，话术里不出现"（）"。
+/// `ElevationFlag` 抄的是清单原值（`arkRequiresElevation`），但本路 `RequiresAdmin=false`，框架读不到它。
+const GD_MODULE_R1999: GdModule = GdModule {
+    id: "r1999",
+    short_name: "1999",
+    assistant_lib: "m9a.ps1",
+    orchestration_lib: "r1999-daily.ps1",
+    manifest_file: "r1999-module.ps1",
+    requires_admin: false,
+    elevation_flag: "arkRequiresElevation",
+    admin_why: "",
+    admin_hint: "",
+    admin_ok_note: "",
+    env_rows: GD_ENV_R1999,
+    entry_verbs: GD_VERBS_R1999,
+    stop_act: "stop:r1999",
+    resolve_act: "round-resolve:r1999",
+    preview_act: "round-preview:r1999",
+    gate_act: "round-gate:r1999",
+    history_act: "round-history:r1999",
+    // 空串＝**这一路没有活动图自证那一格**（真身 `lib\r1999-module.ps1` 的 Run 钩子没这段），
+    // 骨架读到空串就跳过；不是"名字待定"。r1999 侧的同类判据在 1999-event-audit 那一路，
+    // 而它挂在 `audit` 那格（链体里、走 `gate`），与轮骨架的第十段无关。
+    probe_act: "",
+};
+
+/// 注册表（真身 `$global:GdModules` 是 `[ordered]`，顺序 = `lib\*-module.ps1` 文件名序 = ark 在前）。
+/// 顺序是判据：汇总行、`-Games` 那串、`$modeLine` 都按它排。
+const GD_MODULES: &[GdModule] = &[GD_MODULE_ARK, GD_MODULE_R1999];
+
+/// `Get-GdModule -Id`：认不出来返 None，由调用方复刻真身那句 throw。
+fn gd_module_by_id(id: &str) -> Option<&'static GdModule> {
+    GD_MODULES.iter().find(|m| m.id.eq_ignore_ascii_case(id))
+}
+
+/// 环境探测那七枚键之外，骨架还要两枚**取名用**的键：
+/// `takeover` 直答要喂 `takeover-processes` 的 `names`，而那两个名字在真身里是
+/// `[IO.Path]::GetFileNameWithoutExtension($S.paths.maaExe / .arknightsExe / .m9aExe)` 现算的
+/// （ark-daily.ps1:134、r1999-daily.ps1:116）—— 不是清单里的字面，只能从 paths 取名。
+/// ⚠ 这两枚只进 `resolve-round-context` 的 `pathKeys`（点名取键、逐枚），不参与环境检查：
+/// 真身的环境探测只有 `EnvProbes` 那三行，多催一项就是把"缺什么"那本账改了形状。
+const ROUND_NAME_PATH_KEYS: &[&str] = &["maaExe", "m9aExe"];
+
+/// 本轮要问 ctx verb 的 pathKeys：两路 EnvProbes 涉及的全部键（按清单顺序、去重）＋两枚取名键。
+fn round_path_keys() -> Vec<&'static str> {
+    let mut out: Vec<&'static str> = Vec::new();
+    let push = |k: &'static str, out: &mut Vec<&'static str>| {
+        if !out.contains(&k) {
+            out.push(k);
+        }
+    };
+    for m in GD_MODULES {
+        for r in m.env_rows {
+            push(r.base_key, &mut out);
+            if !r.rel_key.is_empty() {
+                push(r.rel_key, &mut out);
+            }
+        }
+    }
+    for k in ROUND_NAME_PATH_KEYS {
+        push(k, &mut out);
+    }
+    out
+}
+
+/// 本轮要问 ctx verb 的 runtimeKeys（逐枚点名，**整块 runtime 绝不进核**——visionApiKey 住在那一块里）。
+/// 每枚都有消费点，一枚不落：
+/// - `blockSleep`／`keepScreenOn` ⇒ 段 9 的睡眠屏蔽（核内 `SetThreadExecutionState`，见 `round_no_sleep`）
+/// - `retryOnce` ⇒ 两路 `ArkDInput.retry_once` / `R1999DInput.retry_once`
+/// ⚠ 两枚**不在这本名册上**的键，各自因为一把尺不同而被挪走（b3 落码前的取键修正，§11.55 ③）：
+/// - `launchArkFromHelper` ⇒ 真身是 `$S.runtime.launchArkFromHelper -ne $false`（**缺键算开**，
+///   `lib\ark-daily.ps1:330` 实证），与本名册的**真值判**（缺键算关）方向相反。挪到 `elevFlags`，
+///   由 verb 侧 `Round.FlagEnabled` 折成真值 —— 留在 runtimeKeys 会把"没配的一轮"从"照样拉起端游"
+///   读成"不拉起"，那是判定翻案不是取数。
+/// - `closeEmulatorAfter` ⇒ 唯一消费点在 r1999 的收尾钩子，而收尾段按 ② 的名册走 **ask**
+///   （`Stop-GdMuMu` 现场件不在 B-3 射程：真身走 MuMuManager 命令行），核内没有读它的那一格 ⇒ 移除。
+///   留着它只会造出"账上取了、没人读"的死格 —— 与 `R1999DInput.decision` 那格同一类，那格已被注释判死。
+const ROUND_RUNTIME_KEYS: &[&str] = &["blockSleep", "keepScreenOn", "retryOnce"];
+
+/// 本轮要问 ctx verb 的 elevFlags（`-ne $false` 那一把尺，缺键算**开**）。两来源合一：
+/// 1. 两枚清单声明的 `ElevationFlag` —— 真身 `$S.runtime.<flag> -ne $false` 提权闸门读的就是它。
+///    ⚠ 两路的清单**写的是同一枚字面**（`arkRequiresElevation`；r1999 那路 `RequiresAdmin=false`
+///    所以框架读不到它，但字段照抄清单原值）⇒ 名册必须**去重**，喂两枚同名键只是把同一格算两遍。
+/// 2. `launchArkFromHelper` —— 不在清单里，但真身用的是**同一把尺**（`lib\ark-daily.ps1:330`），
+///    所以搭这趟车由 verb 侧折成真值，核内不抄第二把 PowerShell 真值语义（§11.52 ⑤）。
+fn round_elev_flags() -> Vec<&'static str> {
+    let mut out: Vec<&'static str> = Vec::new();
+    for m in GD_MODULES {
+        if !out.contains(&m.elevation_flag) {
+            out.push(m.elevation_flag);
+        }
+    }
+    out.push("launchArkFromHelper");
+    out
+}
+
+/// `resolve-round-context` 回执的骨架侧投影（②-a 那枚 verb 的既有形状，本批**只读不加键**）。
+/// ⚠ 只挑这几格进结构体：`Paths` 的值与 `Absent` 的串里带本机绝对路径，
+/// 它们只用于现场判在不在和写那行"缺失：…"日志，**绝不进 journal、不进 ask 信封参数**
+/// （`ask` 的 params 只带 id/verb/opt 这类符号，路径由被问的一方自己现取）。
+struct RoundEnv {
+    runtime: JVal,
+    elevation: JVal,
+    paths: JVal,
+    now_text: String,
+}
+
+impl Clone for RoundEnv {
+    fn clone(&self) -> RoundEnv {
+        RoundEnv {
+            runtime: self.runtime.clone(),
+            elevation: self.elevation.clone(),
+            paths: self.paths.clone(),
+            now_text: self.now_text.clone(),
+        }
+    }
+}
+
+impl RoundEnv {
+    /// `if ($S.runtime.<k>)` / `[bool]$S.runtime.<k>` 那一把尺：真值判（缺键算假）。
+    fn flag(&self, key: &str) -> bool {
+        jv_truthy(&jv_get_ci(&self.runtime, key))
+    }
+    /// 提权闸门那把尺：`-ne $false`（缺键算**开**）。折算已在 C# 侧 `Round.FlagEnabled` 做完，
+    /// 核内只读布尔 —— 这正是 §11.52 ⑤ 说的"别在 Rust 侧再抄一遍 PowerShell 的真值语义"。
+    fn elev_on(&self, flag: &str) -> bool {
+        jv_truthy(&jv_get_ci(&self.elevation, flag))
+    }
+    fn path(&self, key: &str) -> String {
+        jv_str(&jv_get_ci(&self.paths, key))
+    }
+    /// EnvProbes 那一行的实际路径（`Join-GdPath` 的空 base 语义由 `gd_join_path` 保证：没填 ⇒ 空串）。
+    fn row_path(&self, row: &GdEnvRow) -> String {
+        let base = self.path(row.base_key);
+        if row.rel_key.is_empty() {
+            return base;
+        }
+        let rel = self.path(row.rel_key);
+        gd_join_path(&base, &[rel.as_str()])
+    }
+    /// `Get-MaaPaths.Name` / `Get-M9APaths.Name` 那一步：exe 名去扩展名。
+    fn proc_name(&self, exe_key: &str) -> String {
+        let p = self.path(exe_key);
+        if p.is_empty() {
+            String::new()
+        } else {
+            file_stem(&p)
+        }
+    }
+}
+
+/// 起轮前唯一那一发 ctx 取数（②-a 的 `resolve-round-context`，既有形状一字不动）。
+/// 拒跑闸已经保证 `panel_cs` 非空；这一枚 verb 起不来就是 Fail 信封 —— 骨架没有"猜一份 settings"的退路，
+/// 猜出来的路径会让环境检查把"没装"读成"装了"。
+fn round_env_fetch(
+    call: &mut dyn FnMut(&str, &JVal) -> Result<JVal, String>,
+) -> Result<RoundEnv, String> {
+    let body = jv_o(vec![
+        ("runtimeKeys", JVal::A(ROUND_RUNTIME_KEYS.iter().map(|k| jv_s(k)).collect())),
+        ("elevFlags", JVal::A(round_elev_flags().into_iter().map(|k| jv_s(k)).collect())),
+        ("pathKeys", JVal::A(round_path_keys().into_iter().map(|k| jv_s(k)).collect())),
+    ]);
+    let d = call("resolve-round-context", &body)?;
+    // ⚠ 回执里另有 `IsAdmin`／`NowMs`／`Dow` 三格，骨架**一格都不接**（与上面 RoundEnv 只剩四枚字段同源）：
+    // - `IsAdmin` ⇒ 提权闸门读的是"这一轮要不要问人"，不是"起轮那一刻是不是管理员"。骨架走账行
+    //   （`fx.ans("round", ROUND_ADMIN_ACT, …)` → 直答件现读 `drive_is_admin()`），因为写进 ctx 快照的活读
+    //   会在重放时把"当时没提权"翻成"现在也没提权"——那是判定翻案不是取数。
+    // - `NowMs`／`Dow` ⇒ 骨架只在那几行日志里用 `NowText`（串），没有第二处算術消费点；
+    //   留两枚死格只会造出"账上取了、没人读"。
+    Ok(RoundEnv {
+        runtime: jv_get_ci(&d, "Runtime"),
+        elevation: jv_get_ci(&d, "Elevation"),
+        paths: jv_get_ci(&d, "Paths"),
+        now_text: jv_str(&jv_get_ci(&d, "NowText")),
+    })
+}
+
+/// `--daily-round` 的 ctx（壳写一遍、journal 的 init 行原样存它 ⇒ 换 ctx 必须起新 journal）。
+/// 十枚对应 `Invoke-GdDailyRound` 的十枚参数：`Ids Gates Opt Force DryRun SkipCleanup NoElevate
+/// NameField NoticeOwner Tag`。刻意**不带**的两枚：`S`（settings 由 ctx verb 现取，整块不许进核）、
+/// `ElevateScript`/`BoundParams`（提权那发重跑的是**入口自己的**路径，核不知道也不该知道 ⇒ 走 ask）。
+/// `log_leaf` 是**第十一枚、且不是参数**：真身那句"(详情见 logs\$leaf)"有**两处**消费点 ——
+/// 判定段 catch 里 `Stop-GdBeforeRun "$($m.ShortName) 这一路今天判定不出来：…(详情见 logs\$leaf)"`、
+/// 以及收尾那句 `$noticeText += "`n(详情见 logs\$leaf)"`。`$leaf` 取的是
+/// `[IO.Path]::GetFileName($global:GD.LogFile)`，而日志落点归**壳**管（核只往 --log-sink 追行、
+/// 不知道自己那本账在生产里叫什么名）。所以由壳把 leaf 一起写进 ctx。⚠ 它缺省是空串 ⇒
+/// 那两处少掉括号段，**这是登记在册的形状差**（不是漏写）：leaf 没来路时不许瞎猜一个。
+/// `maaRun`／`m9aRun` 是**第十二、十三枚、也不是参数**：段 9 那两路的 run 真做要它们，而
+/// `Invoke-GdDailyRound` 从来不需要这两格 —— 它把整块 `$S` 交给链体，链体自己从 `$S` 里取。
+/// 换成头以后核只拿到点名过的格，所以 run 载荷必须由**壳**照 `--drive-ark-daily`／`--drive-m9a-daily`
+/// 那两档的同一把尺写进 ctx（`maarun_parse` / `m9a_scen_core` 共用，键名与 settings 逐字同名）；
+/// 缺失不在这里报错（与那两档同规矩，走到 run 才炸"不替生产猜默认路径"）。
+/// `log_path` 是**第十四枚、也不是参数**：段 7 的运行锁登记里有 `log` 一格，真身取的是
+/// `$global:GD.LogFile`（本轮日志的**全路径**），而 `start-run-lock` 的 `log` 缺省回落的是
+/// **那枚一次性 verb 子进程自己的** `GdLog.LogFile` —— 换头以后那是另一个进程的日志文件，
+/// 拿它冒充轮日志比空串更坏（running.json 里会指着一本没人写的账）。所以由壳把全路径一起写进 ctx。
+/// ⚠ 它缺省也是空串：登记出去的 log 就是空，这是**在册形状差**，与 `log_leaf` 同一档处置。
+/// 两枚都由壳给、核不猜：核不知道自己那本账在生产里叫什么名（只往 --log-sink 追行）。
+/// `pid` 是**第十五枚、也不是参数**：段 6 的 `start-run-lock` 与段 9 收尾的 `stop-run-lock` 都把
+/// `pid` 判成**必填**（`Round.cs:633`／`:678` 那两处 `GdRuleException`），理由是"登记成活锁的那个 PID
+/// 只能是调用方那一轮，不能是这枚一次性 verb 的子进程"。所以这一枚**必须由壳写进 ctx**，
+/// ⚠ **绝不允许回落到 `std::process::id()`** —— 那是 gdcore 自己的进程号，而驱动协议是一 ask 一进程，
+/// 用它登记等于把"下一轮才活着的 PID"写成活锁，撤锁那一发又按同一枚号去比：账面自洽、现场全错。
+/// 缺它 ⇒ `drive_round_daily_envelope` 在解析 ctx 之后**当场 Fail**（不是走到段 6 才炸），
+/// 因为这是"壳忘了给"这一类协议错，而不是现场动作失败。
+struct RoundCtx {
+    ids: Vec<String>,
+    gates: Vec<(String, String)>,
+    opt: JVal,
+    force: bool,
+    dry_run: bool,
+    skip_cleanup: bool,
+    no_elevate: bool,
+    name_field: String,
+    notice_owner: String,
+    tag: String,
+    log_leaf: String,
+    log_path: String,
+    /// 壳那一轮的真实进程号（`start-run-lock`／`stop-run-lock` 的 `pid` 唯一来路）。
+    /// 解析期只保证"给得到、且是个正数"；语义上的"必须是调用方那一轮"由壳负责（②-d 转接时同规矩）。
+    pid: i64,
+    /// 段 9 那两路 run 真做的现场载荷（ark 一路 / m9a 一路各一枚子对象）。
+    /// **存原样 JVal、不在这里解析**：解析器是 `maarun_parse` / `m9a_scen_core`，与 `--drive-ark-daily`
+    /// ／`--drive-m9a-daily` / 两枚回放档**共用同一把**（先例见 5640 与 5865）—— 在这里解析会把
+    /// "读不动"这一档从 envelope 挪进 ctx 解析器，两处拒跑话术就分家了。
+    /// ⚠ 这一格的来路只有一条：**由壳写进 ctx**。不许改用 `RoundEnv.paths` 现拼 —— 那份 paths 是
+    /// `resolve-round-context` 的投影名册（逐枚点名、只够环境检查与三句日志用），拿它拼 MaaScen
+    /// 等于"替生产猜默认路径"，`drive_real_run` 的注释明确禁这条（13 枚里的 runtime 六格根本不在那份名册上）。
+    maa_run: JVal,
+    m9a_run: JVal,
+}
+
+fn round_ctx_parse(v: &JVal) -> Result<RoundCtx, String> {
+    if !matches!(v, JVal::O(_)) {
+        return Err("轮骨架档的 ctx 必须是对象".to_string());
+    }
+    let mut ids: Vec<String> = Vec::new();
+    match jv_get_ci(v, "ids") {
+        JVal::Null => {}
+        JVal::A(a) => {
+            for it in &a {
+                ids.push(jv_str(it));
+            }
+        }
+        other => ids.push(jv_str(&other)),
+    }
+    let mut gates: Vec<(String, String)> = Vec::new();
+    for g in jv_list(&jv_get_ci(v, "gates")) {
+        if matches!(g, JVal::Null) {
+            continue; // 真身 `$Gates | Where-Object { $_ }`：空项静默滤掉，不算错
+        }
+        gates.push((jv_str(&jv_get_ci(g, "id")), jv_str(&jv_get_ci(g, "verb"))));
+    }
+    let opt = jv_get_ci(v, "opt");
+    if !matches!(opt, JVal::O(_)) && !matches!(opt, JVal::Null) {
+        return Err("轮骨架档的 ctx 里 opt 必须是对象".to_string());
+    }
+    let num_str = |key: &str, def: &str| -> String {
+        let raw = jv_get_ci(v, key);
+        if matches!(raw, JVal::Null) {
+            def.to_string()
+        } else {
+            jv_str(&raw)
+        }
+    };
+    let name_field = num_str("nameField", "Id");
+    if !name_field.eq_ignore_ascii_case("Id") && !name_field.eq_ignore_ascii_case("ShortName") {
+        return Err(format!("轮骨架档的 ctx 里 nameField 只认 Id/ShortName，收到的是 {}", name_field));
+    }
+    // pid：**必填、且不许回落**。`std::process::id()` 在这里是禁手（理由见 RoundCtx 的头注：
+    // 驱动协议一 ask 一进程，核自己的 PID 撤锁那一发早就不是它了）。
+    // 缺失／非正数一律 Err ⇒ 由 envelope 转成 fail 信封（rc=1），与上面 nameField 那一档同路。
+    let pid_raw = jv_get_ci(v, "pid");
+    if matches!(pid_raw, JVal::Null) {
+        return Err("轮骨架档的 ctx 里 pid 必须由壳写明（撤锁只撤自己登记的那一份，核不许拿自己的进程号冒充）".to_string());
+    }
+    let pid = match &pid_raw {
+        JVal::I(n) => *n,
+        JVal::F(_) | JVal::S(_) => jv_int(&pid_raw, 0),
+        other => {
+            return Err(format!(
+                "轮骨架档的 ctx 里 pid 必须是进程号，收到的是 {}",
+                jv_to_json(other)
+            ))
+        }
+    };
+    if pid <= 0 {
+        return Err(format!("轮骨架档的 ctx 里 pid 必须是正整数，收到的是 {}", pid));
+    }
+    Ok(RoundCtx {
+        ids,
+        gates,
+        opt,
+        force: jv_truthy(&jv_get_ci(v, "force")),
+        dry_run: jv_truthy(&jv_get_ci(v, "dryRun")),
+        skip_cleanup: jv_truthy(&jv_get_ci(v, "skipCleanup")),
+        no_elevate: jv_truthy(&jv_get_ci(v, "noElevate")),
+        name_field,
+        notice_owner: num_str("noticeOwner", "每日"),
+        tag: num_str("tag", "manual"),
+        log_leaf: num_str("logLeaf", ""),
+        log_path: num_str("logPath", ""),
+        pid,
+        maa_run: jv_get_ci(v, "maaRun"),
+        m9a_run: jv_get_ci(v, "m9aRun"),
+    })
+}
+
+/// `Select-GdModules`（lib\modules.ps1:179）的复刻。**三句 throw 各是不同档**，不许合并：
+/// 树上一路都没有／命令行点了没注册的那一路／点了但没装的那一路，玩家看到的三句话完全不一样。
+/// 判据全在 `--root` 现问的三个文件上：`lib\<id>-module.ps1`（注册）、`lib\<AssistantLib>`（装了）、
+/// `lib\<OrchestrationLib>`（合体判据，`entryverb` 那格另读）。
+/// 返回 Err 的两句是骨架里**唯一**在进十段之前就发生的失败 ⇒ 调用方一律按 Fail 信封出（rc=1），
+/// 真身那边它们是 terminating error，由入口的 catch 收尾，形状本来就不是"退出码 2"。
+fn select_gd_modules(ctx: &RoundCtx, root: &str) -> Result<Vec<&'static GdModule>, String> {
+    let lib_dir = std::path::Path::new(root).join("lib");
+    let has = |f: &str| lib_dir.join(f).exists();
+    let registered: Vec<&'static GdModule> = GD_MODULES.iter().filter(|m| has(m.manifest_file)).collect();
+    let avail: Vec<&'static GdModule> = registered.iter().cloned().filter(|m| has(m.assistant_lib)).collect();
+    if avail.is_empty() {
+        return Err("这棵树上没有可加载的游戏模块(lib\\*-module.ps1 一个都没有)，也没有任何一路的助手库 —— 检查工程是否完整".to_string());
+    }
+    let want: Vec<String> = ctx
+        .ids
+        .iter()
+        .filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("all"))
+        .map(|s| s.to_string())
+        .collect();
+    if want.is_empty() {
+        return Ok(avail);
+    }
+    let mut picked: Vec<&'static GdModule> = Vec::new();
+    let mut skipped: Vec<String> = Vec::new();
+    for id in &want {
+        match gd_module_by_id(id) {
+            None => {
+                let names: Vec<&str> = registered.iter().map(|m| m.id).collect();
+                return Err(format!(
+                    "没有这个模块：{}(这棵树上有：{})。要跑某一款就先把它的 <id>-module.ps1 放进 lib\\",
+                    id,
+                    names.join(" / ")
+                ));
+            }
+            Some(m) => {
+                if !has(m.assistant_lib) {
+                    skipped.push(format!("{} 已注册但这一路没装(lib\\{} 不在)，本轮跳过它", id, m.assistant_lib));
+                    continue;
+                }
+                picked.push(m);
+            }
+        }
+    }
+    if picked.is_empty() {
+        return Err(format!("选中的模块一个都没装：{}", want.join(" / ")));
+    }
+    // 那一句 WARN 必须进日志：跳过一款是玩家要看见的事，而它排在环境检查之前（真身就是这个序）。
+    Ok(picked)
+}
+
+/// 选路那一步的 WARN 行（与 `select_gd_modules` 分开发，因为骨架的日志走 fx_log/侧信道、
+/// 而选路函数只管形状）：返回"已注册但没装"的那几句，条序 = 命令行 ids 的序。
+fn select_gd_module_warns(ctx: &RoundCtx, root: &str) -> Vec<String> {
+    let lib_dir = std::path::Path::new(root).join("lib");
+    let want: Vec<String> = ctx
+        .ids
+        .iter()
+        .filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("all"))
+        .map(|s| s.to_string())
+        .collect();
+    let mut out = Vec::new();
+    for id in want {
+        if let Some(m) = gd_module_by_id(&id) {
+            if !lib_dir.join(m.manifest_file).exists() {
+                continue; // 没注册那一档是 throw，不是 WARN
+            }
+            if !lib_dir.join(m.assistant_lib).exists() {
+                out.push(format!("{} 已注册但这一路没装(lib\\{} 不在)，本轮跳过它", id, m.assistant_lib));
+            }
+        }
+    }
+    out
+}
+
+/// `Test-GdMergedEntry`（lib\decisions-common.ps1）的宿主等价判据：
+/// "这棵树上把几路当一款游戏在管" —— 有注册表时数 `OrchestrationLib` 在位的枚数 >1，
+/// 注册表没装载时回落到"两份编排文件都在"。这里两档都在：清单在场，故按枚数算。
+fn round_is_merged_entry(root: &str) -> bool {
+    let lib_dir = std::path::Path::new(root).join("lib");
+    GD_MODULES
+        .iter()
+        .filter(|m| lib_dir.join(m.manifest_file).exists())
+        .filter(|m| lib_dir.join(m.orchestration_lib).exists())
+        .count()
+        > 1
+}
+
+/// `Get-GdEntryVerb -Game <id> -Verb <verb>`（lib\decisions-common.ps1:147）的等价：
+/// 查内建名册 → 查不到回落 `'-' + $Verb` 这种短名。**回落那一档必须留着**（合体树上没注册的那一枚
+/// 就是靠它拿到短名），但名册在场时不许越过它去回短名 —— §11.50 ④-4 抓的就是"写成短名了事"。
+/// `Sync-GdEntryVerbs` 的覆盖层（入口运行时按命令行参数再盖一层）仍在射程外，已登记。
+fn round_entry_verb(game: &str, verb: &str, root: &str) -> String {
+    let merged = round_is_merged_entry(root);
+    if merged {
+        if let Some(m) = gd_module_by_id(game) {
+            let lib_dir = std::path::Path::new(root).join("lib");
+            if lib_dir.join(m.manifest_file).exists() && lib_dir.join(m.orchestration_lib).exists() {
+                if let Some(row) = m.entry_verbs.iter().find(|r| r.verb.eq_ignore_ascii_case(verb)) {
+                    return row.flag.to_string();
+                }
+            }
+        }
+    }
+    format!("-{}", verb)
+}
+
+/// 环境检查那一段（modules.ps1:242-255）的读数：就绪条数 + 缺失行（行文本与真身逐字同形）。
+/// 第二枚返回值非空 ⇒ 骨架写 ERROR 后 `return 2`（**不是报错**、也不抛：真身就是"环境不完整"退 2）。
+/// ⚠ 这里读到的是 `Test-Path`，与 `resolve-round-context` 的 `Ready` 同一把尺（填了且真存在），
+/// 但那一格按**单键**算、这一处按**拼接后的整行**算 —— 'MAA 配置' 的 Ready 在 verb 侧比的是相对段，
+/// 拿它当环境检查的读数会假绿，所以这半段留在核内自己走一遍。
+fn round_env_check(mods: &[&'static GdModule], env: &RoundEnv) -> (usize, Vec<String>) {
+    let mut ok = 0usize;
+    let mut bad: Vec<String> = Vec::new();
+    for m in mods {
+        for row in m.env_rows {
+            let p = env.row_path(row);
+            if !p.is_empty() && std::path::Path::new(&p).exists() {
+                ok += 1;
+            } else {
+                let shown = if p.is_empty() { "(没填)".to_string() } else { p };
+                bad.push(format!("{} → {}", row.label, shown));
+            }
+        }
+    }
+    (ok, bad)
+}
+
+// ---------------------------------------------------------------- B-3②-b3 轮骨架：动作名册＋第三答手
+//
+// 十段骨架每往下走一段，凡"要问现场"的那一格都成一枚动作（与链体那 18 枚同一套记账、同一个 `ans`）。
+// 名字分两族：
+//   · `round-*`／`stop:<id>`／`round-gate:<id>`… = **骨架自有的格**，role 恒 `"round"`；
+//   · 链体那十六格（desk／cfg／run／skip…）由两枚 trait 自己发，role 是 `"ark"`／`"r1999"`。
+// **哪一格直答、哪一格外发，只由 `round_answer` 这张表说了算**（§11.52 ③ 采纳的乙档）。骨架这边一律
+// `fx.ans(...)`，闭包答 `Some` 就现场真做并落账、答 `None` 就退回 `ask` —— 所以骨架里不许出现
+// "这格能不能直答"的 if：写了就是第二份事实源，而名册会随 b1/b2 的 verb 一颗一颗长。
+//
+// ⚠ 与 §11.52 ② 那份甲/乙/丙归属表的**一处实测改口**（本批落码时才看得见）：甲档那两枚里
+// `svdetail` 直答不了。`resolve-screensaver-verdict` 吃的是 `cfg`（= PS 侧 `Get-GdScreensaverConfig`
+// 对 `HKCU\Control Panel\Desktop` 的**活读**，见 lib\common.ps1:392 那枚转发壳），而注册表读数既不在
+// 这枚 verb 的射程、也没有任何一枚 verb 供它 —— b3 的题面是"核内骨架＋答手"、不含新立 verb（那是 b2 的
+// 射程），所以 `svdetail` 与 `updgate`／`audit` 同批留外发。`DRIVE_WHY_ROUND` 那句"屏保读数照 ask"
+// 写的正是这一格（当初按甲档判它可直答，落码时按现场改口，登记见 docs §11.55）。
+
+/// 骨架自有格的动作名（journal 的 `action` 字面、ask 信封的 `action`、直答表的键 —— 三处同名只此一份）。
+const ROUND_SELECT_ACT: &str = "round-select";
+const ROUND_ENV_ACT: &str = "round-env";
+const ROUND_ADMIN_ACT: &str = "round-admin";
+const ROUND_ELEVATE_ACT: &str = "round-elevate";
+const ROUND_SCREENSAVER_ACT: &str = "round-screensaver";
+const ROUND_NOSLEEP_ACT: &str = "round-nosleep";
+const ROUND_NOSLEEP_OFF_ACT: &str = "round-nosleep-off";
+const ROUND_LOCK_ACT: &str = "round-lock";
+const ROUND_UNLOCK_ACT: &str = "round-unlock";
+const ROUND_NOTICE_ACT: &str = "round-notice";
+const ROUND_SUPERVISOR_START_ACT: &str = "round-supervisor-start";
+const ROUND_SUPERVISOR_STOP_ACT: &str = "round-supervisor-stop";
+
+/// 轮骨架的现场注入点。三枚都是**生产／自检共用同一把**的那条形（先例：`decide` 与 `run` 两枚注入点）：
+/// - `call` = 起 panel-cs 子进程真跑一枚 verb（自检给假身 ⇒ 一次子进程都不起，也不碰任何现场）；
+/// - `nap` = 核内 sleep（链体重试间隔那 25/20 秒；自检只记秒数，否则一轮自检真等四十秒）；
+/// - `es` = `SetThreadExecutionState`（自检给假身 ⇒ **绝不为自检去动本机的睡眠屏蔽**；
+///   这一枚在生产里是核内真做，因为它是"对本进程有效"的句柄语义，外发给壳就等于没设）。
+/// ⚠ 在位性现问（`lib\*-module.ps1` 在不在）**不走注入点**：它就是用 `std::fs` 现问，自检去建临时树
+/// 喂给 `--root`。给假身等于把"这棵树上装了哪几路"这半段判据从被测物里摘出去 —— 那正是要钉的那件事。
+struct RoundHooks<'a> {
+    call: &'a mut dyn FnMut(&str, &JVal) -> Result<JVal, String>,
+    nap: &'a mut dyn FnMut(u32),
+    es: &'a mut dyn FnMut(u32) -> u32,
+}
+
+/// 答手要读的两枚 out-of-band 现场值里的那一枚（另一枚 `env` 由信封在起步时就取好、按值捕进闭包）：
+/// ark 本轮的判定对象。为什么要走旁路而不是走 `params`：`cfg` 那格的 params 是**链体**给的
+/// （`ArkCfgKind::Main`／`Lean{stage}`），而链体是 B-2c③ 冻结的那件 —— 让它多带一枚 decision
+/// 就等于改 `--drive-ark-daily` 的 ask 信封形状，那一刀本批改不得（§11.52 ④ 随行定档第 1 条）。
+/// 所以骨架在第五段拿到判定后写进这一格，第九段的 `cfg` 直答从这里读 —— 只在**新区**被读：
+/// 重放段那一格也是从账上还原的，压根不进闭包 ⇒ 旁路不污染重放的确定性。
+/// ⚠ 读写都只经 `RefCell`，且骨架侧一次 borrow 就完事（不许握着 borrow 去调 `ans`，那会撞运行时借位）。
+fn round_ark_decision_slot() -> std::rc::Rc<std::cell::RefCell<JVal>> {
+    std::rc::Rc::new(std::cell::RefCell::new(JVal::Null))
+}
+
+/// 把第五段的判定对象按 PS executor 那两枚动词要的键名折出来。
+/// ark 的 `cfg` 直答有两腿（照 lib\ark-daily.ps1:441-450 那两档逐字）：
+/// - 主轮 = 把 decision 整块交给 verb（PS 那侧就是 `-Decision $Decision`）；
+/// - 剔关轮 = PS 现场**另构造**一枚 lean 哈希（八键，`Stage` 取 params 给的、没有 `Farm` 键），
+///   verb 侧于是读到 `Farm`=缺 ⇒ `farmActive=false`／`farmMode=''` —— 这是真身的形状，
+///   不许"顺手把 Farm 也带上"（带上就等于给剔关轮补了一份它本来没有的补刷档位）。
+fn round_lean_decision(dec: &JVal, stage: &str) -> JVal {
+    jv_o(vec![
+        ("Source", jv_s("auto")),
+        ("Mode", jv_get_ci(dec, "Mode")),
+        ("Stage", jv_s(stage)),
+        ("ClearSanity", jv_get_ci(dec, "ClearSanity")),
+        ("EventKey", jv_get_ci(dec, "EventKey")),
+        ("EventTip", jv_get_ci(dec, "EventTip")),
+        ("StageHint", jv_get_ci(dec, "StageHint")),
+    ])
+}
+
+/// **第三答手的名册**（本批唯一一处"谁来答"的判据）。返回 `Ok(None)` = 这一格照旧外发 ask。
+/// 每一格直答的三件事都是既有的：verb 名是 b1/b2/②-a 落下的那一枚、body 键按枚点名、
+/// 落账的 `data` 形状**与 PS executor 当年写进 res 的那一枚逐字同形**（两侧账行才可对拍）。
+fn round_answer(
+    hooks: &mut RoundHooks,
+    env: &RoundEnv,
+    root: &str,
+    state: &str,
+    m9a_instance: &JVal,
+    ark_dec: &std::cell::RefCell<JVal>,
+    role: &str,
+    action: &str,
+    params: &JVal,
+) -> Result<Option<DirectOut>, String> {
+    let out: DirectOut = match (role, action) {
+        // ==================== 骨架自有格 ====================
+        ("round", ROUND_SELECT_ACT) => {
+            // 在位性现问＋纯规则：不 verb、不子进程。Err 那两档（树上一路都没有／点了没注册的）
+            // 由 `ans` 落成 err 行再冒泡，正对真身那句 terminating error（不是"退出码 2"那一档）。
+            let want: Vec<String> = jv_list(&jv_get_ci(params, "ids")).into_iter().map(jv_str).collect();
+            let probe = RoundCtx {
+                ids: want,
+                ..round_ctx_empty()
+            };
+            let mods = select_gd_modules(&probe, root)?;
+            let warns: Vec<JVal> = select_gd_module_warns(&probe, root).into_iter().map(|w| jv_s(&w)).collect();
+            // 那几句 WARN **进账**（不带路径、纯符号）：真身排在环境检查之前，走的是 WARN 档的
+            // Write-GdLog ⇒ 由骨架逐条 fx.log，不许塞进 DirectOut.lines（那条道只有 INFO，且重放不再补）。
+            DirectOut::only(jv_o(vec![
+                ("Ids", JVal::A(mods.iter().map(|m| jv_s(m.id)).collect())),
+                ("Warns", JVal::A(warns)),
+            ]))
+        }
+        ("round", ROUND_ENV_ACT) => {
+            // 数据面在场（env 由信封起步时取），这里只做"这一行在不在"的那把 Test-Path。
+            // ⚠ 本机路径分岔（§11.55 登记）：真身那句是 `缺失：<label> → <绝对路径>`，而**话术不许改**
+            //   是本工程最硬的一条纪律（改文案 = golden 双红），比"journal 里不出现本机路径"更硬 ——
+            //   两害相权取了话术：这一格是全批唯一一处让本机路径进账的地方。判据不受影响：
+            //   控制流只看 `Bad` 的条数，路径只出现在给人看的那一句里；等值门把这一格喂夹具。
+            let ids: Vec<String> = jv_list(&jv_get_ci(params, "mods")).into_iter().map(jv_str).collect();
+            let mut mods: Vec<&'static GdModule> = Vec::new();
+            for id in &ids {
+                if let Some(m) = gd_module_by_id(id) {
+                    mods.push(m);
+                }
+            }
+            let (ok, bad) = round_env_check(&mods, env);
+            DirectOut::only(jv_o(vec![
+                ("Ok", JVal::I(ok as i64)),
+                ("Bad", JVal::A(bad.into_iter().map(|b| jv_s(&b)).collect())),
+            ]))
+        }
+        ("round", ROUND_ADMIN_ACT) => {
+            // 提权**读态**：当前令牌的成员关系是进程内事实（B-1a 已搬），外发才是怪事。
+            DirectOut::only(JVal::B(drive_is_admin()))
+        }
+        ("round", ROUND_LOCK_ACT) => {
+            let d = (hooks.call)(
+                "start-run-lock",
+                &jv_o(vec![
+                    ("pid", JVal::I(jv_int(params, 0))),
+                    ("games", jv_get_ci(params, "games")),
+                    ("tag", jv_get_ci(params, "tag")),
+                    ("log", jv_get_ci(params, "log")),
+                ]),
+            )?;
+            // 落账只留两枚布尔：verb 回执里的 `Log` 是绝对路径（`Round.cs:669`），`Started` 是墙钟串
+            // —— 两者都在账上没人读，而路径那枚一记账就破了"本机值不进机读面"。
+            DirectOut::with_lines(
+                jv_o(vec![
+                    ("Wrote", jv_get_ci(&d, "Wrote")),
+                    ("PrevAlive", jv_get_ci(&d, "PrevAlive")),
+                ]),
+                jv_list(&jv_get_ci(&d, "Lines")).into_iter().map(jv_str).collect(),
+            )
+        }
+        ("round", ROUND_UNLOCK_ACT) => {
+            let d = (hooks.call)(
+                "stop-run-lock",
+                &jv_o(vec![("pid", JVal::I(jv_int(params, 0)))]),
+            )?;
+            DirectOut::only(jv_o(vec![
+                ("Had", jv_get_ci(&d, "Had")),
+                ("Removed", jv_get_ci(&d, "Removed")),
+            ]))
+        }
+        ("round", ROUND_NOTICE_ACT) => {
+            let d = (hooks.call)(
+                "send-round-notice",
+                &jv_o(vec![
+                    ("owner", jv_get_ci(params, "owner")),
+                    ("allOk", jv_get_ci(params, "allOk")),
+                    ("text", jv_get_ci(params, "text")),
+                    ("level", jv_get_ci(params, "level")),
+                ]),
+            )?;
+            // 标题**不在核内拼**：`Round.NoticeTitle` 是那句话在 C# 侧的唯一来源（②-a 的 ⑦-1 定档），
+            // 回执里的 Title 就是发出去的那一句 ⇒ 宿主版与 PS 版不许各写一份标题话术。
+            DirectOut::with_lines(
+                jv_o(vec![
+                    ("Title", jv_get_ci(&d, "Title")),
+                    ("Level", jv_get_ci(&d, "Level")),
+                    ("File", jv_get_ci(&d, "File")),
+                    ("Webhook", jv_get_ci(&d, "Webhook")),
+                    ("Toast", jv_get_ci(&d, "Toast")),
+                ]),
+                jv_list(&jv_get_ci(&d, "Lines")).into_iter().map(jv_str).collect(),
+            )
+        }
+        ("round", ROUND_NOSLEEP_ACT) => {
+            // 段 8 的睡眠屏蔽：**本进程**设、本进程查（这就是它不做成 verb 的理由，见 extern 那段注释）。
+            // 位型照 Enter-GdNoSleep:475-477 那三行：CONTINUOUS|SYSTEM_REQUIRED（keepScreenOn 再或上 DISPLAY）。
+            let keep = jv_truthy(&jv_get_ci(params, "keepScreenOn"));
+            let mut flags = ES_CONTINUOUS | ES_SYSTEM_REQUIRED;
+            if keep {
+                flags |= ES_DISPLAY_REQUIRED;
+            }
+            let set = (hooks.es)(flags);
+            // 同进程自证（§11.50 ①-8 欠的那一发）：查询形态回的是**当前位型**，本轮设的位在不在里面当场见分晓。
+            let query = (hooks.es)(ES_CONTINUOUS | ES_QUERY_ONLY);
+            let system_seen = query & ES_SYSTEM_REQUIRED != 0;
+            let display_seen = !keep || query & ES_DISPLAY_REQUIRED != 0;
+            DirectOut::only(jv_o(vec![
+                ("Set", JVal::B(set != 0)),
+                ("Query", JVal::I(query as i64)),
+                ("SystemSeen", JVal::B(system_seen)),
+                ("DisplaySeen", JVal::B(display_seen)),
+            ]))
+        }
+        ("round", ROUND_NOSLEEP_OFF_ACT) => {
+            // Exit-GdNoSleep 那一句：真身只在"曾经设过"时才撤（$global:GdSleepHandle），
+            // 核内没有那枚全局句柄 ⇒ 撤的判据改成"这一段本轮真设过"（骨架只在设过之后才发这一格）。
+            let set = (hooks.es)(ES_CONTINUOUS);
+            DirectOut::only(JVal::B(set != 0))
+        }
+        // ==================== 链体格：ark 那一路 ====================
+        ("ark", "desk") => {
+            // 甲档：不喂 handle ⇒ Live.cs:244 那一路只现读桌面名、一个窗口调用都不碰（"没读"与"读到 false"
+            // 在这条话术里不是一回事，所以这里只取 `Desktop` 那一格，别的都不动）。
+            let d = (hooks.call)("ark-desktop-state", &JVal::O(Vec::new()))?;
+            DirectOut::only(jv_get_ci(&d, "Desktop"))
+        }
+        ("ark", "takeover") => {
+            // 丙档：两枚名字都是**现算**出来的 exe 名（`(Get-MaaPaths -S $S).Name` + 端游名，
+            // lib\ark-daily.ps1:415 那两枚），而取名的来路是 ctx 的 pathKeys（只两枚取名键，不动环境判据）。
+            let mut names: Vec<JVal> = Vec::new();
+            for k in ["maaExe", "arknightsExe"] {
+                names.push(jv_s(&env.proc_name(k)));
+            }
+            let d = (hooks.call)(
+                "takeover-processes",
+                &jv_o(vec![("names", JVal::A(names)), ("label", jv_s("方舟/MAA"))]),
+            )?;
+            // PS 那侧 `$data = $true`（Invoke-GdTakeover 不返东西，executor 补的一枚）⇒ 账行同形。
+            let mut lines: Vec<String> = Vec::new();
+            lines.extend(jv_list(&jv_get_ci(&d, "Lines")).into_iter().map(jv_str));
+            DirectOut::with_lines(JVal::B(true), lines)
+        }
+        ("ark", "cfg") => {
+            let dec = ark_dec.borrow().clone();
+            if matches!(dec, JVal::Null) {
+                return Err("内部错：ark 的 cfg 直答没拿到本轮判定（第五段没落账就到第九段？）".to_string());
+            }
+            let kind = jv_str(&jv_get_ci(params, "kind"));
+            let body_dec = if kind == "lean" {
+                round_lean_decision(&dec, &jv_str(&jv_get_ci(params, "stage")))
+            } else {
+                dec
+            };
+            let d = (hooks.call)(
+                "apply-maa-daily-config",
+                &jv_o(vec![("decision", body_dec), ("apply", JVal::B(true))]),
+            )?;
+            let lines: Vec<String> = jv_list(&jv_get_ci(&d, "Lines")).into_iter().map(jv_str).collect();
+            // 账行两枚小写键 = PS executor 那枚 `[pscustomobject]@{changes=…;chains=…}` 逐字同名。
+            DirectOut::with_lines(
+                jv_o(vec![
+                    ("changes", JVal::A(jv_list(&jv_get_ci(&d, "Changes")).into_iter().cloned().collect())),
+                    ("chains", JVal::A(jv_list(&jv_get_ci(&d, "ExpectedChains")).into_iter().cloned().collect())),
+                ]),
+                lines,
+            )
+        }
+        ("ark", "entryverb") => {
+            // 乙档：**内建名册＋在位性现问**（§11.50 ④-4 抓过"写成短名了事"）—— 不起子进程，
+            // 但必须照 `Get-GdEntryVerb` 那两档（查名册 → 回落 `'-' + $Verb`），回落那一档留着。
+            let game = jv_str(&jv_get_ci(params, "game"));
+            let verb = jv_str(&jv_get_ci(params, "verb"));
+            DirectOut::only(jv_s(&round_entry_verb(&game, &verb, root)))
+        }
+        ("ark", "launch") => {
+            // 丙档：Start-GdArkClient 整枚（路径闸→等窗口→暖身→更新页按画面确认）在 Chain.cs:743；
+            // 判据一枚不在这儿重写（`Live.cs:1120` 那条注释钉的是它）。
+            let d = (hooks.call)("start-ark-client", &JVal::O(Vec::new()))?;
+            let lines: Vec<String> = jv_list(&jv_get_ci(&d, "Lines")).into_iter().map(jv_str).collect();
+            DirectOut::with_lines(jv_get_ci(&d, "Started"), lines)
+        }
+        ("ark", "stop") => {
+            let d = (hooks.call)("stop-maa-and-game", &JVal::O(Vec::new()))?;
+            let lines: Vec<String> = jv_list(&jv_get_ci(&d, "Lines")).into_iter().map(jv_str).collect();
+            DirectOut::with_lines(JVal::B(true), lines)
+        }
+        ("ark", "sleep") => {
+            let secs = jv_int(params, 0) as u32;
+            (hooks.nap)(secs);
+            DirectOut::only(JVal::B(true))
+        }
+        ("ark", "skip") => {
+            // 丙档里"读日志尾"那半：判定早在场（detect-maa-fight-skip），缺的只是现场读盘。
+            // Found=false ⇒ **账上落 null**（= PS 那侧 `$sv = $null` 那一档），不许补一个空对象。
+            let d = (hooks.call)("read-maa-fight-skip", &JVal::O(Vec::new()))?;
+            if !jv_truthy(&jv_get_ci(&d, "Found")) {
+                DirectOut::only(JVal::Null)
+            } else {
+                DirectOut::only(jv_o(vec![
+                    ("skipped", jv_get_ci(&d, "Skipped")),
+                    ("plan", jv_get_ci(&d, "Plan")),
+                    ("evidence", jv_get_ci(&d, "Evidence")),
+                ]))
+            }
+        }
+        ("ark", "ledger") => {
+            // stateDir 必须给：verb 缺省回落的是**它自己那次 GdEnv 定位**的 state，而驱动协议要求
+            // "已搬动作的账落到生产同一处"（--state 第六闸的同一条理由）。
+            let d = (hooks.call)(
+                "update-ark-farm-ledger",
+                &jv_o(vec![("stateDir", jv_s(state))]),
+            )?;
+            let lines: Vec<String> = jv_list(&jv_get_ci(&d, "Lines")).into_iter().map(jv_str).collect();
+            DirectOut::with_lines(jv_get_ci(&d, "Summary"), lines)
+        }
+        ("ark", "obs") => {
+            let mut body: Vec<(&str, JVal)> = Vec::new();
+            if !env.now_text.is_empty() {
+                body.push(("nowText", jv_s(&env.now_text)));
+            }
+            let d = (hooks.call)("read-maa-stage-observation", &jv_o(body))?;
+            if !jv_truthy(&jv_get_ci(&d, "Found")) {
+                // 两本日志都没读到 = 旧身返 $null 那一档 ⇒ 账上落 null（与 executor 当年逐字同形）。
+                return Ok(Some(DirectOut::only(JVal::Null)));
+            }
+            // 观测七键**按 verb 的原键名摆**（PascalCase）：这一枚的 data 之后由 `obsrec` 那格真做吃掉，
+            // 而 obsrec 的取键是按 PS 对象属性名写的 —— 在这里改成小写就是把跨格协议拆了。
+            // verb 多出来的 `LogsRead`/`Reason` 不落账：旧身那块对象里根本没有这两格。
+            DirectOut::only(jv_o(vec![
+                ("Found", jv_get_ci(&d, "Found")),
+                ("Date", jv_get_ci(&d, "Date")),
+                ("Stage", jv_get_ci(&d, "Stage")),
+                ("LastBattle", jv_get_ci(&d, "LastBattle")),
+                ("SawGuiPlan", jv_get_ci(&d, "SawGuiPlan")),
+                ("Survivors", jv_get_ci(&d, "Survivors")),
+                ("Selected", jv_get_ci(&d, "Selected")),
+            ]))
+        }
+        // ==================== 链体格：r1999 那一路 ====================
+        ("r1999", "takeover") => {
+            let d = (hooks.call)(
+                "takeover-processes",
+                &jv_o(vec![
+                    ("names", JVal::A(vec![jv_s(&env.proc_name("m9aExe"))])),
+                    ("label", jv_s("M9A")),
+                ]),
+            )?;
+            let lines: Vec<String> = jv_list(&jv_get_ci(&d, "Lines")).into_iter().map(jv_str).collect();
+            DirectOut::with_lines(JVal::B(true), lines)
+        }
+        ("r1999", "mumu") => {
+            let d = (hooks.call)("start-mumu", &JVal::O(Vec::new()))?;
+            let lines: Vec<String> = jv_list(&jv_get_ci(&d, "Lines")).into_iter().map(jv_str).collect();
+            DirectOut::with_lines(jv_get_ci(&d, "Started"), lines)
+        }
+        ("r1999", "cfg") => {
+            // instance 那两枚来自 ctx 的 m9aRun（**由壳写进 ctx**，与 --drive-m9a-daily 同一把尺）：
+            // verb 读的是 `Id`/`Name`（PascalCase，照 Chain.cs:1058 那两枚 Gd.Get），核内不改键名。
+            let d = (hooks.call)(
+                "apply-m9a-instance",
+                &jv_o(vec![
+                    (
+                        "instance",
+                        jv_o(vec![
+                            ("Id", jv_get_ci(m9a_instance, "id")),
+                            ("Name", jv_get_ci(m9a_instance, "name")),
+                        ]),
+                    ),
+                    ("apply", JVal::B(true)),
+                ]),
+            )?;
+            let lines: Vec<String> = jv_list(&jv_get_ci(&d, "Lines")).into_iter().map(jv_str).collect();
+            DirectOut::with_lines(
+                jv_o(vec![(
+                    "changes",
+                    JVal::A(jv_list(&jv_get_ci(&d, "Changes")).into_iter().cloned().collect()),
+                )]),
+                lines,
+            )
+        }
+        ("r1999", "stop") => {
+            let d = (hooks.call)("stop-m9a", &JVal::O(Vec::new()))?;
+            let lines: Vec<String> = jv_list(&jv_get_ci(&d, "Lines")).into_iter().map(jv_str).collect();
+            DirectOut::with_lines(JVal::B(true), lines)
+        }
+        ("r1999", "sleep") => {
+            let secs = jv_int(params, 0) as u32;
+            (hooks.nap)(secs);
+            DirectOut::only(JVal::B(true))
+        }
+        // ==================== 其余一律外发 ====================
+        // 名单：门表（round-gate:*）／判定（round-resolve:*）／预览（round-preview:*）／
+        // 收尾钩子（stop:*）／监督两枚／历史（round-history:*）／提权重启（round-elevate）／屏保那格，
+        // 加上链体里 `svdetail`（本批改口）与 `updgate`／`audit`（那两枚走 `gate`、根本不进这里）。
+        // **这里不写任何判据**：外发那一族的真身动作在 PS 侧，②-d 转接时才谈"要不要挪进来"。
+        _ => return Ok(None),
+    };
+    Ok(Some(out))
+}
+
+/// 只给 `round-select` 那一步搭一枚"只有 ids 的" RoundCtx：选路函数签名要整个 RoundCtx，
+/// 但它一辈子只读 `.ids`。用默认值搭其余十二枚比新立一枚小函数诚实（少一处判据来源）。
+fn round_ctx_empty() -> RoundCtx {
+    RoundCtx {
+        ids: Vec::new(),
+        gates: Vec::new(),
+        opt: JVal::Null,
+        force: false,
+        dry_run: false,
+        skip_cleanup: false,
+        no_elevate: false,
+        name_field: "Id".to_string(),
+        notice_owner: String::new(),
+        tag: String::new(),
+        log_leaf: String::new(),
+        log_path: String::new(),
+        pid: 0,
+        maa_run: JVal::Null,
+        m9a_run: JVal::Null,
+    }
+}
+
+/// 十段走完（或早退那几档之一）的读数。
+/// `code` 就是真身 `Invoke-GdDailyRound` `return` 的那个退出码（0 全成 / 1 部分成 / 2 有失败或环境不完整，
+/// 提权那一档是**子轮的码**）；`reached_summary` 分"走没走到第十段"，因为早退那三档既没有汇总也没有通知。
+/// 驱动协议的 rc 与它**不是一件事**（done/ask 恒 0、拒跑 2、fail 1），所以这一枚只能从 done 信封的
+/// `result.code` 读 —— ②-d 转接时入口按它 exit。
+struct RoundFlow {
+    code: i64,
+    reached_summary: bool,
+    all_ok: bool,
+    summary: String,
+}
+
+/// 早退那几档共用的构造（没汇总、没通知）。
+fn round_flow_early(code: i64) -> RoundFlow {
+    RoundFlow { code, reached_summary: false, all_ok: false, summary: String::new() }
+}
+
+/// 真身那句 `"(详情见 logs\$leaf)"`：两处消费点（判定段的 Stop-GdBeforeRun、通知那句尾巴）共用这一把。
+/// `leaf` 由**壳**写进 ctx（核只往 --log-sink 追行、不知道自己那本账在生产里叫什么名）；
+/// 空串 ⇒ 整段括号不出现，这是在册形状差（见 `RoundCtx` 的 `log_leaf` 头注），不许瞎猜一个文件名。
+fn round_log_tail(leaf: &str) -> String {
+    if leaf.is_empty() {
+        String::new()
+    } else {
+        format!("(详情见 logs\\{})", leaf)
+    }
+}
+
+/// `($arr | Where-Object { $_ }) -join '；'`：清单里那三句 Admin 话术的拼法（r1999 那一路是三枚空串 ⇒
+/// 拼出空串 ⇒ 话术里不出现"（）"，这是原样怪癖，不许"顺手补个默认值"）。
+fn round_join_cn(vals: &[&'static str], sep: &str) -> String {
+    let kept: Vec<&str> = vals.iter().cloned().filter(|s| !s.is_empty()).collect();
+    kept.join(sep)
+}
+
+/// **十段轮骨架**（真身 = `lib\modules.ps1` 的 `Invoke-GdDailyRound`，逐行复刻）。
+/// 段的划分与顺序照 `DRIVE_WHY_ROUND` 那十枚名：选路／环境／提权闸／门表／判定／锁／监督／睡眠屏蔽／
+/// 逐路链体／收尾汇总通知。dry-run 预览挂在判定之后（真身就在那个位置 return 0）。
+///
+/// 三件事压在下面每一行上，改之前先读：
+/// 1. **判据一行不许新写**。这一段只做"什么时候问、问完拿那一句写日志、按读数走哪条分支"；
+///    判定本身（decide-ark／farm／门表）全在 `round-resolve:*` 那枚 ask 的另一头。
+/// 2. **谁来答由 `round_answer` 一家说了算**（§11.52 ③ 的乙档）。这里一律 `fx.ans(...)`，
+///    不许出现"这一格能不能直答"的 if —— 那是第二份事实源。
+/// 3. **ask/res 协议不许删**（§11.52 ④ 随行定档第 1 条）。外发那几格照旧出 ask 信封、照旧靠 seq 重放，
+///    幂等与回退通道都在这条道上；第三答手是"增"不是"换"。
+///
+/// 真身那段 `try { 逐路 Run } finally { 收尾 }` 在重入协议里的对应物（登记在册，别当成漏写）：
+/// 收尾四步排在链体之后、且每一步自己是一枚账格 ⇒ 某一步 ask 时进程退出，**重入会逐行重放到这里再把
+/// 剩下那几步做掉**，语义与 finally 等价（锁的 PID 判活本来就是为了"进程半路没了"那种残留）。
+/// 真身那个 catch 只接异常，所以这里也只接 `ArkAbort::Fail`；`Ask`／`Proto` 一律冒泡。
+fn daily_round_chain(
+    rc: &RoundCtx,
+    env: &RoundEnv,
+    ark_dec: &std::cell::RefCell<JVal>,
+    fx: &mut DriveFx,
+    ark_decide: &mut dyn FnMut(&str, bool) -> Result<(bool, Vec<(String, String)>), String>,
+    m9a_decide: &mut dyn FnMut(&str, bool, bool) -> Result<(bool, Vec<(String, String)>), String>,
+) -> Result<RoundFlow, ArkAbort> {
+    // ---------- 段 1 选路 ----------
+    let sel = fx.ans(
+        "round",
+        ROUND_SELECT_ACT,
+        jv_o(vec![("ids", JVal::A(rc.ids.iter().map(|s| jv_s(s)).collect()))]),
+        |d| d.clone(),
+    )?;
+    for w in jv_list(&jv_get_ci(&sel, "Warns")) {
+        // 真身这几句是 WARN、且排在环境检查之前 —— 顺序就是判据。
+        fx.fx_log("WARN", &jv_str(&w));
+    }
+    let mut mods: Vec<&'static GdModule> = Vec::new();
+    for id in jv_list(&jv_get_ci(&sel, "Ids")) {
+        if let Some(m) = gd_module_by_id(&jv_str(&id)) {
+            mods.push(m);
+        }
+    }
+
+    // ---------- 段 2 环境 ----------
+    let ev = fx.ans(
+        "round",
+        ROUND_ENV_ACT,
+        jv_o(vec![("mods", JVal::A(mods.iter().map(|m| jv_s(m.id)).collect()))]),
+        |d| d.clone(),
+    )?;
+    fx.fx_log("INFO", &format!("环境检查：{} 项就绪", jv_int(&jv_get_ci(&ev, "Ok"), 0)));
+    let bad_rows = jv_get_ci(&ev, "Bad");
+    let bad = jv_list(&bad_rows);
+    for b in &bad {
+        fx.fx_log("ERROR", &format!("缺失：{}", jv_str(b)));
+    }
+    if !bad.is_empty() {
+        fx.fx_log("ERROR", "环境不完整：见上面缺失项(可跑 setup.ps1 或改 config\\settings.json 的路径)");
+        return Ok(round_flow_early(2));
+    }
+
+    // ---------- 段 3 提权闸门 ----------
+    // `$mods | Where-Object { $_.RequiresAdmin -and ($S.runtime.$($_.ElevationFlag) -ne $false) }`：
+    // 那把"缺键算开"的尺**不在核内抄**（§11.52 ⑤），由 resolve-round-context 的 Elevation 折成真值。
+    let need_admin: Vec<&&'static GdModule> = mods
+        .iter()
+        .filter(|m| m.requires_admin && env.elev_on(m.elevation_flag))
+        .collect();
+    if !need_admin.is_empty() {
+        let who = need_admin.iter().map(|m| m.short_name).collect::<Vec<_>>().join("/");
+        let whys: Vec<&'static str> = need_admin.iter().map(|m| m.admin_why).collect();
+        let hints: Vec<&'static str> = need_admin.iter().map(|m| m.admin_hint).collect();
+        let notes: Vec<&'static str> = need_admin.iter().map(|m| m.admin_ok_note).collect();
+        let why = round_join_cn(&whys, "；");
+        let hint = round_join_cn(&hints, "；");
+        let ok_note = round_join_cn(&notes, "；");
+        let is_admin = fx.ans("round", ROUND_ADMIN_ACT, JVal::Null, |d| jv_truthy(d))?;
+        if is_admin {
+            let extra = if ok_note.is_empty() { String::new() } else { format!("({})", ok_note) };
+            fx.fx_log("INFO", &format!("管理员权限已具备{}", extra));
+        } else if rc.no_elevate {
+            let head = if hint.is_empty() { String::new() } else { format!("{}，", hint) };
+            fx.fx_log("WARN", &format!("非管理员且指定了 -NoElevate：{}{}这一路会偏脆", head, who));
+        } else if rc.dry_run {
+            fx.fx_log("WARN", &format!("非管理员：dry-run 无所谓，真正跑{}时会自动提权(弹一次 UAC)", who));
+        } else {
+            fx.fx_log("WARN", &format!("{}{} → 以管理员身份重启本轮，请在 UAC 弹窗点「是」", who, why));
+            // 入口路径/命令行那半是**外侧**的事（本机路径不进信封，Start-GdElevatedSelf 重跑的是入口自己），
+            // 所以这一格无参外发；回执只要求一格 `Code` = 提权子轮的退出码。
+            let code = fx.ans(
+                "round",
+                ROUND_ELEVATE_ACT,
+                JVal::Null,
+                |d| jv_int(&jv_get_ci(d, "Code"), 0),
+            )?;
+            fx.fx_log(
+                if code == 0 { "OK" } else { "WARN" },
+                &format!("提权子轮结束，退出码 {}(它的日志同样写在 logs\\，不在本文件里)", code),
+            );
+            return Ok(round_flow_early(code));
+        }
+    }
+
+    // ---------- 段 4 两道手动门 ----------
+    for (id, verb) in &rc.gates {
+        let m = match gd_module_by_id(id) {
+            Some(m) => *m,
+            // 真身 Set-GdModuleState 那句 throw 逐字（装载期事实，不是本轮的"退出码 2"那一档）。
+            None => return Err(ArkAbort::Fail(format!("没有这个模块：{}", id))),
+        };
+        fx.ans(
+            "round",
+            m.gate_act,
+            jv_o(vec![("id", jv_s(id)), ("verb", jv_s(verb))]),
+            |_| (),
+        )?;
+    }
+    if !rc.gates.is_empty() {
+        if rc.dry_run {
+            fx.fx_log("OK", "[dry-run] 仅记录确认/领空状态，结束");
+            return Ok(round_flow_early(0));
+        }
+        fx.fx_log("INFO", "状态已更新；继续执行本轮日常");
+    }
+
+    // ---------- 段 5 判定 ----------
+    // 判定失败=今天不知道该跑什么，硬跑只会乱点 ⇒ 真身在这里 Stop-GdBeforeRun（写一句 ERROR、退 2），
+    // 不是一屏 "Exception: …\modules.ps1:298"。所以这一格**自己接住 err**（Fail 那一档），
+    // Ask/Proto 照旧冒泡 —— "哪个点接住"是骨架的判断，不是宿主的（trait 头注那条纪律）。
+    let mut plan: Vec<(&'static GdModule, JVal)> = Vec::new();
+    for m in mods.iter() {
+        let got = fx.ans(
+            "round",
+            m.resolve_act,
+            jv_o(vec![("opt", rc.opt.clone()), ("force", JVal::B(rc.force))]),
+            |d| d.clone(),
+        );
+        let dec = match got {
+            Ok(v) => v,
+            Err(ArkAbort::Fail(msg)) => {
+                let line = format!(
+                    "{} 这一路今天判定不出来：{}{}",
+                    m.short_name,
+                    msg,
+                    round_log_tail(&rc.log_leaf)
+                );
+                fx.fx_log("ERROR", &format!("这一轮没跑：{}", line));
+                return Ok(round_flow_early(2));
+            }
+            Err(other) => return Err(other),
+        };
+        // ark 那一路的判定对象同时写进旁路一格：段 9 的 `cfg` 直答要用它（理由见
+        // `round_ark_decision_slot` 的头注）。重放段也走这一行 ⇒ 旁路与账上永远同源。
+        if m.id == "ark" {
+            ark_dec.replace(dec.clone());
+        }
+        plan.push((*m, dec));
+    }
+
+    if rc.dry_run {
+        fx.fx_log("STEP", "[dry-run] 预览将要下发的配置，不启动任何程序");
+        for (m, dec) in &plan {
+            fx.ans("round", m.preview_act, jv_o(vec![("decision", dec.clone())]), |_| ())?;
+        }
+        fx.fx_log("OK", "[dry-run] 完成");
+        return Ok(round_flow_early(0));
+    }
+
+    // ---------- 段 6 登记活体 ----------
+    // 真身把这一行排在 dry-run 之后是刻意的：预演不占助手、不占端游。
+    let games = if rc.ids.is_empty() { "all".to_string() } else { rc.ids.join("+") };
+    let lock_params = jv_o(vec![
+        ("pid", JVal::I(rc.pid)),
+        ("games", jv_s(&games)),
+        ("tag", jv_s(&rc.tag)),
+        ("log", jv_s(&rc.log_path)),
+    ]);
+    fx.ans("round", ROUND_LOCK_ACT, lock_params, |_| ())?;
+
+    // ---------- 段 7 监督 agent ----------
+    // 真身用 `Get-Command` 守卫（自检的假环境不点这一枚），且起不来只少一份旁观、绝不影响主流程。
+    // 换头以后这一格外发，于是"命令在不在"变成回执里那一枚 `Available` —— 没守卫那一档就等于骨架自己
+    // 决定要不要监督，那是把旁观层的开关搬进编排层，不许。
+    let sup = fx.ans(
+        "round",
+        ROUND_SUPERVISOR_START_ACT,
+        jv_o(vec![("games", jv_s(&games))]),
+        |d| d.clone(),
+    );
+    match sup {
+        Ok(d) => {
+            let e = jv_str(&jv_get_ci(&d, "Err"));
+            if !e.is_empty() {
+                fx.fx_log("WARN", &format!("监督 agent 没起来：{}(这一轮没人监督，主流程不受影响)", e));
+            }
+        }
+        Err(ArkAbort::Fail(msg)) => {
+            fx.fx_log("WARN", &format!("监督 agent 没起来：{}(这一轮没人监督，主流程不受影响)", msg));
+        }
+        Err(other) => return Err(other),
+    }
+
+    // ---------- 段 8 睡眠屏蔽 ----------
+    let mut nosleep_on = false;
+    if env.flag("blockSleep") {
+        let keep = env.flag("keepScreenOn");
+        let es = fx.ans(
+            "round",
+            ROUND_NOSLEEP_ACT,
+            jv_o(vec![("keepScreenOn", JVal::B(keep))]),
+            |d| d.clone(),
+        );
+        match es {
+            Ok(d) => {
+                nosleep_on = true;
+                // 真身这一句在 ES 调用之后、屏保那一段之前，逐字。
+                fx.fx_log("INFO", "已临时禁止系统睡眠(跑完自动恢复)");
+                // 自证那一发的读数（§11.50 ①-8 欠的那笔）：查到的位型没含本轮设的位 ⇒ 当场补一行。
+                // 这句**不是真身的话**：真身不知道设成没设成，宿主版既然测得到就说测得到的 ——
+                // 测不到的那几档照口径记 unobserved，绝不许反过来吹"屏蔽已生效"。
+                if !jv_truthy(&jv_get_ci(&d, "Set"))
+                    || !jv_truthy(&jv_get_ci(&d, "SystemSeen"))
+                    || !jv_truthy(&jv_get_ci(&d, "DisplaySeen"))
+                {
+                    fx.fx_log(
+                        "WARN",
+                        &format!(
+                            "睡眠屏蔽自证没看到本轮设的位(查询回 {}，本轮要设 system{})—— 这一轮的屏蔽按未证实处理",
+                            jv_int(&jv_get_ci(&d, "Query"), 0),
+                            if keep { " + display" } else { "" }
+                        ),
+                    );
+                }
+                if keep {
+                    // 屏保那一格（读 SPI + 关闭 + 清旧机制那本 state 文件）留外发：核不越界去抢
+                    // user32 那枚（extern 块的头注写了依据）。四档话术在骨架，判据在外侧。
+                    let sv = fx.ans("round", ROUND_SCREENSAVER_ACT, JVal::Null, |d| d.clone())?;
+                    if !jv_truthy(&jv_get_ci(&sv, "Read")) {
+                        fx.fx_log("WARN", "读屏保状态失败，本轮不动屏保");
+                    } else if jv_truthy(&jv_get_ci(&sv, "WasActive")) {
+                        if jv_truthy(&jv_get_ci(&sv, "Disabled")) {
+                            fx.fx_log("INFO", "屏保已关闭(策略：只关不复，收尾不再恢复)");
+                        } else {
+                            fx.fx_log(
+                                "WARN",
+                                "关闭屏保失败：会话可能已被屏保桌面接管(方舟会因此早退)；长期解法见 status.ps1 的「屏保」那一行(解除命令 tools\\unarm-screensaver.ps1 -Apply)",
+                            );
+                        }
+                    } else {
+                        fx.fx_log("INFO", "屏保本来就是关闭状态(稳态)");
+                    }
+                }
+            }
+            Err(ArkAbort::Fail(msg)) => {
+                // 真身那一整段在 try 里：屏蔽失败只 WARN，绝不挡本轮。
+                fx.fx_log("WARN", &format!("禁止睡眠失败：{}", msg));
+            }
+            Err(other) => return Err(other),
+        }
+    }
+
+    // ---------- 段 9 逐路链体 ----------
+    let mut results: Vec<(&'static GdModule, ArkDOut)> = Vec::new();
+    let mut fatal: Option<String> = None;
+    let mut idx = 0;
+    while idx < plan.len() {
+        let (m, dec) = (plan[idx].0, plan[idx].1.clone());
+        idx += 1;
+        let got: Result<ArkDOut, ArkAbort> = if m.id == "ark" {
+            let input = ArkDInput {
+                launch: env.elev_on("launchArkFromHelper"),
+                retry_once: env.flag("retryOnce"),
+                decision: dec.clone(),
+            };
+            ark_daily_chain(&input, &mut *fx, ark_decide)
+        } else {
+            let input = R1999DInput { retry_once: env.flag("retryOnce") };
+            r1999_daily_chain(&input, &mut *fx, m9a_decide)
+        };
+        match got {
+            Ok(o) => {
+                // 清单 Run 钩子里那半段"每轮自证活动图"（lib\ark-module.ps1:59-76）：
+                // 只在这一路真跑到 MAA 关门前(ok)才采，抛任何错都只 WARN。r1999 那一路没这格（空串）。
+                if !m.probe_act.is_empty() && o.status == "ok" {
+                    let p = fx.ans(
+                        "round",
+                        m.probe_act,
+                        jv_o(vec![("decision", dec.clone())]),
+                        |_| (),
+                    );
+                    match p {
+                        Ok(()) => {}
+                        Err(ArkAbort::Fail(msg)) => {
+                            fx.fx_log("WARN", &format!("活动图自证没做起来：{}(不影响本轮)", msg));
+                        }
+                        Err(other) => return Err(other),
+                    }
+                }
+                results.push((m, o));
+            }
+            Err(ArkAbort::Fail(msg)) => {
+                fatal = Some(msg.clone());
+                fx.fx_log("ERROR", &format!("本轮异常中断：{}", msg));
+                break;
+            }
+            Err(other) => return Err(other),
+        }
+    }
+
+    // ---------- 段 10 之前那步 finally：收尾 ----------
+    // 监督先停、停在各路 Stop 钩子之前（真身那段注释的理由：收尾会杀助手，那是我们自己动手，
+    // 监督若还在岗会把"助手进程不见了"当真出事发一条假警报）。
+    let sup_stop = fx.ans("round", ROUND_SUPERVISOR_STOP_ACT, JVal::Null, |d| d.clone());
+    match sup_stop {
+        Ok(d) => {
+            let e = jv_str(&jv_get_ci(&d, "Err"));
+            if !e.is_empty() {
+                fx.fx_log("WARN", &format!("监督 agent 没停干净：{}", e));
+            }
+        }
+        Err(ArkAbort::Fail(msg)) => {
+            fx.fx_log("WARN", &format!("监督 agent 没停干净：{}", msg));
+        }
+        Err(other) => return Err(other),
+    }
+    if !rc.skip_cleanup {
+        fx.fx_log("STEP", "--- 收尾 ---");
+        for (m, _) in &plan {
+            let s = fx.ans("round", m.stop_act, JVal::Null, |_| ());
+            if let Err(ArkAbort::Fail(msg)) = s {
+                fx.fx_log("WARN", &format!("收尾这一步没做成：{}", msg));
+            } else if let Err(other) = s {
+                return Err(other);
+            }
+        }
+    }
+    if nosleep_on {
+        // Exit-GdNoSleep：真身整枚是 catch{} ⇒ 撤失败一句都不吭（撤不成也只是下一班照旧，不该挡本轮）。
+        let off = fx.ans("round", ROUND_NOSLEEP_OFF_ACT, JVal::Null, |_| ());
+        if let Err(ArkAbort::Fail(_)) = off {
+        } else if let Err(other) = off {
+            return Err(other);
+        }
+    }
+    // Stop-GdRunLock 同样不吭：撤锁失败绝不能把收尾这一路带崩。
+    let un = fx.ans("round", ROUND_UNLOCK_ACT, jv_o(vec![("pid", JVal::I(rc.pid))]), |_| ());
+    if let Err(ArkAbort::Fail(_)) = un {
+    } else if let Err(other) = un {
+        return Err(other);
+    }
+
+    // ---------- 段 10 汇总／历史／通知 ----------
+    let mut lines: Vec<String> = Vec::new();
+    let mut all_ok = fatal.is_none();
+    for (i, (m, r)) in results.iter().enumerate() {
+        if r.status != "ok" {
+            all_ok = false;
+        }
+        let mins = match r.duration {
+            Some(d) if d != 0.0 => format!(" {:.1} 分钟", d / 60.0),
+            _ => String::new(),
+        };
+        let dec = &plan[i].1;
+        let mode = if matches!(dec, JVal::Null) {
+            "skip".to_string()
+        } else {
+            jv_str(&jv_get_ci(dec, "Mode"))
+        };
+        let shown = if rc.name_field.eq_ignore_ascii_case("ShortName") {
+            m.short_name
+        } else {
+            m.id
+        };
+        lines.push(format!("{}：{}{} — {}", shown, r.status, mins, r.detail));
+        // 历史行按模块 id 落账（history.csv 里是 id，不是短名）；这一格外发 = "历史照 ask"那一族。
+        fx.ans(
+            "round",
+            m.history_act,
+            jv_o(vec![
+                ("id", jv_s(m.id)),
+                ("status", jv_s(&r.status)),
+                ("mode", jv_s(&mode)),
+                ("detail", jv_s(&r.detail)),
+                (
+                    "durationSec",
+                    match r.duration {
+                        Some(d) => JVal::F(d),
+                        None => JVal::Null,
+                    },
+                ),
+            ]),
+            |_| (),
+        )?;
+    }
+    let mut summary = lines.join("\n");
+    if let Some(f) = &fatal {
+        all_ok = false;
+        summary = format!("本轮异常中断：{}\n{}", f, summary);
+    }
+    fx.fx_log(
+        if all_ok { "OK" } else { "WARN" },
+        &format!("=== 本轮结束：{} ===", if all_ok { "全部完成" } else { "存在未完成项" }),
+    );
+    // 真身这里还有一句 `Write-Host $summary`：宿主版的 stdout 是信封兜底通道，机读只走 --out，
+    // 所以这一句不复刻（登记在册）。汇总文本随 done 信封的 result.summary 交给外侧。
+    let mode_line = plan
+        .iter()
+        .map(|(m, dec)| {
+            let mode = if matches!(dec, JVal::Null) {
+                "skip".to_string()
+            } else {
+                jv_str(&jv_get_ci(dec, "Mode"))
+            };
+            format!("{}：{}", m.short_name, mode)
+        })
+        .collect::<Vec<_>>()
+        .join(" / ");
+    let mut notice_text = format!("{}\n{}", mode_line, summary);
+    if !all_ok {
+        let tail = round_log_tail(&rc.log_leaf);
+        if !tail.is_empty() {
+            notice_text.push_str(&format!("\n{}", tail));
+        }
+    }
+    fx.ans(
+        "round",
+        ROUND_NOTICE_ACT,
+        jv_o(vec![
+            ("owner", jv_s(&rc.notice_owner)),
+            ("allOk", JVal::B(all_ok)),
+            ("text", jv_s(&notice_text)),
+            ("level", jv_s(if all_ok { "OK" } else { "WARN" })),
+        ]),
+        |_| (),
+    )?;
+
+    // 真身那三档码：全成 0；有结果且至少一枚 ok ⇒ 1（部分成）；其余 2。
+    let ok_n = results.iter().filter(|(_, r)| r.status == "ok").count();
+    let code = if all_ok {
+        0
+    } else if !results.is_empty() && ok_n > 0 {
+        1
+    } else {
+        2
+    };
+    Ok(RoundFlow { code, reached_summary: true, all_ok, summary })
+}
+
+/// `--daily-round` 一轮的信封装配（纯函数；`run_drive_round_daily` 与 `--selftest` 共用这一处）。
+/// 前七闸同序同句形、第八闸 `--root` ⇒ `round_refusal`；起步顺序照两枚现出口那一把：
+/// 拒跑 → 读 ctx → 解 ctx（含 pid 那枚必填）→ 解两路 run 载荷 → **取本轮现场读数** → journal 重放 → res 合并 → 走一步。
+/// ⚠ env 取数排在**journal 之前**、且不落任何一格账：它是"这轮问话要用哪几枚名字"的来路，
+///   与 ctx 同一档（读不到就 fail 信封，绝不退化成"猜一份 settings"）。
+/// 三枚注入点（`ark_decide`／`m9a_decide`／两枚 run）与两枚现出口共用同一批真身实现，
+/// 自检喂假身 —— 这是"自检不许要求机器现场状态"那条老规矩在这座门上的落点。
+fn drive_round_daily_envelope(
+    i_round: bool,
+    journal: &str,
+    ctx: &str,
+    res: &str,
+    panel_cs: &str,
+    state: &str,
+    log_sink: &str,
+    root: &str,
+    hooks: &mut RoundHooks,
+    ark_decide: &mut dyn FnMut(&str, bool) -> Result<(bool, Vec<(String, String)>), String>,
+    m9a_decide: &mut dyn FnMut(&str, bool, bool) -> Result<(bool, Vec<(String, String)>), String>,
+    run_maa: &mut dyn FnMut(&MaaScen, &[String]) -> Result<ArkRunOut, String>,
+    run_m9a: &mut dyn FnMut(&M9aScen) -> Result<M9aRunOut, String>,
+) -> (i32, String) {
+    let fail = |m: &str| drive_env_fail(DRIVE_ROLE_ROUND, m);
+    if let Some(m) = round_refusal(i_round, journal, ctx, res, panel_cs, state, log_sink, root) {
+        return (2, fail(&m));
+    }
+    // ---- ctx ----
+    let ctx_text = match std::fs::read_to_string(ctx) {
+        Ok(t) => t,
+        Err(e) => return (1, fail(&format!("驱动协议坏了：ctx 读不动：{}", e))),
+    };
+    let ctx_val = match jv_parse(&ctx_text) {
+        Ok(v) => v,
+        Err(e) => return (1, fail(&format!("驱动协议坏了：ctx 不是合法 JSON：{}", e))),
+    };
+    let rc = match round_ctx_parse(&ctx_val) {
+        Ok(c) => c,
+        Err(e) => return (1, fail(&format!("驱动协议坏了：{}", e))),
+    };
+    // ---- 两路 run 真做的现场载荷（与两枚现出口**共用同一把解析器**，键名只有一份）----
+    // ⚠ 与两枚现出口的一处**故意不同**：那两档各自只推一路，载荷残缺就该起步即拒；这一档是**合体轮**，
+    //   `--daily-round` 完全可能只跑其中一路（另一路在这棵树上根本没装，壳也就没处去写那份载荷）。
+    //   在这里 strict 会把"没装 1999 的机器"读成"轮骨架档跑不了" —— 而真身那边那一路压根不进 plan。
+    //   所以取**宽松**：读不动就用默认体，等真跑到那一路的 run 时由 drive_real_run 点名缺哪一格
+    //   （失败落进 journal 的 err 行，可追 —— 与两枚现出口 B-2c③ 那条"缺 maaRun 不在这里报错"同一条规矩）。
+    let mut scen = maarun_parse(&rc.maa_run).unwrap_or_else(|_| MaaScen::default());
+    scen.state_dir = state.to_string();
+    let mut m9a_scen = m9a_scen_core(&rc.m9a_run).unwrap_or_else(|_| M9aScen::default());
+    // 名册外那五格照 --drive-m9a-daily 同一把（game/target 是清单写死的两枚字面，两枚可用性是装载期事实）。
+    m9a_scen.state_dir = state.to_string();
+    m9a_scen.game = "r1999".to_string();
+    m9a_scen.target = "mumu".to_string();
+    m9a_scen.rescue_available = true;
+    m9a_scen.grab_available = false;
+    // ---- 本轮现场读数（runtime/elevation/paths/nowText，逐枚点名）----
+    let env = match round_env_fetch(&mut *hooks.call) {
+        Ok(e) => e,
+        Err(e) => return (1, fail(&format!("驱动协议坏了：本轮现场读数取不到：{}", e))),
+    };
+    // ---- journal ----
+    let mut rows: Vec<JVal>;
+    match std::fs::read_to_string(journal) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            let init_row = jv_o(vec![("init", ctx_val.clone())]);
+            if let Err(m) = drive_append_row(journal, &init_row) {
+                return (1, fail(&format!("驱动协议坏了：journal 建不起来：{}", m)));
+            }
+            let _ = std::fs::remove_file(res);
+            rows = Vec::new();
+        }
+        Err(e) => return (1, fail(&format!("驱动协议坏了：journal 读不动：{}", e))),
+        Ok(text) => {
+            let (init, r, done) = match drive_load_journal(&text) {
+                Ok(t) => t,
+                Err(m) => return (1, fail(&format!("驱动协议坏了：journal 读不动：{}", m))),
+            };
+            if jv_to_json(&init) != jv_to_json(&ctx_val) {
+                return (
+                    1,
+                    fail("驱动协议坏了：journal 的 init 与 ctx 不是同一份（换了 ctx 就得起新 journal）"),
+                );
+            }
+            if let Some(drow) = done {
+                let _ = std::fs::remove_file(res);
+                // ⚠ 这一档**不套** `drive_done_result`：那枚投影认的是链体那三格（status/detail/duration），
+                // 而轮骨架的 done 装的是**本轮的账**（code/allOk/summary）。在这里折一遍就等于把
+                // "这一轮跑成几分"读成"链体跑成了什么" —— 直接照账上那一格原样交出去。
+                return (0, drive_env_done(DRIVE_ROLE_ROUND, &jv_get(&drow, "done")));
+            }
+            rows = r;
+        }
+    }
+    // ---- res ----
+    match std::fs::read_to_string(res) {
+        Ok(text) => {
+            let _ = std::fs::remove_file(res);
+            let need = rows.len() as i64 + 1;
+            match drive_merge_res(&text, need) {
+                Ok(Some(row)) => {
+                    if let Err(m) = drive_append_row(journal, &row) {
+                        return (1, fail(&format!("驱动协议坏了：journal 追加失败：{}", m)));
+                    }
+                    rows.push(row);
+                }
+                Ok(None) => {}
+                Err(m) => return (1, fail(&format!("驱动协议坏了：res 对不上：{}", m))),
+            }
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return (1, fail(&format!("驱动协议坏了：res 读不动：{}", e))),
+    }
+    // ---- 一轮：三枚注入点由**调用方**给（生产那三枚在 run_drive_round_daily 里装，自检给假身）----
+    let ark_dec = round_ark_decision_slot();
+    let m9a_instance = jv_get_ci(&rc.m9a_run, "instance");
+    let mut answer = |role: &str, action: &str, params: &JVal| -> Result<Option<DirectOut>, String> {
+        round_answer(&mut *hooks, &env, root, state, &m9a_instance, &ark_dec, role, action, params)
+    };
+    let mut fx = DriveFx::new(
+        journal,
+        state,
+        log_sink,
+        scen,
+        &mut *run_maa,
+        m9a_scen,
+        &mut *run_m9a,
+        rows,
+        Some(&mut answer),
+    );
+    match daily_round_chain(&rc, &env, &ark_dec, &mut fx, ark_decide, m9a_decide) {
+        Ok(flow) => {
+            if let Some(m) = fx.io_err.take() {
+                return (1, fail(&format!("驱动协议坏了：{}", m)));
+            }
+            // done 的 result：本轮退出码是**外侧要的那一枚**（入口按它 exit），
+            // allOk/summary 给面板与②-d 的话术用；两者都从已落账的读数来，不新立判据。
+            let result = jv_o(vec![
+                ("code", JVal::I(flow.code)),
+                ("allOk", JVal::B(flow.all_ok)),
+                ("reachedSummary", JVal::B(flow.reached_summary)),
+                ("summary", jv_s(&flow.summary)),
+            ]);
+            let done_row = jv_o(vec![("done", result.clone())]);
+            if let Err(m) = drive_append_row(journal, &done_row) {
+                return (1, fail(&format!("驱动协议坏了：journal 追加失败：{}", m)));
+            }
+            (0, drive_env_done(DRIVE_ROLE_ROUND, &result))
+        }
+        Err(ArkAbort::Ask) => {
+            if let Some(m) = fx.io_err.take() {
+                return (1, fail(&format!("驱动协议坏了：{}", m)));
+            }
+            match fx.pending.take() {
+                Some((seq, action, params)) => (0, drive_env_ask(DRIVE_ROLE_ROUND, seq, action, &params)),
+                None => (1, fail("驱动协议坏了：Ask 出档却没记断点（内部错）")),
+            }
+        }
+        Err(ArkAbort::Fail(m)) => (1, fail(&m)),
+        Err(ArkAbort::Proto(m)) => (1, fail(&format!("驱动协议坏了：{}", m))),
+    }
+}
+
+/// 轮骨架档的出口（`--daily-round`）。分支收在同一处 emit（照两枚现出口那条旧例：多开一处，
+/// `--out` 就在其中一条分支上是空头承诺）。
+/// `--fixture-run` 在这里喂给**两路**的 run（ark 吃 chains、m9a 不吃，但夹具形状一样）：
+/// 自检与门不许为了跑一轮骨架去真起 MAA/M9A —— 那一枚旗标的语义在两枚现出口里已经定死，
+/// 这里复用而不是新立旗标（协议形状再变一次就是再升一次号）。
+fn run_drive_round_daily(
+    i_round: bool,
+    journal: &str,
+    ctx: &str,
+    res: &str,
+    panel_cs: &str,
+    state: &str,
+    log_sink: &str,
+    root: &str,
+    fixture_run: &str,
+    out: &Option<String>,
+) -> i32 {
+    let mut dec = |st: &str, ro: bool| arksk_call_decide(panel_cs, st, ro);
+    let mut dec9 = |st: &str, rs: bool, ro: bool| m9a_call_decide(panel_cs, st, rs, ro);
+    // 生产三枚注入点（verb 真起子进程／真睡／真设睡眠屏蔽）—— 与 envelope 的 hooks 参数同一处装配。
+    let mut call = |v: &str, b: &JVal| call_panel_verb(panel_cs, v, b);
+    let mut nap = |secs: u32| std::thread::sleep(std::time::Duration::from_secs(secs as u64));
+    let mut es = |flags: u32| unsafe { SetThreadExecutionState(flags) };
+    let mut hooks = RoundHooks { call: &mut call, nap: &mut nap, es: &mut es };
+    let rc: i32;
+    let json: String;
+    // 拒跑闸提到读夹具之前（两枚现出口同一条例外：缺 --i-round 一律 rc=2 落拒跑句，
+    // 绝对优先于"喂进来的夹具对不对"—— 拒跑句是给人的，必须第一眼就是它）。
+    if let Some(m) = round_refusal(i_round, journal, ctx, res, panel_cs, state, log_sink, root) {
+        rc = 2;
+        json = drive_env_fail(DRIVE_ROLE_ROUND, &m);
+    } else if fixture_run.is_empty() {
+        let mut run = |sc: &MaaScen, ch: &[String]| drive_real_run(panel_cs, log_sink, sc, ch);
+        let mut run9 = |sc: &M9aScen| drive_real_m9a_run(panel_cs, log_sink, sc);
+        let pair = drive_round_daily_envelope(
+            i_round, journal, ctx, res, panel_cs, state, log_sink, root, &mut hooks, &mut dec, &mut dec9, &mut run,
+            &mut run9,
+        );
+        rc = pair.0;
+        json = pair.1;
+    } else {
+        let loaded = match std::fs::read_to_string(fixture_run) {
+            Ok(t) => jv_parse(&t).map_err(|e| format!("--fixture-run 的夹具不是合法 JSON：{}", e)),
+            Err(e) => Err(format!("--fixture-run 的夹具读不动：{}", e)),
+        };
+        match loaded {
+            Err(m) => {
+                rc = 1;
+                json = drive_env_fail(DRIVE_ROLE_ROUND, &format!("驱动协议坏了：{}", m));
+            }
+            Ok(fxv) => {
+                let f_status = jv_str(&jv_get_ci(&fxv, "status"));
+                let f_detail = jv_str(&jv_get_ci(&fxv, "detail"));
+                let f_dur = {
+                    let d = jv_get_ci(&fxv, "duration");
+                    if matches!(d, JVal::Null) {
+                        None
+                    } else {
+                        Some(jv_to_d(&d))
+                    }
+                };
+                let f_rescued = jv_truthy(&jv_get_ci(&fxv, "rescued"));
+                let f_logs: Vec<(String, String)> = jv_list(&jv_get_ci(&fxv, "logs"))
+                    .into_iter()
+                    .map(|v| (jv_str(&jv_get_ci(v, "level")), jv_str(&jv_get_ci(v, "text"))))
+                    .collect();
+                let sink = log_sink.to_string();
+                let sink2 = log_sink.to_string();
+                let logs9 = f_logs.clone();
+                let mut run = {
+                    let s = f_status.clone();
+                    let d = f_detail.clone();
+                    move |_sc: &MaaScen, _ch: &[String]| -> Result<ArkRunOut, String> {
+                        for (lv, tx) in &f_logs {
+                            let _ = drive_sink_row(&sink, lv, tx);
+                        }
+                        Ok(ArkRunOut { status: s.clone(), detail: d.clone(), duration: f_dur })
+                    }
+                };
+                let mut run9 = {
+                    let s = f_status.clone();
+                    let d = f_detail.clone();
+                    move |_sc: &M9aScen| -> Result<M9aRunOut, String> {
+                        for (lv, tx) in &logs9 {
+                            let _ = drive_sink_row(&sink2, lv, tx);
+                        }
+                        Ok(M9aRunOut {
+                            status: s.clone(),
+                            detail: d.clone(),
+                            duration: f_dur,
+                            rescued: f_rescued,
+                        })
+                    }
+                };
+                let pair = drive_round_daily_envelope(
+                    i_round, journal, ctx, res, panel_cs, state, log_sink, root, &mut hooks, &mut dec, &mut dec9, 
+                    &mut run, &mut run9,
+                );
                 rc = pair.0;
                 json = pair.1;
             }
@@ -10904,8 +12669,8 @@ fn selftest() -> i32 {
     // 装配回放档同理只保留**一处** emit 调用（错误路径用局部 rc + 单出口收束）：计数断言本身就
     // 是"出口唯一"的守门人，多开一处它先红。两枚驱动档同理 —— 唯一 emit 各收在 run_drive_* 里。
     chk(
-        SRC.matches(&["emit(&", "json"].concat()).count() == 8,
-        "事件流/监督判定/farm-intent/装配回放/驱动/运行面回放/m9a 运行面回放/m9a 驱动八档没同走一处 emit：--out 在其中一档上是空头承诺",
+        SRC.matches(&["emit(&", "json"].concat()).count() == 9,
+        "事件流/监督判定/farm-intent/装配回放/驱动/运行面回放/m9a 运行面回放/m9a 驱动/轮骨架九档没同走一处 emit：--out 在其中一档上是空头承诺",
         &mut fails,
         &mut total,
     );
@@ -15307,6 +17072,871 @@ fn selftest() -> i32 {
         &mut total,
     );
 
+    // ================================================================ B-3②-b3 轮骨架与第三答手
+    //
+    // 这座门的面只有两件事可钉：**取数件的形状**与**谁来答那张表**。判据本身一行都不在这儿
+    // （判定/门表/预览那几族的真身在 ask 的另一头），所以逐格断言的全是"喂进去哪几枚键、落下来哪几格账"。
+    // ⚠ 一次子进程都不起、一次电源都不碰、一秒都不真睡：三枚注入点（call/nap/es）全给假身。
+    //   在位性现问**不给假身**（就用 std::fs）：自检去建一棵临时树喂 --root，
+    //   那样"这棵树上装了哪几路"这半段判据仍在被测物里 —— 给假身等于把要钉的事摘出去。
+    {
+        // 假 verb 现场的回执册：每一枚都照 panel-cs 那侧的**原键名**（PascalCase）摆，
+        // 于是"答手取错键"这一类错会当场落成 None/空值而红，而不是悄悄通过。
+        fn r24_reply(verb: &str, paths: &JVal) -> JVal {
+            match verb {
+                "resolve-round-context" => jv_o(vec![
+                    (
+                        "Runtime",
+                        jv_o(vec![
+                            ("blockSleep", JVal::B(true)),
+                            ("keepScreenOn", JVal::B(false)),
+                            ("retryOnce", JVal::B(true)),
+                        ]),
+                    ),
+                    (
+                        "Elevation",
+                        jv_o(vec![
+                            ("arkRequiresElevation", JVal::B(false)),
+                            ("launchArkFromHelper", JVal::B(true)),
+                        ]),
+                    ),
+                    ("Paths", paths.clone()),
+                    ("NowText", jv_s("2026-10-15 06:00:00")),
+                    ("IsAdmin", JVal::B(true)),
+                    ("NowMs", JVal::I(1760000000000)),
+                    ("Dow", JVal::I(4)),
+                ]),
+                "ark-desktop-state" => jv_o(vec![
+                    ("Desktop", jv_s("Default")),
+                    ("Locked", JVal::B(false)),
+                    ("LockedKnown", JVal::B(true)),
+                ]),
+                "resolve-screensaver-verdict" => jv_o(vec![("Detail", jv_s("屏保：没挂 .scr"))]),
+                "takeover-processes" => jv_o(vec![
+                    ("Done", JVal::B(true)),
+                    ("Label", jv_s("方舟/MAA")),
+                    ("Stopped", JVal::A(vec![jv_s("MAA")])),
+                    ("Lines", JVal::A(vec![jv_s("接管那一句")])),
+                ]),
+                "apply-maa-daily-config" => jv_o(vec![
+                    ("Done", JVal::B(true)),
+                    ("Path", jv_s("D:\\No\\Where\\config.json")),
+                    ("Changes", JVal::A(vec![jv_s("队列：作战 开")])),
+                    ("ExpectedChains", JVal::A(vec![jv_s("combat")])),
+                    ("Stage", jv_s("CE-5")),
+                    ("Applied", JVal::B(true)),
+                    ("Lines", JVal::A(Vec::new())),
+                ]),
+                "start-ark-client" => jv_o(vec![
+                    ("Done", JVal::B(true)),
+                    ("Started", JVal::B(true)),
+                    ("Lines", JVal::A(vec![jv_s("端游窗口就绪")])),
+                ]),
+                "stop-maa-and-game" => jv_o(vec![
+                    ("Done", JVal::B(true)),
+                    ("MaaClosed", JVal::I(1)),
+                    ("ArkClosed", JVal::I(0)),
+                    ("Lines", JVal::A(vec![jv_s("已关闭 MAA(1 个进程)")])),
+                ]),
+                "start-mumu" => jv_o(vec![("Done", JVal::B(true)), ("Started", JVal::B(true))]),
+                "apply-m9a-instance" => jv_o(vec![
+                    ("Done", JVal::B(true)),
+                    ("Changes", JVal::A(vec![jv_s("Instances.LastActive: a → b")])),
+                    ("Applied", JVal::B(true)),
+                    ("Lines", JVal::A(Vec::new())),
+                ]),
+                "stop-m9a" => jv_o(vec![("Done", JVal::B(true)), ("M9aClosed", JVal::I(1))]),
+                // 两枚"读日志尾"的现场件：这一档全按**没读到**回 ⇒ 验的就是答手把 Found=false
+                // 折成账上那一枚 null（而不是折成空对象）的那条定档。
+                "read-maa-fight-skip" => jv_o(vec![("Found", JVal::B(false)), ("Reason", jv_s("gui-log-missing"))]),
+                "read-maa-stage-observation" => jv_o(vec![
+                    ("Found", JVal::B(false)),
+                    ("LogsRead", JVal::B(false)),
+                    ("Reason", jv_s("no-logs")),
+                    ("Date", jv_s("2026-10-15")),
+                ]),
+                "update-ark-farm-ledger" => jv_o(vec![
+                    ("Done", JVal::B(true)),
+                    ("Summary", jv_s("记账两句"), ),
+                    ("Blocks", JVal::I(2)),
+                ]),
+                "start-run-lock" => jv_o(vec![
+                    ("Wrote", JVal::B(true)),
+                    ("Pid", JVal::I(4242)),
+                    ("Started", jv_s("2026-10-15 06:00:00")),
+                    ("Games", jv_s("ark")),
+                    ("Tag", jv_s("selftest")),
+                    ("Log", jv_s("D:\\No\\Where\\logs\\round.log")),
+                    ("PrevAlive", JVal::B(false)),
+                    ("Lines", JVal::A(Vec::new())),
+                ]),
+                "stop-run-lock" => jv_o(vec![
+                    ("Had", JVal::B(true)),
+                    ("Removed", JVal::B(true)),
+                    ("Pid", JVal::I(4242)),
+                ]),
+                "send-round-notice" => jv_o(vec![
+                    ("Title", jv_s("每日日常已完成")),
+                    ("Level", jv_s("OK")),
+                    ("Time", jv_s("2026-10-15 06:20:00")),
+                    ("File", JVal::B(true)),
+                    ("FileKey", jv_s("state\\last-notice.json")),
+                    ("Webhook", jv_s("none")),
+                    ("Toast", jv_s("sent")),
+                    ("Lines", JVal::A(Vec::new())),
+                ]),
+                _ => jv_o(vec![("Done", JVal::B(true))]),
+            }
+        }
+        // 只记**键名**不记值：值里带 Path/Log 那种本机事实，落进投影就等于把"不该看的东西"抄进证据面。
+        let r24_keys = |b: &JVal| -> String {
+            match b {
+                JVal::O(o) => {
+                    let mut ks: Vec<&str> = o.iter().map(|(k, _)| k.as_str()).collect();
+                    ks.sort_unstable();
+                    ks.join(",")
+                }
+                JVal::Null => "(无参)".to_string(),
+                other => jv_to_json(other),
+            }
+        };
+
+        let d24 = std::env::temp_dir().join(format!("gd-b3b3-selftest-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d24);
+        let _ = std::fs::create_dir_all(&d24);
+        let d24s = d24.to_string_lossy().to_string();
+        let t24 = |n: &str| format!("{}\\{}", d24s, n);
+
+        // ---------- 24a 取键名册：三枚 runtime 逐枚点名、elevFlags 去重、pathKeys 带两枚取名键 ----------
+        chk(
+            ROUND_RUNTIME_KEYS == ["blockSleep", "keepScreenOn", "retryOnce"],
+            "runtimeKeys 这本名册改了形状：多一枚就是整块 runtime 往核里漏一格（visionApiKey 住在那个块里），少一枚就有一格现场参数没人取",
+            &mut fails,
+            &mut total,
+        );
+        chk(
+            round_elev_flags() == vec!["arkRequiresElevation", "launchArkFromHelper"],
+            "elevFlags 不对：两路清单同写一枚 arkRequiresElevation 必须**去重**（不去重就是把同一格算两遍），而 launchArkFromHelper 用的是同一把「缺键算开」的尺才被挪进这本名册",
+            &mut fails,
+            &mut total,
+        );
+        let pk24 = round_path_keys();
+        chk(
+            pk24.iter().filter(|k| **k == "maaExe").count() == 1
+                && pk24.iter().filter(|k| **k == "m9aExe").count() == 1
+                && pk24.contains(&"arknightsExe")
+                && pk24.contains(&"maaConfig")
+                && pk24.contains(&"m9aAppSettings")
+                && pk24.contains(&"mumuManager")
+                && !pk24.contains(&"visionApiKey"),
+            "pathKeys 不对（两枚取名键没点到/重复，或 EnvProbes 那七枚少了一枚）：环境检查会少一行、takeover 的进程名会取空 —— 而整块 paths 绝不许进来",
+            &mut fails,
+            &mut total,
+        );
+
+        // ---------- 24b 静态清单：六枚 *_act 的字面与"这一路没那格"的空串 ----------
+        chk(
+            GD_MODULE_ARK.stop_act == "stop:ark"
+                && GD_MODULE_ARK.resolve_act == "round-resolve:ark"
+                && GD_MODULE_ARK.preview_act == "round-preview:ark"
+                && GD_MODULE_ARK.gate_act == "round-gate:ark"
+                && GD_MODULE_ARK.history_act == "round-history:ark"
+                && GD_MODULE_ARK.probe_act == "round-probe:ark"
+                && GD_MODULE_R1999.probe_act.is_empty()
+                && GD_MODULE_R1999.env_rows.len() == 3
+                && GD_VERBS_ARK.len() == 4
+                && GD_VERBS_R1999.len() == 3,
+            "清单数据面的动作名或枚数被改了：五枚 *_act 是 b3 新立的静态动作名（借用检查不许 format! 现造），而 r1999 的 probe_act 空串是「这一路根本没有活动图自证那一格」的显式读数，不是名字待定",
+            &mut fails,
+            &mut total,
+        );
+
+        // ---------- 24c 拒跑八闸：顺序即判据，第八闸独有 --root ----------
+        let ok8 = ["j", "c", "r", "p", "s", "k", "t"];
+        chk(
+            round_refusal(false, ok8[0], ok8[1], ok8[2], ok8[3], ok8[4], ok8[5], ok8[6])
+                .map_or(false, |m| m.contains("--i-round")),
+            "轮骨架档缺 --i-round 时没落拒跑句（或那句没点名旗标）",
+            &mut fails,
+            &mut total,
+        );
+        let mut miss24: Vec<String> = Vec::new();
+        for (i, blank) in [1usize, 2, 3, 4, 5, 6, 7].iter().enumerate() {
+            let mut a = ok8.to_vec();
+            a[*blank - 1] = "";
+            let m = round_refusal(true, a[0], a[1], a[2], a[3], a[4], a[5], a[6]).unwrap_or_default();
+            let want = ["--journal", "--ctx", "--res", "--panel-cs", "--state", "--log-sink", "--root"][i];
+            if !m.contains(want) {
+                miss24.push(format!("[{}→{}]", want, m));
+            }
+        }
+        chk(
+            miss24.is_empty() && round_refusal(true, ok8[0], ok8[1], ok8[2], ok8[3], ok8[4], ok8[5], ok8[6]).is_none(),
+            &format!("轮骨架的八道闸有一句不点名所缺旗标（顺序即判据，第八闸 --root 是本档独有）：{}", miss24.join(" / ")),
+            &mut fails,
+            &mut total,
+        );
+
+        // ---------- 24d ctx 解析：pid 必填绝不回落、nameField 只认两档、gates 滤空项 ----------
+        let bad_pid = jv_parse("{\"ids\":[\"ark\"]}").unwrap_or(JVal::Null);
+        chk(
+            matches!(round_ctx_parse(&bad_pid), Err(ref m) if m.contains("pid")),
+            "ctx 少 pid 时没当场 Err（或 Err 那句没点名 pid）：撤锁只撤自己登记的那一份，核绝不许拿自己的进程号冒充",
+            &mut fails,
+            &mut total,
+        );
+        let neg_pid = jv_parse("{\"pid\":0,\"nameField\":\"ShortName\"}").unwrap_or(JVal::Null);
+        chk(
+            matches!(round_ctx_parse(&neg_pid), Err(ref m) if m.contains("正整数")),
+            "pid=0 没被拦：驱动协议一 ask 一进程，那枚号在下一进程里根本不是本轮",
+            &mut fails,
+            &mut total,
+        );
+        let bad_field = jv_parse("{\"pid\":7,\"nameField\":\"Name\"}").unwrap_or(JVal::Null);
+        chk(
+            matches!(round_ctx_parse(&bad_field), Err(ref m) if m.contains("Id/ShortName")),
+            "nameField 第三档没拒住：真身那枚 ValidateSet 就是两档，第三档会让汇总行换个字段名",
+            &mut fails,
+            &mut total,
+        );
+        let ok_ctx24 = jv_parse(
+            "{\"pid\":4242,\"gates\":[null,{\"id\":\"ark\",\"verb\":\"ShopDone\"}],\"opt\":{},\"nameField\":\"Id\",\"tag\":\"selftest\",\"logLeaf\":\"round.log\",\"maaRun\":{},\"m9aRun\":{\"instance\":{\"id\":\"1\",\"name\":\"1999\"}}}",
+        )
+        .unwrap_or(JVal::Null);
+        let rc24v = round_ctx_parse(&ok_ctx24).unwrap_or_else(|_| round_ctx_empty());
+        chk(
+            rc24v.gates.len() == 1 && rc24v.notice_owner == "每日" && rc24v.pid == 4242,
+            "ctx 的默认值或那对 null 空项处理不对：真身 $Gates | Where-Object { $_ } 是静默滤，NoticeOwner 缺省是「每日」",
+            &mut fails,
+            &mut total,
+        );
+
+        // ---------- 24e 在位性现问：临时树上三档（全装 / 只装 ark / 什么都没装） ----------
+        let root_all = t24("root-all");
+        let root_ark = t24("root-ark");
+        let root_none = t24("root-none");
+        let trees: Vec<(String, Vec<&'static str>)> = vec![
+            (
+                root_all.clone(),
+                vec!["ark-module.ps1", "r1999-module.ps1", "maa.ps1", "m9a.ps1", "ark-daily.ps1", "r1999-daily.ps1"],
+            ),
+            (root_ark.clone(), vec!["ark-module.ps1", "maa.ps1", "ark-daily.ps1"]),
+            (root_none.clone(), vec![]),
+        ];
+        for (r, files) in trees.iter() {
+            let _ = std::fs::create_dir_all(format!("{}\\lib", r));
+            for f in files.iter() {
+                let _ = std::fs::write(format!("{}\\lib\\{}", r, f), "# fake\n");
+            }
+        }
+        let pick_all = select_gd_modules(&rc24v, &root_all);
+        let pick_ark = select_gd_modules(&rc24v, &root_ark);
+        let pick_none = select_gd_modules(&rc24v, &root_none);
+        chk(
+            pick_all.map_or(false, |v| v.iter().map(|m| m.id).collect::<Vec<_>>() == vec!["ark", "r1999"])
+                && pick_ark.map_or(false, |v| v.len() == 1 && v[0].id == "ark")
+                && pick_none.as_ref().err().map_or(false, |e| e.contains("没有可加载的游戏模块")),
+            "选路的三档读数不对：注册（*-module.ps1）／装了（助手库）／合体（编排库枚数）三枚判据各是各的，合成一枚就把三种状态糊成一档",
+            &mut fails,
+            &mut total,
+        );
+        // 入口 verb：合体树上取长名（-AckArk），非合体树回落短名（-Ack）—— §11.50 ④-4 抓过的那一处。
+        chk(
+            round_entry_verb("ark", "Ack", &root_all) == "-AckArk"
+                && round_entry_verb("ark", "ShopDone", &root_all) == "-ArkShopDone"
+                && round_entry_verb("ark", "Ack", &root_ark) == "-Ack"
+                && round_entry_verb("r1999", "Ack", &root_ark) == "-Ack",
+            "entryverb 的直答不等于真身那两档了：合体判据在场时越过名册去回短名，或该回落时没回落",
+            &mut fails,
+            &mut total,
+        );
+
+        // 一份"六枚探测行全就绪"的 paths 夹具（自检不许要求机器现场状态：树是自己建的）。
+        // 六枚 = 两路 EnvProbes 的全部行；m9aExe/maaExe 是取名用的相对原值，不进环境判据。
+        let mk_paths = |tag: &str, maa_gone: bool| -> JVal {
+            let base = format!("{}\\fx-{}", d24s, tag);
+            let maa = if maa_gone { format!("{}\\no-such-dir", d24s) } else { format!("{}\\maa", base) };
+            let game = format!("{}\\ark.exe", base);
+            let m9a = format!("{}\\m9a", base);
+            let mumu = format!("{}\\mumu", base);
+            if !maa_gone {
+                let _ = std::fs::create_dir_all(&maa);
+                let _ = std::fs::create_dir_all(&m9a);
+                let _ = std::fs::create_dir_all(&mumu);
+                let _ = std::fs::write(format!("{}\\config.json", maa), "{}");
+                let _ = std::fs::write(format!("{}\\MAA.exe", maa), "x");
+                let _ = std::fs::write(&game, "x");
+                let _ = std::fs::write(format!("{}\\appsettings.json", m9a), "{}");
+                let _ = std::fs::write(format!("{}\\MuMuManager.exe", mumu), "x");
+            }
+            jv_o(vec![
+                ("maaDir", jv_s(&maa)),
+                ("maaConfig", jv_s("config.json")),
+                ("maaExe", jv_s("MAA.exe")),
+                ("arknightsExe", jv_s(&game)),
+                ("m9aDir", jv_s(&m9a)),
+                ("m9aAppSettings", jv_s("appsettings.json")),
+                ("mumuDir", jv_s(&mumu)),
+                ("mumuManager", jv_s("MuMuManager.exe")),
+                ("m9aExe", jv_s("M9A.exe")),
+            ])
+        };
+        let paths_ok24 = mk_paths("ok", false);
+        let paths_bad24 = mk_paths("bad", true);
+
+        // ---------- 24f 环境检查：就绪条数与"没填"那一档的行文本 ----------
+        let mut env24 = match round_env_fetch(&mut |_v: &str, _b: &JVal| Ok(r24_reply("resolve-round-context", &paths_ok24))) {
+            Ok(e) => e,
+            Err(_) => RoundEnv { runtime: JVal::Null, elevation: JVal::Null, paths: JVal::Null, now_text: String::new() },
+        };
+        // 半就绪的一份 paths：ark 那两枚在位（MAA 目录／MAA 配置），端游没填、1999 那三路整块没填
+        // ⇒ 就绪 2 条、缺失 4 行，且四行**全是** "(没填)" 那一档（不是"路径不存在"那一档）。
+        let mut paths_part24 = paths_ok24.clone();
+        if let JVal::O(ref mut o) = paths_part24 {
+            for (k, v) in o.iter_mut() {
+                if k == "arknightsExe" || k == "m9aDir" || k == "mumuDir" {
+                    *v = jv_s("");
+                }
+            }
+        }
+        env24.paths = paths_part24;
+        let mods24: Vec<&'static GdModule> = GD_MODULES.iter().collect();
+        let (ok24, bad24) = round_env_check(&mods24, &env24);
+        chk(
+            ok24 == 2
+                && bad24.len() == 4
+                && bad24[0] == "方舟端游 → (没填)"
+                && bad24[3] == "MuMu Manager → (没填)"
+                && env24.proc_name("maaExe") == "MAA"
+                && env24.proc_name("m9aExe") == "M9A"
+                && env24.flag("blockSleep")
+                && !env24.flag("keepScreenOn")
+                && !env24.elev_on("arkRequiresElevation")
+                && !env24.elev_on("no-such-flag"),
+            &format!(
+                "环境检查/elev_on 那把尺走样了（就绪条数、(没填) 那一档、或 Elevation 的折真值 —— 缺键按**开**算才是真身那把 -ne $false）：{}",
+                bad24.join(" / ")
+            ),
+            &mut fails,
+            &mut total,
+        );
+
+        // ---------- 24g 答手名册：逐枚点名「哪一格调哪枚 verb、取哪几枚键、落哪几格账」 ----------
+        let mut proj24: Vec<String> = Vec::new();
+        let mut slept24: Vec<u32> = Vec::new();
+        let mut es24: Vec<u32> = Vec::new();
+        let live_dec = round_ark_decision_slot();
+        live_dec.replace(jv_o(vec![
+            ("Mode", jv_s("farm")),
+            ("ClearSanity", JVal::B(true)),
+            ("Stage", jv_s("CE-5")),
+            ("Farm", jv_o(vec![("Active", JVal::B(true)), ("ItemId", jv_s("30340")), ("Gap", JVal::I(3)), ("Target", JVal::I(12)), ("Times", JVal::I(2))])),
+            ("FarmMode", jv_s("plan")),
+            ("EventKey", jv_s("")),
+            ("EventTip", jv_s("")),
+            ("StageHint", jv_s("")),
+        ]));
+        let inst24 = jv_o(vec![("id", jv_s("1")), ("name", jv_s("1999"))]);
+        let mut ask_none: Vec<String> = Vec::new();
+        let mut data_of: Vec<String> = Vec::new();
+        {
+            let mut call24 = |v: &str, b: &JVal| -> Result<JVal, String> {
+                proj24.push(format!("{}|{}", v, r24_keys(b)));
+                Ok(r24_reply(v, &paths_ok24))
+            };
+            let mut nap24 = |s: u32| {
+                slept24.push(s);
+            };
+            let mut es24c = |f: u32| -> u32 {
+                es24.push(f);
+                if f & ES_QUERY_ONLY != 0 {
+                    ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED
+                } else {
+                    1
+                }
+            };
+            let mut hk24 = RoundHooks { call: &mut call24, nap: &mut nap24, es: &mut es24c };
+            let mut one = |role: &str, action: &str, params: JVal| {
+                round_answer(&mut hk24, &env24, &root_all, &t24("state"), &inst24, &live_dec, role, action, &params)
+            };
+            for (role, action, params) in [
+                ("ark", "desk", JVal::Null),
+                ("ark", "takeover", JVal::Null),
+                ("ark", "cfg", jv_o(vec![("kind", jv_s("main"))])),
+                ("ark", "cfg", jv_o(vec![("kind", jv_s("lean")), ("stage", jv_s("1-7"))])),
+                ("ark", "entryverb", jv_o(vec![("game", jv_s("ark")), ("verb", jv_s("Ack"))])),
+                ("ark", "launch", JVal::Null),
+                ("ark", "stop", JVal::Null),
+                ("ark", "sleep", JVal::I(25)),
+                ("ark", "skip", JVal::Null),
+                ("ark", "ledger", JVal::Null),
+                ("ark", "obs", JVal::Null),
+                ("r1999", "takeover", JVal::Null),
+                ("r1999", "mumu", JVal::Null),
+                ("r1999", "cfg", JVal::Null),
+                ("r1999", "stop", JVal::Null),
+                ("r1999", "sleep", JVal::I(20)),
+                ("round", ROUND_ADMIN_ACT, JVal::Null),
+                ("round", ROUND_LOCK_ACT, jv_o(vec![("pid", JVal::I(4242)), ("games", jv_s("ark")), ("tag", jv_s("selftest")), ("log", jv_s("logs\\x.log"))])),
+                ("round", ROUND_UNLOCK_ACT, jv_o(vec![("pid", JVal::I(4242))])),
+                (
+                    "round",
+                    ROUND_NOTICE_ACT,
+                    jv_o(vec![("owner", jv_s("每日")), ("allOk", JVal::B(true)), ("text", jv_s("两行"), ), ("level", jv_s("OK"))]),
+                ),
+                ("round", ROUND_NOSLEEP_ACT, jv_o(vec![("keepScreenOn", JVal::B(true))])),
+                ("round", ROUND_NOSLEEP_OFF_ACT, JVal::Null),
+            ]
+            .iter()
+            {
+                match one(role, action, params.clone()) {
+                    Ok(Some(o)) => data_of.push(format!("{}:{}:{}", role, action, jv_to_json(&o.data))),
+                    Ok(None) => ask_none.push(format!("{}:{}", role, action)),
+                    Err(m) => ask_none.push(format!("{}:{}→Err({})", role, action, m)),
+                }
+            }
+            // 外发那一族逐枚点名（答 None = 协议没删）：门表/判定/预览/收尾/监督/历史/提权/屏保 + svdetail + updgate/audit。
+            for (role, action, params) in [
+                ("round", "round-gate:ark", JVal::Null),
+                ("round", "round-resolve:ark", JVal::Null),
+                ("round", "round-preview:ark", JVal::Null),
+                ("round", "stop:ark", JVal::Null),
+                ("round", ROUND_SUPERVISOR_START_ACT, JVal::Null),
+                ("round", ROUND_SUPERVISOR_STOP_ACT, JVal::Null),
+                ("round", "round-history:ark", JVal::Null),
+                ("round", ROUND_ELEVATE_ACT, JVal::Null),
+                ("round", ROUND_SCREENSAVER_ACT, JVal::Null),
+                ("round", "round-probe:ark", JVal::Null),
+                ("ark", "svdetail", JVal::Null),
+                ("r1999", "updgate", JVal::Null),
+                ("r1999", "audit", JVal::Null),
+            ]
+            .iter()
+            {
+                if one(role, action, params.clone()).map_or(true, |x| x.is_some()) {
+                    ask_none.push(format!("{}:{} 本该外发", role, action));
+                }
+            }
+        }
+        chk(
+            ask_none.is_empty(),
+            &format!("外发那一族被答手接下了（ask/res 是回退通道，②-b3 只「增」答手不「换」协议）：{}", ask_none.join(" / ")),
+            &mut fails,
+            &mut total,
+        );
+        chk(
+            data_of.iter().any(|l| l.as_str() == "ark:desk:\"Default\"")
+                && data_of.iter().any(|l| l == "ark:takeover:true")
+                && data_of.iter().any(|l| l == "ark:skip:null")
+                && data_of.iter().any(|l| l == "ark:obs:null")
+                && data_of.iter().any(|l| l == "ark:entryverb:\"-AckArk\"")
+                && data_of.iter().any(|l| l == "ark:launch:true")
+                && data_of.iter().any(|l| l == "ark:ledger:\"记账两句\"")
+                && data_of.iter().any(|l| l == "r1999:mumu:true")
+                && data_of.iter().any(|l| l.starts_with("ark:cfg:{\"changes\":[\"队列：作战 开\"],\"chains\":[\"combat\"]}"))
+                && data_of.iter().any(|l| l.starts_with("r1999:cfg:{\"changes\":"))
+                && data_of.iter().any(|l| l.starts_with("round:round-lock:{\"Wrote\":true,\"PrevAlive\":false}"))
+                && data_of.iter().any(|l| l.starts_with("round:round-unlock:{\"Had\":true,\"Removed\":true}"))
+                && data_of.iter().any(|l| l.starts_with("round:round-notice:{\"Title\":\"每日日常已完成\"")),
+            &format!(
+                "直答那一族的账行形状变了（PS executor 当年写进 res 的 data 是这个形状，改了②-b 的门就没法逐字节比）：{}",
+                data_of.join(" § ")
+            ),
+            &mut fails,
+            &mut total,
+        );
+        chk(
+            proj24.iter().filter(|p| p.starts_with("ark-desktop-state|")).count() == 1
+                && proj24.iter().any(|p| p == "ark-desktop-state|")
+                && proj24.iter().any(|p| p.starts_with("takeover-processes|label,names") && p.matches('|').count() == 1)
+                && proj24.iter().any(|p| p == "apply-maa-daily-config|apply,decision")
+                && proj24.iter().any(|p| p == "update-ark-farm-ledger|stateDir")
+                && proj24.iter().any(|p| p == "read-maa-stage-observation|nowText")
+                && proj24.iter().any(|p| p == "apply-m9a-instance|apply,instance")
+                && proj24.iter().any(|p| p == "start-run-lock|games,log,pid,tag")
+                && proj24.iter().any(|p| p == "send-round-notice|allOk,level,owner,text"),
+            &format!(
+                "答手喂给 verb 的 body 键名册变了（逐枚点名取键是②的判据，整块 runtime/paths 不许进去）：{}",
+                proj24.join(" § ")
+            ),
+            &mut fails,
+            &mut total,
+        );
+        // lean 那一腿：PS 现场另构造八键哈希、**没有 Farm 键** ⇒ verb 侧 farmActive=false（原样怪癖，不许"顺手带上 Farm"）。
+        chk(
+            round_lean_decision(&jv_o(vec![("Mode", jv_s("farm")), ("Farm", JVal::B(true)), ("ClearSanity", JVal::B(true))]), "1-7")
+                == jv_o(vec![
+                    ("Source", jv_s("auto")),
+                    ("Mode", jv_s("farm")),
+                    ("Stage", jv_s("1-7")),
+                    ("ClearSanity", JVal::B(true)),
+                    ("EventKey", JVal::Null),
+                    ("EventTip", JVal::Null),
+                    ("StageHint", JVal::Null),
+                ]),
+            "lean 那腿的 decision 不是真身那八键：Farm 漏了没剥（剔关轮就带着一份它本来没有的补刷档位），或键序/来源改了",
+            &mut fails,
+            &mut total,
+        );
+        chk(
+            slept24 == vec![25u32, 20u32]
+                && es24.len() == 3
+                && es24[0] == (ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED)
+                && es24[1] == (ES_CONTINUOUS | ES_QUERY_ONLY)
+                && es24[2] == ES_CONTINUOUS,
+            &format!(
+                "核内那两枚现场件走错了（sleep 没走注入点=自检会真睡，或 ES 位型/自证顺序不对）：slept={:?} es={:?}",
+                slept24, es24
+            ),
+            &mut fails,
+            &mut total,
+        );
+
+        // ---------- 24h 一轮十段跑到底：账行序、ask 序、done 的那枚退出码 ----------
+        let root24 = root_all.clone();
+        let s24 = t24("state");
+        let _ = std::fs::create_dir_all(&s24);
+        // 路径要按 JSON 转义再进 ctx：这棵树在 %TEMP% 下，反斜杠不 doubling 就是一枚非法转义，
+        // 而 ctx 读不动的错话术会指着"不是合法 JSON"——那是自己给自己造的假红，不是协议的错。
+        let jesc = |s: &str| s.replace("\\", "\\\\");
+        let d24j = jesc(&d24s);
+        let s24j = jesc(&s24);
+        let j24 = t24("journal.ndjson");
+        let r24 = t24("res.json");
+        let k24 = t24("sink.ndjson");
+        let c24 = t24("ctx.json");
+        let _ = std::fs::write(
+            &c24,
+            &format!(
+                "{{\"ids\":[\"ark\"],\"gates\":[],\"opt\":{{}},\"force\":false,\"dryRun\":false,\"skipCleanup\":false,\"noElevate\":false,\"nameField\":\"Id\",\"noticeOwner\":\"每日\",\"tag\":\"selftest\",\"logLeaf\":\"round.log\",\"logPath\":\"logs\\\\round.log\",\"pid\":4242,\"maaRun\":{{\"maaDir\":\"{}\\\\maa\",\"maaExe\":\"MAA.exe\",\"guiLog\":\"\",\"asstLog\":\"\",\"stateDir\":\"{}\",\"maxTicks\":2,\"tickSeconds\":1,\"startTimeoutMinutes\":1,\"timeoutMinutes\":1,\"stallTimeoutMinutes\":1,\"retryOnce\":true,\"launchArkFromHelper\":true,\"closeGameAfter\":false,\"rescueAvailable\":true,\"grabFrontAvailable\":false}},\"m9aRun\":{{\"paths\":{{\"m9aDir\":\"\",\"m9aExe\":\"\",\"m9aLogDir\":\"\"}},\"conn\":{{\"adb\":\"\",\"serial\":\"\"}},\"instance\":{{\"id\":\"1\",\"name\":\"1999\"}},\"package\":\"\",\"runtime\":{{\"m9aInstanceArg\":\"\",\"m9aForceStart\":false,\"visionMaxRescue\":0,\"r1999StartTimeoutMinutes\":1,\"r1999TimeoutMinutes\":1,\"stallTimeoutMinutes\":1}}}}}}",
+                d24j, s24j
+            ),
+        );
+        let mut rounds24 = 0usize;
+        let mut kinds24: Vec<String> = Vec::new();
+        let mut acts24: Vec<String> = Vec::new();
+        let mut final_env24 = String::new();
+        let mut final_rc24 = 9i32;
+        for _ in 0..24 {
+            rounds24 += 1;
+            let pair = {
+                let mut call24 = |_v: &str, _b: &JVal| -> Result<JVal, String> { Ok(r24_reply(_v, &paths_ok24)) };
+                let mut nap24 = |_s: u32| {};
+                let mut es24c = |f: u32| -> u32 {
+                    if f & ES_QUERY_ONLY != 0 {
+                        ES_CONTINUOUS | ES_SYSTEM_REQUIRED
+                    } else {
+                        1
+                    }
+                };
+                let mut hk24 = RoundHooks { call: &mut call24, nap: &mut nap24, es: &mut es24c };
+                let mut dec = |_st: &str, _ro: bool| -> Result<(bool, Vec<(String, String)>), String> {
+                    Ok((false, Vec::new()))
+                };
+                let mut dec9 = |_st: &str, _rs: bool, _ro: bool| -> Result<(bool, Vec<(String, String)>), String> {
+                    Ok((false, Vec::new()))
+                };
+                let mut run = |_sc: &MaaScen, _ch: &[String]| -> Result<ArkRunOut, String> {
+                    Ok(ArkRunOut { status: "ok".to_string(), detail: "队列跑完".to_string(), duration: Some(120.0) })
+                };
+                let mut run9 = |_sc: &M9aScen| -> Result<M9aRunOut, String> {
+                    Ok(M9aRunOut {
+                        status: "ok".to_string(),
+                        detail: "跑完".to_string(),
+                        duration: Some(60.0),
+                        rescued: false,
+                    })
+                };
+                drive_round_daily_envelope(
+                    true, &j24, &c24, &r24, "unused-panel-cs", &s24, &k24, &root24, &mut hk24, &mut dec, &mut dec9,
+                    &mut run, &mut run9,
+                )
+            };
+            final_rc24 = pair.0;
+            final_env24 = pair.1;
+            let ev = jv_parse(&final_env24).unwrap_or(JVal::Null);
+            let kind = jv_str(&jv_get(&ev, "kind"));
+            kinds24.push(kind.clone());
+            if kind != "ask" {
+                break;
+            }
+            let seq = jv_int(&jv_get(&ev, "seq"), 0);
+            let act = jv_str(&jv_get(&ev, "action"));
+            acts24.push(act.clone());
+            // 假 executor：照 ask 的 seq/action 写回执（外发那一族的 data 形状按 §11.52 ② 的名册给）。
+            let data = match act.as_str() {
+                a if a == "svdetail" => jv_s("屏保：没挂 .scr"),
+                a if a == ROUND_ELEVATE_ACT => jv_o(vec![("Code", JVal::I(0))]),
+                a if a.starts_with("round-resolve:") => jv_o(vec![
+                    ("Mode", jv_s("farm")),
+                    ("ClearSanity", JVal::B(true)),
+                    ("Stage", jv_s("CE-5")),
+                    ("Farm", JVal::Null),
+                    ("FarmMode", jv_s("")),
+                ]),
+                a if a == ROUND_SUPERVISOR_START_ACT || a == ROUND_SUPERVISOR_STOP_ACT => {
+                    jv_o(vec![("Available", JVal::B(true)), ("Err", jv_s(""))])
+                }
+                _ => jv_o(vec![("Done", JVal::B(true))]),
+            };
+            let rf = format!("{{\"seq\":{},\"action\":{},\"ok\":true,\"data\":{}}}", seq, jstr(&act), jv_to_json(&data));
+            let _ = std::fs::write(&r24, rf);
+        }
+        let jrows: Vec<String> = std::fs::read_to_string(&j24)
+            .unwrap_or_default()
+            .lines()
+            .filter(|l| !l.trim().is_empty() && !l.contains("\"init\""))
+            .map(|l| l.to_string())
+            .collect();
+        let sink24: Vec<String> = std::fs::read_to_string(&k24)
+            .unwrap_or_default()
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .map(|l| l.to_string())
+            .collect();
+        chk(
+            final_rc24 == 0
+                && rounds24 == acts24.len() + 1
+                && kinds24.last().map(|s| s.as_str()) == Some("done")
+                && final_env24.contains("\"role\":\"B3b-round-daily\"")
+                && final_env24.contains("\"code\":0")
+                && final_env24.contains("\"allOk\":true"),
+            &format!(
+                "一轮十段没跑到 done（或 done 信封里没带本轮那枚退出码）：rc={} kinds={:?} env={}",
+                final_rc24,
+                kinds24,
+                final_env24.chars().take(900).collect::<String>()
+            ),
+            &mut fails,
+            &mut total,
+        );
+        // ⚠ 名单里**没有 svdetail**：这一档走的是假 verb 回 `Desktop="Default"` 那一路（桌面正常），
+        //   而链体那一格只在"桌面不对、要把屏保读数写进早退原因"时才发生 —— 缺席是**真身的条件**，
+        //   不是漏了一格。同理 keepScreenOn=false ⇒ 屏保那格也没问。外发那一族的**完整名册**由 24g
+        //   那一段逐枚钉（十三枚全问了一遍），这一段只钉"段与段之间的先后"，两格各管一段。
+        chk(
+            acts24 == vec![
+                "round-resolve:ark".to_string(),
+                "round-supervisor-start".to_string(),
+                "round-probe:ark".to_string(),
+                "round-supervisor-stop".to_string(),
+                "stop:ark".to_string(),
+                "round-history:ark".to_string(),
+            ],
+            &format!("外发那一族的**顺序或枚数**变了（骨架的段序就是判据：锁/判定在前、监督先停再收尾、历史排在通知之前）：{:?}", acts24),
+            &mut fails,
+            &mut total,
+        );
+        chk(
+            jrows.iter().any(|l| l.contains("\"action\":\"round-lock\"") && l.contains("\"Wrote\":true") && !l.contains("logs\\\\round.log"))
+                && jrows.iter().any(|l| l.contains("\"action\":\"round-notice\"") && l.contains("每日日常已完成"))
+                && jrows.iter().any(|l| l.contains("\"action\":\"round-nosleep\""))
+                && jrows.iter().any(|l| l.contains("\"action\":\"round-nosleep-off\""))
+                && jrows.iter().any(|l| l.contains("\"action\":\"desk\"") && l.contains("\"data\":\"Default\""))
+                && jrows.iter().any(|l| l.contains("\"action\":\"skip\"") && l.contains("\"data\":null"))
+                && jrows.iter().any(|l| l.contains("\"action\":\"run\"") && l.contains("队列跑完"))
+                && jrows.iter().any(|l| l.contains("\"done\"") && l.contains("\"code\":0")),
+            &format!(
+                "账面不对：锁那格把本机路径带进了账（直答只留两枚布尔才对）、或十段的直答格没落账、done 没进末行：共 {} 行",
+                jrows.len()
+            ),
+            &mut fails,
+            &mut total,
+        );
+        chk(
+            sink24.iter().any(|l| l.contains("环境检查：") && l.contains("项就绪"))
+                && sink24.iter().any(|l| l.contains("已临时禁止系统睡眠"))
+                && sink24.iter().any(|l| l.contains("=== 本轮结束：全部完成 ==="))
+                && sink24.iter().any(|l| l.contains("接管那一句"))
+                && sink24.iter().filter(|l| l.contains("接管那一句")).count() == 1,
+            &format!(
+                "侧信道面不对：十段的日志没按产生顺序逐行落这里，或直答件带回来的 Lines 被补了两遍（重放段一行不写）：{} 行",
+                sink24.len()
+            ),
+            &mut fails,
+            &mut total,
+        );
+        // 重放段的第二道自证：**同一本 journal 再起一轮**，一格副作用都不许重做（Lines 不再补、账不再加行）。
+        let before24 = jrows.len();
+        let sink_before24 = sink24.len();
+        let pair2 = {
+            let mut call24 = |_v: &str, _b: &JVal| -> Result<JVal, String> { Ok(r24_reply(_v, &paths_ok24)) };
+            let mut nap24 = |_s: u32| {};
+            let mut es24c = |_f: u32| -> u32 { 1 };
+            let mut hk2 = RoundHooks { call: &mut call24, nap: &mut nap24, es: &mut es24c };
+            let mut dec = |_st: &str, _ro: bool| -> Result<(bool, Vec<(String, String)>), String> { Ok((false, Vec::new())) };
+            let mut dec9 = |_st: &str, _rs: bool, _ro: bool| -> Result<(bool, Vec<(String, String)>), String> {
+                Ok((false, Vec::new()))
+            };
+            let mut run = |_sc: &MaaScen, _ch: &[String]| -> Result<ArkRunOut, String> {
+                Ok(ArkRunOut { status: "ok".to_string(), detail: "不该再跑".to_string(), duration: Some(120.0) })
+            };
+            let mut run9 = |_sc: &M9aScen| -> Result<M9aRunOut, String> {
+                Ok(M9aRunOut { status: "ok".to_string(), detail: "不该再跑".to_string(), duration: None, rescued: false })
+            };
+            drive_round_daily_envelope(
+                true, &j24, &c24, &r24, "unused-panel-cs", &s24, &k24, &root24, &mut hk2, &mut dec, &mut dec9, &mut run,
+                &mut run9,
+            )
+        };
+        let jrows_after: Vec<String> = std::fs::read_to_string(&j24)
+            .unwrap_or_default()
+            .lines()
+            .filter(|l| !l.trim().is_empty() && !l.contains("\"init\""))
+            .map(|l| l.to_string())
+            .collect();
+        let sink_after24 = std::fs::read_to_string(&k24).unwrap_or_default().lines().filter(|l| !l.trim().is_empty()).count();
+        chk(
+            pair2.0 == 0
+                && pair2.1.contains("\"kind\":\"done\"")
+                && jrows_after.len() == before24
+                && sink_after24 == sink_before24,
+            "账本已 done 时再起一轮：必须是幂等 done（不重放、不加行、侧信道一行不补）——这一条是回退通道的地基",
+            &mut fails,
+            &mut total,
+        );
+
+        // ---------- 24i 早退那两档：环境不完整退 2、dry-run 退 0 ----------
+        for (scen, ids_json, want_code, want_done) in [
+            ("env-bad", "{\"ids\":[\"ark\"]}", 2i64, 2i64),
+            ("dry-run", "{\"ids\":[\"ark\"],\"dryRun\":true}", 0i64, 0i64),
+        ]
+        .iter()
+        {
+            let jj = t24(&format!("j-{}.ndjson", scen));
+            let rr = t24(&format!("r-{}.json", scen));
+            let kk = t24(&format!("k-{}.ndjson", scen));
+            let cc = t24(&format!("c-{}.json", scen));
+            let paths_block = if *scen == "env-bad" { paths_bad24.clone() } else { paths_ok24.clone() };
+            let _ = std::fs::write(
+                &cc,
+                &format!(
+                    "{{\"ids\":[\"ark\"],\"gates\":[],\"opt\":{{}},\"force\":false,\"dryRun\":{},\"skipCleanup\":false,\"noElevate\":false,\"nameField\":\"Id\",\"noticeOwner\":\"每日\",\"tag\":\"{}\",\"logLeaf\":\"\",\"logPath\":\"\",\"pid\":4242,\"maaRun\":{{\"maaDir\":\"{}\\\\maa\",\"maaExe\":\"MAA.exe\",\"guiLog\":\"\",\"asstLog\":\"\",\"stateDir\":\"{}\",\"maxTicks\":2,\"tickSeconds\":1,\"startTimeoutMinutes\":1,\"timeoutMinutes\":1,\"stallTimeoutMinutes\":1,\"retryOnce\":true,\"launchArkFromHelper\":true,\"closeGameAfter\":false,\"rescueAvailable\":true,\"grabFrontAvailable\":false}},\"m9aRun\":{{\"paths\":{{\"m9aDir\":\"\",\"m9aExe\":\"\",\"m9aLogDir\":\"\"}},\"conn\":{{\"adb\":\"\",\"serial\":\"\"}},\"instance\":{{\"id\":\"1\",\"name\":\"1999\"}},\"package\":\"\",\"runtime\":{{\"m9aInstanceArg\":\"\",\"m9aForceStart\":false,\"visionMaxRescue\":0,\"r1999StartTimeoutMinutes\":1,\"r1999TimeoutMinutes\":1,\"stallTimeoutMinutes\":1}}}}}}",
+                    if *scen == "dry-run" { "true" } else { "false" },
+                    scen,
+                    d24j,
+                    s24j
+                ),
+            );
+            let mut out_pair = (9i32, String::new());
+            for _ in 0..6 {
+                out_pair = {
+                    let mut call24 = |v: &str, _b: &JVal| -> Result<JVal, String> {
+                        if v == "resolve-round-context" {
+                            let mut d = r24_reply(v, &paths_block);
+                            if let JVal::O(ref mut o) = d {
+                                for (k, val) in o.iter_mut() {
+                                    if k == "Paths" {
+                                        *val = paths_block.clone();
+                                    }
+                                }
+                            }
+                            return Ok(d);
+                        }
+                        Ok(r24_reply(v, &paths_ok24))
+                    };
+                    let mut nap24 = |_s: u32| {};
+                    let mut es24c = |_f: u32| -> u32 { 1 };
+                    let mut hk2 = RoundHooks { call: &mut call24, nap: &mut nap24, es: &mut es24c };
+                    let mut dec = |_st: &str, _ro: bool| -> Result<(bool, Vec<(String, String)>), String> {
+                        Ok((false, Vec::new()))
+                    };
+                    let mut dec9 = |_st: &str, _rs: bool, _ro: bool| -> Result<(bool, Vec<(String, String)>), String> {
+                        Ok((false, Vec::new()))
+                    };
+                    let mut run = |_sc: &MaaScen, _ch: &[String]| -> Result<ArkRunOut, String> {
+                        Ok(ArkRunOut { status: "ok".to_string(), detail: "dry-run 不该真做".to_string(), duration: None })
+                    };
+                    let mut run9 = |_sc: &M9aScen| -> Result<M9aRunOut, String> {
+                        Ok(M9aRunOut { status: "ok".to_string(), detail: "x".to_string(), duration: None, rescued: false })
+                    };
+                    drive_round_daily_envelope(
+                        true, &jj, &cc, &rr, "unused-panel-cs", &s24, &kk, &root_all, &mut hk2, &mut dec, &mut dec9,
+                        &mut run, &mut run9,
+                    )
+                };
+                let ev = jv_parse(&out_pair.1).unwrap_or(JVal::Null);
+                if jv_str(&jv_get(&ev, "kind")) != "ask" {
+                    break;
+                }
+                let seq = jv_int(&jv_get(&ev, "seq"), 0);
+                let act = jv_str(&jv_get(&ev, "action"));
+                let data = match act.as_str() {
+                    a if a.starts_with("round-resolve:") => jv_o(vec![("Mode", jv_s("farm")), ("Stage", jv_s("CE-5"))]),
+                    _ => jv_o(vec![("Done", JVal::B(true))]),
+                };
+                let _ = std::fs::write(
+                    &rr,
+                    &format!("{{\"seq\":{},\"action\":{},\"ok\":true,\"data\":{}}}", seq, jstr(&act), jv_to_json(&data)),
+                );
+            }
+            let _ = ids_json;
+            let rowsx: Vec<String> = std::fs::read_to_string(&jj)
+                .unwrap_or_default()
+                .lines()
+                .filter(|l| !l.trim().is_empty())
+                .map(|l| l.to_string())
+                .collect();
+            let code_x = jv_int(
+                &jv_get_ci(&jv_get(&jv_parse(&out_pair.1).unwrap_or(JVal::Null), "result"), "code"),
+                -1,
+            );
+            chk(
+                out_pair.0 == 0
+                    && code_x == *want_code
+                    && rowsx.iter().any(|l| l.contains("\"done\""))
+                    && (if *scen == "env-bad" {
+                        rowsx.iter().any(|l| l.contains("环境不完整")) && !rowsx.iter().any(|l| l.contains("round-lock"))
+                    } else {
+                        rowsx.iter().any(|l| l.contains("round-preview:ark"))
+                            && !rowsx.iter().any(|l| l.contains("round-lock"))
+                    }),
+                &format!(
+                    "{} 那一档不对：环境不完整要退 2 且不登记活体、dry-run 要预览完就退 0 且不登记活体（真身把这两档排在拿锁之前是刻意的）：rc={} code={} rows={}",
+                    scen,
+                    out_pair.0,
+                    code_x,
+                    rowsx.len()
+                ),
+                &mut fails,
+                &mut total,
+            );
+            let _ = want_done;
+        }
+
+        // ---------- 24j 话术护栏：role 第三枚在场、两枚现出口的 why 一字未动 ----------
+        chk(
+            DRIVE_ROLE_ROUND.role == "B3b-round-daily"
+                && DRIVE_WHY_ROUND.contains("轮骨架档是换头专用口")
+                && DRIVE_WHY_ROUND.contains("缺 --i-round 直接拒跑")
+                && !DRIVE_WHY_ROUND.contains("全自动")
+                && !DRIVE_WHY_ROUND.contains("完全不经 PS")
+                && DRIVE_ROLE_ARK.why == DRIVE_WHY
+                && DRIVE_ROLE_M9A.why == DRIVE_WHY_M9A,
+            "第三句 why 越界了（吹成全自动化、或把两枚现出口的 why 顺手动过）：②-d 改 GDLauncher 那两句话术时按这本账走",
+            &mut fails,
+            &mut total,
+        );
+        // 名册一处来源自证：直答表的臂数（23）+ 外发那一族不进表 —— 这两句是**形状**判据，不是话术。
+        let src_round: &str = SRC.split("fn round_answer(").nth(1).unwrap_or("");
+        let src_round: &str = src_round.split("\n}\n\n").next().unwrap_or(src_round);
+        chk(
+            src_round.matches("=> {").count() + src_round.matches("=> DirectOut").count() + src_round.matches("(\"round\", ROUND_ADMIN_ACT) => {").count() >= 20
+                && src_round.contains("_ => return Ok(None)"),
+            "答手那张表少了兜底那一臂（Ok(None) = 照旧外发），或臂数掉到 20 以下：名册一散成两处，「谁来答」就没了唯一事实源",
+            &mut fails,
+            &mut total,
+        );
+
+        let _ = std::fs::remove_dir_all(&d24);
+        chk(
+            !d24.exists(),
+            "B-3②-b3 自检的临时目录没收干净：自检会在 %TEMP% 里留垃圾",
+            &mut fails,
+            &mut total,
+        );
+    }
+
     if fails.is_empty() {
 
         println!("RESULT SELFTEST-PASS checks={} contract={}", total, CONTRACT);
@@ -15459,6 +18089,22 @@ fn usage() -> ! {
          \t  role 是这一路自己的「B2d-drive-m9a-daily」，与 ark 那路的「R3-drive-ark-daily」不同源；拒跑七闸同序、同数量、不同句。\n\
          \t  --fixture-run 与 ark 那档共用同一枚旗标和同一份夹具形状（这一路多认一枚可选 rescued），生产不接这个旗标。\n\
          \n\
+         轮骨架档（B-3②-b3，换头专用）：gdprobe --daily-round --i-round --journal <journal 文件> --ctx <轮上下文文件> --res <回执文件> --panel-cs <判定 exe 路径> --state <state 目录> --log-sink <日志侧信道文件> --root <工程根> [--fixture-run <夹具>] [--out <文件>]\n\
+         \t  同一份 main.rs 的第三枚 role（「B3b-round-daily」）：把 lib\\modules.ps1 的 Invoke-GdDailyRound **十段骨架**逐行复刻在核内\n\
+         \t  （选路 / 环境 / 提权闸 / 门表 / 判定 / 锁 / 监督 / 睡眠屏蔽 / 逐路链体 / 收尾汇总通知），协议与上面两档同一条\n\
+         \t  （journal 唯一权威账、res 读后即删、--log-sink 边跑边排空、缺旗标 rc=2 拒跑）。\n\
+         \t  **谁来答**换了第三档（plan §11.52 ③）：链体那些现场格与本轮的锁/通知/提权读态/睡眠屏蔽在 panel-cs 已有直答件，\n\
+         \t  由核内答手直接真做并落账；门表 / 判定 / 预览 / 收尾 / 监督 / 历史 / 提权重启 / 屏保读数那几族**照旧外发 ask**，\n\
+         \t  ask/res 协议一行不删 —— 它是回退通道、是三侧门 old 侧真身、是幂等重放的依据（§11.52 ④ 随行定档第 1 条）。\n\
+         \t  两枚现出口（--drive-ark-daily / --drive-m9a-daily）**逐字节不变**：那一律不给答手，闭包为空 ⇒ 新区照旧出 ask 信封。\n\
+         \t  ctx 由壳写一遍（十枚参数＋logLeaf/logPath/pid＋maaRun/m9aRun 两枚载荷）；\n\
+         \t  **pid 必填、绝不允许回落成本进程号** —— 驱动协议一 ask 一进程，拿自己的 PID 登记活锁等于写一份没人能撤的账。\n\
+         \t  --root 是本档独有的第八闸：这一档要现问「这棵树上装了哪几路」，而那两条判据不在任何一枚 verb 的回执里；\n\
+         \t  本机路径只作参数喂进来，不进 ask 信封、不进日志（环境缺失那行的全路径是唯一在册例外，见 plan §11.55）。\n\
+         \t  与上面两档同理**不加载任何 DLL**；睡眠屏蔽是本进程自己的 Win32 句柄语义（外发给壳等于没设），所以核内自设并同进程复验。\n\
+         \t  ⚠ 本档此刻**零调用方**：PS 侧入口仍在 lib\\modules.ps1，转接归 ②-d；话术里不许吹「完全不经 PS」\n\
+         \t  （updgate / audit 那两格的工具子进程照旧是 pwsh，§11.52 ② 那条降级口径）。\n\
+         \n\
          运行面回放档（B-2a，只给对拍门用）：gdcore --maa-run --script <剧本文件> --panel-cs <判定 exe 路径> [--out <文件>]\n\
          \t  与上面五档同理**不加载任何 DLL、不碰任何现场**，所以也不需要 --kind / --dir；生产不接线（这一档不是换头入口）。\n\
          \t  它把 Invoke-MaaRun 的**循环骨架**（启动等待 → 读两份日志 → 喂判定 verb → 回灌状态 → 挂钟收尾）逐行复刻在内核里跑，\n\
@@ -15566,6 +18212,10 @@ fn run(args: &[String]) -> i32 {
     let mut panel_cs = String::new();
     // 驱动档（R3③）的开关与三件文件：缺一拒跑（见 drive_refusal 五道闸）；全空 = 这一档没被启用。
     let mut i_drive = false;
+    // 轮骨架档（B-3②-b3）：开关与**第八闸那一枚 `--root`**。root 是"这棵树上装了哪几路"的判据落点
+    // （lib\maa.ps1 / lib\m9a.ps1 在不在），本机路径只作参数喂进来：不进 journal、不进 ask 信封、不进日志。
+    let mut i_round = false;
+    let mut round_root = String::new();
     let mut drive_journal = String::new();
     let mut drive_ctx = String::new();
     let mut drive_res = String::new();
@@ -15654,6 +18304,14 @@ fn run(args: &[String]) -> i32 {
                 mode = "drive-m9a-daily";
                 i += 1;
             }
+            "--daily-round" => {
+                mode = "daily-round";
+                i += 1;
+            }
+            "--root" => {
+                round_root = need("--root", args, i);
+                i += 2;
+            }
             "--maa-run" => {
                 mode = "maa-run";
                 i += 1;
@@ -15668,6 +18326,10 @@ fn run(args: &[String]) -> i32 {
             }
             "--i-drive" => {
                 i_drive = true;
+                i += 1;
+            }
+            "--i-round" => {
+                i_round = true;
                 i += 1;
             }
             "--journal" => {
@@ -15838,6 +18500,26 @@ fn run(args: &[String]) -> i32 {
         // 那两枚必填在这里根本没有对应物（同 --m9a-run 那档给过的理由）。
         // （照 sv/farm-intent 的样式，这条注释刻意不把那条必填的原话写出来 —— 自检的顺序门数整份源码。）
         return run_drive_m9a_daily(i_drive, &drive_journal, &drive_ctx, &drive_res, &panel_cs, &drive_state, &drive_log_sink, &drive_fixture_run, &out_file);
+    }
+
+    if mode == "daily-round" {
+        // 轮骨架档（B-3②-b3）与上面九档同理落在两必填**之前**返回：它不加载任何 DLL ——
+        // 十段骨架问的全是 panel-cs 那些 verb（子进程）与核内那枚睡眠屏蔽，装包那两枚在这里没有对应物。
+        // 这一档比两枚现出口**多一道闸**：`--root`（要现问"这棵树上装了哪几路"，而那两条判据不在任何
+        // 一枚 verb 的回执里）。缺它照样是 rc=2 落拒跑句，口径与 --i-drive 那条一字同族。
+        // （照 sv/farm-intent 的样式，这条注释刻意不把那条必填的原话写出来 —— 自检的顺序门数整份源码。）
+        return run_drive_round_daily(
+            i_round,
+            &drive_journal,
+            &drive_ctx,
+            &drive_res,
+            &panel_cs,
+            &drive_state,
+            &drive_log_sink,
+            &round_root,
+            &drive_fixture_run,
+            &out_file,
+        );
     }
 
     if mode == "maa-run" {

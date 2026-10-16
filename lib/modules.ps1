@@ -214,6 +214,33 @@ function Set-GdModuleState {
     return (Invoke-GdModuleHook -Module $m -Hook ShopState -Params @{ S = $S; Done = ($Verb -eq 'ShopDone') })
 }
 
+function Invoke-GdModuleRuns {
+    <# 依次跑各路的 Run 钩子，**一路一个 try** —— 返回 @{Results;Fatal}。
+        为什么不能是一个 try 包整个 foreach(2026-09-26 改)：Run 钩子里全是会抛的东西 ——
+        Set-MaaDailyConfig 的回读校验(maa.ps1 那句 throw)、Invoke-GdTakeover、各助手自己的抛。
+        以前方舟那一路抛出来会同时带走两件事：
+          ① 排在后面的 1999 压根不执行 —— 和"无人值守时两路互不影响"的直觉正好相反；
+          ② $results[$id] 是整对象赋值，抛在半路就没有这个键，于是汇总、history.csv、气泡通知里
+             **都没有这一路的行**，只剩一句"存在未完成项"，翻遍账本查不出是谁没完成。
+        现在每路必得一条结果：真抛了就记 Status='error'，下一路照跑。
+        'error' 不是新造的状态值，日志和历史里本来就有(run-20260924-203703 的"方舟 结束状态：error")。 #>
+    param($Plan, [Parameter(Mandatory)]$S)
+    $results = [ordered]@{}
+    $fatal = ''
+    foreach ($id in @($Plan.Keys)) {
+        $m = $Plan[$id].Module
+        try {
+            $results[$id] = Invoke-GdModuleHook -Module $m -Hook Run -Params @{ S = $S; Decision = $Plan[$id].Decision }
+        } catch {
+            Write-GdLog "$([string]$m.ShortName) 这一路运行中抛异常：$($_.Exception.Message)" -Level ERROR
+            $results[$id] = @{ Status = 'error'; Detail = "运行中抛异常：$($_.Exception.Message)"; Duration = $null }
+            if ($fatal) { $fatal += '；' }
+            $fatal += "$([string]$m.ShortName)：$($_.Exception.Message)"
+        }
+    }
+    return @{ Results = $results; Fatal = $fatal }
+}
+
 function Invoke-GdDailyRound {
     <# 一轮日常的公共流程：环境探测 → 提权闸门 → 判定 → (dry-run 预览 | 真跑 + 收尾) → 汇总/历史/通知。
         合体入口和单游戏薄壳现在调的是同一个它，差别只剩"命令行叫什么名字"，由参数传进来。
@@ -284,7 +311,13 @@ function Invoke-GdDailyRound {
     # ---------- 两道手动门 ----------
     $gateHit = @($Gates | Where-Object { $_ })
     foreach ($g in $gateHit) {
-        Set-GdModuleState -Id ([string]$g.Id) -Verb ([string]$g.Verb) -S $S
+        # 门钩子里读的是 state 文件和活动判定，抛出来是一屏 "Exception: ...modules.ps1:287" 的内部报错，
+        # 而敲这个开关的人只想知道"这一下没敲进去"。判定层那条 catch 同样走 Stop-GdBeforeRun(见 common.ps1 的注释)。
+        try {
+            Set-GdModuleState -Id ([string]$g.Id) -Verb ([string]$g.Verb) -S $S
+        } catch {
+            Stop-GdBeforeRun "手动门没敲进去($([string]$g.Id) $([string]$g.Verb))：$($_.Exception.Message)(详情见 logs\$([System.IO.Path]::GetFileName($global:GD.LogFile)))"
+        }
     }
     if ($gateHit.Count) {
         if ($DryRun) { Write-GdLog '[dry-run] 仅记录确认/领空状态，结束' -Level OK; return 0 }
@@ -312,7 +345,12 @@ function Invoke-GdDailyRound {
     if ($DryRun) {
         Write-GdLog '[dry-run] 预览将要下发的配置，不启动任何程序' -Level STEP
         foreach ($id in $plan.Keys) {
-            Invoke-GdModuleHook -Module $plan[$id].Module -Hook Preview -Params @{ S = $S; Decision = $plan[$id].Decision }
+            # 预览里会调助手配置那套读取(maa 的队列文件坏了就抛)，同样不许把内部报错格式甩给敲 -DryRun 的人
+            try {
+                Invoke-GdModuleHook -Module $plan[$id].Module -Hook Preview -Params @{ S = $S; Decision = $plan[$id].Decision }
+            } catch {
+                Stop-GdBeforeRun "$([string]$plan[$id].Module.ShortName) 的预览没做成：$($_.Exception.Message)(详情见 logs\$([System.IO.Path]::GetFileName($global:GD.LogFile)))"
+            }
         }
         Write-GdLog '[dry-run] 完成' -Level OK
         return 0
@@ -333,12 +371,13 @@ function Invoke-GdDailyRound {
     $results = [ordered]@{}
     $fatal = $null
     try {
-        foreach ($id in $plan.Keys) {
-            $results[$id] = Invoke-GdModuleHook -Module $plan[$id].Module -Hook Run -Params @{ S = $S; Decision = $plan[$id].Decision }
-        }
+        $runs = Invoke-GdModuleRuns -Plan $plan -S $S
+        $results = $runs.Results
+        $fatal = [string]$runs.Fatal
     } catch {
-        $fatal = $_.Exception.Message
-        Write-GdLog "本轮异常中断：$fatal" -Level ERROR
+        # 到这里只剩"框架自己派发钩子时抛了"这一种情况(路内的异常已被 Invoke-GdModuleRuns 一路一个 try 接住)
+        $fatal = "框架派发 Run 钩子时中断：$($_.Exception.Message)"
+        Write-GdLog $fatal -Level ERROR
     } finally {
         # ---------- 收尾(无论成败都要做) ----------
         # 监督要先停、停在各路 Stop 钩子之前：收尾会 Stop-GdProcessTree 杀掉助手，那是我们自己动手，
@@ -357,6 +396,16 @@ function Invoke-GdDailyRound {
         # 撤活体标记。硬杀(面板停不掉提权轮、系统重启)走不到这里 —— 那种残留由读方按 PID 判活识破，
         # 所以标记不需要额外的心跳或超时字段。
         Stop-GdRunLock
+    }
+
+    # ---------- 每一路必须留下一行账 ----------
+    # 正常路径下 Invoke-GdModuleRuns 保证每路都有结果；这条兜底管的是上面那个 catch(框架派发时抛)。
+    # 宁可记一行 error，也不许某一路在 history.csv 和通知里凭空消失 —— 消失的那一路比失败更难查。
+    foreach ($id in @($plan.Keys)) {
+        if (-not $results.Contains($id)) {
+            $results[$id] = @{ Status = 'error'; Detail = '这一路没有返回结果(框架派发时中断)'; Duration = $null }
+            if (-not $fatal) { $fatal = "$([string]$plan[$id].Module.ShortName)：没有返回结果" }
+        }
     }
 
     # ---------- 汇总 ----------

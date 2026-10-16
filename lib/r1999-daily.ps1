@@ -292,9 +292,11 @@ function Invoke-GdR1999DailyRust {
             }
             $envText = ''
             if ([int]$cap.StreamTimeouts -gt 0) {
-                # 这一路今天没发作，是因为 M9A.exe 跑完自己会退、写端随之关 —— 那是运气不是已验，
-                # 所以这道保险两边都上：放弃时必须留一行可查的 WARN，不许让"放弃"长得像"没事"。
-                Write-GdLog "B-2d④ 换头：收流有界等待超时，已放弃 $([int]$cap.StreamTimeouts) 路 stdout/stderr(被起进程仍持管道写端；stdout 兜底那一路本轮不可用)" -Level WARN
+                # 口径（10-16 #473 取证后定档，与 ark 那路同源同改）：持有管道写端的是链体点过的**外部常驻服务**
+                # (adb server 一类被 fork 成常驻并继承发起方 stdio)，M9A 自己会退是运气、不是已验 ——
+                # 那进程不归我们创建 ⇒ 这一格每轮必现，级别降 INFO、每轮一行仍可查，
+                # 真日志走 --log-sink、进度判据走 journal／协议文件(见 docs\rust-core-plan.md §11.61)。
+                Write-GdLog "B-2d④ 换头：收流按有界等待放弃 $([int]$cap.StreamTimeouts) 路 stdout/stderr(外部常驻服务持写端，stdout 兜底那一路本轮不可用；真日志见 --log-sink)"
             }
             if (Test-Path -LiteralPath $envFile) { $envText = [System.IO.File]::ReadAllText($envFile) }
             else {

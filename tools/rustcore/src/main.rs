@@ -33,17 +33,24 @@ use std::ffi::c_void;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::process::exit;
 
-// 升号依据（ADR-3：号只在"出口形状变了"的那一批动）：`RustCore-R7.0` → `RustCore-R8.0`，
-// 变的是**同一处形状**的两半，所以只升一次（§11.52 ④ 把这批钉成 ②-b3，理由在此）：
-// ① 新出口 `--daily-round`（role 取值域多出第三枚 `B3b-round-daily`，ask 的 action 名册是
-//    十六格链体之外的**十段轮骨架**，拒跑闸多一道 `--root`）；
-// ② 答手形状变（`DriveFx.direct` 从"有/没有闭包"两档变成"闭包可能答 None ⇒ 照旧 ask"三档，
-//    回执类型 `Result<Option<DirectOut>, String>`）。
-// 两半是同一处对外可见的形状变：没有 ①，② 只是内部重构不该升号；没有 ②，① 那十段一格都答不动。
+// 升号依据（ADR-3：号只在"出口形状变了"的那一批动）：`RustCore-R8.0` → `RustCore-R9.0`，
+// C-0「崩路语义同步进核」批，三处对外可观察的形状一起变（§11.62 ② 定档）：
+// ① 段 9 由"`Err(Fail)` ⇒ 整轮 fatal ＋ break（下一路压根不派发）"改成**一路一档 try**：崩那路
+//    记 `Status=error`／`Detail="运行中抛异常：<原文>"`／`Duration` 空，`fatal` 由 `Option<String>`
+//    改 `String` 以「；」累积「短名：msg」，**下一路照跑**；外层只留"框架派发 Run 钩子时中断"那一档。
+// ② **本轮退出码语义细化** —— 真身"一路崩、另一路可成"返 1（部分成），核内原因 `results.is_empty()`
+//    返 2（谎报全败）；跟齐后 journal 多一行 `round-history` ask、汇总行／气泡／历史三处同时多出崩那路。
+// ③ 门表与 dry-run 预览各补一处 try 走既有拒跑通道（`这一轮没跑：…` ＋ 退 2），不再把 `Fail` 冒泡成
+//    整轮 fail 信封；并新立一枚**门/自检专用注入旗标** `--fixture-framework-break <原文>`（与
+//    `--fixture-run` 同族，所有者 10-16 拍板：核内要有一条真演"框架派发中断⇒每路必留一行账"的通道，
+//    否则那圈兜底循环是构造上不可达的守卫、进不了等值判据）。
+// 上一批（R7→R8）的依据留此存照，免得读成"同一处形状升了两次"：① 新出口 `--daily-round`
+// （role 取值域多出 `B3b-round-daily`，拒跑闸多一道 `--root`）；② 答手形状变（`DriveFx.direct`
+// 三档分派）。两半是同一处形状变：没有 ①，② 只是内部重构不该升号；没有 ②，① 那十段一格都答不动。
 // ⚠ 改号必须与 `lib\common.ps1` 的 `Get-GdRustContract`、`tools\build-exe.ps1` 的内嵌名册、
 // `tools\rustcore\probe-connect.ps1`、`docs\r0-keyfacts.json` 顶层**同批**动，
 // 由 `probe-events-golden.ps1` 的 H3 半逐一对齐（壳侧字面量还要求只剩一种拼法）。
-const CONTRACT: &str = "RustCore-R8.0";
+const CONTRACT: &str = "RustCore-R9.0";
 const ROLE: &str = "R0-readonly";
 
 // ---------------------------------------------------------------- Win32 直调
@@ -7126,6 +7133,7 @@ fn daily_round_chain(
     env: &RoundEnv,
     ark_dec: &std::cell::RefCell<JVal>,
     fx: &mut DriveFx,
+    framework_break: &str,
     ark_decide: &mut dyn FnMut(&str, bool) -> Result<(bool, Vec<(String, String)>), String>,
     m9a_decide: &mut dyn FnMut(&str, bool, bool) -> Result<(bool, Vec<(String, String)>), String>,
 ) -> Result<RoundFlow, ArkAbort> {
@@ -7214,12 +7222,24 @@ fn daily_round_chain(
             // 真身 Set-GdModuleState 那句 throw 逐字（装载期事实，不是本轮的"退出码 2"那一档）。
             None => return Err(ArkAbort::Fail(format!("没有这个模块：{}", id))),
         };
-        fx.ans(
+        // C-0①(c)：真身在这一格外就有一层 try ⇒ 抛出来走的是 `Stop-GdBeforeRun`（一句 ERROR + 退 2），
+        // 不是一屏内部报错。那一格的闸是 state 文件只读/被占一类，**只覆盖这一格、不是整路安全**
+        // （真身注释同口径）。Ask/Proto 照旧冒泡 —— 那是重放续点与协议错，不是"这一格没敲进去"。
+        let g = fx.ans(
             "round",
             m.gate_act,
             jv_o(vec![("id", jv_s(id)), ("verb", jv_s(verb))]),
             |_| (),
-        )?;
+        );
+        match g {
+            Ok(()) => {}
+            Err(ArkAbort::Fail(msg)) => {
+                let line = format!("手动门没敲进去({} {})：{}{}", id, verb, msg, round_log_tail(&rc.log_leaf));
+                fx.fx_log("ERROR", &format!("这一轮没跑：{}", line));
+                return Ok(round_flow_early(2));
+            }
+            Err(other) => return Err(other),
+        }
     }
     if !rc.gates.is_empty() {
         if rc.dry_run {
@@ -7266,7 +7286,20 @@ fn daily_round_chain(
     if rc.dry_run {
         fx.fx_log("STEP", "[dry-run] 预览将要下发的配置，不启动任何程序");
         for (m, dec) in &plan {
-            fx.ans("round", m.preview_act, jv_o(vec![("decision", dec.clone())]), |_| ())?;
+            // C-0①(c) 的第二处：预览这一格会去回读助手配置（maa 的队列文件坏了就 throw），
+            // 真身同样是一格一 try、抛出来走 Stop-GdBeforeRun ⇒ 不许再把 Fail 冒泡成整轮 Err。
+            // 同样**只覆盖这一格**：它挡不住"这一路整体不安全"，那句写在真身注释里也写在这里。
+            let p = fx.ans("round", m.preview_act, jv_o(vec![("decision", dec.clone())]), |_| ());
+            match p {
+                Ok(()) => {}
+                Err(ArkAbort::Fail(msg)) => {
+                    let line =
+                        format!("{} 的预览没做成：{}{}", m.short_name, msg, round_log_tail(&rc.log_leaf));
+                    fx.fx_log("ERROR", &format!("这一轮没跑：{}", line));
+                    return Ok(round_flow_early(2));
+                }
+                Err(other) => return Err(other),
+            }
         }
         fx.fx_log("OK", "[dry-run] 完成");
         return Ok(round_flow_early(0));
@@ -7383,51 +7416,78 @@ fn daily_round_chain(
     }
 
     // ---------- 段 9 逐路链体 ----------
+    // C-0①(a)：一路一档 try，**不是一整圈一个 try**。真身那半段(`Invoke-GdModuleRuns`)的理由原样成立：
+    // 链体里全是会抛的东西（配置回读校验、接管、助手自己的抛），以前一路崩同时带走两件事 ——
+    // ① 排在后面的那一路压根不派发，② 崩那路因为结果是整对象赋值、抛在半路就没有这一格，于是汇总行／
+    // history.csv／气泡通知**三处都没有它的一行**，只剩一句"存在未完成项"，翻遍账本查不出是谁没完成。
+    // 现在每路必得一条结果：崩那路记 `Status=error` ＋ `Detail="运行中抛异常：<原文>"` ＋ `Duration` 空
+    // （形状照真身那枚 hashtable 的 `$null`，不许改成 0 或空串），下一路照跑；`fatal` 由 `Option<String>`
+    // 改 `String`，多路崩就以「；」累积「短名：msg」（真身那句 `$fatal += "$ShortName：$msg"` 逐字同源）。
     let mut results: Vec<(&'static GdModule, ArkDOut)> = Vec::new();
-    let mut fatal: Option<String> = None;
-    let mut idx = 0;
-    while idx < plan.len() {
-        let (m, dec) = (plan[idx].0, plan[idx].1.clone());
-        idx += 1;
-        let got: Result<ArkDOut, ArkAbort> = if m.id == "ark" {
-            let input = ArkDInput {
-                launch: env.elev_on("launchArkFromHelper"),
-                retry_once: env.flag("retryOnce"),
-                decision: dec.clone(),
+    let mut fatal = String::new();
+    if framework_break.is_empty() {
+        let mut idx = 0;
+        while idx < plan.len() {
+            let (m, dec) = (plan[idx].0, plan[idx].1.clone());
+            idx += 1;
+            let got: Result<ArkDOut, ArkAbort> = if m.id == "ark" {
+                let input = ArkDInput {
+                    launch: env.elev_on("launchArkFromHelper"),
+                    retry_once: env.flag("retryOnce"),
+                    decision: dec.clone(),
+                };
+                ark_daily_chain(&input, &mut *fx, ark_decide)
+            } else {
+                let input = R1999DInput { retry_once: env.flag("retryOnce") };
+                r1999_daily_chain(&input, &mut *fx, m9a_decide)
             };
-            ark_daily_chain(&input, &mut *fx, ark_decide)
-        } else {
-            let input = R1999DInput { retry_once: env.flag("retryOnce") };
-            r1999_daily_chain(&input, &mut *fx, m9a_decide)
-        };
-        match got {
-            Ok(o) => {
-                // 清单 Run 钩子里那半段"每轮自证活动图"（lib\ark-module.ps1:59-76）：
-                // 只在这一路真跑到 MAA 关门前(ok)才采，抛任何错都只 WARN。r1999 那一路没这格（空串）。
-                if !m.probe_act.is_empty() && o.status == "ok" {
-                    let p = fx.ans(
-                        "round",
-                        m.probe_act,
-                        jv_o(vec![("decision", dec.clone())]),
-                        |_| (),
-                    );
-                    match p {
-                        Ok(()) => {}
-                        Err(ArkAbort::Fail(msg)) => {
-                            fx.fx_log("WARN", &format!("活动图自证没做起来：{}(不影响本轮)", msg));
+            match got {
+                Ok(o) => {
+                    // 清单 Run 钩子里那半段"每轮自证活动图"（lib\ark-module.ps1:59-76）：
+                    // 只在这一路真跑到 MAA 关门前(ok)才采，抛任何错都只 WARN。r1999 那一路没这格（空串）。
+                    if !m.probe_act.is_empty() && o.status == "ok" {
+                        let p = fx.ans(
+                            "round",
+                            m.probe_act,
+                            jv_o(vec![("decision", dec.clone())]),
+                            |_| (),
+                        );
+                        match p {
+                            Ok(()) => {}
+                            Err(ArkAbort::Fail(msg)) => {
+                                fx.fx_log("WARN", &format!("活动图自证没做起来：{}(不影响本轮)", msg));
+                            }
+                            Err(other) => return Err(other),
                         }
-                        Err(other) => return Err(other),
                     }
+                    results.push((m, o));
                 }
-                results.push((m, o));
+                Err(ArkAbort::Fail(msg)) => {
+                    // 崩那路的账：**先写日志那一行，再补结果**（真身 catch 里就这两句，序一样）。
+                    fx.fx_log("ERROR", &format!("{} 这一路运行中抛异常：{}", m.short_name, msg));
+                    results.push((
+                        m,
+                        ArkDOut {
+                            status: "error".to_string(),
+                            detail: format!("运行中抛异常：{}", msg),
+                            duration: None,
+                        },
+                    ));
+                    if !fatal.is_empty() {
+                        fatal.push('；');
+                    }
+                    fatal.push_str(&format!("{}：{}", m.short_name, msg));
+                }
+                Err(other) => return Err(other),
             }
-            Err(ArkAbort::Fail(msg)) => {
-                fatal = Some(msg.clone());
-                fx.fx_log("ERROR", &format!("本轮异常中断：{}", msg));
-                break;
-            }
-            Err(other) => return Err(other),
         }
+    } else {
+        // 框架派发那一档（`--fixture-framework-break`，语义＝真身那个**外层** catch）：路内的抛已被
+        // 一路一档 try 接住，能落到这里的只剩"派发这动作本身炸了"。真身在这里只做两件事：
+        // `$fatal = "框架派发 Run 钩子时中断：<原文>"` ＋ 把这句原样写进日志（ERROR），
+        // 结果集保持空 ⇒ 交给汇总前那圈兜底去给每路补一行账。
+        fatal = format!("框架派发 Run 钩子时中断：{}", framework_break);
+        fx.fx_log("ERROR", &fatal);
     }
 
     // ---------- 段 10 之前那步 finally：收尾 ----------
@@ -7474,9 +7534,33 @@ fn daily_round_chain(
         return Err(other);
     }
 
+    // ---------- 每一路必须留下一行账 ----------
+    // C-0①(b)：真身那圈兜底管的是**外层 catch**（框架派发时抛），正常路径下 `Invoke-GdModuleRuns`
+    // 已经保证每路都有结果。核内同理：一路一档 try 之后缺结果只剩"派发层没跑成"那一档，
+    // 但**宁可记一行 error 也不许某一路在 history.csv 和通知里凭空消失** —— 消失的那一路比失败更难查。
+    // 这条不修的话，段 9 那一圈 try 只是把"整轮崩"改成"这一路没账"，治的还是半个病。
+    // 形状照真身：`Status=error`／`Detail='这一路没有返回结果(框架派发时中断)'`／`Duration` 空；
+    // `fatal` 空时才补一句「短名：没有返回结果」（真身那句 `if (-not $fatal)` ⇒ 只补第一枚缺账的路）。
+    for (m, _) in &plan {
+        if results.iter().any(|(rm, _)| rm.id == m.id) {
+            continue;
+        }
+        results.push((
+            m,
+            ArkDOut {
+                status: "error".to_string(),
+                detail: "这一路没有返回结果(框架派发时中断)".to_string(),
+                duration: None,
+            },
+        ));
+        if fatal.is_empty() {
+            fatal = format!("{}：没有返回结果", m.short_name);
+        }
+    }
+
     // ---------- 段 10 汇总／历史／通知 ----------
     let mut lines: Vec<String> = Vec::new();
-    let mut all_ok = fatal.is_none();
+    let mut all_ok = fatal.is_empty();
     for (i, (m, r)) in results.iter().enumerate() {
         if r.status != "ok" {
             all_ok = false;
@@ -7518,9 +7602,9 @@ fn daily_round_chain(
         )?;
     }
     let mut summary = lines.join("\n");
-    if let Some(f) = &fatal {
+    if !fatal.is_empty() {
         all_ok = false;
-        summary = format!("本轮异常中断：{}\n{}", f, summary);
+        summary = format!("本轮异常中断：{}\n{}", fatal, summary);
     }
     fx.fx_log(
         if all_ok { "OK" } else { "WARN" },
@@ -7587,6 +7671,7 @@ fn drive_round_daily_envelope(
     state: &str,
     log_sink: &str,
     root: &str,
+    framework_break: &str,
     hooks: &mut RoundHooks,
     ark_decide: &mut dyn FnMut(&str, bool) -> Result<(bool, Vec<(String, String)>), String>,
     m9a_decide: &mut dyn FnMut(&str, bool, bool) -> Result<(bool, Vec<(String, String)>), String>,
@@ -7699,7 +7784,7 @@ fn drive_round_daily_envelope(
         rows,
         Some(&mut answer),
     );
-    match daily_round_chain(&rc, &env, &ark_dec, &mut fx, ark_decide, m9a_decide) {
+    match daily_round_chain(&rc, &env, &ark_dec, &mut fx, framework_break, ark_decide, m9a_decide) {
         Ok(flow) => {
             if let Some(m) = fx.io_err.take() {
                 return (1, fail(&format!("驱动协议坏了：{}", m)));
@@ -7747,6 +7832,7 @@ fn run_drive_round_daily(
     log_sink: &str,
     root: &str,
     fixture_run: &str,
+    framework_break: &str,
     out: &Option<String>,
 ) -> i32 {
     let mut dec = |st: &str, ro: bool| arksk_call_decide(panel_cs, st, ro);
@@ -7767,7 +7853,8 @@ fn run_drive_round_daily(
         let mut run = |sc: &MaaScen, ch: &[String]| drive_real_run(panel_cs, log_sink, sc, ch);
         let mut run9 = |sc: &M9aScen| drive_real_m9a_run(panel_cs, log_sink, sc);
         let pair = drive_round_daily_envelope(
-            i_round, journal, ctx, res, panel_cs, state, log_sink, root, &mut hooks, &mut dec, &mut dec9, &mut run,
+            i_round, journal, ctx, res, panel_cs, state, log_sink, root, framework_break, &mut hooks, &mut dec,
+            &mut dec9, &mut run,
             &mut run9,
         );
         rc = pair.0;
@@ -7827,8 +7914,8 @@ fn run_drive_round_daily(
                     }
                 };
                 let pair = drive_round_daily_envelope(
-                    i_round, journal, ctx, res, panel_cs, state, log_sink, root, &mut hooks, &mut dec, &mut dec9, 
-                    &mut run, &mut run9,
+                    i_round, journal, ctx, res, panel_cs, state, log_sink, root, framework_break, &mut hooks,
+                    &mut dec, &mut dec9, &mut run, &mut run9,
                 );
                 rc = pair.0;
                 json = pair.1;
@@ -17715,7 +17802,7 @@ fn selftest() -> i32 {
                     })
                 };
                 drive_round_daily_envelope(
-                    true, &j24, &c24, &r24, "unused-panel-cs", &s24, &k24, &root24, &mut hk24, &mut dec, &mut dec9,
+                    true, &j24, &c24, &r24, "unused-panel-cs", &s24, &k24, &root24, "", &mut hk24, &mut dec, &mut dec9,
                     &mut run, &mut run9,
                 )
             };
@@ -17842,7 +17929,7 @@ fn selftest() -> i32 {
                 Ok(M9aRunOut { status: "ok".to_string(), detail: "不该再跑".to_string(), duration: None, rescued: false })
             };
             drive_round_daily_envelope(
-                true, &j24, &c24, &r24, "unused-panel-cs", &s24, &k24, &root24, &mut hk2, &mut dec, &mut dec9, &mut run,
+                true, &j24, &c24, &r24, "unused-panel-cs", &s24, &k24, &root24, "", &mut hk2, &mut dec, &mut dec9, &mut run,
                 &mut run9,
             )
         };
@@ -17918,7 +18005,7 @@ fn selftest() -> i32 {
                         Ok(M9aRunOut { status: "ok".to_string(), detail: "x".to_string(), duration: None, rescued: false })
                     };
                     drive_round_daily_envelope(
-                        true, &jj, &cc, &rr, "unused-panel-cs", &s24, &kk, &root_all, &mut hk2, &mut dec, &mut dec9,
+                        true, &jj, &cc, &rr, "unused-panel-cs", &s24, &kk, &root_all, "", &mut hk2, &mut dec, &mut dec9,
                         &mut run, &mut run9,
                     )
                 };
@@ -18108,7 +18195,7 @@ fn selftest() -> i32 {
                         })
                     };
                     drive_round_daily_envelope(
-                        true, &jl, &cl, &rl, "unused-panel-cs", &s24, &kl, &root_all, &mut hk_l, &mut dec_l,
+                        true, &jl, &cl, &rl, "unused-panel-cs", &s24, &kl, &root_all, "", &mut hk_l, &mut dec_l,
                         &mut dec9_l, &mut run_l, &mut run9_l,
                     )
                 };
@@ -18224,6 +18311,250 @@ fn selftest() -> i32 {
             &mut fails,
             &mut total,
         );
+
+        // ---------- 24n 崩路五档（C-0①(a)(b)(c) ＋ ② 那枚退出码）----------
+        // 判据住在真身 `lib\modules.ps1`：`Invoke-GdModuleRuns` 的**一路一档 try**、它外层那个 catch、
+        // 以及汇总前"每路必须留下一行账"那圈兜底。等值门比的是"两侧在同一台机器上说同样的话"，
+        // 这五格比的是"核内这一套话说得对不对"—— 少一路的账、多一次 break、退出码谎报，都当场红。
+        // ⚠ 触发点为什么是"喂一枚答不动的 verb"而不是"让 run 假身回 Err"：链体**自己**把 run 抛吞成
+        //   `status=error`＋「方舟 异常：…」(真身同形，23k/23j 两格早已钉死)，那种抛根本走不到段 9。
+        //   能冒到段 9 的只有链体内侧不接的那几步(desk／mumu 这类 `?` 直冒)——正对真身那句
+        //   "Run 钩子里抛出来、而钩子体内层 catch 没接住"那一档。`fb` 是派发层那一档(=真身外层 catch)，
+        //   `err_action` 把门表／预览那一格答成 err，就是①(c) 那两处 try 该走的拒跑通道。
+        struct Crash24n {
+            name: &'static str,
+            ids: &'static str,
+            gates: &'static str,
+            dry: bool,
+            fb: &'static str,
+            err_action: &'static str,
+            ark_bad_verb: &'static str,
+            m9a_bad_verb: &'static str,
+        }
+        let cases24n = [
+            Crash24n { name: "crash-one", ids: "[\"ark\",\"r1999\"]", gates: "[]", dry: false, fb: "", err_action: "", ark_bad_verb: "ark-desktop-state", m9a_bad_verb: "" },
+            Crash24n { name: "crash-both", ids: "[\"ark\",\"r1999\"]", gates: "[]", dry: false, fb: "", err_action: "", ark_bad_verb: "ark-desktop-state", m9a_bad_verb: "start-mumu" },
+            Crash24n { name: "framework-break", ids: "[\"ark\",\"r1999\"]", gates: "[]", dry: false, fb: "自检让派发层炸了", err_action: "", ark_bad_verb: "", m9a_bad_verb: "" },
+            Crash24n { name: "gate-crash", ids: "[\"ark\"]", gates: "[{\"id\":\"ark\",\"verb\":\"Ack\"}]", dry: false, fb: "", err_action: "round-gate:ark", ark_bad_verb: "", m9a_bad_verb: "" },
+            Crash24n { name: "preview-crash", ids: "[\"ark\"]", gates: "[]", dry: true, fb: "", err_action: "round-preview:ark", ark_bad_verb: "", m9a_bad_verb: "" },
+        ];
+        for cse in cases24n.iter() {
+            let jj = t24(&format!("jn-{}.ndjson", cse.name));
+            let rr = t24(&format!("rn-{}.json", cse.name));
+            let kk = t24(&format!("kn-{}.ndjson", cse.name));
+            let cc = t24(&format!("cn-{}.json", cse.name));
+            let dryn = if cse.dry { "true" } else { "false" };
+            let _ = std::fs::write(
+                &cc,
+                &format!(
+                    "{{\"ids\":{},\"gates\":{},\"opt\":{{}},\"force\":false,\"dryRun\":{},\"skipCleanup\":false,\"noElevate\":false,\"nameField\":\"Id\",\"noticeOwner\":\"每日\",\"tag\":\"selftest\",\"logLeaf\":\"round.log\",\"logPath\":\"logs\\\\round.log\",\"pid\":4242,\"maaRun\":{{\"maaDir\":\"{}\\\\maa\",\"maaExe\":\"MAA.exe\",\"guiLog\":\"\",\"asstLog\":\"\",\"stateDir\":\"{}\",\"maxTicks\":2,\"tickSeconds\":1,\"startTimeoutMinutes\":1,\"timeoutMinutes\":1,\"stallTimeoutMinutes\":1,\"retryOnce\":false,\"launchArkFromHelper\":true,\"closeGameAfter\":false,\"rescueAvailable\":false,\"grabFrontAvailable\":false}},\"m9aRun\":{{\"paths\":{{\"m9aDir\":\"\",\"m9aExe\":\"\",\"m9aLogDir\":\"\"}},\"conn\":{{\"adb\":\"\",\"serial\":\"\"}},\"instance\":{{\"id\":\"1\",\"name\":\"1999\"}},\"package\":\"\",\"runtime\":{{\"m9aInstanceArg\":\"\",\"m9aForceStart\":false,\"visionMaxRescue\":0,\"r1999StartTimeoutMinutes\":1,\"r1999TimeoutMinutes\":1,\"stallTimeoutMinutes\":1}}}}}}",
+                    cse.ids, cse.gates, dryn, d24j, s24j
+                ),
+            );
+            let ark_bad_verb = cse.ark_bad_verb.to_string();
+            let m9a_bad_verb = cse.m9a_bad_verb.to_string();
+            let fb_n = cse.fb.to_string();
+            let err_action = cse.err_action.to_string();
+            let mut done_n = (9i32, String::new());
+            let mut acts_n: Vec<String> = Vec::new();
+            for _ in 0..24 {
+                let mut call_n = |v: &str, _b: &JVal| -> Result<JVal, String> {
+                    if (!ark_bad_verb.is_empty() && v == ark_bad_verb.as_str())
+                        || (!m9a_bad_verb.is_empty() && v == m9a_bad_verb.as_str())
+                    {
+                        return Err("自检让 Run 抛".to_string());
+                    }
+                    if v == "resolve-round-context" {
+                        let mut d = r24_reply(v, &paths_ok24);
+                        if let JVal::O(ref mut o) = d {
+                            for (k, val) in o.iter_mut() {
+                                if k == "Runtime" {
+                                    // 这一族不要睡眠屏蔽那几格(射程在 24l)，也不要 retryOnce ——
+                                    // 重试会把"崩那路"跑成两遍，那就不是一档而是两档了。
+                                    *val = jv_o(vec![
+                                        ("blockSleep", JVal::B(false)),
+                                        ("keepScreenOn", JVal::B(false)),
+                                        ("retryOnce", JVal::B(false)),
+                                    ]);
+                                }
+                            }
+                        }
+                        return Ok(d);
+                    }
+                    Ok(r24_reply(v, &paths_ok24))
+                };
+                let mut nap_n = |_s: u32| {};
+                let mut es_n = |_f: u32| -> u32 { 1 };
+                let mut hk_n = RoundHooks { call: &mut call_n, nap: &mut nap_n, es: &mut es_n };
+                let mut dec_n = |_st: &str, _ro: bool| -> Result<(bool, Vec<(String, String)>), String> {
+                    Ok((false, Vec::new()))
+                };
+                let mut dec9_n = |_st: &str, _rs: bool, _ro: bool| -> Result<(bool, Vec<(String, String)>), String> {
+                    Ok((false, Vec::new()))
+                };
+                let mut run_n = |_sc: &MaaScen, _ch: &[String]| -> Result<ArkRunOut, String> {
+                    Ok(ArkRunOut { status: "ok".to_string(), detail: "队列跑完".to_string(), duration: Some(120.0) })
+                };
+                let mut run9_n = |_sc: &M9aScen| -> Result<M9aRunOut, String> {
+                    Ok(M9aRunOut { status: "ok".to_string(), detail: "跑完".to_string(), duration: Some(120.0), rescued: false })
+                };
+                done_n = drive_round_daily_envelope(
+                    true, &jj, &cc, &rr, "unused-panel-cs", &s24, &kk, &root_all, &fb_n, &mut hk_n, &mut dec_n,
+                    &mut dec9_n, &mut run_n, &mut run9_n,
+                );
+                let evn = jv_parse(&done_n.1).unwrap_or(JVal::Null);
+                if jv_str(&jv_get(&evn, "kind")) != "ask" {
+                    break;
+                }
+                let seq_n = jv_int(&jv_get(&evn, "seq"), 0);
+                let act_n = jv_str(&jv_get(&evn, "action"));
+                acts_n.push(act_n.clone());
+                let rf = if !err_action.is_empty() && act_n == err_action {
+                    format!(
+                        "{{\"seq\":{},\"action\":{},\"ok\":false,\"err\":{}}}",
+                        seq_n,
+                        jstr(&act_n),
+                        jstr(if act_n.starts_with("round-gate:") { "自检让门抛" } else { "自检让预览抛" })
+                    )
+                } else {
+                    format!("{{\"seq\":{},\"action\":{},\"ok\":true,\"data\":{{\"Done\":true}}}}", seq_n, jstr(&act_n))
+                };
+                let _ = std::fs::write(&rr, rf);
+            }
+            let sinkn: Vec<String> = std::fs::read_to_string(&kk)
+                .unwrap_or_default()
+                .lines()
+                .filter(|l| !l.trim().is_empty())
+                .map(|l| l.to_string())
+                .collect();
+            let jrown: Vec<String> = std::fs::read_to_string(&jj)
+                .unwrap_or_default()
+                .lines()
+                .filter(|l| !l.trim().is_empty() && !l.contains("\"init\""))
+                .map(|l| l.to_string())
+                .collect();
+            let evn = jv_parse(&done_n.1).unwrap_or(JVal::Null);
+            let resn = jv_get(&evn, "result");
+            let code_n = jv_int(&jv_get(&resn, "code"), -9);
+            let summary_n = jv_str(&jv_get(&resn, "summary"));
+            let kind_n = jv_str(&jv_get(&evn, "kind"));
+            let run_rows = jrown.iter().filter(|l| l.contains("\"action\":\"run\"")).count();
+            let hist_ark = acts_n.iter().position(|a| a == "round-history:ark");
+            let hist_r1999 = acts_n.iter().position(|a| a == "round-history:r1999");
+            let dump = |v: &Vec<String>| -> String { v.join(" ¶ ") };
+            match cse.name {
+                "crash-one" => {
+                    chk(
+                        kind_n == "done"
+                            && code_n == 1
+                            && summary_n.starts_with("本轮异常中断：方舟：自检让 Run 抛\n")
+                            && summary_n.contains("ark：error — 运行中抛异常：自检让 Run 抛")
+                            && summary_n.contains("r1999：ok 2 分钟 — 跑完")
+                            && run_rows == 1
+                            && sinkn.iter().any(|l| l.contains("方舟 这一路运行中抛异常：自检让 Run 抛"))
+                            && sinkn.iter().any(|l| l.contains("=== 本轮结束：存在未完成项 ===")),
+                        &format!(
+                            "一路崩不许带走另一路：崩那路要有一行 error 账、下一路照跑(run 行=1 才叫真跑了)、退出码按真身那一档「部分成=1」(不是谎报全败的 2)：code={} run行={} 汇总={} 侧={}",
+                            code_n, run_rows, summary_n.replace("\n", "¶"), dump(&sinkn)
+                        ),
+                        &mut fails,
+                        &mut total,
+                    );
+                    chk(
+                        hist_ark.is_some()
+                            && hist_r1999.is_some()
+                            && hist_ark.unwrap() < hist_r1999.unwrap()
+                            && !acts_n.iter().any(|a| a == "round-probe:ark"),
+                        &format!("崩那路的账也必须进 round-history(三处里的第二处)，且崩那路不许被活动图自证接管：{:?}", acts_n),
+                        &mut fails,
+                        &mut total,
+                    );
+                }
+                "crash-both" => {
+                    chk(
+                        kind_n == "done"
+                            && code_n == 2
+                            && summary_n.starts_with("本轮异常中断：方舟：自检让 Run 抛；1999：自检让 Run 抛\n")
+                            && summary_n.matches("运行中抛异常：自检让 Run 抛").count() == 2,
+                        &format!(
+                            "两路都崩＝fatal 以「；」累积两条(真身那句 $fatal += 同源)，一款都没成才该退 2：code={} run行={} 汇总={}",
+                            code_n, run_rows, summary_n.replace("\n", "¶")
+                        ),
+                        &mut fails,
+                        &mut total,
+                    );
+                    chk(
+                        sinkn.iter().any(|l| l.contains("方舟 这一路运行中抛异常"))
+                            && sinkn.iter().any(|l| l.contains("1999 这一路运行中抛异常")),
+                        &format!("两路各有一行 ERROR 账，一句都不许多(汇总那行不算)：{}", dump(&sinkn)),
+                        &mut fails,
+                        &mut total,
+                    );
+                }
+                "framework-break" => {
+                    chk(
+                        kind_n == "done"
+                            && code_n == 2
+                            && run_rows == 0
+                            && sinkn.iter().any(|l| l.contains("框架派发 Run 钩子时中断：自检让派发层炸了"))
+                            && summary_n.starts_with("本轮异常中断：框架派发 Run 钩子时中断：自检让派发层炸了\n")
+                            && summary_n.matches("这一路没有返回结果(框架派发时中断)").count() == 2,
+                        &format!(
+                            "派发层崩＝一路都不派发(run 行必须为 0)，但汇总前那圈兜底必须给每路补一行账(两枚)、fatal 用那句框架话术而不是「没有返回结果」：code={} run行={} 汇总={}",
+                            code_n, run_rows, summary_n.replace("\n", "¶")
+                        ),
+                        &mut fails,
+                        &mut total,
+                    );
+                    chk(
+                        sinkn.iter().any(|l| l.contains("--- 收尾 ---"))
+                            && acts_n.iter().any(|a| a == "stop:ark")
+                            && acts_n.iter().any(|a| a == "stop:r1999"),
+                        &format!("崩的是派发层不是收尾：finally 那一段(收尾·撤锁·每路 Stop)照跑，否则这一档只剩半本账：{:?}", acts_n),
+                        &mut fails,
+                        &mut total,
+                    );
+                }
+                "gate-crash" => {
+                    chk(
+                        kind_n == "done"
+                            && code_n == 2
+                            && summary_n.is_empty()
+                            && !jrown.iter().any(|l| l.contains("\"action\":\"round-lock\""))
+                            && sinkn.iter().any(|l| {
+                                l.contains(
+                                    "\"level\":\"ERROR\",\"text\":\"这一轮没跑：手动门没敲进去(ark Ack)：自检让门抛",
+                                )
+                            }),
+                        &format!(
+                            "门表那一格抛出来要走拒跑通道(一句 ERROR＋退 2)，不许冒泡成整轮 Err、也不许继续占锁：code={} kind={} 侧={}",
+                            code_n, kind_n, dump(&sinkn)
+                        ),
+                        &mut fails,
+                        &mut total,
+                    );
+                }
+                _ => {
+                    chk(
+                        kind_n == "done"
+                            && code_n == 2
+                            && summary_n.is_empty()
+                            && !jrown.iter().any(|l| l.contains("\"action\":\"round-lock\""))
+                            && sinkn.iter().any(|l| {
+                                l.contains(
+                                    "\"level\":\"ERROR\",\"text\":\"这一轮没跑：方舟 的预览没做成：自检让预览抛",
+                                )
+                            }),
+                        &format!(
+                            "dry-run 预览那一格抛出来同样走拒跑通道(真身第二处 try)：code={} kind={} 侧={}",
+                            code_n, kind_n, dump(&sinkn)
+                        ),
+                        &mut fails,
+                        &mut total,
+                    );
+                }
+            }
+        }
 
         let _ = std::fs::remove_dir_all(&d24);
         chk(
@@ -18521,6 +18852,13 @@ fn run(args: &[String]) -> i32 {
     // --fixture-run（B-2c③，门/自检专用）：非空 = run 真做改吃这份夹具，**协议形状一字不动**。
     // 生产不接线这个旗标（真做走 drive_real_run）；空 = 没给 → 走真做闭包。
     let mut drive_fixture_run = String::new();
+    // --fixture-framework-break（C-0，门/自检专用）：非空 = 段 9 的**派发层**按"框架自己抛了"那一档收场
+    // （一路都不派发、fatal 写"框架派发 Run 钩子时中断：<原文>"、汇总前那圈"每路必留一行账"的兜底真出两行）。
+    // 为什么要在核内立这么一条通道（所有者 10-16 拍板）：段 9 改成一路一档 try 之后，能提前出循环的
+    // 只剩 Ask(重放续点)与 Proto(journal 写不动=协议 fail 信封)，真身那个外层 catch 在核内**没有对应的
+    // 故障通道** ⇒ 兜底循环会退化成"构造上不可达的守卫"、进不了等值判据。立了通道，四档崩路才两侧同尺。
+    // 生产不接线这个旗标（真跑的框架崩＝ panic／协议错，各有自己的出口）；空 = 没给 → 正常逐路派发。
+    let mut drive_framework_break = String::new();
     // --maa-run / --m9a-run 两档共用的剧本文件（B-2d② 起两路回放档同吃 `--script`）：
     // 空 = 没给 → 该档自己拒跑（与 --arkskip 缺 --panel-cs 同一口径）。
     // 之所以共用一个变量而不是各立一枚：两档互斥（mode 只能落一个），分立两枚就要多一处
@@ -18651,6 +18989,10 @@ fn run(args: &[String]) -> i32 {
             }
             "--fixture-run" => {
                 drive_fixture_run = need("--fixture-run", args, i);
+                i += 2;
+            }
+            "--fixture-framework-break" => {
+                drive_framework_break = need("--fixture-framework-break", args, i);
                 i += 2;
             }
             "--date" => {
@@ -18815,6 +19157,7 @@ fn run(args: &[String]) -> i32 {
             &drive_log_sink,
             &round_root,
             &drive_fixture_run,
+            &drive_framework_break,
             &out_file,
         );
     }

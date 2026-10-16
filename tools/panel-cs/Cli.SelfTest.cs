@@ -84,11 +84,62 @@ namespace GdPanel
             return env.TryGetValue(key, out v) ? v : null;
         }
 
+        // verb 名册对账用的源码读法：Cli.cs 与 panel-cs.exe 同目录(树内跑、首跑释放的 app 目录也带着源码)。
+        // 读不到就当场抛 —— 按"空集与读不出必须分档"的纪律，这一格不许在源码缺席时冒充绿。
+        static string CliSourceText()
+        {
+            string dir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+            string p = Path.Combine(dir, "Cli.cs");
+            if (!File.Exists(p)) throw new FileNotFoundException("verb 名册对账要求 Cli.cs 源码在位(与 panel-cs.exe 同目录)：" + p);
+            return File.ReadAllText(p, Encoding.UTF8);
+        }
+
         // ============================ --coretest ============================
         public static int CoreTest()
         {
             GdCli.TryAttachConsole();
             Box b = new Box();
+            // === C-0′「量尺」：verb 名册(数据面)与分派链两处逐枚对账 ===
+            // 为什么在 coretest 而不是新开一档：名册与分派链本来就是同一枚 verb 的两处，加 verb 时两处必须同批；
+            // 本批之前这两处**没有任何计数断言**，新增 verb 只在报错文案里静默漏名(B-3②-b1/b2 两批名册 74→84 全靠人工现扫)。
+            b.Chk("名册钉数：Names 枚数 == ExpectedCount 且无重复", delegate
+            {
+                return GdCliVerbs.Names.Length == GdCliVerbs.ExpectedCount
+                    && GdCliVerbs.NameSet().Count == GdCliVerbs.Names.Length;
+            });
+            b.Chk("名册正向：Names 里每一枚都能在 Cli.cs 分派链逐字命中", delegate
+            {
+                string src = CliSourceText();
+                string miss = "";
+                for (int i = 0; i < GdCliVerbs.Names.Length; i++)
+                {
+                    if (src.IndexOf("verb == \"" + GdCliVerbs.Names[i] + "\"", StringComparison.Ordinal) < 0)
+                    {
+                        miss = miss.Length == 0 ? GdCliVerbs.Names[i] : miss + "," + GdCliVerbs.Names[i];
+                    }
+                }
+                if (miss.Length > 0) Console.WriteLine("  ROSTER-MISS-IN-DISPATCH=" + miss);
+                return miss.Length == 0;
+            });
+            b.Chk("名册反向：Cli.cs 分派链里每一枚都在 Names 里(防「能分发、名册没人钉」)", delegate
+            {
+                string src = CliSourceText();
+                HashSet<string> known = GdCliVerbs.NameSet();
+                MatchCollection mc = Regex.Matches(src, "verb == \"([a-z0-9-]+)\"");
+                string miss = "";
+                int uniq = 0;
+                HashSet<string> seen = new HashSet<string>(StringComparer.Ordinal);
+                for (int i = 0; i < mc.Count; i++)
+                {
+                    string v = mc[i].Groups[1].Value;
+                    if (!seen.Add(v)) continue;
+                    uniq++;
+                    if (!known.Contains(v)) miss = miss.Length == 0 ? v : miss + "," + v;
+                }
+                Console.WriteLine("  DISPATCH-VERB-COUNT=" + uniq.ToString() + " ROSTER-COUNT=" + GdCliVerbs.Names.Length.ToString());
+                if (miss.Length > 0) Console.WriteLine("  ROSTER-MISS-IN-ROSTER=" + miss);
+                return miss.Length == 0 && uniq == GdCliVerbs.Names.Length;
+            });
             string tmp = MakeTempTree();
             try
             {

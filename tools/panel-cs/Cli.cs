@@ -1,4 +1,7 @@
 // tools/panel-cs/Cli.cs —— verb 子命令入口(无头、绝不 Show 窗体)。契约全文见 docs\ps-migration-batch0.md §2。
+// ⚠ 名册第二处(C-0′起)：verb 的**逐枚名册与枚数**住在 Cli.Verbs.cs(`GdCliVerbs`)，那句"未知子命令"的报错由它生成，
+//   `Cli.SelfTest` 的 --coretest 里三格钉死(枚数／名册⊆分派链／分派链⊆名册)。下面那段批次流水只是**历史说明**，
+//   不再是名册本身 —— 加一枚 verb ＝分派链与 GdCliVerbs.Names 同批改，漏一改当场红(此前十五枚在报错里只写通配或计数)。
 // 批次 0：echo(契约样板)。批次 1：decide-ark / decide-r1999 / check-stages / r1999-instance —— PS 转发壳把
 // 判定所需的一切**值**组装成 JSON 送 --in，这边只出结论、不读配置不写盘。
 // 批次 2：detect-installs / maa-queue-lines / m9a-instance-lines —— 探测与状态行要读现场(盘/注册表/配置文件)，
@@ -178,7 +181,7 @@ namespace GdPanel
                 else if (verb == "apply-maa-daily-config") r = Decide(a, Chain.ApplyMaaDailyConfig);
                 else if (verb == "apply-m9a-instance") r = Decide(a, Chain.ApplyM9AInstance);
                 else if (verb == "update-ark-farm-ledger") r = Decide(a, Chain.UpdateFarmLedger);
-                else throw new GdUsageException("未知子命令：" + verb + "(现有：echo + 批次 1 判定四件 + 批次 2 探测/状态行 + 批次 3 的 parse-asst-*/plan-maa-queue/m9a-launch-args/parse-m9a-lines/resolve-m9a-status/parse-mumu-*/parse-adb-* + 批次 4 的 build-vision-prompt/parse-vision-verdict/vision-click-point/resolve-vision-endpoint/shot-changed/parse-vision-reply/rescue-entry/compose-ark-desktop-state + 批次 5 的 parse-farm-target-spec/parse-ark-drop-text/resolve-ark-farm-plan/apply-ark-daily-intent/apply-r1999-daily-intent/parse-maa-gui-lines/split-task-args + 批次 6 的 eval-supervisor-settings/parse-supervisor-state/resolve-supervisor-action/compose-supervisor-detail + 批次 7 的 decide-maa-run-tick + 批次 8 的 decide-m9a-run-tick/decide-daily-retry + 批次 9 的 apply-maa-gui-events/finish-maa-run/apply-m9a-events + detect-maa-fight-skip(09-28 认关) + observe-maa-stage-open(10-05 只读观测) + decide-ark-event-probe(10-12 每轮自证活动图进得去没) + B-2b 现场七枚的 resolve-rescue-context/ark-find-window/ark-window-shot/ark-window-click/ark-grab-foreground/ark-desktop-state/vision-ask-model + check-ark-launcher(10-11 启动器更新页相位) + B-2d③ mumu 现场四枚的 adb-connect/adb-game-pid/mumu-screen-shot/mumu-screen-click + B-3②-a 轮骨架现场七枚的 resolve-round-context/start-elevated-round/send-round-notice/start-run-lock/stop-run-lock/read-task-state/stop-process-tree + B-3②-b1 判定段与门表段数据面六枚的 read-ark-activity/read-r1999-activity/read-decision-state/set-ark-shop-state/set-r1999-ack/set-r1999-shop-state + B-3②-b2 链体直答件十枚的 takeover-processes/stop-maa-and-game/stop-m9a/read-maa-fight-skip/read-maa-stage-observation/start-ark-client/start-mumu/apply-maa-daily-config/apply-m9a-instance/update-ark-farm-ledger；后续批次见 docs\\ps-migration-batch0.md 与 docs\\ps-migration-live-caliber.md)");
+                else throw new GdUsageException("未知子命令：" + verb + "(现有：" + GdCliVerbs.Roster() + "；后续批次见 docs\\ps-migration-batch0.md 与 docs\\ps-migration-live-caliber.md)");
             }
             catch (GdUsageException ex)
             {

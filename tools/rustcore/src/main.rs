@@ -33,24 +33,36 @@ use std::ffi::c_void;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::process::exit;
 
-// 升号依据（ADR-3：号只在"出口形状变了"的那一批动）：`RustCore-R8.0` → `RustCore-R9.0`，
-// C-0「崩路语义同步进核」批，三处对外可观察的形状一起变（§11.62 ② 定档）：
-// ① 段 9 由"`Err(Fail)` ⇒ 整轮 fatal ＋ break（下一路压根不派发）"改成**一路一档 try**：崩那路
-//    记 `Status=error`／`Detail="运行中抛异常：<原文>"`／`Duration` 空，`fatal` 由 `Option<String>`
-//    改 `String` 以「；」累积「短名：msg」，**下一路照跑**；外层只留"框架派发 Run 钩子时中断"那一档。
-// ② **本轮退出码语义细化** —— 真身"一路崩、另一路可成"返 1（部分成），核内原因 `results.is_empty()`
-//    返 2（谎报全败）；跟齐后 journal 多一行 `round-history` ask、汇总行／气泡／历史三处同时多出崩那路。
-// ③ 门表与 dry-run 预览各补一处 try 走既有拒跑通道（`这一轮没跑：…` ＋ 退 2），不再把 `Fail` 冒泡成
-//    整轮 fail 信封；并新立一枚**门/自检专用注入旗标** `--fixture-framework-break <原文>`（与
-//    `--fixture-run` 同族，所有者 10-16 拍板：核内要有一条真演"框架派发中断⇒每路必留一行账"的通道，
-//    否则那圈兜底循环是构造上不可达的守卫、进不了等值判据）。
-// 上一批（R7→R8）的依据留此存照，免得读成"同一处形状升了两次"：① 新出口 `--daily-round`
-// （role 取值域多出 `B3b-round-daily`，拒跑闸多一道 `--root`）；② 答手形状变（`DriveFx.direct`
-// 三档分派）。两半是同一处形状变：没有 ①，② 只是内部重构不该升号；没有 ②，① 那十段一格都答不动。
+// 升号依据（ADR-3：号只在"出口形状变了"的那一批动）：`RustCore-R9.0` → `RustCore-R10.0`，
+// B-4②「入口转接」批（§11.64 定档；所有者 10-16 拍板"并入转接批，本刀只升一次号"）。
+// 一处**对外可观察**的形状变 —— `--daily-round` 里 r1999 那一路的现场取数由"ctx 定死"改成"段 5 判定回执现场覆盖"：
+// ① 真身那一格的 instance 是**判定层按方案挑的**（`lib\r1999-daily.ps1:77` 的 `Resolve-R1999Instance -PlanKey`，
+//    映射表在 `settings.re1999.planToInstance`，不是常量），adb/serial 再由它派生（`:250` 的 `Get-M9AConnection`）；
+//    而轮档的 ctx **一轮一定稿**（journal 的 init 与 ctx 全等校验 ⇒ 段 5 之后补不进 ctx），所以核内改成：
+//    `round_answer` 的 `r1999/cfg` 那臂读的 `m9a_instance` 由 ctx 常量改成**槽**（初值＝ctx、段 5 用
+//    `dec.Instance` 覆盖，照 `round_ark_decision_slot` 的先例），`fx.m9a_scen` 的 instance/conn 四格同批由段 5 覆盖。
+// ② 于是 res 回执的 `data` 多两枚**可选键**（`Instance`／`Conn`，形状与 ctx 的 `m9aRun` 那两格逐字同构）：
+//    缺键一律回落 ctx ⇒ 既有 19 档场景与旧门夹具**逐字可比**，这就是"形状变而不破"的那一格。
+//    为什么非改不可：`apply-m9a-instance` 那枚 verb 拿到空 `Id`/`Name` 会**静默写坏** M9A 的 appsettings
+//    （`Chain.cs:1027-1075` 只 `Gd.Get`，没有缺键闸），转接后的第一轮就发生在真机上。
+// 同批**不进核**的那一半（`lib\rust-round.ps1` 转接层＋`daily-clear.ps1` 的调度器默认档）不给核内加参数面，
+// 只是让 `--daily-round` 第一次有了生产调用方；八道拒跑闸、role、外发格名册（18 枚）一字未动。
+// 上一批（R8→R9，C-0「崩路语义同步进核」）的依据留此存照，免得读成"同一处形状升了两次"，三处一起变：
+// ① 段 9 由"`Err(Fail)` ⇒ 整轮 fatal ＋ break（下一路压根不派发）"改成**一路一档 try**（崩那路记
+//    `Status=error`／`Detail="运行中抛异常：<原文>"`／`Duration` 空，`fatal` 由 `Option<String>` 改 `String`
+//    以「；」累积「短名：msg」，**下一路照跑**，外层只留"框架派发 Run 钩子时中断"那一档）；② **本轮退出码
+//    语义细化** —— 真身"一路崩、另一路可成"返 1（部分成），核内原因 `results.is_empty()` 返 2（谎报全败），
+//    跟齐后 journal 多一行 `round-history` ask、汇总行／气泡／历史三处同时多出崩那路；③ 门表与 dry-run 预览
+//    各补一处 try 走既有拒跑通道（`这一轮没跑：…` ＋ 退 2），并新立一枚**门/自检专用注入旗标**
+//    `--fixture-framework-break <原文>`（与 `--fixture-run` 同族；核内要有一条真演"框架派发中断⇒每路必留一行账"
+//    的通道，否则那圈兜底循环是构造上不可达的守卫、进不了等值判据）。
+// 再上一批（R7→R8，B-3②-b3）：① 新出口 `--daily-round`（role 取值域多出 `B3b-round-daily`，拒跑闸多一道
+// `--root`）；② 答手形状变（`DriveFx.direct` 三档分派）。两半是同一处形状变：没有 ①，② 只是内部重构不该升号；
+// 没有 ②，① 那十段一格都答不动。
 // ⚠ 改号必须与 `lib\common.ps1` 的 `Get-GdRustContract`、`tools\build-exe.ps1` 的内嵌名册、
 // `tools\rustcore\probe-connect.ps1`、`docs\r0-keyfacts.json` 顶层**同批**动，
 // 由 `probe-events-golden.ps1` 的 H3 半逐一对齐（壳侧字面量还要求只剩一种拼法）。
-const CONTRACT: &str = "RustCore-R9.0";
+const CONTRACT: &str = "RustCore-R10.0";
 const ROLE: &str = "R0-readonly";
 
 // ---------------------------------------------------------------- Win32 直调
@@ -6674,7 +6686,8 @@ struct RoundHooks<'a> {
     es: &'a mut dyn FnMut(u32) -> u32,
 }
 
-/// 答手要读的两枚 out-of-band 现场值里的那一枚（另一枚 `env` 由信封在起步时就取好、按值捕进闭包）：
+/// 答手要读的三枚 out-of-band 现场值里的第二枚（第一枚 `env` 由信封在起步时就取好、按值捕进闭包；
+/// 第三枚见 `round_m9a_instance_slot`）：
 /// ark 本轮的判定对象。为什么要走旁路而不是走 `params`：`cfg` 那格的 params 是**链体**给的
 /// （`ArkCfgKind::Main`／`Lean{stage}`），而链体是 B-2c③ 冻结的那件 —— 让它多带一枚 decision
 /// 就等于改 `--drive-ark-daily` 的 ask 信封形状，那一刀本批改不得（§11.52 ④ 随行定档第 1 条）。
@@ -6683,6 +6696,50 @@ struct RoundHooks<'a> {
 /// ⚠ 读写都只经 `RefCell`，且骨架侧一次 borrow 就完事（不许握着 borrow 去调 `ans`，那会撞运行时借位）。
 fn round_ark_decision_slot() -> std::rc::Rc<std::cell::RefCell<JVal>> {
     std::rc::Rc::new(std::cell::RefCell::new(JVal::Null))
+}
+
+/// 答手的第三枚 out-of-band 现场值：**本轮 1999 那一路要切哪个 M9A 实例**。
+/// 为什么它是槽而不是 ctx 常量（B-4②「入口转接」批，§11.65；ADR-3 第十次升号的出处）：
+/// 真身那一格不是常量 —— `lib\r1999-daily.ps1:77` 按**方案**挑实例（映射表
+/// `settings.re1999.planToInstance`），`:250` 再由实例派生 adb/serial；而轮档的 ctx **一轮一定稿**
+/// （journal 的 init 与 ctx 全等校验 ⇒ 段 5 之后补不进 ctx），所以核内只能在段 5 就地覆盖。
+/// 形状照 `round_ark_decision_slot` 的先例：初值＝ctx 的 `m9aRun.instance`（**这是回落那一档**，
+/// 门里的旧夹具与 `--drive-m9a-daily` 那一路都靠它，缺 `Instance` 键时不许把实例切成空），
+/// 段 5 的 `dec.Instance` 在场才覆盖。verb 侧要的 `Id`/`Name`（PascalCase，`Chain.cs:1058` 那两枚
+/// `Gd.Get`）在 `round_answer` 里折，名册只有一份来源。
+/// ⚠ 同样的值还要覆盖进 `fx.m9a_scen` 的 instance/conn 四格（段 9 的 run 真做读那里），
+/// 两处都由 `round_m9a_apply_decision` 一枚函数做完 —— 分两处写就等于给"cfg 切了 A、run 连了 B"留口子。
+fn round_m9a_instance_slot(init: JVal) -> std::rc::Rc<std::cell::RefCell<JVal>> {
+    std::rc::Rc::new(std::cell::RefCell::new(init))
+}
+
+/// 段 5 那一处覆盖的**判据本体**（B-4②，与上面那枚槽配套；抽成纯函数是为了让自检能三档直测，
+/// 不必为它摆一整轮 journal —— 这一处是本轮新立的形状，链体门与 24h 幂等格都兜不到它）。
+/// 三条纪律，逐条都不许改：
+/// 1. **缺键回落 ctx**：判定回执没带 `Instance`/`Conn` 时一字不改地留着初值（门里的旧夹具、
+///    `--drive-m9a-daily` 那一路、以及壳侧算不出 adb 时故意不补键那一路都靠这一句）；
+/// 2. **键在场哪怕值为空也照覆盖**：空实例名会让 verb 静默写坏 appsettings（`Chain.cs` 只
+///    `Gd.Get`、无缺键闸），但那是真身同一形状的账 —— 不许核内替它猜一个默认实例；
+/// 3. **一处盖两处**：槽给段 9 的 `cfg` 直答、`scen` 的四格给段 9 的 run 真做，两次赋值在同一
+///    函数里做完。conn 为空则让段 9 的 run 点名"adb 不存在：…"（崩路那一档，与真身同形）。
+/// ⚠ 两枚键**独立判定**：只给 `Instance` 不给 `Conn` 时，实例照切、adb/serial 留着 ctx 那份 ——
+///    这不是我们造的形状，是真身 `Resolve-GdR1999Decision` 与 `Get-M9AConnection` 本就分两步。
+fn round_m9a_apply_decision(
+    dec: &JVal,
+    slot: &std::cell::RefCell<JVal>,
+    scen: &mut M9aScen,
+) {
+    let dec_inst = jv_get_ci(dec, "Instance");
+    if !matches!(dec_inst, JVal::Null) {
+        slot.replace(dec_inst.clone());
+        scen.instance_id = jv_str(&jv_get_ci(&dec_inst, "id"));
+        scen.instance_name = jv_str(&jv_get_ci(&dec_inst, "name"));
+    }
+    let dec_conn = jv_get_ci(dec, "Conn");
+    if !matches!(dec_conn, JVal::Null) {
+        scen.adb = jv_str(&jv_get_ci(&dec_conn, "adb"));
+        scen.serial = jv_str(&jv_get_ci(&dec_conn, "serial"));
+    }
 }
 
 /// 把第五段的判定对象按 PS executor 那两枚动词要的键名折出来。
@@ -6711,7 +6768,7 @@ fn round_answer(
     env: &RoundEnv,
     root: &str,
     state: &str,
-    m9a_instance: &JVal,
+    m9a_instance: &std::cell::RefCell<JVal>,
     ark_dec: &std::cell::RefCell<JVal>,
     role: &str,
     action: &str,
@@ -6975,17 +7032,20 @@ fn round_answer(
             DirectOut::with_lines(jv_get_ci(&d, "Started"), lines)
         }
         ("r1999", "cfg") => {
-            // instance 那两枚来自 ctx 的 m9aRun（**由壳写进 ctx**，与 --drive-m9a-daily 同一把尺）：
-            // verb 读的是 `Id`/`Name`（PascalCase，照 Chain.cs:1058 那两枚 Gd.Get），核内不改键名。
+            // instance 那两枚读**槽**（初值＝ctx 的 m9aRun.instance、段 5 由判定回执覆盖；理由与回落口径
+            // 见 `round_m9a_instance_slot` 头注）。verb 读的是 `Id`/`Name`（PascalCase，照 Chain.cs:1058
+            // 那两枚 Gd.Get），核内不改键名。⚠ borrow 只在这四行里握着，取完就放 —— 不许带着它去调
+            // `hooks.call`（那是"握着 borrow 调外发"那一族运行时借位坑的邻面，见 ark_dec 头注那条纪律）。
+            let (inst_id, inst_name) = {
+                let mi = m9a_instance.borrow();
+                (jv_str(&jv_get_ci(&mi, "id")), jv_str(&jv_get_ci(&mi, "name")))
+            };
             let d = (hooks.call)(
                 "apply-m9a-instance",
                 &jv_o(vec![
                     (
                         "instance",
-                        jv_o(vec![
-                            ("Id", jv_get_ci(m9a_instance, "id")),
-                            ("Name", jv_get_ci(m9a_instance, "name")),
-                        ]),
+                        jv_o(vec![("Id", jv_s(&inst_id)), ("Name", jv_s(&inst_name))]),
                     ),
                     ("apply", JVal::B(true)),
                 ]),
@@ -7132,6 +7192,7 @@ fn daily_round_chain(
     rc: &RoundCtx,
     env: &RoundEnv,
     ark_dec: &std::cell::RefCell<JVal>,
+    m9a_inst: &std::cell::RefCell<JVal>,
     fx: &mut DriveFx,
     framework_break: &str,
     ark_decide: &mut dyn FnMut(&str, bool) -> Result<(bool, Vec<(String, String)>), String>,
@@ -7279,6 +7340,13 @@ fn daily_round_chain(
         // `round_ark_decision_slot` 的头注）。重放段也走这一行 ⇒ 旁路与账上永远同源。
         if m.id == "ark" {
             ark_dec.replace(dec.clone());
+        }
+        // B-4②「入口转接」（§11.65）：1999 那一路的实例与 adb 落点**在段 5 才定得下来** —— 真身是判定层
+        // 按方案挑的（`lib\r1999-daily.ps1:77`），conn 再由实例派生（`:250` 的 `Get-M9AConnection`），
+        // 而 ctx 一轮一定稿（换 ctx 得起新 journal）⇒ 段 5 之后补不进 ctx，只能就地覆盖。
+        // 判据本体在 `round_m9a_apply_decision`（三档直测）；这里只留"哪一路才覆盖"这一句闸。
+        if m.id == "r1999" {
+            round_m9a_apply_decision(&dec, m9a_inst, &mut fx.m9a_scen);
         }
         plan.push((*m, dec));
     }
@@ -7769,9 +7837,11 @@ fn drive_round_daily_envelope(
     }
     // ---- 一轮：三枚注入点由**调用方**给（生产那三枚在 run_drive_round_daily 里装，自检给假身）----
     let ark_dec = round_ark_decision_slot();
-    let m9a_instance = jv_get_ci(&rc.m9a_run, "instance");
+    // 1999 那一路的实例槽，初值＝ctx 的 `m9aRun.instance`（**由壳写进 ctx**，与 --drive-m9a-daily 同一把尺）。
+    // 段 5 的判定回执带 `Instance` 时就地覆盖（缺键回落这一份）；理由见 `round_m9a_instance_slot` 头注。
+    let m9a_inst = round_m9a_instance_slot(jv_get_ci(&rc.m9a_run, "instance"));
     let mut answer = |role: &str, action: &str, params: &JVal| -> Result<Option<DirectOut>, String> {
-        round_answer(&mut *hooks, &env, root, state, &m9a_instance, &ark_dec, role, action, params)
+        round_answer(&mut *hooks, &env, root, state, &m9a_inst, &ark_dec, role, action, params)
     };
     let mut fx = DriveFx::new(
         journal,
@@ -7784,7 +7854,7 @@ fn drive_round_daily_envelope(
         rows,
         Some(&mut answer),
     );
-    match daily_round_chain(&rc, &env, &ark_dec, &mut fx, framework_break, ark_decide, m9a_decide) {
+    match daily_round_chain(&rc, &env, &ark_dec, &m9a_inst, &mut fx, framework_break, ark_decide, m9a_decide) {
         Ok(flow) => {
             if let Some(m) = fx.io_err.take() {
                 return (1, fail(&format!("驱动协议坏了：{}", m)));
@@ -17590,7 +17660,8 @@ fn selftest() -> i32 {
             ("EventTip", jv_s("")),
             ("StageHint", jv_s("")),
         ]));
-        let inst24 = jv_o(vec![("id", jv_s("1")), ("name", jv_s("1999"))]);
+        // B-4②：这一枚从 ctx 常量升成**槽**（24g 只验"没覆盖时读的就是初值"，覆盖面另见 24o）。
+        let inst24 = round_m9a_instance_slot(jv_o(vec![("id", jv_s("1")), ("name", jv_s("1999"))]));
         let mut ask_none: Vec<String> = Vec::new();
         let mut data_of: Vec<String> = Vec::new();
         {
@@ -18555,6 +18626,148 @@ fn selftest() -> i32 {
                 }
             }
         }
+
+        // ---------- 24o 段 5 那一处覆盖（B-4②「入口转接」：实例与 conn 到判定之后才定得下来）----------
+        // 四档全部走**纯函数**直测，不摆整轮 journal：这一处形状是本轮新立的 —— 门里的旧夹具回执
+        // 压根不带 Instance/Conn（⇒ 它验的是回落那一档，不是覆盖面），24n 那五档崩路也碰不到它，
+        // 链体门钉的是 `--drive-m9a-daily` 那条链（实例由夹具直接摆进 scen，不经判定回执）。不自检就等于没人看过。
+        // 只吃这四格：名册那 15 枚归 `m9a_scen_core` 与 24h 管，这里不借那份形状（借了就成了第二把尺）。
+        struct Cover24o {
+            name: &'static str,
+            dec: &'static str,
+            want_id: &'static str,
+            want_name: &'static str,
+            want_adb: &'static str,
+            want_serial: &'static str,
+        }
+        let cases24o = [
+            Cover24o {
+                name: "两枚键都在",
+                dec: r#"{"Mode":"daily","Instance":{"id":"7","name":"inst-7"},"Conn":{"adb":"adb-7.exe","serial":"127.0.0.1:16384"}}"#,
+                want_id: "7",
+                want_name: "inst-7",
+                want_adb: "adb-7.exe",
+                want_serial: "127.0.0.1:16384",
+            },
+            Cover24o {
+                // 回落档：门的旧夹具与 `--drive-m9a-daily` 走的就是这一档，值必须一字不动。
+                name: "两枚键都缺",
+                dec: r#"{"Mode":"farm"}"#,
+                want_id: "init-id",
+                want_name: "init-name",
+                want_adb: "init-adb",
+                want_serial: "init-serial",
+            },
+            Cover24o {
+                // 两枚键**独立判定**：真身 `Resolve-GdR1999Decision` 与 `Get-M9AConnection` 本就分两步。
+                name: "只给 Instance",
+                dec: r#"{"Instance":{"id":"9","name":"inst-9"}}"#,
+                want_id: "9",
+                want_name: "inst-9",
+                want_adb: "init-adb",
+                want_serial: "init-serial",
+            },
+            Cover24o {
+                // 键在场哪怕值为空也照覆盖：空实例名会静默写坏 appsettings，但那是真身同一形状的账，
+                // 不许核内替它猜一个默认实例（这一档红＝有人在核内加了"空就回落"的好心）。
+                name: "键在场值为空",
+                dec: r#"{"Instance":{"id":"","name":""},"Conn":{"adb":"","serial":""}}"#,
+                want_id: "",
+                want_name: "",
+                want_adb: "",
+                want_serial: "",
+            },
+        ];
+        let mut bad24o: Vec<String> = Vec::new();
+        for c24o in cases24o.iter() {
+            let dec24o = match jv_parse(c24o.dec) {
+                Ok(v) => v,
+                Err(_) => {
+                    bad24o.push(format!("{}：判定回执没解析动", c24o.name));
+                    continue;
+                }
+            };
+            let slot24o = round_m9a_instance_slot(jv_o(vec![("id", jv_s("init-id")), ("name", jv_s("init-name"))]));
+            let mut sc24o = M9aScen::default();
+            sc24o.instance_id = "init-id".to_string();
+            sc24o.instance_name = "init-name".to_string();
+            sc24o.adb = "init-adb".to_string();
+            sc24o.serial = "init-serial".to_string();
+            round_m9a_apply_decision(&dec24o, &slot24o, &mut sc24o);
+            let got_id = {
+                let sv = slot24o.borrow();
+                jv_str(&jv_get_ci(&sv, "id"))
+            };
+            let got_name = {
+                let sv = slot24o.borrow();
+                jv_str(&jv_get_ci(&sv, "name"))
+            };
+            if got_id != c24o.want_id
+                || got_name != c24o.want_name
+                || sc24o.instance_id != c24o.want_id
+                || sc24o.instance_name != c24o.want_name
+                || sc24o.adb != c24o.want_adb
+                || sc24o.serial != c24o.want_serial
+            {
+                bad24o.push(format!(
+                    "{}：槽=[{}|{}] scen=[{}|{} / {}|{}] 期望=[{}|{} / {}|{}]",
+                    c24o.name,
+                    got_id,
+                    got_name,
+                    sc24o.instance_id,
+                    sc24o.instance_name,
+                    sc24o.adb,
+                    sc24o.serial,
+                    c24o.want_id,
+                    c24o.want_name,
+                    c24o.want_adb,
+                    c24o.want_serial
+                ));
+            }
+        }
+        chk(
+            bad24o.is_empty(),
+            &format!(
+                "段 5 那一处覆盖走样了（缺键要一字不动地回落 ctx、键在场哪怕值为空也照覆盖、两处必须同源）：{}",
+                bad24o.join(" / ")
+            ),
+            &mut fails,
+            &mut total,
+        );
+
+        // 答手 cfg 那一臂**真读槽**（24g 那把尺只记 verb 的键名不记值 ⇒ 抓不到"槽改了、臂还读 ctx"
+        // 这一族回归；这一格补的是值级面）。顺序照段 5：先覆盖、再让臂去读，读到的必须是覆盖后那份。
+        let mut body24o: Vec<String> = Vec::new();
+        let slot24o = round_m9a_instance_slot(jv_o(vec![("id", jv_s("init-id")), ("name", jv_s("init-name"))]));
+        {
+            let mut sc24o2 = M9aScen::default();
+            round_m9a_apply_decision(
+                &jv_o(vec![("Instance", jv_o(vec![("id", jv_s("7")), ("name", jv_s("inst-7"))]))]),
+                &slot24o,
+                &mut sc24o2,
+            );
+            let mut call24o = |v: &str, b: &JVal| -> Result<JVal, String> {
+                if v == "apply-m9a-instance" {
+                    body24o.push(jv_to_json(b));
+                }
+                Ok(r24_reply(v, &paths_ok24))
+            };
+            let mut nap24o = |_s: u32| {};
+            let mut es24o = |_f: u32| -> u32 { 1 };
+            let mut hk24o = RoundHooks { call: &mut call24o, nap: &mut nap24o, es: &mut es24o };
+            let prm24o = JVal::Null;
+            let _ = round_answer(&mut hk24o, &env24, &root_all, &t24("state"), &slot24o, &live_dec, "r1999", "cfg", &prm24o);
+        }
+        chk(
+            body24o.len() == 1
+                && body24o[0] == "{\"instance\":{\"Id\":\"7\",\"Name\":\"inst-7\"},\"apply\":true}",
+            &format!(
+                "cfg 那一臂没读槽（读的是 ctx 初值／verb 名册那两枚 PascalCase 键名变了／apply 那枚掉了）：{}",
+                body24o.join(" / ")
+            ),
+            &mut fails,
+            &mut total,
+        );
 
         let _ = std::fs::remove_dir_all(&d24);
         chk(

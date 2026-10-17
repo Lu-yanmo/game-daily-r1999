@@ -181,6 +181,11 @@ namespace GdPanel
                 else if (verb == "apply-maa-daily-config") r = Decide(a, Chain.ApplyMaaDailyConfig);
                 else if (verb == "apply-m9a-instance") r = Decide(a, Chain.ApplyM9AInstance);
                 else if (verb == "update-ark-farm-ledger") r = Decide(a, Chain.UpdateFarmLedger);
+                // ---- R9-a(2026-10-17) 轮骨架四格收编新立四枚：位置一律排在既有链**之后**，不改任何旧分支的顺序 ----
+                else if (verb == "read-screensaver-config") r = Decide(a, Round.ScreensaverConfig);
+                else if (verb == "disable-screensaver-for-round") r = Decide(a, Round.ScreensaverOff);
+                else if (verb == "append-round-history") r = Decide(a, Round.RoundHistory);
+                else if (verb == "update-ark-event-probe") r = Decide(a, RoundData.ArkEventProbeUpdate);
                 else throw new GdUsageException("未知子命令：" + verb + "(现有：" + GdCliVerbs.Roster() + "；后续批次见 docs\\ps-migration-batch0.md 与 docs\\ps-migration-live-caliber.md)");
             }
             catch (GdUsageException ex)

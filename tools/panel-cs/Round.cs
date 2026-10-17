@@ -859,5 +859,173 @@ namespace GdPanel
         {
             try { return Process.GetProcessesByName(name); } catch { return new Process[0]; }
         }
+
+        // ==================== 三态取数(R9-a 新立) ====================
+        // 为什么这里要新立一把尺，而不直接用上面的 Given：`Given` 把"JSON 里写了 null"与"没写这枚键"当成同一件事
+        // (它判的是 `v != null`)。R9-a 这三枚要钉的恰恰是**"读不到"那一档** —— 屏保 SPI 读不到时真身给的是
+        // `Read=false`(本轮不动屏保)，而"没给夹具"走的是真读现场；两档在旧那把尺里塌成一档就必然有一档测不到。
+        // 于是：键**没出现** = 真读现场；键出现且值为 null = 按读不到；键出现且有值 = 用夹具。
+        internal static bool Has(Dictionary<string, object> c, string k)
+        {
+            return c.ContainsKey(k);
+        }
+
+        internal static object Raw(Dictionary<string, object> c, string k)
+        {
+            object v;
+            c.TryGetValue(k, out v);
+            return v;
+        }
+
+        // ==================== verb: read-screensaver-config(R9-a 收编 svdetail 的取数半段) ====================
+        // Get-GdScreensaverConfig(common.ps1:356-375) 的真身：只读注册表(HKCU\Control Panel\Desktop)，
+        // **刻意不碰 SPI** —— 那边 common.ps1:357-361 的头注写了理由(会话被屏保接管时 SPI 与注册表不一致，
+        // 而体检要看的正是"下次到点会不会触发"那个稳态)。这一格要的正是那枚稳态。
+        // 三枚值逐枚 try 的形状照真身：`SCRNSAVE.EXE` 取不到算空串、`ScreenSaveTimeOut` 取不到算 0、
+        // 产品名只在有 .scr 时才去取(FileVersionInfo 读不到回空)。
+        // 整块读不到(键开不了) ⇒ `Found:false` —— **调用方绝不许据此判"没装屏保"**(真身那句 return $null 同形)；
+        // 核内那一臂折成 cfg=Null 交给同装配的 `resolve-screensaver-verdict`，判定给 unknown 档那句"不代表没事"。
+        internal static object ScreensaverConfig(Dictionary<string, object> raw)
+        {
+            Dictionary<string, object> c = View(raw);
+
+            if (Has(c, "reg") && Gd.Get(c, "reg") == null)
+                return Gd.Out("Found", false, "Saver", "", "Product", "", "Active", "", "TimeoutSec", 0);
+
+            string saver = "";
+            string active = "";
+            long timeout = 0;
+            string product = null;
+
+            Dictionary<string, object> reg = Gd.Map(Gd.Get(c, "reg"));
+            if (reg != null)
+            {
+                saver = Gd.Str(Gd.Get(reg, "Saver"));
+                active = Gd.Str(Gd.Get(reg, "Active"));
+                object to = Gd.Get(reg, "TimeoutSec");
+                try { if (to != null && Gd.Str(to).Length > 0) timeout = Convert.ToInt64(to, CultureInfo.InvariantCulture); }
+                catch { timeout = 0; }
+                if (Has(reg, "Product")) product = Gd.Str(Gd.Get(reg, "Product"));
+            }
+            else
+            {
+                string sub = OptStr(c, "regPath", delegate { return "Control Panel\\Desktop"; });
+                Microsoft.Win32.RegistryKey rk = null;
+                try { rk = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(sub); } catch { rk = null; }
+                if (rk == null)
+                    return Gd.Out("Found", false, "Saver", "", "Product", "", "Active", "", "TimeoutSec", 0);
+                try
+                {
+                    try { object o = rk.GetValue("SCRNSAVE.EXE"); if (o != null) saver = Gd.Str(o); } catch { saver = ""; }
+                    try { object o = rk.GetValue("ScreenSaveActive"); if (o != null) active = Gd.Str(o); } catch { active = ""; }
+                    // 真身那句 `if ($dp.ScreenSaveTimeOut) { $to = [int]… }`：空值/读不动都留在 0，不吭声。
+                    try
+                    {
+                        object o = rk.GetValue("ScreenSaveTimeOut");
+                        if (o != null && Gd.Str(o).Length > 0) timeout = Convert.ToInt64(o, CultureInfo.InvariantCulture);
+                    }
+                    catch { timeout = 0; }
+                }
+                finally { try { rk.Close(); } catch { } }
+            }
+
+            if (product == null)
+            {
+                product = "";
+                if (saver.Length > 0)
+                {
+                    // 真身那句 `Get-Item $scr).VersionInfo.ProductName` 外面套了 try/catch ⇒ 读不到就是空串，
+                    // 归因规则(WE 代理名归一那半)在 `resolve-screensaver-who`，这里一个字都不判。
+                    try { product = FileVersionInfo.GetVersionInfo(saver).ProductName ?? ""; } catch { product = ""; }
+                }
+            }
+            return Gd.Out("Found", true, "Saver", saver, "Product", product, "Active", active, "TimeoutSec", (int)timeout);
+        }
+
+        // ==================== verb: disable-screensaver-for-round(R9-a 收编 round-screensaver) ====================
+        // 转接层当年那六行(lib\rust-round.ps1:338-352) ＝ 真身 `Enter-GdNoSleep` 里 keepScreenOn 那一段
+        // (common.ps1:483-495)：**清旧机制那本 state 文件 → 现读 SPI → 只关不复**。四档话术一枚都不在这里打
+        // (它们在核内段 8，逐字照 common.ps1:487/490/492/494)，这里只回三格读数。
+        // SPI 的声明用 tools\gdinterop\GdPower.cs 那份唯一真身(build.ps1 按 GdWin.cs 的先例把它编进本装配，
+        // **不在 panel-cs 抄第二份 P/Invoke**)；`Get-/Set-GdScreensaverActive` 那两枚 PS 转发壳一字不动。
+        // ⚠ 键序是 `{Read, WasActive, Disabled}`：与转接层当年写进 res 的那枚逐字同序，门的投影才不用跟着改。
+        internal static object ScreensaverOff(Dictionary<string, object> raw)
+        {
+            Dictionary<string, object> c = View(raw);
+            string dir = OptStr(c, "stateDir", delegate { GdEnv.Init(null); return GdEnv.State; });
+
+            // 真身那两句 `if (Test-Path $sf) { Remove-Item … -ErrorAction SilentlyContinue }`：删不掉不吭声。
+            try
+            {
+                string sf = Path.Combine(dir, "screensaver.restore");
+                if (File.Exists(sf)) File.Delete(sf);
+            }
+            catch { }
+
+            bool read;
+            bool wasActive;
+            bool faked = Has(c, "active");
+            if (faked && Gd.Get(c, "active") == null) { read = false; wasActive = false; }      // 那一档＝SPI 读不到
+            else if (faked) { read = true; wasActive = Gd.Truthy(Gd.Get(c, "active")); }
+            else
+            {
+                bool v = false;
+                read = GdPower.SPIGetActive(GdPower.SPI_GETSCREENSAVEACTIVE, 0, ref v, 0);
+                wasActive = read && v;
+            }
+
+            if (!read) return Gd.Out("Read", false, "WasActive", false, "Disabled", false);
+            if (!wasActive) return Gd.Out("Read", true, "WasActive", false, "Disabled", false);
+
+            bool disabled;
+            if (faked) disabled = OptFlag(c, "setOk", delegate { return true; });
+            else disabled = GdPower.SPISetActive(GdPower.SPI_SETSCREENSAVEACTIVE, 0, IntPtr.Zero, GdPower.SPIF_SENDWININICHANGE);
+            return Gd.Out("Read", true, "WasActive", true, "Disabled", disabled);
+        }
+
+        // ==================== verb: append-round-history(R9-a 收编 round-history 两枚) ====================
+        // Add-GdHistory(common.ps1:904-932) 的**整枚**：表头、舍入、`-0` 那一格、detail 折行、落盘字节形状都在这里。
+        // 三处形状的真身只有一份 = tools\gdcore\GdCore.Logs.cs 的 `GdCore.Csv`(PS 侧靠 Add-GdInterop 现编同一份)，
+        // build.ps1 把它按 GdWin.cs 的先例编进本装配 ⇒ **不在这里抄第二份 CSV 规则**；舍入仍按 `[math]::Round`
+        // 那把中点取偶(Math.Round 默认 ToEven)，`-0` 由 DurationText 钉成 "0"(存量 history.csv 按 5.1 那支写的)。
+        // 字节形状是本轮实测定的(§11.67)：pwsh 7 的 `Set-Content/Add-Content -Encoding utf8` 写出来是
+        // **无 BOM ＋ CRLF**(5.1 才写 EF BB BF)，所以这里用 `new UTF8Encoding(false)` ＋ 每行自带 "\r\n"。
+        // ⚠ 时间戳**由这一枚现读**而不是核内喂：真身每写一行调一次 Get-Date，而 ctx 的 NowText 是起轮那一刻的快照，
+        //   喂进来就是把每一行的时间都盖成 06:00:00(自检要钉某一行的时间时才给 nowText)。
+        internal static object RoundHistory(Dictionary<string, object> raw)
+        {
+            Dictionary<string, object> c = View(raw);
+            string dir = OptStr(c, "stateDir", delegate { GdEnv.Init(null); return GdEnv.State; });
+            string file = Path.Combine(dir, "history.csv");
+            string time = OptStr(c, "nowText", delegate { return DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture); });
+
+            string dur = "";
+            if (Has(c, "durationSec") && Gd.Get(c, "durationSec") != null)
+            {
+                double d = 0;
+                try { d = Convert.ToDouble(Gd.Get(c, "durationSec"), CultureInfo.InvariantCulture); } catch { d = 0; }
+                dur = GdCore.Csv.DurationText(Math.Round(d));
+            }
+
+            // 字段序照真身那枚 $fields：time,game,mode,status,duration_sec,detail(表头同名同序)。
+            string[] fields = new string[]
+            {
+                time,
+                OptStr(c, "id", null),
+                OptStr(c, "mode", null),
+                OptStr(c, "status", null),
+                dur,
+                GdCore.Csv.Flatten(OptStr(c, "detail", null))
+            };
+            string row = GdCore.Csv.BuildRow(fields);
+
+            UTF8Encoding noBom = new UTF8Encoding(false);
+            if (!File.Exists(file))
+                File.WriteAllText(file, "\"time\",\"game\",\"mode\",\"status\",\"duration_sec\",\"detail\"\r\n", noBom);
+            // 真身不建 state 目录(Set-Content 直接落)，这里也不建：目录不在就该把这一轮拦下来，
+            // 而不是悄悄把账写到别处 —— 与 common.ps1:913 那句 Test-Path 同一把尺。
+            File.AppendAllText(file, row + "\r\n", noBom);
+            return Gd.Out("Written", true);
+        }
     }
 }

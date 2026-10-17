@@ -33,20 +33,31 @@ use std::ffi::c_void;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::process::exit;
 
-// 升号依据（ADR-3：号只在"出口形状变了"的那一批动）：`RustCore-R9.0` → `RustCore-R10.0`，
-// B-4②「入口转接」批（§11.64 定档；所有者 10-16 拍板"并入转接批，本刀只升一次号"）。
-// 一处**对外可观察**的形状变 —— `--daily-round` 里 r1999 那一路的现场取数由"ctx 定死"改成"段 5 判定回执现场覆盖"：
-// ① 真身那一格的 instance 是**判定层按方案挑的**（`lib\r1999-daily.ps1:77` 的 `Resolve-R1999Instance -PlanKey`，
-//    映射表在 `settings.re1999.planToInstance`，不是常量），adb/serial 再由它派生（`:250` 的 `Get-M9AConnection`）；
-//    而轮档的 ctx **一轮一定稿**（journal 的 init 与 ctx 全等校验 ⇒ 段 5 之后补不进 ctx），所以核内改成：
-//    `round_answer` 的 `r1999/cfg` 那臂读的 `m9a_instance` 由 ctx 常量改成**槽**（初值＝ctx、段 5 用
-//    `dec.Instance` 覆盖，照 `round_ark_decision_slot` 的先例），`fx.m9a_scen` 的 instance/conn 四格同批由段 5 覆盖。
-// ② 于是 res 回执的 `data` 多两枚**可选键**（`Instance`／`Conn`，形状与 ctx 的 `m9aRun` 那两格逐字同构）：
-//    缺键一律回落 ctx ⇒ 既有 19 档场景与旧门夹具**逐字可比**，这就是"形状变而不破"的那一格。
-//    为什么非改不可：`apply-m9a-instance` 那枚 verb 拿到空 `Id`/`Name` 会**静默写坏** M9A 的 appsettings
-//    （`Chain.cs:1027-1075` 只 `Gd.Get`，没有缺键闸），转接后的第一轮就发生在真机上。
-// 同批**不进核**的那一半（`lib\rust-round.ps1` 转接层＋`daily-clear.ps1` 的调度器默认档）不给核内加参数面，
-// 只是让 `--daily-round` 第一次有了生产调用方；八道拒跑闸、role、外发格名册（18 枚）一字未动。
+// 升号依据（ADR-3：号只在"出口形状变了"的那一批动）：`RustCore-R10.0` → `RustCore-R11.0`，
+// R9-a「四格收编」批（题面 §11.60 ①②③；拆批理由 §11.64 ④；所有者 10-17 拍板"全收编：动参数面"）。
+// 三处**对外可观察**的形状变，同一刀只升一次号（那条纪律第四次应用；第三次见下面 R7→R8 那段，出处是 `docs\r0-keyfacts.json` 的 `contract_note`）：
+// ① 轮骨架的六枚动作字面量由"外发给壳答"改成**核内 `round_answer` 直答**（换答方、不换语义）：
+//    `round-history:ark`／`round-history:r1999`／`round-probe:ark`／`round-screensaver`／`svdetail`／`round-elevate`
+//    ⇒ journal 里这六枚从 `ask` 行变 `soft` 行（与已在场的 `round-lock`／`round-notice`／`round-unlock` 同形），
+//    转接层的外发名册由 18 枚收成 **13** 枚（摘五枚：`round-elevate` **留在名册里**，理由见下面 ③ 那句
+//    "缺参数 ⇒ 照旧外发"——它是负对照那一路的落点，摘了它等于把"入程参数没递到"从降级改成整轮拒跑）。
+//    **业务语义一格不搬**：判定与话术仍在 panel-cs 那四枚 verb 里，
+//    判据原文仍在 lib 真身里 —— 收编的只是"这一问由谁答"。
+// ② 答这几格要靠**新立四枚 panel-cs verb**（verb 名册 84 → 88）：`append-round-history`／`update-ark-event-probe`／
+//    `read-screensaver-config`／`disable-screensaver-for-round`；第六枚 `round-elevate` 用**已在场**的
+//    `start-elevated-round`。切分口径照 B-3②-a 那句"**Windows 交互与本机值留在 C# 这一侧，不进核**"：
+//    核内不写 csv、不读注册表、不碰 SPI、不起提权子进程，它只是**自己伸手要读数**而不再问壳。
+// ③ `--daily-round` 的**参数面新增一枚可选入程参数** `--relaunch-entry <JSON>`（形状 `{Script, ArgList}`）：
+//    提权那一发重跑的是**入口自己的**路径，而"核不该知道入口路径"是下面 `RoundEnv` 那处**在册理由**——
+//    本批按拍板对它改口，改口方式取最小知情：值由转接层现取现交（`daily-clear.ps1` 本来就把
+//    `-ElevateScript`/`-BoundParams` 交到了转接层手里，入口参数面一字不加），**拼参语义不搬**
+//    （`Get-GdRelaunchArgList` 仍住 PS 侧），且这一枚**绝不进 journal、绝不进 ask 信封、绝不进日志**
+//    （它带本机绝对路径，与下面那句"Paths 的值绝不进 journal"同源）；缺参数或形状坏 ⇒ 答 `Ok(None)`
+//    ⇒ 照旧外发给壳 ⇒ 旧调用方逐字可比，八道拒跑闸一字不动。
+// 上一批（R9→R10，B-4②「入口转接」）的依据留此存照，一处形状变：`--daily-round` 的 r1999 那一路现场取数
+// 由"ctx 定死"改成"段 5 判定回执现场覆盖"（真身那一格是判定层按方案挑的实例，映射表在 settings 里、不是常量），
+// res 回执的 `data` 因此多两枚**可选键**（`Instance`／`Conn`，缺键一律回落 ctx ⇒ 既有场景逐字可比）；
+// 同批那另一半（转接层＋调度器默认档）不给核内加参数面，八道闸、role、外发格名册（当时 18 枚）一字未动。
 // 上一批（R8→R9，C-0「崩路语义同步进核」）的依据留此存照，免得读成"同一处形状升了两次"，三处一起变：
 // ① 段 9 由"`Err(Fail)` ⇒ 整轮 fatal ＋ break（下一路压根不派发）"改成**一路一档 try**（崩那路记
 //    `Status=error`／`Detail="运行中抛异常：<原文>"`／`Duration` 空，`fatal` 由 `Option<String>` 改 `String`
@@ -62,7 +73,7 @@ use std::process::exit;
 // ⚠ 改号必须与 `lib\common.ps1` 的 `Get-GdRustContract`、`tools\build-exe.ps1` 的内嵌名册、
 // `tools\rustcore\probe-connect.ps1`、`docs\r0-keyfacts.json` 顶层**同批**动，
 // 由 `probe-events-golden.ps1` 的 H3 半逐一对齐（壳侧字面量还要求只剩一种拼法）。
-const CONTRACT: &str = "RustCore-R10.0";
+const CONTRACT: &str = "RustCore-R11.0";
 const ROLE: &str = "R0-readonly";
 
 // ---------------------------------------------------------------- Win32 直调
@@ -85,8 +96,11 @@ extern "system" {
     // 所以它天生不是 verb —— 外发给壳答，等于让另一个进程去设一个对本进程无效的开关。
     // 这是 B-3 里唯一一处「该在核内新立 Win32 面」的例外，依据写在 docs\rust-core-plan.md §11.50 ①-8。
     // ⚠ 这里只做 ES_CONTINUOUS / ES_SYSTEM_REQUIRED / ES_DISPLAY_REQUIRED 三枚**设置**与一枚**查询**；
-    //   屏保那一格（user32 的 SystemParametersInfo）仍留壳侧 —— panel-cs 的 resolve-screensaver-verdict
-    //   与 tools\gdinterop\GdPower.cs 已经管着它，核不越界去抢（同 §11.52 ④「既有 verb 形状一字不动」）。
+    //   屏保那一格（user32 的 SystemParametersInfo）**仍不在这里** —— 判定与话术住在 panel-cs
+    //   (`resolve-screensaver-verdict`)，读数与副作用也住在 panel-cs（R9-a 新立的 `read-screensaver-config`
+    //   与 `disable-screensaver-for-round`，它俩用 tools\gdinterop\GdPower.cs 那两枚 SPI 声明）。
+    //   核不越界去抢：B-3②-a 那句"Windows 交互与本机值留在 C# 这一侧"照旧成立，本批改的只是**谁来问**
+    //   （R9-a 前＝外发给壳；后＝核内直答、自己调那四枚 verb），同 §11.52 ④「既有 verb 形状一字不动」。
     fn SetThreadExecutionState(es_flags: u32) -> u32;
 }
 
@@ -6311,11 +6325,16 @@ fn round_elev_flags() -> Vec<&'static str> {
 /// ⚠ 只挑这几格进结构体：`Paths` 的值与 `Absent` 的串里带本机绝对路径，
 /// 它们只用于现场判在不在和写那行"缺失：…"日志，**绝不进 journal、不进 ask 信封参数**
 /// （`ask` 的 params 只带 id/verb/opt 这类符号，路径由被问的一方自己现取）。
+/// `relaunch` 是 R9-a 新立的**第五枚、且不来自 ctx**（`--relaunch-entry` 那枚可选入程参数的现读值）：
+/// 它同样带本机绝对路径 ⇒ 与上面那句同源，**绝不进 journal、绝不进 ask 信封、绝不进侧信道**，
+/// 唯一的消费点是 `round_answer` 的 `round-elevate` 那一臂（把它原样转交 `start-elevated-round`）。
+/// 缺参数／读不动／形状坏 ⇒ `JVal::Null` ⇒ 那一臂答 `Ok(None)` ⇒ 照旧外发给壳。
 struct RoundEnv {
     runtime: JVal,
     elevation: JVal,
     paths: JVal,
     now_text: String,
+    relaunch: JVal,
 }
 
 impl Clone for RoundEnv {
@@ -6325,6 +6344,7 @@ impl Clone for RoundEnv {
             elevation: self.elevation.clone(),
             paths: self.paths.clone(),
             now_text: self.now_text.clone(),
+            relaunch: self.relaunch.clone(),
         }
     }
 }
@@ -6385,13 +6405,44 @@ fn round_env_fetch(
         elevation: jv_get_ci(&d, "Elevation"),
         paths: jv_get_ci(&d, "Paths"),
         now_text: jv_str(&jv_get_ci(&d, "NowText")),
+        // ⚠ 第五枚**不从这一发来**：`relaunch` 是 `--relaunch-entry` 那枚入程参数的现读值，
+        // 由 `drive_round_daily_envelope` 在取到 env 之后补上（ctx verb 不知道它，也不该知道 ——
+        // 它是"入口自己的路径"，而 ctx 那块一轮一定稿、要进 journal）。
+        relaunch: JVal::Null,
     })
+}
+
+/// 读 `--relaunch-entry` 那一枚**可选入程参数**（R9-a 收编 `round-elevate` 的取数通道）。
+/// 三条都不许改：
+/// 1. **缺参数 ⇒ `JVal::Null`**（不是报错）：这一枚是"多给一条答得动的路"，不是新增必填闸；
+///    旧调用方（手起核、门的旧夹具）不给它时，`round_answer` 那一臂答 `Ok(None)` ⇒ 照旧出 ask 信封，
+///    与 R10 时代的读数**逐字可比** —— 这一格由自检的"缺参数⇒照旧外发"钉着；
+/// 2. **读不动／不是合法 JSON ⇒ 同样 `JVal::Null`**：入程参数的毛病不是本轮的失败，真身那一路
+///    仍然答得动（转接层的白名单外动作照样拒跑，所以这里绝不能"顺手抛一个错"把可回退变成必崩）；
+/// 3. **值只在内存里走**：不进 journal（它是本机绝对路径）、不进 ask 信封、不进侧信道、不进日志。
+///    与 `RoundEnv` 头注那句"Paths 的值绝不进 journal"同源。
+fn round_relaunch_load(path: &str) -> JVal {
+    if path.is_empty() {
+        return JVal::Null;
+    }
+    match std::fs::read_to_string(path) {
+        Ok(t) => match jv_parse(&t) {
+            Ok(v) => v,
+            Err(_) => JVal::Null,
+        },
+        Err(_) => JVal::Null,
+    }
 }
 
 /// `--daily-round` 的 ctx（壳写一遍、journal 的 init 行原样存它 ⇒ 换 ctx 必须起新 journal）。
 /// 十枚对应 `Invoke-GdDailyRound` 的十枚参数：`Ids Gates Opt Force DryRun SkipCleanup NoElevate
 /// NameField NoticeOwner Tag`。刻意**不带**的两枚：`S`（settings 由 ctx verb 现取，整块不许进核）、
-/// `ElevateScript`/`BoundParams`（提权那发重跑的是**入口自己的**路径，核不知道也不该知道 ⇒ 走 ask）。
+/// `ElevateScript`/`BoundParams` —— ⚠ 这一枚的理由在 R9-a 被**改口**了（原文在册：「提权那发重跑的是
+/// **入口自己的**路径，核不知道也不该知道 ⇒ 走 ask」，10-17 所有者拍板"全收编：动参数面"后改判）：
+/// 改口的是**知情范围**而不是这条理由本身 —— 入口路径仍然**不进 ctx**（ctx 一轮一定稿、要原样进
+/// journal 的 init 行，把本机绝对路径写进去就是把它抄进账本），它走 `--relaunch-entry` 那一枚
+/// **只活在这一轮内存里**的入程参数，且**拼参语义仍在 PS 侧**（`Get-GdRelaunchArgList` 现拼好再交）。
+/// 于是"核不该知道入口路径"降级成"核只在提权那一发上、按调用方递来的值转交一次，不解释、不落账"。
 /// `log_leaf` 是**第十一枚、且不是参数**：真身那句"(详情见 logs\$leaf)"有**两处**消费点 ——
 /// 判定段 catch 里 `Stop-GdBeforeRun "$($m.ShortName) 这一路今天判定不出来：…(详情见 logs\$leaf)"`、
 /// 以及收尾那句 `$noticeText += "`n(详情见 logs\$leaf)"`。`$leaf` 取的是
@@ -6778,6 +6829,51 @@ fn round_lean_decision(dec: &JVal, stage: &str) -> JVal {
     ])
 }
 
+/// 现采一枚"本轮关卡开放观测"（`read-maa-stage-observation` 的七键对象，读不到 = `JVal::Null`）。
+/// 两枚答手共用这一把：`("ark","obs")`（记账那格）与 R9-a 新收编的 `round-probe:ark`（活动图自证）——
+/// 真身那两侧调的都是同一枚 `Get-GdMaaStageObservation -S $S`，分成两处写迟早漂一处键名。
+/// ⚠ `Found:false` ⇒ **Null**，不是空对象：旧身返的是 `$null`，账上/判据那头都按"没有观测"读
+/// （`Orchestration.ArkEventProbe` 对 `obs==null` 那一档的原话是"采集段没做起来"，给它一份空对象
+///   会把这句换成"名单被剪空"，那是判据翻案）。
+/// ⚠ `nowText` 这一枚**只能给日期，不许带钟点**（10-17 18:00 那班守一轮当场咬到）：verb 侧的契约是
+///   `Chain.cs:465` 那句默认值 `DateTime.Now.ToString("yyyy-MM-dd")`，而 PS 真身从不注入这一枚
+///   （`Get-GdMaaStageObservation -S $S` 只给两份日志尾）⇒ 注入面一旦塞进本轮钟点串（`NowText` 是
+///   `yyyy-MM-dd HH:mm:ss`），观测对象的 `Date` 就跟着带时间，`obsrec` 那格只认三段横线日期
+///   （`gd_dow_from_date` 按 `-` 切三段，第三段解不动 i64）⇒ 每轮恒 Err、
+///   「关卡开放观测没做起来」那句 WARN 变成 核内轮的常驻话术，那本按星期聚合的账也再进不去新行。
+///   截法取「第一个空白/`T` 之前」而不是改叫 `gd_local_date()`：夹具与门仍能从 `NowText` 钉住某一天，
+///   生产里两者同值（钟点串的前十位就是今天）。
+fn round_obs_fetch(
+    hooks: &mut RoundHooks,
+    env: &RoundEnv,
+) -> Result<JVal, String> {
+    let mut body: Vec<(&str, JVal)> = Vec::new();
+    if !env.now_text.is_empty() {
+        let d = env.now_text.trim();
+        let date_only: &str = match d.find([' ', 'T']) {
+            Some(i) => &d[..i],
+            None => d,
+        };
+        body.push(("nowText", jv_s(date_only)));
+    }
+    let d = (hooks.call)("read-maa-stage-observation", &jv_o(body))?;
+    if !jv_truthy(&jv_get_ci(&d, "Found")) {
+        return Ok(JVal::Null);
+    }
+    // 观测七键**按 verb 的原键名摆**（PascalCase）：这一枚的 data 之后由 `obsrec` 那格真做吃掉，
+    // 而 obsrec 的取键是按 PS 对象属性名写的 —— 在这里改成小写就是把跨格协议拆了。
+    // verb 多出来的 `LogsRead`/`Reason` 不落账：旧身那块对象里根本没有这两格。
+    Ok(jv_o(vec![
+        ("Found", jv_get_ci(&d, "Found")),
+        ("Date", jv_get_ci(&d, "Date")),
+        ("Stage", jv_get_ci(&d, "Stage")),
+        ("LastBattle", jv_get_ci(&d, "LastBattle")),
+        ("SawGuiPlan", jv_get_ci(&d, "SawGuiPlan")),
+        ("Survivors", jv_get_ci(&d, "Survivors")),
+        ("Selected", jv_get_ci(&d, "Selected")),
+    ]))
+}
+
 /// **第三答手的名册**（本批唯一一处"谁来答"的判据）。返回 `Ok(None)` = 这一格照旧外发 ask。
 /// 每一格直答的三件事都是既有的：verb 名是 b1/b2/②-a 落下的那一枚、body 键按枚点名、
 /// 落账的 `data` 形状**与 PS executor 当年写进 res 的那一枚逐字同形**（两侧账行才可对拍）。
@@ -6916,12 +7012,123 @@ fn round_answer(
             let set = (hooks.es)(ES_CONTINUOUS);
             DirectOut::only(JVal::B(set != 0))
         }
+        ("round", ROUND_SCREENSAVER_ACT) => {
+            // R9-a 收编（"只关不复"那整段读数）：SPI 现读 + 关掉 + 清旧机制那本 state 文件都在新立的
+            // `disable-screensaver-for-round` 里（它用 tools\gdinterop\GdPower.cs 那份唯一真身，
+            // SPI 的 P/Invoke 声明**不在 panel-cs 里抄第二份**，同 build.ps1 带 GdWin.cs 那条口径）。
+            // ⚠ 回执只挑三枚、键名与转接层当年写进 res 的那枚逐字同序 ⇒ 段 8 那四档话术一字不改。
+            // ⚠ 这一格的 Err 也不许冒泡成整轮崩：判据在段 8 那一处 `match`（真身整段只有一个 try）。
+            let d = (hooks.call)(
+                "disable-screensaver-for-round",
+                &jv_o(vec![("stateDir", jv_s(state))]),
+            )?;
+            DirectOut::only(jv_o(vec![
+                ("Read", jv_get_ci(&d, "Read")),
+                ("WasActive", jv_get_ci(&d, "WasActive")),
+                ("Disabled", jv_get_ci(&d, "Disabled")),
+            ]))
+        }
+        ("round", a) if a == GD_MODULE_ARK.history_act || a == GD_MODULE_R1999.history_act => {
+            // R9-a 收编：`state\history.csv` 那一行由新立的 `append-round-history` 落盘。
+            // 三处形状都照真身（lib\common.ps1:904-932）：舍入仍按 `[math]::Round` 那把中点取偶、
+            // `-0` 那格由 `GdCore.Csv.DurationText` 钉成 "0"、detail 里的换行折成 " | "、
+            // 表头与 CRLF/无 BOM 由 verb 按实测字节补（实测见 §11.67）。
+            // 时间戳**不在核内给**：真身每写一行现取一次 `Get-Date`，而 ctx 的 NowText 是**起轮那一刻**的快照
+            // ⇒ 这一格故意不喂 `nowText` 旋钮，由 verb 现读（喂了就是把每行的时间都盖成 06:00:00）。
+            // ⚠ data 仍是 `true`（转接层当年写进 res 的那枚就是 `$true`）⇒ 投影与崩路那三处不用跟着改。
+            let _ = (hooks.call)(
+                "append-round-history",
+                &jv_o(vec![
+                    ("id", jv_get_ci(params, "id")),
+                    ("status", jv_get_ci(params, "status")),
+                    ("mode", jv_get_ci(params, "mode")),
+                    ("detail", jv_get_ci(params, "detail")),
+                    ("durationSec", jv_get_ci(params, "durationSec")),
+                    ("stateDir", jv_s(state)),
+                ]),
+            )?;
+            DirectOut::only(JVal::B(true))
+        }
+        ("round", a) if a == GD_MODULE_ARK.probe_act => {
+            // R9-a 收编：活动图每轮自证（lib\ark-decisions.ps1:146-177 的采集段整段）。
+            // 观测读数现采 ⇒ `round_obs_fetch`；两枚前置闸（EventKey／StageHint 给不出就不采）、
+            // 四档判据与落盘都在新立的 `update-ark-event-probe` 里（判据那半复用同装配的
+            // `decide-ark-event-probe` 本体，**不在核内抄第二份**）。
+            // 那三句话术带**档位**回来（真身是 WARN／OK／WARN，而 `DirectOut.lines` 只会落 INFO）
+            // ⇒ 这里只回 `{Written,Level,Text}` 三枚，由段 9 的消费点用 `fx_log` 转成一行账外日志。
+            let obs = round_obs_fetch(hooks, env)?;
+            let d = (hooks.call)(
+                "update-ark-event-probe",
+                &jv_o(vec![
+                    ("decision", jv_get_ci(params, "decision")),
+                    ("obs", obs),
+                    ("stateDir", jv_s(state)),
+                ]),
+            )?;
+            DirectOut::only(jv_o(vec![
+                ("Written", jv_get_ci(&d, "Written")),
+                ("Level", jv_get_ci(&d, "NoticeLevel")),
+                ("Text", jv_get_ci(&d, "NoticeText")),
+            ]))
+        }
+        ("round", ROUND_ELEVATE_ACT) => {
+            // R9-a 收编（所有者 10-17 拍板"全收编：动参数面"）：入口路径与**已经拼好的**参数数组由
+            // `--relaunch-entry` 递进来，核内不解释、只原样转交**已在场**的 `start-elevated-round`
+            // （真起那半本来就在 Round.cs:330，两支载体与 -1 那一档都在那儿）。
+            // ⚠ 缺入程参数 ⇒ 答 `Ok(None)` ⇒ 照旧外发（旧调用方与门的旧夹具逐字可比，这条由自检钉着）；
+            // ⚠ 回执只取 `Code` 一格，与转接层当年那枚 `[pscustomobject]@{Code=[int]$ec}` 逐字同形
+            //   ⇒ 骨架那句「提权子轮结束，退出码 N」与 `return round_flow_early(code)` 一字不改；
+            //   `Carrier`／`BatchLine` 两格**不进账**（BatchLine 里是 pwsh 的绝对路径）。
+            let script = jv_str(&jv_get_ci(&env.relaunch, "Script"));
+            let arg_list = jv_get_ci(&env.relaunch, "ArgList");
+            if script.is_empty() || !matches!(arg_list, JVal::A(_)) {
+                return Ok(None);
+            }
+            let d = (hooks.call)(
+                "start-elevated-round",
+                &jv_o(vec![("script", jv_s(&script)), ("argList", arg_list.clone())]),
+            )?;
+            DirectOut::only(jv_o(vec![("Code", jv_get_ci(&d, "Code"))]))
+        }
         // ==================== 链体格：ark 那一路 ====================
         ("ark", "desk") => {
             // 甲档：不喂 handle ⇒ Live.cs:244 那一路只现读桌面名、一个窗口调用都不碰（"没读"与"读到 false"
             // 在这条话术里不是一回事，所以这里只取 `Desktop` 那一格，别的都不动）。
             let d = (hooks.call)("ark-desktop-state", &JVal::O(Vec::new()))?;
             DirectOut::only(jv_get_ci(&d, "Desktop"))
+        }
+        ("ark", "svdetail") => {
+            // R9-a 收编：这一格要的是"屏保当时装着什么"那枚**活读**（HKCU\Control Panel\Desktop 的稳态，
+            // 不是 SPI 现值 —— 新立的 `read-screensaver-config` 逐字照 Get-GdScreensaverConfig），
+            // 判据与四档话术**仍在那枚既有 verb** 里（`resolve-screensaver-verdict`／Decisions.cs:436-490）。
+            // ⚠ **恒返串**：真身那一整段是 `try { … } catch { $svTxt = '' }`（lib\ark-daily.ps1:423-433），
+            //   两枚 verb 任何一发起不来都不许把错冒泡成本轮崩，只答空串（早退原因少掉屏保那一行）。
+            //   注册表读不到 ≠ 起不来：那一档 verb 返 `Found:false` ⇒ cfg 交 **Null** ⇒ 判定给出
+            //   unknown 档那句"读不到 HKCU\Control Panel\Desktop，判断不了武装没有(不代表没事)"，
+            //   与真身"`Get-GdScreensaverConfig` 返 $null、判定照走 unknown 档"逐字同形。
+            let cfg = match (hooks.call)("read-screensaver-config", &JVal::O(Vec::new())) {
+                Ok(d) => {
+                    if jv_truthy(&jv_get_ci(&d, "Found")) {
+                        jv_o(vec![
+                            ("Saver", jv_get_ci(&d, "Saver")),
+                            ("Product", jv_get_ci(&d, "Product")),
+                            ("Active", jv_get_ci(&d, "Active")),
+                            ("TimeoutSec", jv_get_ci(&d, "TimeoutSec")),
+                        ])
+                    } else {
+                        JVal::Null
+                    }
+                }
+                Err(_) => return Ok(Some(DirectOut::only(jv_s("")))),
+            };
+            let v = (hooks.call)(
+                "resolve-screensaver-verdict",
+                &jv_o(vec![("cfg", cfg), ("floorSec", JVal::I(0))]),
+            );
+            match v {
+                Ok(d) => DirectOut::only(jv_s(&jv_str(&jv_get_ci(&d, "Detail")))),
+                Err(_) => DirectOut::only(jv_s("")),
+            }
         }
         ("ark", "takeover") => {
             // 丙档：两枚名字都是**现算**出来的 exe 名（`(Get-MaaPaths -S $S).Name` + 端游名，
@@ -7013,27 +7220,9 @@ fn round_answer(
             DirectOut::with_lines(jv_get_ci(&d, "Summary"), lines)
         }
         ("ark", "obs") => {
-            let mut body: Vec<(&str, JVal)> = Vec::new();
-            if !env.now_text.is_empty() {
-                body.push(("nowText", jv_s(&env.now_text)));
-            }
-            let d = (hooks.call)("read-maa-stage-observation", &jv_o(body))?;
-            if !jv_truthy(&jv_get_ci(&d, "Found")) {
-                // 两本日志都没读到 = 旧身返 $null 那一档 ⇒ 账上落 null（与 executor 当年逐字同形）。
-                return Ok(Some(DirectOut::only(JVal::Null)));
-            }
-            // 观测七键**按 verb 的原键名摆**（PascalCase）：这一枚的 data 之后由 `obsrec` 那格真做吃掉，
-            // 而 obsrec 的取键是按 PS 对象属性名写的 —— 在这里改成小写就是把跨格协议拆了。
-            // verb 多出来的 `LogsRead`/`Reason` 不落账：旧身那块对象里根本没有这两格。
-            DirectOut::only(jv_o(vec![
-                ("Found", jv_get_ci(&d, "Found")),
-                ("Date", jv_get_ci(&d, "Date")),
-                ("Stage", jv_get_ci(&d, "Stage")),
-                ("LastBattle", jv_get_ci(&d, "LastBattle")),
-                ("SawGuiPlan", jv_get_ci(&d, "SawGuiPlan")),
-                ("Survivors", jv_get_ci(&d, "Survivors")),
-                ("Selected", jv_get_ci(&d, "Selected")),
-            ]))
+            // R9-a：七键的取法抽进 `round_obs_fetch`（与活动图自证共用同一把），这一臂的形状一字未动：
+            // 两本日志都没读到 = 旧身返 $null 那一档 ⇒ 账上落 null（与 executor 当年逐字同形）。
+            DirectOut::only(round_obs_fetch(hooks, env)?)
         }
         // ==================== 链体格：r1999 那一路 ====================
         ("r1999", "takeover") => {
@@ -7091,10 +7280,12 @@ fn round_answer(
             DirectOut::only(JVal::B(true))
         }
         // ==================== 其余一律外发 ====================
-        // 名单：门表（round-gate:*）／判定（round-resolve:*）／预览（round-preview:*）／
-        // 收尾钩子（stop:*）／监督两枚／历史（round-history:*）／提权重启（round-elevate）／屏保那格，
-        // 加上链体里 `svdetail`（本批改口）与 `updgate`／`audit`（那两枚走 `gate`、根本不进这里）。
-        // **这里不写任何判据**：外发那一族的真身动作在 PS 侧，②-d 转接时才谈"要不要挪进来"。
+        // 名单（R9-a 收编之后）：门表（round-gate:*）／判定（round-resolve:*）／预览（round-preview:*）／
+        // 收尾钩子（stop:*）／监督两枚，加上链体里 `updgate`／`audit`（那两枚走 `gate`、根本不进这里）。
+        // 这里**不写任何判据**：外发那一族的真身动作在 PS 侧，转接层（B-4②）答它们。
+        // ⚠ R10 时代这份名单里还有六枚（`round-history:*` 两枚／`round-probe:ark`／`round-screensaver`／
+        //   `svdetail`／`round-elevate`），R9-a 把它们改成了核内直答 —— 换的是"谁来答"，
+        //   问法与落账形状逐字不动（判据在 `probe-round-rust-golden.ps1` 的 X1 那一格）。
         _ => return Ok(None),
     };
     Ok(Some(out))
@@ -7467,11 +7658,14 @@ fn daily_round_chain(
                     );
                 }
                 if keep {
-                    // 屏保那一格（读 SPI + 关闭 + 清旧机制那本 state 文件）留外发：核不越界去抢
-                    // user32 那枚（extern 块的头注写了依据）。四档话术在骨架，判据在外侧。
+                    // 屏保那一格（读 SPI + 关闭 + 清旧机制那本 state 文件）：R9-a 起由核内直答，
+                    // 但**核内仍然一个 user32 都不碰** —— SPI 那两发在 `disable-screensaver-for-round`
+                    // 里，用的是 tools\gdinterop\GdPower.cs 那份唯一真身（同 build.ps1 带 GdWin.cs 的口径，
+                    // extern 声明不在 panel-cs 抄第二份）。四档话术留在骨架，判据在 verb 那侧。
                     // ⚠ 这一格的 Fail **不许冒泡**：真身整段 `Enter-GdNoSleep` 只有一个 try/catch，
                     // 屏保那几句全在 try 内 ⇒ 拿不到读数只留一句「禁止睡眠失败：…」，本轮照跑
                     // （§11.55 ③ 抓出来的真红之一：写成 `?` 等于把"屏保读不动"升级成本轮崩）。
+                    //   收编改的是**谁来答**，不是**答不动了怎么办** —— 这一段一行没跟着动。
                     let sv = fx.ans("round", ROUND_SCREENSAVER_ACT, JVal::Null, |d| d.clone());
                     let sv = match sv {
                         Ok(d) => Some(d),
@@ -7542,10 +7736,21 @@ fn daily_round_chain(
                             "round",
                             m.probe_act,
                             jv_o(vec![("decision", dec.clone())]),
-                            |_| (),
+                            |d| d.clone(),
                         );
                         match p {
-                            Ok(()) => {}
+                            // 三句话术由答手（新立的 `update-ark-event-probe`）带**档位**回来，这里转成
+                            // 一行账外日志：真身那三句用的是 WARN／OK／WARN（lib\ark-decisions.ps1:160/172/174），
+                            // 而 `DirectOut.lines` 只会按 INFO 落侧信道 ⇒ 走 `fx_log` 才不降档。
+                            // 空串＝这一轮没什么要说（EventKey／StageHint 给不出那一档，verb 原样返空）。
+                            Ok(d) => {
+                                let tx = jv_str(&jv_get_ci(&d, "Text"));
+                                if !tx.is_empty() {
+                                    let lv = jv_str(&jv_get_ci(&d, "Level"));
+                                    let lv: &str = if lv.is_empty() { "INFO" } else { &lv };
+                                    fx.fx_log(lv, &tx);
+                                }
+                            }
                             Err(ArkAbort::Fail(msg)) => {
                                 fx.fx_log("WARN", &format!("活动图自证没做起来：{}(不影响本轮)", msg));
                             }
@@ -7764,6 +7969,7 @@ fn drive_round_daily_envelope(
     log_sink: &str,
     root: &str,
     framework_break: &str,
+    relaunch_entry: &str,
     hooks: &mut RoundHooks,
     ark_decide: &mut dyn FnMut(&str, bool) -> Result<(bool, Vec<(String, String)>), String>,
     m9a_decide: &mut dyn FnMut(&str, bool, bool) -> Result<(bool, Vec<(String, String)>), String>,
@@ -7807,6 +8013,9 @@ fn drive_round_daily_envelope(
         Ok(e) => e,
         Err(e) => return (1, fail(&format!("驱动协议坏了：本轮现场读数取不到：{}", e))),
     };
+    // R9-a：提权那一发的入程值补进 env（**不进 ctx、不进 journal**，理由见 `round_relaunch_load` 头注）。
+    // 顺序有意：排在 env 之后、journal 之前 —— journal 的 init 行只认 ctx，这一枚连"落账"的机会都不给。
+    let env = RoundEnv { relaunch: round_relaunch_load(relaunch_entry), ..env };
     // ---- journal ----
     let mut rows: Vec<JVal>;
     match std::fs::read_to_string(journal) {
@@ -7927,6 +8136,7 @@ fn run_drive_round_daily(
     root: &str,
     fixture_run: &str,
     framework_break: &str,
+    relaunch_entry: &str,
     out: &Option<String>,
 ) -> i32 {
     let mut dec = |st: &str, ro: bool| arksk_call_decide(panel_cs, st, ro);
@@ -7947,7 +8157,7 @@ fn run_drive_round_daily(
         let mut run = |sc: &MaaScen, ch: &[String]| drive_real_run(panel_cs, log_sink, sc, ch);
         let mut run9 = |sc: &M9aScen| drive_real_m9a_run(panel_cs, log_sink, sc);
         let pair = drive_round_daily_envelope(
-            i_round, journal, ctx, res, panel_cs, state, log_sink, root, framework_break, &mut hooks, &mut dec,
+            i_round, journal, ctx, res, panel_cs, state, log_sink, root, framework_break, relaunch_entry, &mut hooks, &mut dec,
             &mut dec9, &mut run,
             &mut run9,
         );
@@ -8008,7 +8218,7 @@ fn run_drive_round_daily(
                     }
                 };
                 let pair = drive_round_daily_envelope(
-                    i_round, journal, ctx, res, panel_cs, state, log_sink, root, framework_break, &mut hooks,
+                    i_round, journal, ctx, res, panel_cs, state, log_sink, root, framework_break, relaunch_entry, &mut hooks,
                     &mut dec, &mut dec9, &mut run, &mut run9,
                 );
                 rc = pair.0;
@@ -17360,6 +17570,30 @@ fn selftest() -> i32 {
                     ("LockedKnown", JVal::B(true)),
                 ]),
                 "resolve-screensaver-verdict" => jv_o(vec![("Detail", jv_s("屏保：没挂 .scr"))]),
+                // ---- R9-a 收编四格所需的四枚新 verb（回执键名照 panel-cs 那侧的原样 PascalCase 摆）----
+                // ⚠ 这里的假值一律用**中性字面量**：Saver 那枚真身是本机绝对路径，自检喂它等于把泄漏面
+                //   写进源码；这一格要钉的是"取哪几枚键、Found=false 折不折成 cfg=Null"，不是路径本身。
+                "read-screensaver-config" => jv_o(vec![
+                    ("Found", JVal::B(true)),
+                    ("Saver", jv_s("SFAKE.scr")),
+                    ("Product", jv_s("FakeProduct")),
+                    ("Active", jv_s("1")),
+                    ("TimeoutSec", JVal::I(600)),
+                ]),
+                "disable-screensaver-for-round" => jv_o(vec![
+                    ("Read", JVal::B(true)),
+                    ("WasActive", JVal::B(true)),
+                    ("Disabled", JVal::B(true)),
+                ]),
+                "append-round-history" => jv_o(vec![("Written", JVal::B(true))]),
+                // obs 那一发在本档恒回 Found=false ⇒ 真 verb 收到的就是 obs:null ⇒ Valid:false 那一句 WARN。
+                // 这里原样摆真身会给出的那句话，为的是让 24i 能钉"档位没被降成 INFO"。
+                "update-ark-event-probe" => jv_o(vec![
+                    ("Written", JVal::B(false)),
+                    ("NoticeLevel", jv_s("WARN")),
+                    ("NoticeText", jv_s("活动图自证：本轮没有关卡开放观测(采集段没做起来) → 这条结论不落地，下轮照常再试")),
+                ]),
+                "start-elevated-round" => jv_o(vec![("Code", JVal::I(0)), ("Carrier", jv_s("pwsh"))]),
                 "takeover-processes" => jv_o(vec![
                     ("Done", JVal::B(true)),
                     ("Label", jv_s("方舟/MAA")),
@@ -17635,7 +17869,7 @@ fn selftest() -> i32 {
         // ---------- 24f 环境检查：就绪条数与"没填"那一档的行文本 ----------
         let mut env24 = match round_env_fetch(&mut |_v: &str, _b: &JVal| Ok(r24_reply("resolve-round-context", &paths_ok24))) {
             Ok(e) => e,
-            Err(_) => RoundEnv { runtime: JVal::Null, elevation: JVal::Null, paths: JVal::Null, now_text: String::new() },
+            Err(_) => RoundEnv { runtime: JVal::Null, elevation: JVal::Null, paths: JVal::Null, now_text: String::new(), relaunch: JVal::Null },
         };
         // 半就绪的一份 paths：ark 那两枚在位（MAA 目录／MAA 配置），端游没填、1999 那三路整块没填
         // ⇒ 就绪 2 条、缺失 4 行，且四行**全是** "(没填)" 那一档（不是"路径不存在"那一档）。
@@ -17691,9 +17925,15 @@ fn selftest() -> i32 {
         let inst24 = round_m9a_instance_slot(jv_o(vec![("id", jv_s("1")), ("name", jv_s("1999"))]));
         let mut ask_none: Vec<String> = Vec::new();
         let mut data_of: Vec<String> = Vec::new();
+        // 现采观测那一发的 `nowText` **取值**（不是键名册，键名册由下面那格管）：10-17 18:00 那班
+        // 守一轮咬到的形状，见 `round_obs_fetch` 头注。
+        let mut obs_now24: Vec<String> = Vec::new();
         {
             let mut call24 = |v: &str, b: &JVal| -> Result<JVal, String> {
                 proj24.push(format!("{}|{}", v, r24_keys(b)));
+                if v == "read-maa-stage-observation" {
+                    obs_now24.push(jv_str(&jv_get_ci(b, "nowText")));
+                }
                 Ok(r24_reply(v, &paths_ok24))
             };
             let mut nap24 = |s: u32| {
@@ -17734,6 +17974,13 @@ fn selftest() -> i32 {
                 ),
                 ("round", ROUND_NOSLEEP_ACT, jv_o(vec![("keepScreenOn", JVal::B(true))])),
                 ("round", ROUND_NOSLEEP_OFF_ACT, JVal::Null),
+                // ---- R9-a 收编进来的四枚（原来在外发那一族，24g 下面那段逐枚点名已把它们摘出去）----
+                // ⚠ 这四枚的账行形状必须与转接层当年写进 res 的那枚逐字同形，否则门的第三侧就比不动了。
+                ("ark", "svdetail", JVal::Null),
+                ("round", ROUND_SCREENSAVER_ACT, JVal::Null),
+                ("round", GD_MODULE_ARK.history_act, jv_o(vec![("id", jv_s("ark"))])),
+                ("round", GD_MODULE_R1999.history_act, jv_o(vec![("id", jv_s("r1999"))])),
+                ("round", GD_MODULE_ARK.probe_act, jv_o(vec![("decision", JVal::Null)])),
             ]
             .iter()
             {
@@ -17743,7 +17990,11 @@ fn selftest() -> i32 {
                     Err(m) => ask_none.push(format!("{}:{}→Err({})", role, action, m)),
                 }
             }
-            // 外发那一族逐枚点名（答 None = 协议没删）：门表/判定/预览/收尾/监督/历史/提权/屏保 + svdetail + updgate/audit。
+            // 外发那一族逐枚点名（答 None = 协议没删）：门表/判定/预览/收尾/监督/提权 + updgate/audit。
+            // ⚠ R9-a 把上一族的四枚（svdetail／round-screensaver／history 两枚／round-probe）摘走了，
+            //   但 `ROUND_ELEVATE_ACT` **必须留在这一族**：env24.relaunch 是 Null ⇒ 缺 `--relaunch-entry`
+            //   那一发答 None ⇒ 照旧外发。这一格同时就是 elevate 的**负对照**——收编不许把旧调用方
+            //   （门的旧夹具、没带新参数面的壳）的那条通道堵死，堵死了回退档就没地方站了。
             for (role, action, params) in [
                 ("round", "round-gate:ark", JVal::Null),
                 ("round", "round-resolve:ark", JVal::Null),
@@ -17751,11 +18002,7 @@ fn selftest() -> i32 {
                 ("round", "stop:ark", JVal::Null),
                 ("round", ROUND_SUPERVISOR_START_ACT, JVal::Null),
                 ("round", ROUND_SUPERVISOR_STOP_ACT, JVal::Null),
-                ("round", "round-history:ark", JVal::Null),
                 ("round", ROUND_ELEVATE_ACT, JVal::Null),
-                ("round", ROUND_SCREENSAVER_ACT, JVal::Null),
-                ("round", "round-probe:ark", JVal::Null),
-                ("ark", "svdetail", JVal::Null),
                 ("r1999", "updgate", JVal::Null),
                 ("r1999", "audit", JVal::Null),
             ]
@@ -17817,7 +18064,19 @@ fn selftest() -> i32 {
                 && data_of.iter().any(|l| l.starts_with("r1999:cfg:{\"changes\":"))
                 && data_of.iter().any(|l| l.starts_with("round:round-lock:{\"Wrote\":true,\"PrevAlive\":false}"))
                 && data_of.iter().any(|l| l.starts_with("round:round-unlock:{\"Had\":true,\"Removed\":true}"))
-                && data_of.iter().any(|l| l.starts_with("round:round-notice:{\"Title\":\"每日日常已完成\"")),
+                && data_of.iter().any(|l| l.starts_with("round:round-notice:{\"Title\":\"每日日常已完成\""))
+                // ---- R9-a 收编那四格：账行形状必须与转接层当年写进 res 的那枚**逐字同形**，
+                //   否则轮骨架门的第三侧（核内 vs 转接层）一比就散。history 两枚仍是裸 `true`
+                //   （转接层那枚是 `$data = $true`）；probe 那枚多带 Level/Text 两格是**本批新立的档位通道**，
+                //   旧身在 res 里只有 `Done`，但这一格的 data 从来不进对拍面（它只喂 fx_log），
+                //   钉的是「WARN 不许被降成 INFO」这件事有码面读数，不是形状巧合。
+                && data_of.iter().any(|l| l == "ark:svdetail:\"屏保：没挂 .scr\"")
+                && data_of
+                    .iter()
+                    .any(|l| l == "round:round-screensaver:{\"Read\":true,\"WasActive\":true,\"Disabled\":true}")
+                && data_of.iter().any(|l| l == "round:round-history:ark:true")
+                && data_of.iter().any(|l| l == "round:round-history:r1999:true")
+                && data_of.iter().any(|l| l.starts_with("round:round-probe:ark:{\"Written\":false,\"Level\":\"WARN\",\"Text\":")),
             &format!(
                 "直答那一族的账行形状变了（PS executor 当年写进 res 的 data 是这个形状，改了②-b 的门就没法逐字节比）：{}",
                 data_of.join(" § ")
@@ -17834,10 +18093,127 @@ fn selftest() -> i32 {
                 && proj24.iter().any(|p| p == "read-maa-stage-observation|nowText")
                 && proj24.iter().any(|p| p == "apply-m9a-instance|apply,instance")
                 && proj24.iter().any(|p| p == "start-run-lock|games,log,pid,tag")
-                && proj24.iter().any(|p| p == "send-round-notice|allOk,level,owner,text"),
+                && proj24.iter().any(|p| p == "send-round-notice|allOk,level,owner,text")
+                // ---- R9-a 收编四格喂给 verb 的键名册（逐枚点名，整块 decision/obs 不许借道）----
+                // `svdetail` 那一格是**两发**：现读的 config（无参）＋把 cfg 折给既有判定 verb；
+                // config 读不到时交的是 Null 而不是空对象，这一格钉不住那个折法，由下面的专块钉。
+                && proj24.iter().any(|p| p == "read-screensaver-config|")
+                && proj24.iter().any(|p| p.starts_with("resolve-screensaver-verdict|cfg,floorSec"))
+                && proj24.iter().any(|p| p == "disable-screensaver-for-round|stateDir")
+                && proj24.iter().any(|p| p == "append-round-history|detail,durationSec,id,mode,stateDir,status")
+                && proj24.iter().any(|p| p == "update-ark-event-probe|decision,obs,stateDir"),
             &format!(
                 "答手喂给 verb 的 body 键名册变了（逐枚点名取键是②的判据，整块 runtime/paths 不许进去）：{}",
                 proj24.join(" § ")
+            ),
+            &mut fails,
+            &mut total,
+        );
+        // ---------- R9-a 随行：现采观测的 nowText 必须是**纯日期**（10-17 18:00 守一轮咬到的形状） ----------
+        // 这一格钉的是**取值**而不是键名册：上面那格在"整串钟点照抄"的坏形状下照样绿（键还是那一枚
+        // `nowText`），所以它不是这格的替身。判据按 verb 侧契约来：`Chain.cs:465` 的默认值是
+        // `yyyy-MM-dd`、真身从不注入 ⇒ 注入面给出去的东西必须能当日期用，否则 `obsrec` 恒 Err、
+        // 「关卡开放观测」在 核内轮里永远记不进去（今晚那句 WARN 就是这么来的）。
+        // 夹具的 `NowText` 是 `2026-10-15 06:00:00` ⇒ 期望截到 `2026-10-15`；两枚答手（`("ark","obs")`
+        // 与 `round-probe:ark`）都走同一把，所以这一格同时覆盖收编前后两条来路。
+        chk(
+            !obs_now24.is_empty() && obs_now24.iter().all(|s| s == "2026-10-15"),
+            &format!(
+                "现采观测喂给 verb 的 nowText 带了钟点（obsrec 只认三段横线日期，带时间＝每轮恒 Err、观测账本进不去）：取值={}",
+                obs_now24.join(" / ")
+            ),
+            &mut fails,
+            &mut total,
+        );
+        // ---------- R9-a 专块 A：elevate 的两档（缺入程参数／给入程参数） ----------
+        // 上面「外发那一族」那格已经钉了缺 `--relaunch-entry` ⇒ 答 None（旧壳与门的旧夹具逐字可比）；
+        // 这一格钉的是**反方向**：参数在场时改由核内直答，且账上只留 `Code` 一格。
+        // ⚠ 只取 Code 不是偷懒：`Carrier` 里是 pwsh 绝对路径、`BatchLine` 里是整条命令，
+        //   进了 data 就等于把本机路径抄进 journal 的账行（转接层当年那枚回执也是 `{Code}` 单键）。
+        let mut elev_body = String::new();
+        let elev_data;
+        {
+            let env_e = RoundEnv {
+                relaunch: jv_o(vec![
+                    ("Script", jv_s("C:\\fake\\daily-clear.ps1")),
+                    ("ArgList", JVal::A(vec![jv_s("-DailyRound"), jv_s("-Force")])),
+                ]),
+                ..env24.clone()
+            };
+            let mut call_e = |v: &str, b: &JVal| -> Result<JVal, String> {
+                if v == "start-elevated-round" {
+                    elev_body = r24_keys(b);
+                }
+                Ok(r24_reply(v, &paths_ok24))
+            };
+            let mut nap_e = |_s: u32| {};
+            let mut es_e = |_f: u32| -> u32 { ES_CONTINUOUS };
+            let mut hk_e = RoundHooks { call: &mut call_e, nap: &mut nap_e, es: &mut es_e };
+            elev_data = match round_answer(&mut hk_e, &env_e, &root_all, &t24("state"), &inst24, &live_dec, "round", ROUND_ELEVATE_ACT, &JVal::Null) {
+                Ok(Some(o)) => jv_to_json(&o.data),
+                Ok(None) => "None".to_string(),
+                Err(m) => format!("Err({})", m),
+            };
+        }
+        chk(
+            elev_body == "argList,script" && elev_data == "{\"Code\":0}",
+            &format!(
+                "elevate 直答那格变了（喂给 verb 的键名册、或账上只留 Code 这一格——多带 Carrier/BatchLine 就是把本机路径抄进账）：body={} data={}",
+                elev_body, elev_data
+            ),
+            &mut fails,
+            &mut total,
+        );
+
+        // ---------- R9-a 专块 B：svdetail 的「恒返串」三档 ----------
+        // 真身那一整段是 `try { … } catch { $svTxt = '' }`（lib\ark-daily.ps1:423-433）⇒ 两枚 verb
+        // 任何一发起不来都只答空串，**绝不许把 Err 冒泡成本轮崩**（这一格崩了不该崩本轮）。
+        // 但「注册表读不到」≠「起不来」：那一档 verb 老老实实回 `Found:false` ⇒ cfg 交 **Null**，
+        // 让判定自己给出 unknown 档那句 —— 收编不许把两种状态糊成一档（前者是读数，后者是故障）。
+        let mut sv_txt: Vec<String> = Vec::new();
+        let mut sv_cfg: Vec<String> = Vec::new();
+        let mut sv_bad: Vec<String> = Vec::new();
+        for tier in 0u8..3 {
+            let mut verdict_calls = 0usize;
+            let mut call_sv = |v: &str, b: &JVal| -> Result<JVal, String> {
+                if v == "resolve-screensaver-verdict" {
+                    verdict_calls += 1;
+                    sv_cfg.push(jv_to_json(&jv_get_ci(b, "cfg")));
+                }
+                if tier == 0 && v == "read-screensaver-config" {
+                    return Err("现读起不来（夹具）".to_string());
+                }
+                if tier == 1 && v == "resolve-screensaver-verdict" {
+                    return Err("判定起不来（夹具）".to_string());
+                }
+                if tier == 2 && v == "read-screensaver-config" {
+                    return Ok(jv_o(vec![("Found", JVal::B(false))]));
+                }
+                Ok(r24_reply(v, &paths_ok24))
+            };
+            let mut nap_sv = |_s: u32| {};
+            let mut es_sv = |_f: u32| -> u32 { ES_CONTINUOUS };
+            let mut hk_sv = RoundHooks { call: &mut call_sv, nap: &mut nap_sv, es: &mut es_sv };
+            match round_answer(&mut hk_sv, &env24, &root_all, &t24("state"), &inst24, &live_dec, "ark", "svdetail", &JVal::Null) {
+                Ok(Some(o)) => {
+                    sv_txt.push(jv_str(&o.data));
+                    if tier == 0 && verdict_calls != 0 {
+                        sv_bad.push(format!("[0→现读起不来还去问了判定 {} 次]", verdict_calls));
+                    }
+                }
+                Ok(None) => sv_bad.push(format!("[{}→本该直答却答了 None]", tier)),
+                Err(m) => sv_bad.push(format!("[{}→Err 冒泡了({})]", tier, m)),
+            }
+        }
+        chk(
+            sv_bad.is_empty()
+                && sv_txt == vec!["".to_string(), "".to_string(), "屏保：没挂 .scr".to_string()]
+                && sv_cfg.len() == 2
+                && sv_cfg[0] == "{\"Saver\":\"SFAKE.scr\",\"Product\":\"FakeProduct\",\"Active\":\"1\",\"TimeoutSec\":600}"
+                && sv_cfg[1] == "null",
+            &format!(
+                "svdetail 那格的「恒返串」走样了（两枚 verb 任一 Err 都只答空串、Found:false 才折成 cfg=null、config 起不来时不该再问判定）：txt={:?} 坏={:?} cfg={:?}",
+                sv_txt, sv_bad, sv_cfg
             ),
             &mut fails,
             &mut total,
@@ -17950,7 +18326,7 @@ fn selftest() -> i32 {
                     })
                 };
                 drive_round_daily_envelope(
-                    true, &j24, &c24, &r24, "unused-panel-cs", &s24, &k24, &root24, "", &mut hk24, &mut dec, &mut dec9,
+                    true, &j24, &c24, &r24, "unused-panel-cs", &s24, &k24, &root24, "", "", &mut hk24, &mut dec, &mut dec9,
                     &mut run, &mut run9,
                 )
             };
@@ -18014,18 +18390,36 @@ fn selftest() -> i32 {
         );
         // ⚠ 名单里**没有 svdetail**：这一档走的是假 verb 回 `Desktop="Default"` 那一路（桌面正常），
         //   而链体那一格只在"桌面不对、要把屏保读数写进早退原因"时才发生 —— 缺席是**真身的条件**，
-        //   不是漏了一格。同理 keepScreenOn=false ⇒ 屏保那格也没问。外发那一族的**完整名册**由 24g
-        //   那一段逐枚钉（十三枚全问了一遍），这一段只钉"段与段之间的先后"，两格各管一段。
+        //   不是漏了一格。同理 keepScreenOn=false ⇒ 屏保那格也没问。
+        // ⚠ R9-a 起名单里**再没有 round-history / round-probe**：这四格收编成核内直答之后，
+        //   它们从"问出去的 ask"变成"落进来的 soft 账行"，形状由下面那格 jrows 钉。
+        //   这一段只钉"段与段之间的先后"，外发那一族的**完整名册**由 24g 那一段逐枚钉。
         chk(
             acts24 == vec![
                 "round-resolve:ark".to_string(),
                 "round-supervisor-start".to_string(),
-                "round-probe:ark".to_string(),
                 "round-supervisor-stop".to_string(),
                 "stop:ark".to_string(),
-                "round-history:ark".to_string(),
             ],
             &format!("外发那一族的**顺序或枚数**变了（骨架的段序就是判据：锁/判定在前、监督先停再收尾、历史排在通知之前）：{:?}", acts24),
+            &mut fails,
+            &mut total,
+        );
+        // 收编那四格落进账面的形状（**问出去**变成**自己答**）：history 的 data 仍是裸 true，
+        // probe 的 data 带三枚（Written/Level/Text），且那一句必须以 **WARN** 落侧信道 ——
+        // `DirectOut.lines` 只会按 INFO 落，档位丢了就等于"自证没做起来"这件事在日志里看不出来。
+        chk(
+            jrows.iter().any(|l| l.contains("\"action\":\"round-history:ark\"") && l.contains("\"data\":true"))
+                && jrows.iter().any(|l| l.contains("\"action\":\"round-probe:ark\"") && l.contains("\"Written\":false"))
+                && !jrows.iter().any(|l| l.contains("SFAKE"))
+                && !jrows.iter().any(|l| l.contains("start-elevated-round"))
+                && sink24.iter().any(|l| l.contains("\"level\":\"WARN\"") && l.contains("活动图自证：本轮没有关卡开放观测"))
+                && !sink24.iter().any(|l| l.contains("\"level\":\"INFO\"") && l.contains("活动图自证")),
+            &format!(
+                "收编那几格落账/落日志的形状变了（history 的 data 不再是裸 true、probe 的 WARN 被降成 INFO、或把夹具值抄进了账）：jrows={} 侧行={}",
+                jrows.len(),
+                sink24.iter().filter(|l| l.contains("活动图")).cloned().collect::<Vec<_>>().join(" § ")
+            ),
             &mut fails,
             &mut total,
         );
@@ -18078,7 +18472,7 @@ fn selftest() -> i32 {
                 Ok(M9aRunOut { status: "ok".to_string(), detail: "不该再跑".to_string(), duration: None, rescued: false })
             };
             drive_round_daily_envelope(
-                true, &j24, &c24, &r24, "unused-panel-cs", &s24, &k24, &root24, "", &mut hk2, &mut dec, &mut dec9, &mut run,
+                true, &j24, &c24, &r24, "unused-panel-cs", &s24, &k24, &root24, "", "", &mut hk2, &mut dec, &mut dec9, &mut run,
                 &mut run9,
             )
         };
@@ -18154,7 +18548,7 @@ fn selftest() -> i32 {
                         Ok(M9aRunOut { status: "ok".to_string(), detail: "x".to_string(), duration: None, rescued: false })
                     };
                     drive_round_daily_envelope(
-                        true, &jj, &cc, &rr, "unused-panel-cs", &s24, &kk, &root_all, "", &mut hk2, &mut dec, &mut dec9,
+                        true, &jj, &cc, &rr, "unused-panel-cs", &s24, &kk, &root_all, "", "", &mut hk2, &mut dec, &mut dec9,
                         &mut run, &mut run9,
                     )
                 };
@@ -18220,13 +18614,18 @@ fn selftest() -> i32 {
             &mut fails,
             &mut total,
         );
-        // 名册一处来源自证：直答表的臂数（23）+ 外发那一族不进表 —— 这两句是**形状**判据，不是话术。
+        // 名册一处来源自证：直答表的臂数**下限** + 外发那一族不进表 —— 这两句是**形状**判据，不是话术。
+        // ⚠ 这里故意不钉精确枚数：本文件里的臂数每收编一格就变一次（R9-a 一次就 +5），钉死了只会让
+        //   下一批先去改注释。**哪一格由谁答**的唯一事实源在上面 24g 那两段逐枚点名，这一格只兜"表整个散了"。
         let src_round: &str = SRC.split("fn round_answer(").nth(1).unwrap_or("");
         let src_round: &str = src_round.split("\n}\n\n").next().unwrap_or(src_round);
         chk(
-            src_round.matches("=> {").count() + src_round.matches("=> DirectOut").count() + src_round.matches("(\"round\", ROUND_ADMIN_ACT) => {").count() >= 20
-                && src_round.contains("_ => return Ok(None)"),
-            "答手那张表少了兜底那一臂（Ok(None) = 照旧外发），或臂数掉到 20 以下：名册一散成两处，「谁来答」就没了唯一事实源",
+            src_round.matches("=> {").count() + src_round.matches("=> DirectOut").count() + src_round.matches("(\"round\", ROUND_ADMIN_ACT) => {").count() >= 25
+                && src_round.contains("_ => return Ok(None)")
+                && src_round.contains("(\"round\", ROUND_SCREENSAVER_ACT) => {")
+                && src_round.contains("(\"round\", ROUND_ELEVATE_ACT) => {")
+                && src_round.contains("(\"ark\", \"svdetail\") => {"),
+            "答手那张表少了兜底那一臂（Ok(None) = 照旧外发），或臂数掉到 25 以下、R9-a 收编那三臂被人从表里摘走了：名册一散成两处，「谁来答」就没了唯一事实源",
             &mut fails,
             &mut total,
         );
@@ -18272,15 +18671,18 @@ fn selftest() -> i32 {
         );
 
         // ---------- 24l 段 7／段 8 的四档现场形状（守卫档一句不吭、屏保崩只 WARN 不崩本轮、自证失明只补一行）----------
-        // 这几档都在**外发**那一族，故走 ask/res：假 executor 只改被点名那一格的回执，其余照 24h 的册子答。
+        // 监督那一族还在**外发**，故走 ask/res；屏保那一格 R9-a 起改由核内直答 ⇒ 它的"答不动"只能从
+        // **verb 那一发起**（末位 `fail_verb`）。以前那一档是拿 ask_act 去拦 `round-screensaver`
+        // 这条 ask，收编之后这条 ask 根本不再发生 ⇒ 拦它等于拦一只不再响的表 ——
+        // 这正是 §11.66 ⑩「眼镜接错边」的同一形状，本批改的是注入通道，四档话术一字没动。
         // blockSleep=true + keepScreenOn=true 是把段 8 整段请出场的唯一办法（`es` 由假钩子接，绝不碰真 API）。
         // 第五枚 `es_nai`＝自证那一发答不动（10-17 换读数通道时立的负对照，判据不许自己推自己）：
         // 前四档按实测语义回前值 ⇒ 那句 WARN 一声不响；es-blind 档第二发起一律回 0 ⇒ WARN 逐字出现、本轮照跑完。
-        for (scen24l, ask_act, ask_ok, ask_available, es_nai) in [
-            ("sv-missing", "", true, false, false),
-            ("sv-error", "", true, true, false),
-            ("screen-fail", ROUND_SCREENSAVER_ACT, false, true, false),
-            ("es-blind", "", true, true, true),
+        for (scen24l, ask_available, es_nai, fail_verb) in [
+            ("sv-missing", false, false, ""),
+            ("sv-error", true, false, ""),
+            ("screen-fail", true, false, "disable-screensaver-for-round"),
+            ("es-blind", true, true, ""),
         ]
         .iter()
         {
@@ -18299,6 +18701,9 @@ fn selftest() -> i32 {
             for _ in 0..24 {
                 done_l = {
                     let mut call_l = |v: &str, _b: &JVal| -> Result<JVal, String> {
+                        if !fail_verb.is_empty() && v == *fail_verb {
+                            return Err("屏保读数拿不到（夹具）".to_string());
+                        }
                         if v == "resolve-round-context" {
                             let mut d = r24_reply(v, &paths_ok24);
                             if let JVal::O(ref mut o) = d {
@@ -18350,7 +18755,7 @@ fn selftest() -> i32 {
                         })
                     };
                     drive_round_daily_envelope(
-                        true, &jl, &cl, &rl, "unused-panel-cs", &s24, &kl, &root_all, "", &mut hk_l, &mut dec_l,
+                        true, &jl, &cl, &rl, "unused-panel-cs", &s24, &kl, &root_all, "", "", &mut hk_l, &mut dec_l,
                         &mut dec9_l, &mut run_l, &mut run9_l,
                     )
                 };
@@ -18361,15 +18766,7 @@ fn selftest() -> i32 {
                 let seq_l = jv_int(&jv_get(&evl, "seq"), 0);
                 let act_l = jv_str(&jv_get(&evl, "action"));
                 let is_sup = act_l == ROUND_SUPERVISOR_START_ACT || act_l == ROUND_SUPERVISOR_STOP_ACT;
-                let is_target = !ask_act.is_empty() && act_l == *ask_act;
-                let rf = if is_target && !ask_ok {
-                    format!(
-                        "{{\"seq\":{},\"action\":{},\"ok\":false,\"err\":{}}}",
-                        seq_l,
-                        jstr(&act_l),
-                        jstr("屏保读数拿不到（夹具）")
-                    )
-                } else if is_sup {
+                let rf = if is_sup {
                     format!(
                         "{{\"seq\":{},\"action\":{},\"ok\":true,\"data\":{{\"Available\":{},\"Err\":{}}}}}",
                         seq_l,
@@ -18593,7 +18990,7 @@ fn selftest() -> i32 {
                     Ok(M9aRunOut { status: "ok".to_string(), detail: "跑完".to_string(), duration: Some(120.0), rescued: false })
                 };
                 done_n = drive_round_daily_envelope(
-                    true, &jj, &cc, &rr, "unused-panel-cs", &s24, &kk, &root_all, &fb_n, &mut hk_n, &mut dec_n,
+                    true, &jj, &cc, &rr, "unused-panel-cs", &s24, &kk, &root_all, &fb_n, "", &mut hk_n, &mut dec_n,
                     &mut dec9_n, &mut run_n, &mut run9_n,
                 );
                 let evn = jv_parse(&done_n.1).unwrap_or(JVal::Null);
@@ -18633,8 +19030,11 @@ fn selftest() -> i32 {
             let summary_n = jv_str(&jv_get(&resn, "summary"));
             let kind_n = jv_str(&jv_get(&evn, "kind"));
             let run_rows = jrown.iter().filter(|l| l.contains("\"action\":\"run\"")).count();
-            let hist_ark = acts_n.iter().position(|a| a == "round-history:ark");
-            let hist_r1999 = acts_n.iter().position(|a| a == "round-history:r1999");
+            // R9-a：history 两枚改成核内直答之后，它们**不再出现在问出去的名册里**，只出现在账上
+            //   ⇒ 这一族的判据从 acts_n 搬到 jrown（同一件事的另一半：24i 那格已经钉了"直答的 history
+            //   必落账"，所以这里不是把判据挪进一只恒绿的表）。
+            let hist_ark = jrown.iter().position(|l| l.contains("\"action\":\"round-history:ark\""));
+            let hist_r1999 = jrown.iter().position(|l| l.contains("\"action\":\"round-history:r1999\""));
             let dump = |v: &Vec<String>| -> String { v.join(" ¶ ") };
             match cse.name {
                 "crash-one" => {
@@ -18658,8 +19058,11 @@ fn selftest() -> i32 {
                         hist_ark.is_some()
                             && hist_r1999.is_some()
                             && hist_ark.unwrap() < hist_r1999.unwrap()
-                            && !acts_n.iter().any(|a| a == "round-probe:ark"),
-                        &format!("崩那路的账也必须进 round-history(三处里的第二处)，且崩那路不许被活动图自证接管：{:?}", acts_n),
+                            && !jrown.iter().any(|l| l.contains("\"action\":\"round-probe:ark\"")),
+                        &format!(
+                            "崩那路的账也必须进 round-history(三处里的第二处)，且崩那路不许被活动图自证接管：账={}",
+                            dump(&jrown)
+                        ),
                         &mut fails,
                         &mut total,
                     );
@@ -19195,6 +19598,12 @@ fn run(args: &[String]) -> i32 {
     // 故障通道** ⇒ 兜底循环会退化成"构造上不可达的守卫"、进不了等值判据。立了通道，四档崩路才两侧同尺。
     // 生产不接线这个旗标（真跑的框架崩＝ panic／协议错，各有自己的出口）；空 = 没给 → 正常逐路派发。
     let mut drive_framework_break = String::new();
+    // --relaunch-entry（R9-a，门/自检与壳侧共用）：非空 = 指向一份 `{Script, ArgList}` 的 JSON 文件，
+    // 核内 `round-elevate` 那一臂把它原样转交 `start-elevated-round`（提权重跑的入口路径**只从这一来**）。
+    // 为什么走文件而不是 argv：那两枚值带本机绝对路径与空格，进 argv 就要在壳侧再抄一遍引号规矩；
+    // 走文件与 ctx/res/journal 同族，读不动或形状坏一律当"没给"（答 Ok(None) ⇒ 照旧外发给壳），绝不 fail 信封。
+    // ⚠ 这一枚的值**绝不进 journal、绝不进 ask 信封、绝不进侧信道日志** —— 它是本机路径，泄漏面按最严的那条管。
+    let mut drive_relaunch_entry = String::new();
     // --maa-run / --m9a-run 两档共用的剧本文件（B-2d② 起两路回放档同吃 `--script`）：
     // 空 = 没给 → 该档自己拒跑（与 --arkskip 缺 --panel-cs 同一口径）。
     // 之所以共用一个变量而不是各立一枚：两档互斥（mode 只能落一个），分立两枚就要多一处
@@ -19329,6 +19738,10 @@ fn run(args: &[String]) -> i32 {
             }
             "--fixture-framework-break" => {
                 drive_framework_break = need("--fixture-framework-break", args, i);
+                i += 2;
+            }
+            "--relaunch-entry" => {
+                drive_relaunch_entry = need("--relaunch-entry", args, i);
                 i += 2;
             }
             "--date" => {
@@ -19494,6 +19907,7 @@ fn run(args: &[String]) -> i32 {
             &round_root,
             &drive_fixture_run,
             &drive_framework_break,
+            &drive_relaunch_entry,
             &out_file,
         );
     }

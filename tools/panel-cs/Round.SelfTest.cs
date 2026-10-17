@@ -1,5 +1,6 @@
 // tools/panel-cs/Round.SelfTest.cs —— --roundtest：B-3②-a(Round.cs)轮骨架现场七枚 + ②-b1(Round.Data.cs)
-// 判定段/门表段数据面六枚 + ②-b2(Chain.cs)链体丙档直答件十枚的纯规则段自检。
+// 判定段/门表段数据面六枚 + ②-b2(Chain.cs)链体丙档直答件十枚 + R9-a 收编那四枚(Round.cs 的屏保两枚与
+// history 落盘一枚、Round.Data.cs 的活动图自证一枚)的纯规则段自检。
 //
 // 体裁照 --livetest(§11.50 ②-1 与 Live.SelfTest.cs 头注那条纪律)：**只钉话术与算术，不钉现场**。
 //   * 不真弹 UAC(noSpawn)、不真打 webhook(fakeWebhookErr)、不起气泡(noSend 或 fakeToastErr)、
@@ -11,6 +12,11 @@
 //     **不真发输入**(needs-click 那一档只做登记，见下面够不着清单)、**配置写盘只写临时树的 chain\ 与 maa\ 两格**
 //     (MAA config.json 与 M9A appsettings.json 各一份，前置内容按序由 Wf 复位)；
 //     外置缓存(stageTableCache/itemMapsCache 两把进程内小抄)一律由入参喂 table / itemIndex，**下毒那一格排在族首**；
+//   * R9-a 那四枚同一条规矩：**不真关屏保** —— `disable-screensaver-for-round` **不喂 active 的那一路整条不自证**
+//     (那一档是 SPI 现读，读到"开着"就真发 SPI_SETSCREENSAVEACTIVE 把**用户现场**的屏保关掉，自检不许改现场)，
+//     读数全由 active/setOk 两枚夹具代答；**写盘只写临时树**的 stateDir(history.csv 与 ark-event-probe.json 各一份)；
+//     注册表那一半**只读**(HKCU\Control Panel\Desktop)，所以 config 这一枚敢留一格现读正例、外加一格"指到开不了的键"
+//     的确定负例；CSV 那把舍入尺与字节形状(BOM 有无、行尾 CRLF)按 §11.67 的实测读数钉；
 //   * 不要求这台机器装了 pwsh7、有管理员、有某个任务、有某个进程 —— 现场量一律夹具注入(旋钮身份见 Round.cs 头注)；
 //   * 临时树里**故意不建 config\settings.json**：只要有一格漏喂 settings 夹具，SettingsNow()/SafeSettings()
 //     就会去读那棵空树 ⇒ 当场红(那里还有一格专门钉这条守门，②-b1 的 read-ark-activity 同样有一格)。
@@ -23,7 +29,10 @@
 // Set-GdArkShopState / Set-GdR1999Ack / Set-GdR1999ShopState / Get-Gd{Ack,ShopDone}Map)、
 // ②-b2 的十份真身(Invoke-GdTakeover / Stop-MaaAndGame / Stop-M9A / Get-GdMaa{FightSkip,StageObservation} /
 // Start-GdArkClient＋Wait-GdArkLauncherReady / Start-GdMuMu / Set-MaaDailyConfig / Set-M9AInstance /
-// Update-GdArkFarmLedger —— 逐条出处见 Chain.cs 头注的两段双源登记)——
+// Update-GdArkFarmLedger —— 逐条出处见 Chain.cs 头注的两段双源登记)、
+// R9-a 那四枚的对应真身(Get-GdScreensaverConfig(common.ps1:356-375) / Enter-GdNoSleep 的 keepScreenOn 半段
+// (common.ps1:483-495) / Add-GdHistory(common.ps1:904-932) / Update-GdArkEventProbe(ark-decisions.ps1:146-177)
+// —— 逐条出处见 Round.cs 与 Round.Data.cs 各自那段的头注)——
 // 生产接线(②-d)之前它们仍是事实源，这里红了就是移植走样，
 // 改 Round.cs / Round.Data.cs / Chain.cs，不改这里的期望(批次 1 起同一条纪律)。
 //
@@ -55,6 +64,16 @@
 //   * **takeover 那轮之后硬编码的 4 秒睡眠本体**(自检喂 sleepSeconds=0 免挂钟，钉的是它前面的名册与话术)；
 //   * **`MAA 配置回读不一致`／`M9A 实例切换回读失败`那两抛**(要的是"写进去又读回别的"，夹具造不出)；
 //   * **`认不出这一档相位`那一句**(模型回的东西不在映射表里 —— 自检把 launcherAsks 钉在四档内，那档走不到)。
+// R9-a 那四枚另登记以下几样够不着，同样不假装测过：
+//   * **真 SPI 两发**(SPI_GETSCREENSAVEACTIVE 的现读、以及读到"开着"之后真发 SPI_SETSCREENSAVEACTIVE 关掉它)
+//     —— 后者会改**用户现场**，自检故意不许走(夹具 active/setOk 两枚把这一路整条代答)；要等现场那一轮的真实读数；
+//   * **真注册表里那本屏保账**(自检只留了一格"读得到时形状自洽"＋一格"指到开不了的键 ⇒ Found=false"，
+//     不钉本机装了哪枚 .scr)；
+//   * **FileVersionInfo 真读到产品名**(假路径只能证明"读不到回空串不抛"那一半)；
+//   * **真 UAC 那一发**(收编后的 `round-elevate` 走 `--relaunch-entry` 把入口路径递进核内、再由这一枚真起子进程；
+//     自检与门都喂 noSpawn，两支载体的真退出码仍是 unobserved)；
+//   * **真 history.csv 的存量续写**(临时树里那份不是玩家机器上那本；"表头只在文件不存在时写"这一条
+//     只证明了形状，没证明与存量字节兼容 —— 那要看现场那一轮之后 history.csv 有没有多出乱码行)。
 // 本套件里唯一一次起子进程是 DeadPid() 那一发 `cmd /d /c exit`(瞬退、无窗)：残留那一格没有别的取法，
 // 与 --exttest 的同名助手同一先例。
 
@@ -241,6 +260,41 @@ namespace GdPanel
             return In("30031", In("name", "先锋封装芯片"));
         }
 
+        // ==================== R9-a 收编那四枚的取数助手 ====================
+        // 这一族钉的是**磁盘形状**与**回执键名/键序**，所以读回来必须从字节读：
+        //   * ReadRaw / StartsBom —— 实测 pwsh 7 的 `Set-Content/Add-Content -Encoding utf8` 写出来是**无 BOM**
+        //     (5.1 才写 EF BB BF)，用带编码猜测的读法会把"BOM 有没有"读成"内容对不对"，那一格就恒绿了；
+        //   * CrlfOnly —— 行尾只许 CRLF；**裸 LF 与裸 CR 分开算**(裸 CR 是 detail 折行那条规则的一部分，
+        //     由 CsvRows 留在行内容里，不许混进行尾这条尺)；
+        //   * CsvRows —— 按 \r\n 切，末尾那段空串是最后一行的行尾留下的，剥掉。
+        static string ReadRaw(string path)
+        {
+            return Encoding.UTF8.GetString(File.ReadAllBytes(path));
+        }
+
+        static bool StartsBom(string path)
+        {
+            byte[] b = File.ReadAllBytes(path);
+            return b.Length >= 3 && b[0] == 0xEF && b[1] == 0xBB && b[2] == 0xBF;
+        }
+
+        static bool CrlfOnly(string raw)
+        {
+            return !raw.Replace("\r\n", string.Empty).Contains("\n");
+        }
+
+        static string[] CsvRows(string path)
+        {
+            string raw = ReadRaw(path);
+            // ⚠ 必须 **Ordinal**：`StartsWith("\uFEFF")` 默认按当前区域性比，而 U+FEFF 在 NLS 里是**可忽略字符**
+            //   (零权重)⇒ 一枚**没有 BOM** 的文件也会被判"以 BOM 开头"、跟着 Substring(1) 把首字符吃掉
+            //   (实测：表头 `"time…` 变成 `time…`，53 字符变 52，那一格恒假)。字节级那一尺交给 StartsBom。
+            if (raw.StartsWith("\uFEFF", StringComparison.Ordinal)) raw = raw.Substring(1);
+            List<string> rows = new List<string>(raw.Split(new string[] { "\r\n" }, StringSplitOptions.None));
+            if (rows.Count > 0 && rows[rows.Count - 1].Length == 0) rows.RemoveAt(rows.Count - 1);
+            return rows.ToArray();
+        }
+
         // 盘上那份 MAA 配置：Fight 那一档留着"没被改过"的旧值(IsEnable=false、没有 DropId 那九格)，
         // 好让 apply 真写盘那一格有活干；"采集"故意开着，用来钉 ExpectedChains 的去重与顺序。
         const string MaaCfgText =
@@ -258,7 +312,7 @@ namespace GdPanel
         public static int RoundTest()
         {
             Box b = new Box();
-            Console.WriteLine("---- panel-cs --roundtest(B-3②-a 轮骨架现场七枚 + ②-b1 判定段/门表段数据面六枚 + ②-b2 链体丙档直答件十枚的纯规则段：不弹 UAC/不打 webhook/不起气泡/不真杀进程/不读真任务/不打活动接口/不真起子进程/不发输入/不写真配置到玩家目录) ----");
+            Console.WriteLine("---- panel-cs --roundtest(B-3②-a 轮骨架现场七枚 + ②-b1 判定段/门表段数据面六枚 + ②-b2 链体丙档直答件十枚 + R9-a 收编那四枚的纯规则段：不弹 UAC/不打 webhook/不起气泡/不真杀进程/不读真任务/不打活动接口/不真起子进程/不发输入/不真关屏保) ----");
             int mine = Process.GetCurrentProcess().Id;
             string tmp = Path.Combine(Path.GetTempPath(), "gd-roundtest-" + mine);
             try { if (Directory.Exists(tmp)) Directory.Delete(tmp, true); } catch { }
@@ -1822,6 +1876,366 @@ namespace GdPanel
                     && err.Contains("apply-m9a-instance") && err.Contains("update-ark-farm-ledger");
             });
 
+            // ==================== 32) R9-a 收编那四枚：换的是"谁来答"，不是"答成什么样" ====================
+            // 四枚 verb(Round.cs 的 ScreensaverConfig/ScreensaverOff/RoundHistory ＋ Round.Data.cs 的
+            // ArkEventProbeUpdate)是核内 `round_answer` 四臂的**取数面**：核内只挑回执里的几枚、键名与键序逐字照
+            // 当年转接层写进 res 的那枚(所以这一族钉的是"形状＋磁盘字节形状"，不钉判定 —— 判定仍住段 8 那四档
+            // 话术与 `resolve-screensaver-verdict`；这里重钉一遍就是抄第二份判据，§11.64 ④ 那条切分)。
+            // ⚠ **现场安全那条**(比"只读自检不许要求机器现场状态"更硬)：`disable-screensaver-for-round`
+            //   **不喂 active 的那一路绝不自证** —— 那一档是 SPI 现读，读到"屏保开着"就会真发
+            //   SPI_SETSCREENSAVEACTIVE **把用户的屏保关掉**。自检不许改现场 ⇒ 那一路整条留给现场实跑，
+            //   连同真 UAC(`start-elevated-round` 不喂 noSpawn)一起登记进下面"够不着清单"。
+            //   注册表那一半是**只读**(HKCU\Control Panel\Desktop)，所以 config 这一枚敢留一格现读正例。
+            // 每格各钉一副眼镜，别当"报 0 就算验过"(§11.66 ⑩／⑫ 那条)：夹具给了≠眼镜接上了。
+            string svDir = Path.Combine(tmp, "sv-off");
+            string histDir = Path.Combine(tmp, "hist");
+            string roundDir = Path.Combine(tmp, "hist-round");
+            string flatDir = Path.Combine(tmp, "hist-flat");
+            string clockDir = Path.Combine(tmp, "hist-clock");
+            string probeDir = Path.Combine(tmp, "probe");
+            string ghostDir = Path.Combine(tmp, "no-such-state-dir");
+            try
+            {
+                Directory.CreateDirectory(svDir);
+                Directory.CreateDirectory(histDir);
+                Directory.CreateDirectory(roundDir);
+                Directory.CreateDirectory(flatDir);
+                Directory.CreateDirectory(clockDir);
+                Directory.CreateDirectory(probeDir);
+            }
+            catch { }
+
+            // ---------- read-screensaver-config(Get-GdScreensaverConfig，common.ps1:356-375) ----------
+            b.Chk("config：reg 夹具给齐 ⇒ 五枚同序 Found/Saver/Product/Active/TimeoutSec、TimeoutSec 折成整数", delegate
+            {
+                Dictionary<string, object> d = Row(Round.ScreensaverConfig(In("reg", In(
+                    "Saver", "SFAKE.scr", "Active", "1", "TimeoutSec", "600", "Product", "FakeProduct"))));
+                List<string> keys = new List<string>(d.Keys);
+                return keys.Count == 5 && keys[0] == "Found" && keys[1] == "Saver" && keys[2] == "Product"
+                    && keys[3] == "Active" && keys[4] == "TimeoutSec"
+                    && d["Found"] is bool && B(d["Found"]) && S(d["Saver"]) == "SFAKE.scr"
+                    && S(d["Product"]) == "FakeProduct" && S(d["Active"]) == "1" && I(d["TimeoutSec"]) == 600;
+            });
+            b.Chk("config：reg 写了 null ⇒ Found=false、四枚全空/0 —— 这一档**绝不等于\"没装屏保\"**(真身那句 return $null 同形)", delegate
+            {
+                Dictionary<string, object> d = Row(Round.ScreensaverConfig(In("reg", null)));
+                return d.Count == 5 && !B(d["Found"]) && S(d["Saver"]) == "" && S(d["Product"]) == ""
+                    && S(d["Active"]) == "" && I(d["TimeoutSec"]) == 0;
+            });
+            b.Chk("config：TimeoutSec 坏串与空串都算 0 不抛；Saver 有、Product 缺 ⇒ 真去读 FileVersionInfo，读不到回空串(归因不在这一枚)", delegate
+            {
+                Dictionary<string, object> bad = Row(Round.ScreensaverConfig(In("reg", In("Saver", "SFAKE.scr", "TimeoutSec", "abc"))));
+                Dictionary<string, object> blank = Row(Round.ScreensaverConfig(In("reg", In("Saver", "SFAKE.scr", "TimeoutSec", ""))));
+                Dictionary<string, object> live = Row(Round.ScreensaverConfig(In("reg", In("Saver", @"C:\fake\gd-selftest-none.scr"))));
+                return I(bad["TimeoutSec"]) == 0 && B(bad["Found"]) && S(bad["Active"]) == "" && S(bad["Product"]) == ""
+                    && I(blank["TimeoutSec"]) == 0
+                    && B(live["Found"]) && S(live["Saver"]) == @"C:\fake\gd-selftest-none.scr" && S(live["Product"]) == "";
+            });
+            b.Chk("config：不喂 reg ⇒ 真走 OpenSubKey 那一路(只读注册表)，这里只钉形状自洽、**不钉本机值**", delegate
+            {
+                Dictionary<string, object> d = Row(Round.ScreensaverConfig(In()));
+                List<string> keys = new List<string>(d.Keys);
+                if (keys.Count != 5 || keys[0] != "Found" || !(d["Found"] is bool)) return false;
+                if (B(d["Found"])) return I(d["TimeoutSec"]) >= 0 && S(d["Saver"]) != "(null)" && S(d["Active"]) != "(null)";
+                return S(d["Saver"]) == "" && S(d["Product"]) == "" && S(d["Active"]) == "" && I(d["TimeoutSec"]) == 0;
+            });
+            b.Chk("config：regPath 指到一枚开不了的键 ⇒ 现读那一路的确定负例(Found=false、四枚空/0)，与\"读到稳态\"分成两档", delegate
+            {
+                Dictionary<string, object> d = Row(Round.ScreensaverConfig(In("regPath", @"Control Panel\Gd-SelfTest-No-Such-Key")));
+                return d.Count == 5 && !B(d["Found"]) && S(d["Saver"]) == "" && S(d["Product"]) == ""
+                    && S(d["Active"]) == "" && I(d["TimeoutSec"]) == 0;
+            });
+
+            // ---------- disable-screensaver-for-round(Enter-GdNoSleep 的 keepScreenOn 半段，common.ps1:483-495) ----------
+            b.Chk("关屏保：active=true ⇒ 三枚同序 Read/WasActive/Disabled=true、true、true(键序＝转接层当年写进 res 那枚)", delegate
+            {
+                Dictionary<string, object> d = Row(Round.ScreensaverOff(In("active", true)));
+                List<string> keys = new List<string>(d.Keys);
+                return keys.Count == 3 && keys[0] == "Read" && keys[1] == "WasActive" && keys[2] == "Disabled"
+                    && B(d["Read"]) && B(d["WasActive"]) && B(d["Disabled"]);
+            });
+            b.Chk("关屏保：active=true＋setOk=false ⇒ Disabled=false(SPI 关不动那一档；段 8 那句\"没关掉\"的话术靠它，判据不在这里)", delegate
+            {
+                Dictionary<string, object> d = Row(Round.ScreensaverOff(In("active", true, "setOk", false)));
+                return B(d["Read"]) && B(d["WasActive"]) && !B(d["Disabled"]);
+            });
+            b.Chk("关屏保：active=false＋setOk=true ⇒ WasActive=false、Disabled=false —— 负对照：把 Set 挪到判据之前就会答成 true", delegate
+            {
+                Dictionary<string, object> d = Row(Round.ScreensaverOff(In("active", false, "setOk", true)));
+                return B(d["Read"]) && !B(d["WasActive"]) && !B(d["Disabled"]);
+            });
+            b.Chk("关屏保：active 写了 null ⇒ Read=false、三枚全 false、不抛(SPI 读不到那一档；与\"读到没开\"是两个读数)", delegate
+            {
+                Dictionary<string, object> d = Row(Round.ScreensaverOff(In("active", null)));
+                return d.Count == 3 && !B(d["Read"]) && !B(d["WasActive"]) && !B(d["Disabled"]);
+            });
+            b.Chk("关屏保：stateDir 里那本 screensaver.restore 被清掉(旧机制的账)，且回执不受它影响", delegate
+            {
+                string restore = Path.Combine(svDir, "screensaver.restore");
+                File.WriteAllText(restore, "{\"Keep\":1}");
+                Dictionary<string, object> d = Row(Round.ScreensaverOff(In("active", true, "stateDir", svDir)));
+                return !File.Exists(restore) && B(d["Read"]) && B(d["Disabled"]);
+            });
+            b.Chk("关屏保：清旧机制排在 SPI **之前** —— active=false 那一档也要把 restore 账本删掉(挪到早退之后就是旧机制残留)", delegate
+            {
+                string restore2 = Path.Combine(svDir, "screensaver.restore");
+                File.WriteAllText(restore2, "{\"Keep\":1}");
+                Dictionary<string, object> d = Row(Round.ScreensaverOff(In("active", false, "stateDir", svDir)));
+                return !File.Exists(restore2) && B(d["Read"]) && !B(d["WasActive"]) && !B(d["Disabled"]);
+            });
+
+            // ---------- append-round-history(Add-GdHistory，common.ps1:904-932) ----------
+            string histFile = Path.Combine(histDir, "history.csv");
+            b.Chk("history 首建：无 BOM＋表头逐字＋CRLF 行尾、六字段带引号，回执只有 Written 一枚(核内那一臂据此折成裸 true)", delegate
+            {
+                if (File.Exists(histFile)) File.Delete(histFile);
+                Dictionary<string, object> d = Row(Round.RoundHistory(In("stateDir", histDir,
+                    "nowText", "2026-10-17 06:00:00", "id", "ark", "mode", "daily", "status", "ok",
+                    "durationSec", 120.0, "detail", "首行")));
+                string[] rows = CsvRows(histFile);
+                string raw = ReadRaw(histFile);
+                return d.Count == 1 && d.ContainsKey("Written") && B(d["Written"])
+                    && !StartsBom(histFile) && raw.EndsWith("\r\n", StringComparison.Ordinal) && CrlfOnly(raw)
+                    && rows.Length == 2
+                    && rows[0] == "\"time\",\"game\",\"mode\",\"status\",\"duration_sec\",\"detail\""
+                    && rows[1] == "\"2026-10-17 06:00:00\",\"ark\",\"daily\",\"ok\",\"120\",\"首行\"";
+            });
+            b.Chk("history 续写：表头不重复、共 3 行，第二行的时间用的是**第二发**喂的 nowText(真身每写一行现取一次 Get-Date)", delegate
+            {
+                Round.RoundHistory(In("stateDir", histDir, "nowText", "2026-10-17 08:30:00", "id", "r1999",
+                    "mode", "event", "status", "partial", "durationSec", 7.0, "detail", "次行"));
+                string[] rows = CsvRows(histFile);
+                return rows.Length == 3
+                    && rows[1].StartsWith("\"2026-10-17 06:00:00\",", StringComparison.Ordinal)
+                    && rows[2] == "\"2026-10-17 08:30:00\",\"r1999\",\"event\",\"partial\",\"7\",\"次行\"";
+            });
+            b.Chk("history 那把舍入尺：1.5→2、2.5→2([math]::Round 的中点取偶)、-0.0→\"0\"(存量按 5.1 那支写的)、缺 durationSec→空字段", delegate
+            {
+                Round.RoundHistory(In("stateDir", roundDir, "nowText", "T", "id", "ark", "status", "ok", "durationSec", 1.5));
+                Round.RoundHistory(In("stateDir", roundDir, "nowText", "T", "id", "ark", "status", "ok", "durationSec", 2.5));
+                Round.RoundHistory(In("stateDir", roundDir, "nowText", "T", "id", "ark", "status", "ok", "durationSec", -0.0));
+                Round.RoundHistory(In("stateDir", roundDir, "nowText", "T", "id", "ark", "status", "ok"));
+                string[] rows = CsvRows(Path.Combine(roundDir, "history.csv"));
+                return rows.Length == 5
+                    && rows[1].EndsWith("\"ok\",\"2\",\"\"", StringComparison.Ordinal)
+                    && rows[2].EndsWith("\"ok\",\"2\",\"\"", StringComparison.Ordinal)
+                    && rows[3].EndsWith("\"ok\",\"0\",\"\"", StringComparison.Ordinal)
+                    && rows[4].EndsWith("\"ok\",\"\",\"\"", StringComparison.Ordinal);
+            });
+            b.Chk("history 的 detail：CRLF/LF 折成 \" | \"、**单独的 CR 不折**(实测两引擎同形)、字段里的引号翻倍", delegate
+            {
+                Round.RoundHistory(In("stateDir", flatDir, "nowText", "T", "id", "ark", "status", "ok",
+                    "detail", "a\r\nb\nc\rd\"e"));
+                string[] rows = CsvRows(Path.Combine(flatDir, "history.csv"));
+                return rows.Length == 2 && rows[1] == "\"T\",\"ark\",\"\",\"ok\",\"\",\"a | b | c\rd\"\"e\"";
+            });
+            b.Chk("history 不喂 nowText ⇒ verb 现读一次钟(核内那一臂**故意不喂**：ctx 的 NowText 是起轮快照，喂了就把每行盖成 06:00:00)", delegate
+            {
+                Round.RoundHistory(In("stateDir", clockDir, "id", "ark", "status", "ok"));
+                string[] rows = CsvRows(Path.Combine(clockDir, "history.csv"));
+                if (rows.Length != 2) return false;
+                string t = rows[1].Split(',')[0].Trim('\"');
+                DateTime parsed;
+                if (!DateTime.TryParseExact(t, "yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture,
+                                            DateTimeStyles.None, out parsed)) return false;
+                return t.Length == 19 && rows[1].Contains("\"ark\"") && rows[1].EndsWith("\"\",\"\"", StringComparison.Ordinal);
+            });
+            b.Chk("history 的 stateDir 不存在 ⇒ 当场拦、**不建目录**：走 CLI 退出码 1(通用 catch 那一档，不是前置的 2)，账没写到别处", delegate
+            {
+                string inPath = Path.Combine(tmp, "hist-bad-in.json");
+                string outPath = Path.Combine(tmp, "hist-bad-out.json");
+                GdJson.Write(inPath, In("stateDir", ghostDir, "id", "ark", "status", "ok"));
+                int code = GdCli.Run("append-round-history", new string[] { "--in=" + inPath, "--out=" + outPath });
+                Dictionary<string, object> env = GdJson.ReadEnvelope(outPath);
+                return code == 1 && !Gd.Truthy(Gd.Get(env, "ok"))
+                    && S(Gd.Get(env, "error")).Contains("DirectoryNotFoundException")
+                    && !Directory.Exists(ghostDir) && !File.Exists(Path.Combine(ghostDir, "history.csv"));
+            });
+
+            // ---------- update-ark-event-probe(Update-GdArkEventProbe，ark-decisions.ps1:146-177) ----------
+            // 回执三键(Written/NoticeLevel/NoticeText)；两枚前置闸与三档"不落地"都不写盘，只有 Valid 那几档写。
+            // 档位必须逐字(WARN/OK/WARN)：核内段 9 用 fx_log 转成一行账外日志，`DirectOut.lines` 只会按 INFO 落，
+            // 降档就是改话术的面(§11.67 那条收编理由)，所以这里把**档位与文字**并成一格比。
+            string probeLeaf = "ark-event-probe.json";
+            b.Chk("自证：decision 整枚不给 ⇒ 三枚同序 Written=false＋两枚空串，一枚盘都不落(真身那两句 return $null)", delegate
+            {
+                string d0 = Path.Combine(probeDir, "no-decision");
+                Dictionary<string, object> r = Row(RoundData.ArkEventProbeUpdate(In("stateDir", d0, "date", "2026-10-17")));
+                List<string> keys = new List<string>(r.Keys);
+                return keys.Count == 3 && keys[0] == "Written" && keys[1] == "NoticeLevel" && keys[2] == "NoticeText"
+                    && !B(r["Written"]) && S(r["NoticeLevel"]) == "" && S(r["NoticeText"]) == ""
+                    && !File.Exists(Path.Combine(d0, probeLeaf));
+            });
+            b.Chk("自证：EventKey 空(活动没开)——第一枚前置闸，与第二枚分开各钉一格", delegate
+            {
+                string d1 = Path.Combine(probeDir, "no-eventkey");
+                Dictionary<string, object> r = Row(RoundData.ArkEventProbeUpdate(In("stateDir", d1, "date", "2026-10-17",
+                    "decision", In("EventKey", "", "StageHint", "YW-8"), "obs", In("SawGuiPlan", true))));
+                return !B(r["Written"]) && S(r["NoticeLevel"]) == "" && S(r["NoticeText"]) == ""
+                    && !File.Exists(Path.Combine(d1, probeLeaf));
+            });
+            b.Chk("自证：StageHint 空(判定给不出最后一关)——第二枚前置闸，obs 齐也不许采", delegate
+            {
+                string d2 = Path.Combine(probeDir, "no-stagehint");
+                Dictionary<string, object> r = Row(RoundData.ArkEventProbeUpdate(In("stateDir", d2, "date", "2026-10-17",
+                    "decision", In("EventKey", "fcyx", "StageHint", ""),
+                    "obs", In("SawGuiPlan", true, "Survivors", new object[] { "YW-8" }, "Selected", "YW-8"))));
+                return !B(r["Written"]) && S(r["NoticeLevel"]) == "" && S(r["NoticeText"]) == ""
+                    && !File.Exists(Path.Combine(d2, probeLeaf));
+            });
+            b.Chk("自证：obs 写了 null ⇒ WARN＋那句\"没有关卡开放观测\"、不落盘(采集段没做起来 ≠ 没打通)", delegate
+            {
+                string d3 = Path.Combine(probeDir, "obs-null");
+                Dictionary<string, object> r = Row(RoundData.ArkEventProbeUpdate(In("stateDir", d3, "date", "2026-10-17",
+                    "decision", In("EventKey", "fcyx", "StageHint", "YW-8"), "obs", null)));
+                return !B(r["Written"]) && S(r["NoticeLevel"]) == "WARN"
+                    && S(r["NoticeText"]) == "活动图自证：本轮没有关卡开放观测(采集段没做起来) → 这条结论不落地，下轮照常再试"
+                    && !File.Exists(Path.Combine(d3, probeLeaf));
+            });
+            b.Chk("自证：SawGuiPlan=false ⇒ WARN＋那句\"没抄出关卡名单\"、不落盘(理智早跳或没连上，都不算未解锁)", delegate
+            {
+                string d4 = Path.Combine(probeDir, "no-plan");
+                Dictionary<string, object> r = Row(RoundData.ArkEventProbeUpdate(In("stateDir", d4, "date", "2026-10-17",
+                    "decision", In("EventKey", "fcyx", "StageHint", "YW-8"),
+                    "obs", In("SawGuiPlan", false, "Survivors", new object[] { "YW-8" }, "Selected", "YW-8"))));
+                return !B(r["Written"]) && S(r["NoticeLevel"]) == "WARN"
+                    && S(r["NoticeText"]) == "活动图自证：本轮 MAA 没抄出关卡名单(GetFightStage 那行没出现，多半理智更早跳过或没连上) → 判不了，这条结论不落地"
+                    && !File.Exists(Path.Combine(d4, probeLeaf));
+            });
+            b.Chk("自证：Selected==探针关 ⇒ Written=true＋档位 OK、落盘五枚(Date/EventKey/Stage/Entered/Evidence)读回逐字", delegate
+            {
+                string d5 = Path.Combine(probeDir, "hit");
+                Dictionary<string, object> r = Row(RoundData.ArkEventProbeUpdate(In("stateDir", d5, "date", "2026-10-17",
+                    "decision", In("EventKey", "fcyx", "StageHint", "YW-8"),
+                    "obs", In("SawGuiPlan", true, "Survivors", new object[] { "CE-5", "YW-8" },
+                              "Selected", "YW-8", "LastBattle", false))));
+                if (B(r["Written"]) != true || S(r["NoticeLevel"]) != "OK") return false;
+                string ev = "MAA 的关卡名单里选中了 YW-8(名单共 2 关)";
+                if (S(r["NoticeText"]) != "活动图自证：YW-8 进得去 → 下一轮照常按活动图刷(" + ev + ")") return false;
+                Dictionary<string, object> disk = Row(GdJson.Read(Path.Combine(d5, probeLeaf)));
+                if (disk == null) return false;
+                List<string> keys = new List<string>(disk.Keys);
+                return keys.Count == 5 && keys[0] == "Date" && keys[1] == "EventKey" && keys[2] == "Stage"
+                    && keys[3] == "Entered" && keys[4] == "Evidence"
+                    && S(Gd.Get(disk, "Date")) == "2026-10-17" && S(Gd.Get(disk, "EventKey")) == "fcyx"
+                    && S(Gd.Get(disk, "Stage")) == "YW-8" && B(Gd.Get(disk, "Entered"))
+                    && S(Gd.Get(disk, "Evidence")) == ev;
+            });
+            b.Chk("自证：名单含但未选中 ⇒ 仍算进得去(OK)，Evidence 走\"名单含…当前选中…\"那一句", delegate
+            {
+                string d6 = Path.Combine(probeDir, "in-list");
+                Dictionary<string, object> r = Row(RoundData.ArkEventProbeUpdate(In("stateDir", d6, "date", "2026-10-17",
+                    "decision", In("EventKey", "fcyx", "StageHint", "YW-8"),
+                    "obs", In("SawGuiPlan", true, "Survivors", new object[] { "CE-5", "YW-8" },
+                              "Selected", "CE-5", "LastBattle", false))));
+                string ev = "MAA 的关卡名单含 YW-8(名单共 2 关，当前选中 CE-5)";
+                return B(r["Written"]) && S(r["NoticeLevel"]) == "OK"
+                    && S(r["NoticeText"]) == "活动图自证：YW-8 进得去 → 下一轮照常按活动图刷(" + ev + ")"
+                    && S(Gd.Get(Row(GdJson.Read(Path.Combine(d6, probeLeaf))), "Evidence")) == ev;
+            });
+            b.Chk("自证：名单被剪空 ⇒ Written=true(这条结论落地)、档位 WARN、Entered=false 落盘", delegate
+            {
+                string d7 = Path.Combine(probeDir, "empty-list");
+                Dictionary<string, object> r = Row(RoundData.ArkEventProbeUpdate(In("stateDir", d7, "date", "2026-10-17",
+                    "decision", In("EventKey", "fcyx", "StageHint", "YW-8"),
+                    "obs", In("SawGuiPlan", true, "Survivors", new object[] { }, "Selected", "", "LastBattle", false))));
+                string ev = "MAA 本轮的关卡名单被剪空(from [\"\"]) → YW-8 进不去";
+                Dictionary<string, object> disk = Row(GdJson.Read(Path.Combine(d7, probeLeaf)));
+                return B(r["Written"]) && S(r["NoticeLevel"]) == "WARN"
+                    && S(r["NoticeText"]) == "活动图自证：YW-8 进不去 → 判为还没打通，当日剩余轮改刷长草(" + ev + ")"
+                    && disk != null && !B(Gd.Get(disk, "Entered")) && S(Gd.Get(disk, "Evidence")) == ev;
+            });
+            b.Chk("自证：名单非空但没这一关 ⇒ WARN，Evidence 里那串名单按\"、\"拼、并带上当前选中", delegate
+            {
+                string d8 = Path.Combine(probeDir, "miss");
+                Dictionary<string, object> r = Row(RoundData.ArkEventProbeUpdate(In("stateDir", d8, "date", "2026-10-17",
+                    "decision", In("EventKey", "fcyx", "StageHint", "YW-8"),
+                    "obs", In("SawGuiPlan", true, "Survivors", new object[] { "CE-5", "1-7" },
+                              "Selected", "CE-5", "LastBattle", false))));
+                string ev = "MAA 名单里 2 关没有 YW-8(名单：CE-5、1-7，当前选中 CE-5)";
+                return B(r["Written"]) && S(r["NoticeLevel"]) == "WARN"
+                    && S(r["NoticeText"]) == "活动图自证：YW-8 进不去 → 判为还没打通，当日剩余轮改刷长草(" + ev + ")";
+            });
+            b.Chk("自证：LastBattle=true ⇒ Evidence 末尾那句\"回到上次作战重放\"跟着走(档位不变，只多这半句)", delegate
+            {
+                string d9 = Path.Combine(probeDir, "replay");
+                Dictionary<string, object> r = Row(RoundData.ArkEventProbeUpdate(In("stateDir", d9, "date", "2026-10-17",
+                    "decision", In("EventKey", "fcyx", "StageHint", "YW-8"),
+                    "obs", In("SawGuiPlan", true, "Survivors", new object[] { "YW-8" },
+                              "Selected", "YW-8", "LastBattle", true))));
+                string ev = "MAA 的关卡名单里选中了 YW-8(名单共 1 关)；注意本轮内核走的是「回到上次作战」重放";
+                return B(r["Written"]) && S(r["NoticeLevel"]) == "OK"
+                    && S(r["NoticeText"]) == "活动图自证：YW-8 进得去 → 下一轮照常按活动图刷(" + ev + ")";
+            });
+            b.Chk("自证：date 不喂 ⇒ verb 现读 yyyy-MM-dd(核内那一臂只喂 decision/obs/stateDir，日期不在核的手里)", delegate
+            {
+                string da = Path.Combine(probeDir, "now-date");
+                Dictionary<string, object> r = Row(RoundData.ArkEventProbeUpdate(In("stateDir", da,
+                    "decision", In("EventKey", "fcyx", "StageHint", "YW-8"),
+                    "obs", In("SawGuiPlan", true, "Survivors", new object[] { "YW-8" }, "Selected", "YW-8"))));
+                string disk = S(Gd.Get(Row(GdJson.Read(Path.Combine(da, probeLeaf))), "Date"));
+                DateTime parsed;
+                return B(r["Written"]) && disk.Length == 10
+                    && DateTime.TryParseExact(disk, "yyyy-MM-dd", CultureInfo.InvariantCulture,
+                                             DateTimeStyles.None, out parsed);
+            });
+
+            // ---------- CLI 接线：这四枚真的挂上了分发链(名册两处同批的自证) ----------
+            b.Chk("config 与关屏保走 --in/--out：退出码 0、信封 verb 对、回执键数分别是 5 与 3(核内四臂就按这个挑数)", delegate
+            {
+                string cIn = Path.Combine(tmp, "sv-cfg-in.json");
+                string cOut = Path.Combine(tmp, "sv-cfg-out.json");
+                string oIn = Path.Combine(tmp, "sv-off-in.json");
+                string oOut = Path.Combine(tmp, "sv-off-out.json");
+                GdJson.Write(cIn, In("reg", In("Saver", "SFAKE.scr", "Active", "1", "TimeoutSec", "300", "Product", "FakeProduct")));
+                GdJson.Write(oIn, In("active", false, "stateDir", svDir));
+                int c1 = GdCli.Run("read-screensaver-config", new string[] { "--in=" + cIn, "--out=" + cOut });
+                Dictionary<string, object> e1 = GdJson.ReadEnvelope(cOut);
+                Dictionary<string, object> d1 = Row(Gd.Get(e1, "data"));
+                int c2 = GdCli.Run("disable-screensaver-for-round", new string[] { "--in=" + oIn, "--out=" + oOut });
+                Dictionary<string, object> e2 = GdJson.ReadEnvelope(oOut);
+                Dictionary<string, object> d2 = Row(Gd.Get(e2, "data"));
+                return c1 == 0 && c2 == 0 && Gd.Truthy(Gd.Get(e1, "ok")) && Gd.Truthy(Gd.Get(e2, "ok"))
+                    && S(Gd.Get(e1, "verb")) == "read-screensaver-config"
+                    && S(Gd.Get(e2, "verb")) == "disable-screensaver-for-round"
+                    && d1 != null && d1.Count == 5 && I(d1["TimeoutSec"]) == 300
+                    && d2 != null && d2.Count == 3 && B(d2["Read"]) && !B(d2["WasActive"]);
+            });
+            b.Chk("history 与自证走 --in/--out：退出码 0、data 形状(1 枚 / 3 枚)、JSON 往返后那把舍入尺仍旧答 2", delegate
+            {
+                string hIn = Path.Combine(tmp, "hist-cli-in.json");
+                string hOut = Path.Combine(tmp, "hist-cli-out.json");
+                string pIn = Path.Combine(tmp, "probe-cli-in.json");
+                string pOut = Path.Combine(tmp, "probe-cli-out.json");
+                string cliHist = Path.Combine(tmp, "hist-cli");
+                string cliProbe = Path.Combine(tmp, "probe-cli");
+                Directory.CreateDirectory(cliHist);
+                GdJson.Write(hIn, In("stateDir", cliHist, "nowText", "2026-10-17 09:00:00", "id", "ark",
+                    "mode", "daily", "status", "ok", "durationSec", 1.5, "detail", "cli"));
+                GdJson.Write(pIn, In("stateDir", cliProbe, "date", "2026-10-17",
+                    "decision", In("EventKey", "fcyx", "StageHint", "YW-8"),
+                    "obs", In("SawGuiPlan", true, "Survivors", new object[] { "YW-8" }, "Selected", "YW-8")));
+                int c1 = GdCli.Run("append-round-history", new string[] { "--in=" + hIn, "--out=" + hOut });
+                Dictionary<string, object> e1 = GdJson.ReadEnvelope(hOut);
+                Dictionary<string, object> d1 = Row(Gd.Get(e1, "data"));
+                int c2 = GdCli.Run("update-ark-event-probe", new string[] { "--in=" + pIn, "--out=" + pOut });
+                Dictionary<string, object> e2 = GdJson.ReadEnvelope(pOut);
+                Dictionary<string, object> d2 = Row(Gd.Get(e2, "data"));
+                string[] rows = CsvRows(Path.Combine(cliHist, "history.csv"));
+                return c1 == 0 && c2 == 0 && d1 != null && d1.Count == 1 && B(d1["Written"])
+                    && rows.Length == 2 && rows[1].EndsWith("\"ok\",\"2\",\"cli\"", StringComparison.Ordinal)
+                    && d2 != null && d2.Count == 3 && B(d2["Written"]) && S(d2["NoticeLevel"]) == "OK"
+                    && S(Gd.Get(e2, "verb")) == "update-ark-event-probe";
+            });
+            b.Chk("名册第二处(usage 长串)随行自证：未知子命令那句报错里必须同时数到 R9-a 这四枚", delegate
+            {
+                string outPath = Path.Combine(tmp, "usage3-out.json");
+                int code = GdCli.Run("no-such-verb", new string[] { "--out=" + outPath });
+                string err = S(Gd.Get(GdJson.ReadEnvelope(outPath), "error"));
+                return code == 1 && err.Contains("read-screensaver-config") && err.Contains("disable-screensaver-for-round")
+                    && err.Contains("append-round-history") && err.Contains("update-ark-event-probe");
+            });
+
             // 收尾：临时树整目录删掉(纪律＝门/自检的临时件不落仓内)
             try { if (File.Exists(lockFile)) File.Delete(lockFile); } catch { }
             try { Directory.Delete(tmp, true); }
@@ -1829,8 +2243,9 @@ namespace GdPanel
 
             int rc = b.Result("--roundtest");
             if (rc == 0)
-                Console.WriteLine("结论: PASS(②-a 那七枚 + ②-b1 那六枚 + ②-b2 这十枚的话术/算术/夹具闸都对；提权实弹、真 webhook/气泡/真任务/真杀进程、真打活动接口与真 settings/真 state 盘，"
-                    + "以及 ②-b2 的 needs-click 真点击、真起端游/等窗口、asst.log 尾 16MB 本体、takeover 那 4 秒、两枚回读不一致抛、认不出相位那一档仍登记 unobserved)");
+                Console.WriteLine("结论: PASS(②-a 那七枚 + ②-b1 那六枚 + ②-b2 这十枚 + R9-a 收编那四枚的话术/算术/夹具闸/落盘字节形状都对；提权实弹、真 webhook/气泡/真任务/真杀进程、真打活动接口与真 settings/真 state 盘，"
+                    + "以及 ②-b2 的 needs-click 真点击、真起端游/等窗口、asst.log 尾 16MB 本体、takeover 那 4 秒、两枚回读不一致抛、认不出相位那一档，"
+                    + "R9-a 另有三样：真 SPI 两发(含真把屏保关掉那一发)、真注册表那本屏保账的真读数、真 history.csv 存量续写 —— 仍登记 unobserved)");
             return rc;
         }
     }

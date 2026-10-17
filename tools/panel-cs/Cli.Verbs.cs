@@ -13,7 +13,9 @@ namespace GdPanel
     static class GdCliVerbs
     {
         // 钉死的枚数。加/减 verb 必须同时改这个数字 —— 它红了就说明名册没跟着走。
-        public const int ExpectedCount = 84;
+        // R9-a(2026-10-17 轮骨架四格收编)：84 → 88，新立四枚排在链尾(read-screensaver-config /
+        // disable-screensaver-for-round / append-round-history / update-ark-event-probe)。
+        public const int ExpectedCount = 88;
 
         // 顺序＝Cli.cs 分派链里的出现顺序（自检只比集合，不比顺序；顺序留着是为了肉眼对照分派链方便）。
         public static readonly string[] Names = new string[]
@@ -101,7 +103,14 @@ namespace GdPanel
             "start-mumu",
             "apply-maa-daily-config",
             "apply-m9a-instance",
-            "update-ark-farm-ledger"
+            "update-ark-farm-ledger",
+            // ---- R9-a(2026-10-17)：轮骨架四格收编新立的四枚，位置＝Cli.cs 链尾(C-0′ 起链尾追加是唯一允许的加法) ----
+            //   前三枚住 Round.cs(屏保稳态读数／屏保只关不复／history.csv 那一行)，第四枚住 Round.Data.cs(活动图自证)。
+            //   ⚠ 这四处新增**不改任何既有 verb 的回执形状**：改的是"谁来问"，不是"问回来什么"。
+            "read-screensaver-config",
+            "disable-screensaver-for-round",
+            "append-round-history",
+            "update-ark-event-probe"
         };
 
         // "未知子命令"那句报错用的名册串：逐枚全名，不再有通配与纯计数。

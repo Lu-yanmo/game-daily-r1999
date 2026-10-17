@@ -26,6 +26,27 @@ if (-not (Test-Path -LiteralPath $gdwin)) {
     throw ('缺 tools\gdinterop\GdWin.cs(现场 verb 的 user32 声明，真身只这一份)：' + $gdwin)
 }
 $cs += $gdwin
+# R9-a(2026-10-17)：轮骨架四格收编之后，panel-cs 要多带两份**别处已有唯一真身**的 .cs，
+# 理由与上面那条完全同形 —— 宁可在装配里多带一条路径，也不在 tools\panel-cs 抄第二份：
+#   ..\tools\gdinterop\GdPower.cs   屏保 SPI 那两枚 P/Invoke(Get-/Set-GdScreensaverActive 的声明本体)，
+#                                   新立的 disable-screensaver-for-round 要用；PS 侧靠 Add-GdInterop 现编同一份。
+#   ..\tools\gdcore\GdCore.Logs.cs  history.csv 的 CSV 规则(GdCore.Csv.Flatten/BuildRow/DurationText)，
+#                                   新立的 append-round-history 要用；PS 侧 Add-GdHistory 走的是同一份内核真身。
+# 缺文件一律当编译失败(不许静默跳过：跳过了 Round.cs 会编不过，报错点反而更难读)。
+# ⚠ 这一份里还有 GdCore.Versions 与 GdCore.RunLock 两枚类，panel-cs **一格都不消费**(运行锁的 own 判据
+#   在 Round.cs:247 自己那份) —— 带进来是"整份文件同进同出"的代价，登记在此免得将来被当成第二处真身。
+$gdpower = Join-Path (Split-Path $here) 'gdinterop\GdPower.cs'
+if (-not (Test-Path -LiteralPath $gdpower)) {
+    if ($Quiet) { exit 4 }
+    throw ('缺 tools\gdinterop\GdPower.cs(屏保 SPI 声明，真身只这一份)：' + $gdpower)
+}
+$cs += $gdpower
+$gdlogs = Join-Path (Split-Path $here) 'gdcore\GdCore.Logs.cs'
+if (-not (Test-Path -LiteralPath $gdlogs)) {
+    if ($Quiet) { exit 4 }
+    throw ('缺 tools\gdcore\GdCore.Logs.cs(history.csv 的 CSV 规则，真身只这一份)：' + $gdlogs)
+}
+$cs += $gdlogs
 $exe  = Join-Path $here 'panel-cs.exe'
 $icon = Join-Path (Split-Path $here) 'assets\icon.png'
 

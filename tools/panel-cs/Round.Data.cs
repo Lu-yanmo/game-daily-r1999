@@ -610,5 +610,55 @@ namespace GdPanel
                 "Count", count,
                 "Lines", lines.ToArray());
         }
+
+        // ==================== verb: update-ark-event-probe(R9-a 收编 round-probe:ark) ====================
+        // Update-GdArkEventProbe(lib\ark-decisions.ps1:146-177) 的**整枚**：两枚前置闸(EventKey／StageHint
+        // 给不出就不采)、四档判据、落盘、三句话术，全在这里 —— 判据那半**直调同装配的
+        // Orchestration.ArkEventProbe 本体**(`decide-ark-event-probe`，不在核内也不在这里抄第二份)。
+        // 与同文件那三枚写件的差别：这一枚**不打 GdLog**，把要说的话连同**档位**一起带回回执
+        // (NoticeLevel／NoticeText)。理由＝verb 是子进程、它的 stdout 被核收掉就丢，而真身那三句用的是
+        // WARN／OK／WARN —— 走 DirectOut.lines 只会按 INFO 落侧信道(降档)，所以由核内段 9 的消费点
+        // 用 `fx_log` 转成一行账外日志，档位才保得住。空串＝这一轮没什么要说(那两枚前置闸没过那一档)。
+        // 磁盘那一本沿用同文件既有的 ProbeFile 常量与 StateDir()(键名与时间戳格式是磁盘协议，见文件头)。
+        internal static object ArkEventProbeUpdate(Dictionary<string, object> raw)
+        {
+            Dictionary<string, object> c = View(raw);
+            Dictionary<string, object> dec = Gd.Map(Gd.Get(c, "decision"));
+            string evKey = dec == null ? "" : Gd.Str(Gd.Get(dec, "EventKey"));
+            string target = dec == null ? "" : Gd.Str(Gd.Get(dec, "StageHint"));
+            // 真身那两枚前置闸：`if (-not $Decision -or -not $Decision.EventKey) { return $null }`、
+            // `$target = [string]$Decision.StageHint; if (-not $target) { return $null }` —— 都不吭话、都不写盘。
+            if (evKey.Length == 0 || target.Length == 0)
+                return Gd.Out("Written", false, "NoticeLevel", "", "NoticeText", "");
+
+            string date = OptStr(c, "date", delegate { return DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture); });
+            Dictionary<string, object> v = Gd.Map(Orchestration.ArkEventProbe(Sub(
+                "date", date,
+                "eventKey", evKey,
+                "stage", target,
+                "obs", Round.Raw(c, "obs"))));     // 用三态那把尺：obs 写了 null 才算"本轮没有观测读数"
+
+            string evidence = Gd.Str(Gd.Get(v, "Evidence"));
+            if (!Gd.Truthy(Gd.Get(v, "Valid")))
+                // 原话逐字(ark-decisions.ps1:160)：这一档**不落地**(留着昨天的结论也没意义)，下轮照常再试。
+                return Gd.Out("Written", false, "NoticeLevel", "WARN", "NoticeText", "活动图自证：" + evidence);
+
+            bool entered = Gd.Truthy(Gd.Get(v, "Entered"));
+            string stage = Gd.Str(Gd.Get(v, "Stage"));
+            Dictionary<string, object> obj = Gd.Out(
+                "Date", Gd.Str(Gd.Get(v, "Date")),
+                "EventKey", Gd.Str(Gd.Get(v, "EventKey")),
+                "Stage", stage,
+                "Entered", entered,
+                "Evidence", evidence);
+            string dir = OptStr(c, "stateDir", delegate { return StateDir(); });
+            GdJson.Write(Path.Combine(dir, ProbeFile), obj);
+            // 两句人话逐字(ark-decisions.ps1:172/174)，档位 OK／WARN 也逐字。
+            if (entered)
+                return Gd.Out("Written", true, "NoticeLevel", "OK",
+                    "NoticeText", "活动图自证：" + stage + " 进得去 → 下一轮照常按活动图刷(" + evidence + ")");
+            return Gd.Out("Written", true, "NoticeLevel", "WARN",
+                "NoticeText", "活动图自证：" + stage + " 进不去 → 判为还没打通，当日剩余轮改刷长草(" + evidence + ")");
+        }
     }
 }

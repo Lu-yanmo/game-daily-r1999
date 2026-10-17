@@ -92,17 +92,35 @@ extern "system" {
 
 /// `SetThreadExecutionState` 的三枚设置标志 + 一枚查询标志，值取自 winbase.h，
 /// 与 tools\gdinterop\GdPower.cs:19-21 那三枚**逐字同值**（两处同源，改一处必改两处）。
-/// 查询形态是 `ES_CONTINUOUS | ES_QUERY_ONLY`：只回读当前状态、不改，返回值即当前位型。
-/// ⚠ ES_QUERY_ONLY 的数值**在本仓任何一份文档里都没有钉过**（§11.50 ①-8 只说"用 ES_QUERY 复验"），
-///   所以这里按头文件写、并在自证那一发当场测；测不到就照口径记 unobserved。
-///   自证只读 system/display 两位（`round_answer` 的 nosleep 那格），`ES_USER_PRESENT` 不参与判据，
-///   留在名册里只为"读到的位型能对回头文件"这一件事。
+/// ⚠ **查询形态（`ES_CONTINUOUS | ES_QUERY_ONLY`）在本机实测恒回 0** —— 空手查、设过 `c|s|d` 之后查、
+///   跨进程查（10-17 F3 那发，另起一个进程查本进程正设着的位）全回 `0x00000000`。
+///   所以 §11.50 ①-8 欠的那一发自证**不走查询通道**，改走"幂等重设同位型、读返回的**前值**"：
+///   这枚 API 的返回值本来就是**调用前**的位型（实测 `SET(c|s|d)` 之后同位型再发一次回 `0x80000003`、
+///   只设 system 的那档回 `0x80000001`、从没设过就空重设回 `0x80000000`）⇒ 前值含本轮的位＝设上了。
+///   两把偏向都实测过：**不漏报**（自己刚设的位一定在返回值里）；**不假阳**（本进程设着 `c|s|d` 时另起一个
+///   进程重设同位型，它拿到的前值仍是 `0x80000000` ⇒ 别的进程的位读不进来，这枚前值是**这根线程自己的账**）。
+///   代价随之而来：这条自证只对"同一进程同一根线程"成立 ⇒ 段 8 的 ES 调用必须留在驱动那根线程上，
+///   将来谁把它挪进工作线程，看到的会是"位没设上"那一档而不是真没设上。
+///   ES_QUERY_ONLY 留在名册里带 `dead_code`，只为"下次再去试的时候知道值是 0x10、以及为什么别试"。
+///   自证只读 system/display 两位（`round_answer` 的 nosleep 那格），`ES_USER_PRESENT` 不参与判据。
 const ES_CONTINUOUS: u32 = 0x8000_0000;
 const ES_SYSTEM_REQUIRED: u32 = 0x0000_0001;
 const ES_DISPLAY_REQUIRED: u32 = 0x0000_0002;
 #[allow(dead_code)]
 const ES_USER_PRESENT: u32 = 0x0000_0004;
+#[allow(dead_code)]
 const ES_QUERY_ONLY: u32 = 0x0000_0010;
+
+/// 自检用睡眠屏蔽假身：把 10-17 实测到的那四条读数写成一条规则，而不是随手编一个返回值。
+/// 规则＝"带 `ES_CONTINUOUS` 的那一发把本线程位型整体换成 `flags`，不带的那一发往上或；
+/// 每发回的是**调用前**的位型"。初值取 `ES_CONTINUOUS` —— 实测新进程空手第一发就回 `0x80000000`，
+/// 四档（A0 空手 / A2 重设同位型 / B2 只 system / C2 从没设过就空重设）全由这一条复现。
+/// 生产里 `es` 是真 API、自检里走这里 ⇒ 判据两边同一把，绝不为自检去动本机的睡眠屏蔽。
+fn es_fake_apply(state: &mut u32, flags: u32) -> u32 {
+    let prev = *state;
+    *state = if flags & ES_CONTINUOUS != 0 { flags } else { *state | flags };
+    prev
+}
 
 /// 本地时间戳（B-1a 已搬动作 mark/obsrec 用）——GetLocalTime 的 SYSTEMTIME 布局。
 #[repr(C)]
@@ -6870,7 +6888,7 @@ fn round_answer(
             )
         }
         ("round", ROUND_NOSLEEP_ACT) => {
-            // 段 8 的睡眠屏蔽：**本进程**设、本进程查（这就是它不做成 verb 的理由，见 extern 那段注释）。
+            // 段 8 的睡眠屏蔽：**本进程**设、本进程验（这就是它不做成 verb 的理由，见 extern 那段注释）。
             // 位型照 Enter-GdNoSleep:475-477 那三行：CONTINUOUS|SYSTEM_REQUIRED（keepScreenOn 再或上 DISPLAY）。
             let keep = jv_truthy(&jv_get_ci(params, "keepScreenOn"));
             let mut flags = ES_CONTINUOUS | ES_SYSTEM_REQUIRED;
@@ -6878,13 +6896,16 @@ fn round_answer(
                 flags |= ES_DISPLAY_REQUIRED;
             }
             let set = (hooks.es)(flags);
-            // 同进程自证（§11.50 ①-8 欠的那一发）：查询形态回的是**当前位型**，本轮设的位在不在里面当场见分晓。
-            let query = (hooks.es)(ES_CONTINUOUS | ES_QUERY_ONLY);
-            let system_seen = query & ES_SYSTEM_REQUIRED != 0;
-            let display_seen = !keep || query & ES_DISPLAY_REQUIRED != 0;
+            // 自证那一发（§11.50 ①-8 欠的那笔，读数通道 10-17 改过）：**同位型再发一次**、拿返回的前值。
+            // 旧的写法是"再发一发 ES_CONTINUOUS|ES_QUERY_ONLY"，本机实测那一发恒回 0 ⇒ 这句 WARN 每轮恒响、
+            // 仪表等于没接上线（常量块的头注记着四组读数）。同位型重设是幂等的（本线程位型换成同一组位），
+            // 而它的返回值是**调用前**的位型 ⇒ 第一位就是刚才那一发设上去的位，看得见看不见都当场见分晓。
+            let prev = (hooks.es)(flags);
+            let system_seen = prev & ES_SYSTEM_REQUIRED != 0;
+            let display_seen = !keep || prev & ES_DISPLAY_REQUIRED != 0;
             DirectOut::only(jv_o(vec![
                 ("Set", JVal::B(set != 0)),
-                ("Query", JVal::I(query as i64)),
+                ("Query", JVal::I(prev as i64)),
                 ("SystemSeen", JVal::B(system_seen)),
                 ("DisplaySeen", JVal::B(display_seen)),
             ]))
@@ -7426,9 +7447,12 @@ fn daily_round_chain(
                 nosleep_on = true;
                 // 真身这一句在 ES 调用之后、屏保那一段之前，逐字。
                 fx.fx_log("INFO", "已临时禁止系统睡眠(跑完自动恢复)");
-                // 自证那一发的读数（§11.50 ①-8 欠的那笔）：查到的位型没含本轮设的位 ⇒ 当场补一行。
+                // 自证那一发的读数（§11.50 ①-8 欠的那笔）：重设回来的前值没含本轮设的位 ⇒ 当场补一行。
                 // 这句**不是真身的话**：真身不知道设成没设成，宿主版既然测得到就说测得到的 ——
                 // 测不到的那几档照口径记 unobserved，绝不许反过来吹"屏蔽已生效"。
+                // ⚠ 10-17 之前这句是**每轮恒响**的：读数通道用的是 ES_QUERY_ONLY，那枚在本机恒回 0
+                //   （见常量块头注的实测数）。换通道之后它才第一次变成"响的时候确实有事"，
+                //   自检里 24h 钉"正常读数下不许响"、24l 的 es-blind 钉"答不动时响且不崩本轮"。
                 if !jv_truthy(&jv_get_ci(&d, "Set"))
                     || !jv_truthy(&jv_get_ci(&d, "SystemSeen"))
                     || !jv_truthy(&jv_get_ci(&d, "DisplaySeen"))
@@ -7436,8 +7460,8 @@ fn daily_round_chain(
                     fx.fx_log(
                         "WARN",
                         &format!(
-                            "睡眠屏蔽自证没看到本轮设的位(查询回 {}，本轮要设 system{})—— 这一轮的屏蔽按未证实处理",
-                            jv_int(&jv_get_ci(&d, "Query"), 0),
+                            "睡眠屏蔽自证没看到本轮设的位(重设回的前值 0x{:08X}，本轮要设 system{})—— 这一轮的屏蔽按未证实处理",
+                            jv_int(&jv_get_ci(&d, "Query"), 0) as u32,
                             if keep { " + display" } else { "" }
                         ),
                     );
@@ -17649,6 +17673,9 @@ fn selftest() -> i32 {
         let mut proj24: Vec<String> = Vec::new();
         let mut slept24: Vec<u32> = Vec::new();
         let mut es24: Vec<u32> = Vec::new();
+        let mut es_state24 = ES_CONTINUOUS;
+        // 负对照那一发的回执（自证答不动时那格）：块内算、块外比，借用规矩同上面几枚。
+        let neg24: String;
         let live_dec = round_ark_decision_slot();
         live_dec.replace(jv_o(vec![
             ("Mode", jv_s("farm")),
@@ -17674,11 +17701,7 @@ fn selftest() -> i32 {
             };
             let mut es24c = |f: u32| -> u32 {
                 es24.push(f);
-                if f & ES_QUERY_ONLY != 0 {
-                    ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED
-                } else {
-                    1
-                }
+                es_fake_apply(&mut es_state24, f)
             };
             let mut hk24 = RoundHooks { call: &mut call24, nap: &mut nap24, es: &mut es24c };
             let mut one = |role: &str, action: &str, params: JVal| {
@@ -17742,6 +17765,38 @@ fn selftest() -> i32 {
                     ask_none.push(format!("{}:{} 本该外发", role, action));
                 }
             }
+            // 负对照：自证那一发**答不动**（第一发按实测回前值、第二发起一律回 0）时的回执。
+            // 判据必须从**第二次调用的返回值**里读，不许从 flags/keep 自己推出来 ——
+            // 推出来的话这只表就算根本没接上线也照样恒绿，而那正是 10-17 量到的缺陷形状。
+            neg24 = {
+                let mut n24n = 0usize;
+                let mut call_n = |_v: &str, _b: &JVal| -> Result<JVal, String> { Ok(r24_reply(_v, &paths_ok24)) };
+                let mut nap_n = |_s: u32| {};
+                let mut es_n = |_f: u32| -> u32 {
+                    n24n += 1;
+                    if n24n == 1 {
+                        ES_CONTINUOUS
+                    } else {
+                        0
+                    }
+                };
+                let mut hk_n = RoundHooks { call: &mut call_n, nap: &mut nap_n, es: &mut es_n };
+                match round_answer(
+                    &mut hk_n,
+                    &env24,
+                    &root_all,
+                    &t24("state"),
+                    &inst24,
+                    &live_dec,
+                    "round",
+                    ROUND_NOSLEEP_ACT,
+                    &jv_o(vec![("keepScreenOn", JVal::B(true))]),
+                ) {
+                    Ok(Some(o)) => jv_to_json(&o.data),
+                    Ok(None) => "None".to_string(),
+                    Err(m) => format!("Err({})", m),
+                }
+            };
         }
         chk(
             ask_none.is_empty(),
@@ -17807,11 +17862,38 @@ fn selftest() -> i32 {
             slept24 == vec![25u32, 20u32]
                 && es24.len() == 3
                 && es24[0] == (ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED)
-                && es24[1] == (ES_CONTINUOUS | ES_QUERY_ONLY)
+                && es24[1] == (ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED)
                 && es24[2] == ES_CONTINUOUS,
             &format!(
                 "核内那两枚现场件走错了（sleep 没走注入点=自检会真睡，或 ES 位型/自证顺序不对）：slept={:?} es={:?}",
                 slept24, es24
+            ),
+            &mut fails,
+            &mut total,
+        );
+        // ⚠ 上面那格 10-17 改过一枚期望：`es24[1]` 从前是 `ES_CONTINUOUS|ES_QUERY_ONLY`（查询那一发），
+        //   现在是**与第一发逐字同的位型**（幂等重设那一发）。这一格只钉"发了几发、发的什么位型"，
+        //   读数对不对由下面两格钉 —— 正例格假身按实测语义走，负例格假身只答错自证那一发。
+        chk(
+            data_of
+                .iter()
+                .any(|l| *l == format!("round:round-nosleep:{{\"Set\":true,\"Query\":{},\"SystemSeen\":true,\"DisplaySeen\":true}}",
+                    (ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED) as i64)),
+            &format!(
+                "睡眠屏蔽那格的正例读数的形状变了（Query 必须是**第二发带回来的前值**、三枚 Seen 在位型齐时全 true）：{}",
+                data_of.iter().filter(|l| l.contains("round-nosleep")).map(|s| s.as_str()).collect::<Vec<_>>().join(" § ")
+            ),
+            &mut fails,
+            &mut total,
+        );
+        chk(
+            neg24.contains("\"Set\":true")
+                && neg24.contains("\"Query\":0")
+                && neg24.contains("\"SystemSeen\":false")
+                && neg24.contains("\"DisplaySeen\":false"),
+            &format!(
+                "自证那一发答不动时回执没如实报false（判据若从 flags/keep 自己推、或从**第一发**的返回值读，就正是这只恒绿仪表的形状）：{}",
+                neg24
             ),
             &mut fails,
             &mut total,
@@ -17847,13 +17929,8 @@ fn selftest() -> i32 {
             let pair = {
                 let mut call24 = |_v: &str, _b: &JVal| -> Result<JVal, String> { Ok(r24_reply(_v, &paths_ok24)) };
                 let mut nap24 = |_s: u32| {};
-                let mut es24c = |f: u32| -> u32 {
-                    if f & ES_QUERY_ONLY != 0 {
-                        ES_CONTINUOUS | ES_SYSTEM_REQUIRED
-                    } else {
-                        1
-                    }
-                };
+                let mut es_state_l24 = ES_CONTINUOUS;
+                let mut es24c = |f: u32| -> u32 { es_fake_apply(&mut es_state_l24, f) };
                 let mut hk24 = RoundHooks { call: &mut call24, nap: &mut nap24, es: &mut es24c };
                 let mut dec = |_st: &str, _ro: bool| -> Result<(bool, Vec<(String, String)>), String> {
                     Ok((false, Vec::new()))
@@ -17971,6 +18048,7 @@ fn selftest() -> i32 {
         chk(
             sink24.iter().any(|l| l.contains("环境检查：") && l.contains("项就绪"))
                 && sink24.iter().any(|l| l.contains("已临时禁止系统睡眠"))
+                && !sink24.iter().any(|l| l.contains("睡眠屏蔽自证"))
                 && sink24.iter().any(|l| l.contains("=== 本轮结束：全部完成 ==="))
                 && sink24.iter().any(|l| l.contains("接管那一句"))
                 && sink24.iter().filter(|l| l.contains("接管那一句")).count() == 1,
@@ -18193,13 +18271,16 @@ fn selftest() -> i32 {
             &mut total,
         );
 
-        // ---------- 24l 段 7／段 8 的三档现场形状（守卫档一句不吭、屏保崩只 WARN 不崩本轮）----------
-        // 这三档都在**外发**那一族，故走 ask/res：假 executor 只改被点名那一格的回执，其余照 24h 的册子答。
+        // ---------- 24l 段 7／段 8 的四档现场形状（守卫档一句不吭、屏保崩只 WARN 不崩本轮、自证失明只补一行）----------
+        // 这几档都在**外发**那一族，故走 ask/res：假 executor 只改被点名那一格的回执，其余照 24h 的册子答。
         // blockSleep=true + keepScreenOn=true 是把段 8 整段请出场的唯一办法（`es` 由假钩子接，绝不碰真 API）。
-        for (scen24l, ask_act, ask_ok, ask_available) in [
-            ("sv-missing", "", true, false),
-            ("sv-error", "", true, true),
-            ("screen-fail", ROUND_SCREENSAVER_ACT, false, true),
+        // 第五枚 `es_nai`＝自证那一发答不动（10-17 换读数通道时立的负对照，判据不许自己推自己）：
+        // 前四档按实测语义回前值 ⇒ 那句 WARN 一声不响；es-blind 档第二发起一律回 0 ⇒ WARN 逐字出现、本轮照跑完。
+        for (scen24l, ask_act, ask_ok, ask_available, es_nai) in [
+            ("sv-missing", "", true, false, false),
+            ("sv-error", "", true, true, false),
+            ("screen-fail", ROUND_SCREENSAVER_ACT, false, true, false),
+            ("es-blind", "", true, true, true),
         ]
         .iter()
         {
@@ -18236,11 +18317,14 @@ fn selftest() -> i32 {
                         Ok(r24_reply(v, &paths_ok24))
                     };
                     let mut nap_l = |_s: u32| {};
+                    let mut es_state_l = ES_CONTINUOUS;
+                    let mut es_n_l = 0usize;
                     let mut es_l = |f: u32| -> u32 {
-                        if f & ES_QUERY_ONLY != 0 {
-                            ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED
+                        es_n_l += 1;
+                        if *es_nai && es_n_l >= 2 {
+                            0
                         } else {
-                            1
+                            es_fake_apply(&mut es_state_l, f)
                         }
                     };
                     let mut hk_l = RoundHooks { call: &mut call_l, nap: &mut nap_l, es: &mut es_l };
@@ -18331,6 +18415,31 @@ fn selftest() -> i32 {
                     &mut fails,
                     &mut total,
                 );
+            } else if *scen24l == "es-blind" {
+                // 自证那一发答不动 ⇒ ①那句 WARN 逐字出现、②本轮照跑完退 0（「按未证实处理」不是「本轮失败」）、
+                // ③收尾**照样撤位** —— 读不到位不等于没设过，把屏蔽留在机器上是更坏的那一档。
+                let jl_rows: Vec<String> = std::fs::read_to_string(&jl)
+                    .unwrap_or_default()
+                    .lines()
+                    .filter(|l| !l.trim().is_empty())
+                    .map(|l| l.to_string())
+                    .collect();
+                chk(
+                    reached_done
+                        && done_l.0 == 0
+                        && sinkl
+                            .iter()
+                            .any(|l| l.contains("睡眠屏蔽自证没看到本轮设的位(重设回的前值 0x00000000，本轮要设 system + display)—— 这一轮的屏蔽按未证实处理"))
+                        && jl_rows.iter().any(|l| l.contains("\"action\":\"round-nosleep-off\"")),
+                    &format!(
+                        "自证答不动那一档没如实补一行、补的这句话术变了（这句逐字钉）、或把「按未证实」升成了崩本轮、或收尾那格撤位被顺带跳掉：done={} rc={} 侧行={}",
+                        reached_done,
+                        done_l.0,
+                        sinkl.iter().filter(|l| l.contains("睡眠")).map(|s| s.as_str()).collect::<Vec<_>>().join(" § ")
+                    ),
+                    &mut fails,
+                    &mut total,
+                );
             } else {
                 chk(
                     reached_done
@@ -18345,6 +18454,20 @@ fn selftest() -> i32 {
                         reached_done,
                         done_l.0,
                         sinkl.join(" § ").chars().take(700).collect::<String>()
+                    ),
+                    &mut fails,
+                    &mut total,
+                );
+            }
+            // 正例那三档（假身按实测语义回前值）一声都不许响。这句看着像废话，但它钉的是本批的**来由**：
+            // 10-17 之前那句 WARN **每轮恒响**，因为读数挂在 ES_QUERY_ONLY 那一发上、而那发在本机恒回 0。
+            // 恒响的仪表等于没接上线——把它当成"已知的假红"绕过去，就是下一次真故障的漏报现场。
+            if *scen24l != "es-blind" {
+                chk(
+                    !sinkl.iter().any(|l| l.contains("睡眠屏蔽自证")),
+                    &format!(
+                        "位型设上了、前值也读到了，却还在响那句自证 WARN（读数通道又接回恒 0 的那一发，或三枚键的判据写反了）：{:?}",
+                        sinkl.iter().filter(|l| l.contains("睡眠")).collect::<Vec<_>>()
                     ),
                     &mut fails,
                     &mut total,

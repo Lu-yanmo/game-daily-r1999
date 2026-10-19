@@ -7,7 +7,7 @@
 //                         三档顺序与那两条 WARN 原话照抄；后半段(把值喂进 decide-ark)不在这儿——那是判定，已住 Decisions.cs。
 //   read-r1999-activity   Get-R1999Event(lib\r1999-decisions.ps1:39) 的**取数半段**：读 M9A 自带活动数据 + 算 DataAge(天)。
 //   read-decision-state   "五本 state 读"一次取齐：<game>-event-ack.json / <game>-shop-done.json / ark-event-probe.json，
-//                         外加 Test-GdShopDoneEnabled(lib\decisions-common.ps1:112) 那把 flag 尺的**读值半段**。
+//                         外加 Test-GdShopDoneEnabled(lib\decisions-common.ps1:98) 那把 flag 尺的**读值半段**。
 //   set-ark-shop-state    Set-GdArkShopState(lib\ark-daily.ps1:44)；
 //   set-r1999-ack         Set-GdR1999Ack(lib\r1999-daily.ps1:39)；
 //   set-r1999-shop-state  Set-GdR1999ShopState(lib\r1999-daily.ps1:50)。
@@ -26,7 +26,7 @@
 //   * state 文件名与外层键(`$Game-event-ack`+`acked`、`$Game-shop-done`+`done`、`ark-event-probe` 的五键)
 //     ↔ lib\decisions-common.ps1:57-110 与 lib\ark-decisions.ps1:128-168 —— 键名与时间戳格式('yyyy-MM-dd HH:mm')是磁盘协议，
 //     PS 那侧还在按这个名字读，这里写错了就是"门自己关不上"；
-//   * **r1999 的 `DataAge` 后处理是 §11.52 ⑤ 新登记的那处双源，本批不定档**：PS 侧 Get-R1999Event:59-60 拿 age 追加
+//   * **r1999 的 `DataAge` 后处理是 §11.52 ⑤ 新登记的那处双源，本批不定档**：PS 侧 Get-R1999Event(lib\r1999-decisions.ps1:59-60) 拿 age 追加
 //     到 `$result.Reason` 那句"(活动数据 N 天前)"里。本 verb 只回 `DataAgeDays` 这个**数**，不做那句追加(追加属于判定结论)；
 //     谁在 ②-b3／②-d 接这一步，必须同时决定 PS 那两行删不删 —— 不许两边都留。
 //   * 落盘形状：真身走 ConvertTo-Json(缩进多行)，这里走 JavaScriptSerializer(单行)。与 Round.cs:510 那笔"形状差"同一档：

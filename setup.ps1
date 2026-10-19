@@ -35,13 +35,10 @@ if (Test-Path -LiteralPath $outPath) {
     Write-Host "已存在 config\settings.json → 只补空缺项(-Force 才整体重建)" -ForegroundColor DarkGray
 }
 
-function Resolve-GdDirArg {
-    param([string]$Value)
-    if (-not $Value) { return $null }
-    $p = if ([System.IO.Path]::IsPathRooted($Value)) { $Value } else { (Join-Path (Get-Location) $Value) }
-    return (Get-Item -LiteralPath $p -ErrorAction SilentlyContinue).FullName
-}
-function Resolve-GdFileArg {
+function Resolve-GdPathArg {
+    # 10-19 上午 C-0〗m：本枚由 `Resolve-GdDirArg`／`Resolve-GdFileArg` 合而来——两枚逐字同体(差别只在名字)，
+    #   真身里 `Get-Item` 对目录和文件一样给 FullName，所以"目录版/文件版"这两具身体本来就是一具；
+    #   账表 tools\ps-map\ps-map.tsv 那两行当时就写着"可合为一枚、合并是码面动作"，这一批把话兑现。
     param([string]$Value)
     if (-not $Value) { return $null }
     $p = if ([System.IO.Path]::IsPathRooted($Value)) { $Value } else { (Join-Path (Get-Location) $Value) }
@@ -82,12 +79,12 @@ $hasArk = Test-Path -LiteralPath (Join-Path $root 'lib\maa.ps1')
 $hasR1999 = Test-Path -LiteralPath (Join-Path $root 'lib\m9a.ps1')
 $probed = @{}
 if ($hasArk) {
-    $probed['paths.maaDir'] = Select-GdItem -Label 'MaaDir' -Manual (Resolve-GdDirArg $MaaDir) -Current $(if ($cur) { [string]$cur.maaDir }) -Probe $probeMaa
-    $probed['paths.arknightsExe'] = Select-GdItem -Label 'ArkExe' -Manual (Resolve-GdFileArg $ArkExe) -Current $(if ($cur) { [string]$cur.arknightsExe }) -Probe $probeArk
+    $probed['paths.maaDir'] = Select-GdItem -Label 'MaaDir' -Manual (Resolve-GdPathArg $MaaDir) -Current $(if ($cur) { [string]$cur.maaDir }) -Probe $probeMaa
+    $probed['paths.arknightsExe'] = Select-GdItem -Label 'ArkExe' -Manual (Resolve-GdPathArg $ArkExe) -Current $(if ($cur) { [string]$cur.arknightsExe }) -Probe $probeArk
 }
 if ($hasR1999) {
-    $probed['paths.m9aDir'] = Select-GdItem -Label 'M9aDir' -Manual (Resolve-GdDirArg $M9aDir) -Current $(if ($cur) { [string]$cur.m9aDir }) -Probe $probeM9A
-    $probed['paths.mumuDir'] = Select-GdItem -Label 'MuMuDir' -Manual (Resolve-GdDirArg $MuMuDir) -Current $(if ($cur) { [string]$cur.mumuDir }) -Probe $probeMuMu
+    $probed['paths.m9aDir'] = Select-GdItem -Label 'M9aDir' -Manual (Resolve-GdPathArg $M9aDir) -Current $(if ($cur) { [string]$cur.m9aDir }) -Probe $probeM9A
+    $probed['paths.mumuDir'] = Select-GdItem -Label 'MuMuDir' -Manual (Resolve-GdPathArg $MuMuDir) -Current $(if ($cur) { [string]$cur.mumuDir }) -Probe $probeMuMu
 }
 # 打印顺序保持和拆分前一模一样(合体工程逐项一致)，只是不再列出这个仓库没探的那几项
 foreach ($k in @('paths.maaDir', 'paths.m9aDir', 'paths.mumuDir', 'paths.arknightsExe')) {

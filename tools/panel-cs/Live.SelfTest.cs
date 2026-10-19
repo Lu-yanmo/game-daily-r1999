@@ -706,7 +706,7 @@ namespace GdPanel
                 if (!Gd.Truthy(d["Ok"]) || !Gd.Truthy(d["CanContinue"]) || S(d["Skip"]) != "") return false;
                 if (S(d["Path"]) != @"C:\gd-mumu\mumu-stall-1012060000-before.png") return false;   // Path 仍是编排给的那条
                 if (L(d["ImgW"]) != 300L || L(d["ImgH"]) != 200L) return false;
-                if (L(d["ClientLeft"]) != 0L || L(d["ClientTop"]) != 0L) return false;              // 真身:109 那四格
+                if (L(d["ClientLeft"]) != 0L || L(d["ClientTop"]) != 0L) return false;              // 真身 lib\vision-mumu.ps1:109 那四格
                 if (L(d["ClientW"]) != 300L || L(d["ClientH"]) != 200L) return false;
                 if (L(d["AvgLum"]) != 20L) return false;
                 string[] parts = S(d["Sig"]).Split(',');

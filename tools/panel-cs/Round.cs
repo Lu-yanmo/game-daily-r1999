@@ -10,36 +10,36 @@
 //
 // 七枚名单(全部走 `--in` JSON，回执走 `--out` 信封，形状与既有六十几枚一字不相干 —— 判据见 §11.50 ②-1 末句)：
 //   resolve-round-context  ①-4 那把"轮 ctx 取键名册"：逐枚点名要 runtime 键、判动态 flag、判在位性、判管理员；
-//   start-elevated-round   Start-GdElevatedSelf(common.ps1:809) 的真起那半 —— 拼参那半不重做(build-relaunch-args 已在场)；
-//   send-round-notice      Send-GdNotice(common.ps1:855) 的三档容错：落盘无条件、webhook 失败只 WARN、气泡失败也只 WARN；
-//   start-run-lock         Start-GdRunLock(common.ps1:940)：先报"已有一轮在跑"再登记，**只说不拦**；
-//   stop-run-lock          Stop-GdRunLock(common.ps1:993)：只删自己登记的那一份；
-//   read-task-state        Get-GdTaskState(common.ps1:1065)：走 Schedule.Service COM，不走 schtasks(它的状态标签是本地化的)；
-//   stop-process-tree      Stop-GdProcessTree(common.ps1:512)：名曰"树"、实为按进程名(原样怪癖，见下)。
+//   start-elevated-round   Start-GdElevatedSelf(common.ps1:812) 的真起那半 —— 拼参那半不重做(build-relaunch-args 已在场)；
+//   send-round-notice      Send-GdNotice(common.ps1:858) 的三档容错：落盘无条件、webhook 失败只 WARN、气泡失败也只 WARN；
+//   start-run-lock         Start-GdRunLock(common.ps1:943)：先报"已有一轮在跑"再登记，**只说不拦**；
+//   stop-run-lock          Stop-GdRunLock(common.ps1:996)：只删自己登记的那一份；
+//   read-task-state        Get-GdTaskState(common.ps1:1068)：走 Schedule.Service COM，不走 schtasks(它的状态标签是本地化的)；
+//   stop-process-tree      Stop-GdProcessTree(common.ps1:515)：名曰"树"、实为按进程名(原样怪癖，见下)。
 // 睡眠屏蔽(SetThreadExecutionState)**不在这份名册里**：跨进程会当场语义失效(①-8)，由 ②-b 的宿主在那根常驻线程上自己设。
 //
 // 双源登记(§11.50 ⑤ 那一族，改一句要两侧同改)：
 //   * 上面每一句 WARN/ERROR 原话与 modules.ps1 的旧路**并存**：生产接线(②-d)之前旧路仍是事实源，
 //     本文件抄它，不许反过来"以这里为准"去改 lib；
-//   * `Get-GdElevateBatchLine`(common.ps1:802) 那枚纯函数仍住壳侧(①-6 明写"本批不重造拼参"，但批处理那一行
+//   * `Get-GdElevateBatchLine`(common.ps1:805) 那枚纯函数仍住壳侧(①-6 明写"本批不重造拼参"，但批处理那一行
 //     只有真起 cmd 载体才用得到)：这里的 BatchLine 是它的同形复刻，两侧若要长期并存就得等 B-4 退役那批再收；
 //   * 运行锁的**读侧**在本文件收成了唯一真身(ParseLock/LockAt)，`Panel.Run.cs:ReadExtRun` 已改为委托它
 //     —— 这是 §11.50 ⑤-2 那句"写侧与读侧是同一条契约，不许分两批动"的兑现处，随行自证见 --exttest 与 --roundtest。
 //   * **batchPwsh 的默认值是与真身有意分岔的一处**(本批 CLI 冒烟抓到)：真身第一级取
-//     `(Get-Process -Id $PID).Path`(common.ps1:834)，那句在 PS 宿主里取到的是"跑这个脚本的解释器"；
+//     `(Get-Process -Id $PID).Path`(common.ps1:837)，那句在 PS 宿主里取到的是"跑这个脚本的解释器"；
 //     本 verb 住在 panel-cs.exe 里，照抄会得到**面板自己的绝对路径** ⇒ 批处理行拼成
 //     `panel-cs.exe -File x.ps1`，而面板认不得 `-File`，提权起来是一发空打。这里把三级折成两级
-//     (Get-GdLocalPwsh 那枚 → 按 PATH 找 pwsh.exe，商店版同样跳过)，两级都空仍照 :836 那句原话抛。
+//     (Get-GdLocalPwsh 那枚 → 按 PATH 找 pwsh.exe，商店版同样跳过)，两级都空仍照 common.ps1:839 那句原话抛。
 //     真弹那一发(载体 cmd 那一支)仍登记 unobserved，等 ②-b 的 UAC 实弹。
 //
 // 原样怪癖(§11.50 ⑦ 登记的几笔，这里一律照抄不"顺手修")：
-//   1. **通知标题的 `${NoticeOwner}`**：大括号不可省(CJK 是合法变量名字符，modules.ps1 HEAD:385 的注释记着实机踩过一次
+//   1. **通知标题的 `${NoticeOwner}`**：大括号不可省(CJK 是合法变量名字符，lib\modules.ps1:434 的注释记着实机踩过一次
 //      "展开成空串 → Mandatory Title 绑不上")。宿主版不插值，直接按 owner 拼同一句 ⇒ NoticeTitle 那枚内部件被 --roundtest 钉死。
 //   2. **残留按"没在跑"**：Get-GdRunLock 的码面注释写死了理由——"否则一次硬杀会把面板永久挡在门外"。
 //      这里不许把残留判成"仍在跑"；同时面板那侧多一条它自己的规矩(读不到进程细节时宁可当成在跑，防二次点火)，
 //      两把尺子由 LockAt(unhandledMeansAlive) 这一个布尔分开，**不统一**。
 //   3. **own 判据不分大小写**：`"pid"\s*:…` 那条 -match 是不分大小写的，所以 {"PID":1234} 也算自己那份
-//      (common.ps1:998 的 K2 实测注记)⇒ OwnsText 用 RegexOptions.IgnoreCase。
+//      (common.ps1:1001 的 K2 实测注记)⇒ OwnsText 用 RegexOptions.IgnoreCase。
 //   4. **Stop-GdProcessTree 名曰树、实为按进程名**：Get-Process -Name 匹配几个就返回几，
 //      不递归子进程 ⇒ 回执里的 Killed 就是"匹配到的进程数"这个原样语义，别当成"真杀了几枚"。
 //   5. **提权支让位**：骨架 `return [int]$code` 直接把子轮退出码当本轮结论(父轮不写历史、不发通知)。
@@ -363,7 +363,7 @@ namespace GdPanel
                 // "跑这个脚本的解释器"(pwsh.exe)，而本 verb 住在 panel-cs.exe 里，自路径就是面板那枚 exe，
                 // 写进批处理行得到 "panel-cs.exe -File x.ps1" —— 面板认不得 -File，提权起来是一发空打。
                 // 于是 exe 宿主把三级顺序折成两级：Get-GdLocalPwsh 那枚 → 按 PATH 找 pwsh.exe(Get-Command 的同形)，
-                // 都没有就照 common.ps1:836 那句原话抛(退出码 2，原话给壳继续 throw)。
+                // 都没有就照 common.ps1:839 那句原话抛(退出码 2，原话给壳继续 throw)。
                 if (local.Length > 0) return local;
                 string onPath = FindOnPath("pwsh.exe");
                 if (onPath.Length > 0) return onPath;
@@ -378,7 +378,7 @@ namespace GdPanel
                 try { code = RunElevated(local, string.Join(" ", args.ToArray()), workdir, false); }
                 catch (Exception ex)
                 {
-                    // 原话逐字(common.ps1:830)：商店版 pwsh 提不了就是走这一支落进 cmd 载体的。
+                    // 原话逐字(common.ps1:833)：商店版 pwsh 提不了就是走这一支落进 cmd 载体的。
                     string msg = "本机 pwsh 提权失败(" + ex.Message + ") → 改用 cmd 载体";
                     GdLog.Line(msg, "WARN");
                     lines.Add(msg);
@@ -412,7 +412,7 @@ namespace GdPanel
             }
             catch (Exception ex)
             {
-                // 原话逐字(common.ps1:847)：UAC 被取消也走这里 ⇒ -1 这一个码混着"取消"与"失败"两种意思，照抄不拆。
+                // 原话逐字(common.ps1:850)：UAC 被取消也走这里 ⇒ -1 这一个码混着"取消"与"失败"两种意思，照抄不拆。
                 string msg = "提权被取消或失败：" + ex.Message;
                 GdLog.Line(msg, "ERROR");
                 lines.Add(msg);
@@ -466,7 +466,7 @@ namespace GdPanel
             return "";
         }
 
-        // Get-GdElevateBatchLine(common.ps1:802) 的同形复刻：带空格才加引号，参数用一个空格拼。
+        // Get-GdElevateBatchLine(common.ps1:805) 的同形复刻：带空格才加引号，参数用一个空格拼。
         internal static string BatchLine(string pwsh, List<string> argList)
         {
             string exe = Regex.IsMatch(pwsh ?? "", @"\s") ? "\"" + pwsh + "\"" : pwsh;
@@ -493,7 +493,7 @@ namespace GdPanel
         }
 
         // ==================== verb: send-round-notice ====================
-        // Send-GdNotice(common.ps1:855) 的三档容错照抄：**落盘无条件做**，webhook 与气泡各自一把 try，
+        // Send-GdNotice(common.ps1:858) 的三档容错照抄：**落盘无条件做**，webhook 与气泡各自一把 try，
         // 两把都只 WARN —— "发通知"不许合并成一次 try(那样气泡失败会把已推送的 webhook 也说成没推)。
         internal static object Notice(Dictionary<string, object> raw)
         {
@@ -505,7 +505,7 @@ namespace GdPanel
             string level = OptStr(c, "level", delegate { return allOk ? "OK" : "WARN"; });
             string time = OptStr(c, "nowText", delegate { return DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture); });
 
-            // 真身(common.ps1:862)这一句**不在 try 里**：落盘是无条件的第一件事，盘坏了就该把整枚 verb 抛出去
+            // 真身(common.ps1:865)这一句**不在 try 里**：落盘是无条件的第一件事，盘坏了就该把整枚 verb 抛出去
             // (Cli 换算成退出码 1)，而不是"落盘失败只吭一声、后面 webhook 照打"—— 那是给通知加了它没有的容错。
             // 真身是 ConvertTo-Json 缩进版(带换行)，这里是单行 —— 读的只有人和面板，形状差登记在文件头。
             Dictionary<string, object> payload = Sub(
@@ -551,7 +551,7 @@ namespace GdPanel
             else
             {
                 string fakeErr = OptStr(c, "fakeToastErr", null);
-                // 原话逐字(common.ps1:887)：气泡失败也是"不影响日常本身"这一档，别写成 ERROR。
+                // 原话逐字(common.ps1:890)：气泡失败也是"不影响日常本身"这一档，别写成 ERROR。
                 if (fakeErr.Length > 0) { toastState = "failed"; lines.Add("桌面通知发送失败(不影响日常本身)：" + fakeErr); }
                 else
                 {
@@ -624,7 +624,7 @@ namespace GdPanel
         }
 
         // ==================== verb: start-run-lock ====================
-        // Start-GdRunLock(common.ps1:940)：**先说话再登记，不拦**。拦的活交给面板和计划任务那两侧——
+        // Start-GdRunLock(common.ps1:943)：**先说话再登记，不拦**。拦的活交给面板和计划任务那两侧——
         // 在判定层硬拦会让 06:00/18:00 撞上时整轮直接失败，而"失败"对无人值守的人比"多跑一遍"更难发现。
         internal static object LockStart(Dictionary<string, object> raw)
         {
@@ -695,7 +695,7 @@ namespace GdPanel
         }
 
         // ==================== verb: read-task-state ====================
-        // Get-GdTaskState(common.ps1:1065) 的四格回执。走 Schedule.Service COM 而不是 schtasks.exe：
+        // Get-GdTaskState(common.ps1:1068) 的四格回执。走 Schedule.Service COM 而不是 schtasks.exe：
         // 后者的状态列是本地化标签("就绪")，而调用方(run-via-task.ps1:85-162)比的是 PS 那几个英文词。
         internal static object TaskState(Dictionary<string, object> raw)
         {
@@ -793,7 +793,7 @@ namespace GdPanel
         }
 
         // ==================== verb: stop-process-tree ====================
-        // Stop-GdProcessTree(common.ps1:512)：**名曰树、实为按进程名**(文件头原样怪癖第 4 笔)。
+        // Stop-GdProcessTree(common.ps1:515)：**名曰树、实为按进程名**(文件头原样怪癖第 4 笔)。
         // -Force 直接 Kill；否则 CloseMainWindow ＋ 20 秒轮询(800ms) ＋ 补 Kill；返回的是**匹配到的进程数**。
         internal static object ProcTree(Dictionary<string, object> raw)
         {
@@ -878,8 +878,8 @@ namespace GdPanel
         }
 
         // ==================== verb: read-screensaver-config(R9-a 收编 svdetail 的取数半段) ====================
-        // Get-GdScreensaverConfig(common.ps1:356-375) 的真身：只读注册表(HKCU\Control Panel\Desktop)，
-        // **刻意不碰 SPI** —— 那边 common.ps1:357-361 的头注写了理由(会话被屏保接管时 SPI 与注册表不一致，
+        // Get-GdScreensaverConfig(common.ps1:359-378) 的真身：只读注册表(HKCU\Control Panel\Desktop)，
+        // **刻意不碰 SPI** —— 那边 common.ps1:360-364 的头注写了理由(会话被屏保接管时 SPI 与注册表不一致，
         // 而体检要看的正是"下次到点会不会触发"那个稳态)。这一格要的正是那枚稳态。
         // 三枚值逐枚 try 的形状照真身：`SCRNSAVE.EXE` 取不到算空串、`ScreenSaveTimeOut` 取不到算 0、
         // 产品名只在有 .scr 时才去取(FileVersionInfo 读不到回空)。
@@ -944,8 +944,8 @@ namespace GdPanel
 
         // ==================== verb: disable-screensaver-for-round(R9-a 收编 round-screensaver) ====================
         // 转接层当年那六行(lib\rust-round.ps1:338-352) ＝ 真身 `Enter-GdNoSleep` 里 keepScreenOn 那一段
-        // (common.ps1:483-495)：**清旧机制那本 state 文件 → 现读 SPI → 只关不复**。四档话术一枚都不在这里打
-        // (它们在核内段 8，逐字照 common.ps1:487/490/492/494)，这里只回三格读数。
+        // (common.ps1:486-498)：**清旧机制那本 state 文件 → 现读 SPI → 只关不复**。四档话术一枚都不在这里打
+        // (它们在核内段 8，逐字照 common.ps1:490/493/495/497)，这里只回三格读数。
         // SPI 的声明用 tools\gdinterop\GdPower.cs 那份唯一真身(build.ps1 按 GdWin.cs 的先例把它编进本装配，
         // **不在 panel-cs 抄第二份 P/Invoke**)；`Get-/Set-GdScreensaverActive` 那两枚 PS 转发壳一字不动。
         // ⚠ 键序是 `{Read, WasActive, Disabled}`：与转接层当年写进 res 的那枚逐字同序，门的投影才不用跟着改。
@@ -984,7 +984,7 @@ namespace GdPanel
         }
 
         // ==================== verb: append-round-history(R9-a 收编 round-history 两枚) ====================
-        // Add-GdHistory(common.ps1:904-932) 的**整枚**：表头、舍入、`-0` 那一格、detail 折行、落盘字节形状都在这里。
+        // Add-GdHistory(common.ps1:907-935) 的**整枚**：表头、舍入、`-0` 那一格、detail 折行、落盘字节形状都在这里。
         // 三处形状的真身只有一份 = tools\gdcore\GdCore.Logs.cs 的 `GdCore.Csv`(PS 侧靠 Add-GdInterop 现编同一份)，
         // build.ps1 把它按 GdWin.cs 的先例编进本装配 ⇒ **不在这里抄第二份 CSV 规则**；舍入仍按 `[math]::Round`
         // 那把中点取偶(Math.Round 默认 ToEven)，`-0` 由 DurationText 钉成 "0"(存量 history.csv 按 5.1 那支写的)。
@@ -1023,7 +1023,7 @@ namespace GdPanel
             if (!File.Exists(file))
                 File.WriteAllText(file, "\"time\",\"game\",\"mode\",\"status\",\"duration_sec\",\"detail\"\r\n", noBom);
             // 真身不建 state 目录(Set-Content 直接落)，这里也不建：目录不在就该把这一轮拦下来，
-            // 而不是悄悄把账写到别处 —— 与 common.ps1:913 那句 Test-Path 同一把尺。
+            // 而不是悄悄把账写到别处 —— 与 common.ps1:916 那句 Test-Path 同一把尺。
             File.AppendAllText(file, row + "\r\n", noBom);
             return Gd.Out("Written", true);
         }

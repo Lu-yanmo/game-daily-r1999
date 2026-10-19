@@ -529,9 +529,9 @@ namespace GdPanel
         }
 
         // ==================== B-2d③(10-12)：mumu(adb) 这一路的四枚现场件 ====================
-        // 三句"端点没定下来"的话术在真身里**不成对称**，各抄各的：截图那一路是 Save-GdMuMuShot:85 的
+        // 三句"端点没定下来"的话术在真身里**不成对称**，各抄各的：截图那一路是 Save-GdMuMuShot(lib\vision-mumu.ps1:85) 的
         // "adb 或序列号没定下来，拍不了屏"(它挡的是 Test-GdPathReady(路径在不在)+序列号空不空)，
-        // 点击那一路是 $click 闭包:173 的"adb 通道断了"(它只判端点算没算出来，连路径都不验)。
+        // 点击那一路是 $click 闭包(lib\vision-mumu.ps1:173) 的"adb 通道断了"(它只判端点算没算出来，连路径都不验)。
         // 别把两句统一成一句 —— 统一了就说明这一路不再照抄真身。
         // 出口格子也照真身：adb-connect 只回 Ok(真身回 [bool])、adb-game-pid 回 Found/Pid(真身回"整数或 $null"，
         // 核只问 Found)、mumu-screen-click 只回 Mode/Sent(vision-mumu.ps1:131-133 就这两格)。
@@ -700,7 +700,7 @@ namespace GdPanel
                 data["Path"] = path;
                 data["ImgW"] = w;
                 data["ImgH"] = h;
-                data["ClientLeft"] = 0;      // 整块屏就是"客户区"：真身那四格就是这么写的(:109)，
+                data["ClientLeft"] = 0;      // 整块屏就是"客户区"：真身那四格就是这么写的(lib\vision-mumu.ps1:109)，
                 data["ClientTop"] = 0;       // 于是通用层的千分比换算直接落在设备像素上
                 data["ClientW"] = w;
                 data["ClientH"] = h;

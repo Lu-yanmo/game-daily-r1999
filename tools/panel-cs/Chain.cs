@@ -4,7 +4,7 @@
 //  §11.50 ②-1 那条判据不因 b 系列放松，需要动既有 verb 回执的，当场停手登记，不"顺手加键"。)
 //
 // 这一份管的是"链体那十一枚 ask 里，必须由这台机器亲手干的那一半"：
-//   takeover-processes         Invoke-GdTakeover(lib\common.ps1:699)：接管关闭，先判 takeOverAssistant。
+//   takeover-processes         Invoke-GdTakeover(lib\common.ps1:702)：接管关闭，先判 takeOverAssistant。
 //   stop-maa-and-game          Stop-MaaAndGame(lib\maa.ps1:739)。
 //   stop-m9a                   Stop-M9A(lib\m9a.ps1:530)。
 //   read-maa-fight-skip        Get-GdMaaFightSkip(lib\maa.ps1:60 起)的**读日志尾那半**：gui.log 全量 → 递给已在场的
@@ -36,7 +36,7 @@
 //
 // 双源登记(改一句要两侧同改；生产接线(②-d)之前 lib 那两个壳仍是事实源)：
 //   * "…正在运行；要么手动关掉再跑，要么把 settings.runtime.takeOverAssistant 设为 true"、
-//     "$Label 正在运行 → 先关掉再改配置(避免它退出时把配置写回旧值)" ↔ lib\common.ps1:710-712；
+//     "$Label 正在运行 → 先关掉再改配置(避免它退出时把配置写回旧值)" ↔ lib\common.ps1:713-715；
 //   * "已关闭 MAA($n 个进程)"、"已关闭明日方舟端游($n 个进程)" ↔ lib\maa.ps1:744／748；
 //     "已关闭 M9A($n 个进程)" ↔ lib\m9a.ps1:535 —— 三句的括号里都带进程数、都不带句号，逐字照抄；
 //   * gui.log／asst.log 两枚路径与 `debug\asst.log` 那条兜底、asst.log 只取尾 16MB(16777216) 那把尺
@@ -71,15 +71,15 @@
 //
 // ==================== 第二笔(同一批的后五枚，2026-10-14)：起进程与写盘那五枚 ====================
 //  ① `start-ark-client`   Start-GdArkClient(maa.ps1:702)＋Wait-GdArkLauncherReady(maa.ps1:622)＋
-//                          Wait-GdCondition(common.ps1:1017)＋Get-GdWindowByTitle(common.ps1:1050)：
+//                          Wait-GdCondition(common.ps1:1020)＋Get-GdWindowByTitle(common.ps1:1053)：
 //                          路径闸 → 窗口名册 → 起进程 → 等窗口 → 暖身 → 更新页那一段真点击。
-//  ② `start-mumu`         Start-GdMuMu(mumu.ps1:33)＋Get-GdMuMuState(mumu.ps1:21)＋Invoke-GdNative(common.ps1:527)：
+//  ② `start-mumu`         Start-GdMuMu(mumu.ps1:38)＋Get-GdMuMuState(mumu.ps1:21)＋Invoke-GdNative(common.ps1:530)：
 //                          info 读数 → 已在跑就吭一声 → control launch → 轮询到 AndroidStarted。
 //  ③ `apply-maa-daily-config` Set-MaaDailyConfig(maa.ps1:140)：现场检查＋读盘＋递给 plan-maa-queue＋
 //                          备份／写盘／回读逐队列比 IsEnable。规则段一枚都不在这儿( Processes.cs 第 3 批)。
 //  ④ `apply-m9a-instance` Set-M9AInstance(m9a.ps1:83)：点号字面键那两格＋三句原话＋回读校验。
 //  ⑤ `update-ark-farm-ledger` Update-GdArkFarmLedger(ark-farm.ps1:157)＋Get-GdArkItemMaps(:85)＋
-//                          Read-GdArkFarmLedger(:125)：首跑按 DepotData 标定、offset 续读、记两本账、
+//                          Read-GdArkFarmLedger(lib\ark-farm.ps1:125)：首跑按 DepotData 标定、offset 续读、记两本账、
 //                          回一句总结(链体那句 `[string](Update-GdArkFarmLedger)` 要的就是 bare string)。
 //
 // 第二笔的双源登记(改一句要两侧同改；生产接线(②-d)之前 lib 那几份仍是事实源)：
@@ -98,7 +98,7 @@
 //   * "stages.json 解析失败：…"、"未能建立 MAA 关卡表，理智计划不会被校验" ↔ lib\ark-decisions.ps1:14-40；
 //     "item_index.json 解析失败：…"、ark-inventory／ark-droptable 那两句读不懂的话、
 //     首跑标定那三句、"记了 N 场掉落、入账 +P"、"N 个名字没在材料表认出来(前 3 以 / 连)" ↔ lib\ark-farm.ps1:85-248；
-//   * "命令不存在：File"、"timeout after Ns"、`-join ' '` 拼参数 ↔ lib\common.ps1:527-551。
+//   * "命令不存在：File"、"timeout after Ns"、`-join ' '` 拼参数 ↔ lib\common.ps1:530-554。
 //
 // 第二笔新增的原样怪癖(照抄，不许"顺手修")：
 //   7. **`arkLauncherMaxChecks` 的值填进的是 `maxClicks` 槽**：真身把"每轮最多问模型几次"直接当"最多点几次"用
@@ -286,7 +286,7 @@ namespace GdPanel
             return BaseName(StrOf(Gd.Get(PathsOf(c), "m9aExe"), ""));
         }
 
-        // Get-GdFileTail(common.ps1:1033) 的逐字复刻：文件不在 ⇒ Text='' Offset=0；
+        // Get-GdFileTail(common.ps1:1036) 的逐字复刻：文件不在 ⇒ Text='' Offset=0；
         // Offset 越界 ⇒ 归零全读(那是"日志被轮转"那一档，不是错误)；FileShare=ReadWrite(MAA 正在往里写)；
         // 编码 UTF8 —— 与 PS 那侧 [System.Text.Encoding]::UTF8 同一个构造(能吃 BOM，无 BOM 也按 UTF8 解)。
         sealed class Tail
@@ -313,7 +313,7 @@ namespace GdPanel
             }
         }
 
-        // Test-GdProcessRunning(common.ps1:508) 同形：读不到就当没在跑(Get-Process -ErrorAction SilentlyContinue)。
+        // Test-GdProcessRunning(common.ps1:511) 同形：读不到就当没在跑(Get-Process -ErrorAction SilentlyContinue)。
         static bool Running(string name)
         {
             if (string.IsNullOrEmpty(name)) return false;    // 空名 ⇒ PS 那侧恒空，这里同形
@@ -339,7 +339,7 @@ namespace GdPanel
         }
 
         // ==================== verb: takeover-processes ====================
-        // Invoke-GdTakeover(common.ps1:699) 逐字：空名 continue、没在跑 continue、没开接管就当场抛原话、
+        // Invoke-GdTakeover(common.ps1:702) 逐字：空名 continue、没在跑 continue、没开接管就当场抛原话、
         // 否则 WARN 一句 → Stop-GdProcessTree → **Start-Sleep 4**(第 3 笔那条硬编码)。
         // 为什么要接管：真身那句注释说的是"MAA/M9A 只有在自己退出时才会写配置，运行中改配置会被覆盖"。
         // 回执比真身多的 Done／Stopped 只给自检与答手读(定档第 2 条)；链体那一侧要的只是 $data=$true。
@@ -473,7 +473,7 @@ namespace GdPanel
         // 第二笔的公共件：原生命令、窗口名册、等到某个条件
         // ==================================================================
 
-        // Invoke-GdNative(common.ps1:527) 的同形：{Code;Out;Err} 三格，超时那一档返 -1 与那句 timeout。
+        // Invoke-GdNative(common.ps1:530) 的同形：{Code;Out;Err} 三格，超时那一档返 -1 与那句 timeout。
         // 夹具 `nativeRuns` 是一个数组，每项 {Code;Out;Err}：按序消费、取完**重复最后一枚**(于是
         // Get-GdMuMuState→launch→再 Get-GdMuMuState 那三步的顺序可以直接钉死，不必铺无穷多份夹具)。
         // 没喂夹具就走现场真起 —— 与 Running() 那枚"给了按名册、没给查真进程"同一档规矩。
@@ -535,7 +535,7 @@ namespace GdPanel
             }
         }
 
-        // Get-GdWindowByTitle(common.ps1:1050) 的同形：只看有主窗口的进程，给了进程名就按名过滤(不分大小写)，
+        // Get-GdWindowByTitle(common.ps1:1053) 的同形：只看有主窗口的进程，给了进程名就按名过滤(不分大小写)，
         // 标题走 -match(也不分大小写)，命中回第一枚 {Name;Id;Title}。整段在逐颗进程的 try/catch 里
         // —— 坏正则／取不到的窗口在真身就是被静默吞掉，这里同形(不抛)。
         // 夹具 `windows` = [{Name;Id;Title}]；给了就只按名册判(--roundtest 一律走这一路，不碰真窗口)。
@@ -589,7 +589,7 @@ namespace GdPanel
             catch { return false; }        // 坏正则：真身那一下也被逐颗进程的 catch 吞掉
         }
 
-        // Wait-GdCondition(common.ps1:1017) 逐字：先判再睡，睡在 return 之前**无条件**执行
+        // Wait-GdCondition(common.ps1:1020) 逐字：先判再睡，睡在 return 之前**无条件**执行
         // (原样怪癖第 10 笔：超时那一档最后一次判完还多睡一轮)。
         static bool WaitUntil(Dictionary<string, object> c, Func<bool> test, int timeoutSeconds,
                               int pollSeconds, string what, List<object> lines)
@@ -811,7 +811,7 @@ namespace GdPanel
         }
 
         // ==================== verb: start-mumu ====================
-        // Start-GdMuMu(mumu.ps1:33) 整枚直答：info 读数(递给已在场的 parse-mumu-state)→ 已在运行就吭一声 →
+        // Start-GdMuMu(mumu.ps1:38) 整枚直答：info 读数(递给已在场的 parse-mumu-state)→ 已在运行就吭一声 →
         // control launch → 轮询到 AndroidStarted。JSON 解读那一段一枚判据都不在这儿(批次 3 的 Processes.cs)。
         // 夹具 nativeRuns 的"取完重复最后一枚"正好钉住 info→launch→info 那三步的顺序与 NativeCallsUsed 计数。
 

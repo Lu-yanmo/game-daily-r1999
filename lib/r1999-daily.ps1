@@ -190,7 +190,7 @@ function Invoke-GdR1999DailyLegacy {
 #   行序锚，而下面 takeover 动作里就要写那枚接管函数 —— 本节挪到回退段之前，那把锚当场红。
 function Start-GdR1999Daily {
     <# 调度器：两分支返回值同形(@{Status;Detail;Duration?})，调用方无感 ——
-       modules.ps1:419-423 只读这三格(时长/历史)，回退段那句 return $r 多带的 Rescued/Tasks 格没人读，
+       modules.ps1:419-423 这五枚行里只读 $r 的 Status/Detail/Duration 三格(时长/历史)，回退段那句 return $r 多带的 Rescued/Tasks 格没人读，
        所以核内 done 信封只带三格不是少了东西，是"框架射程就只有这三格"(plan §11.39 ①-9)。 #>
     param([Parameter(Mandatory)]$S, [Parameter(Mandatory)]$Instance)
     if (Test-GdRustDailyPath -S $S) { return Invoke-GdR1999DailyRust -S $S -Instance $Instance }

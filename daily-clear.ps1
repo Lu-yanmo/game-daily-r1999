@@ -15,7 +15,11 @@
 
   —— 本文件现在是什么 ——
   和 ark 那份薄壳同构：只把 -Ack / -ShopDone / -Plan 翻译成"给 r1999 模块的哪道门、哪个方案"，
-  整轮流程跑的是 lib\modules.ps1 里那一份实现。要不要管理员这件事由清单的 RequiresAdmin 说了算，
+  整轮流程交给 lib\rust-round.ps1 的 Invoke-GdDailyRoundDispatch。这一枚调度器把整轮交给核内十段骨架
+  (gdcore.exe --daily-round)，而这个仓库按口径只带 Rust 源码、不带编译产物 ⇒ 克隆侧要真跑一轮得先自己编
+  内置件(pwsh -File tools\rustcore\build.ps1，要 cargo)；编不出来 / 拿不到内置件就是**拒跑(2)**——
+  PS 十段兜底已于 2026-10-20 乙批② 退役，不再有"换人跑"这一档。
+  要不要管理员这件事由清单的 RequiresAdmin 说了算，
   所以这个入口连 -NoElevate 参数都没有(它那一路根本提不了什么权)。
 #>
 # 运行环境：PowerShell 7(pwsh)。本仓库只支持 7，不再为系统自带的 Windows PowerShell 5.1 留兼容退路。
@@ -35,6 +39,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'lib\common.ps1')
 . (Join-Path $PSScriptRoot 'lib\decisions.ps1')      # 门面：仓库里有哪些判定文件就点哪些
 . (Join-Path $PSScriptRoot 'lib\modules.ps1')
+. (Join-Path $PSScriptRoot 'lib\rust-round.ps1')   # 入口转接层：整轮交给核内十段骨架，拿不到内置件就整轮拒跑(乙批② 起没有 PS 十段回退)
 . (Join-Path $PSScriptRoot 'lib\supervisor.ps1')   # 监督 agent(可整行删掉=这一轮没人监督，主流程不受影响)
 
 Start-GdTranscript -Tag "daily-$Tag"
@@ -64,6 +69,6 @@ if ($Ack) { $gates += @{ Id = 'r1999'; Verb = 'Ack' } }
 if ($ShopDone) { $gates += @{ Id = 'r1999'; Verb = 'ShopDone' } }
 if ($ShopReset) { $gates += @{ Id = 'r1999'; Verb = 'ShopReset' } }
 
-$code = Invoke-GdDailyRound -S $S -ElevateScript (Join-Path $PSScriptRoot 'daily-clear.ps1') -BoundParams $PSBoundParameters -Gates $gates -Opt @{ Plan = $Plan } -Force:$Force -DryRun:$DryRun -SkipCleanup:$SkipCleanup -NameField ShortName -NoticeOwner '1999' -Tag $Tag
+$code = Invoke-GdDailyRoundDispatch -S $S -ElevateScript (Join-Path $PSScriptRoot 'daily-clear.ps1') -BoundParams $PSBoundParameters -Gates $gates -Opt @{ Plan = $Plan } -Force:$Force -DryRun:$DryRun -SkipCleanup:$SkipCleanup -NameField ShortName -NoticeOwner '1999' -Tag $Tag
 Write-GdLog ('收尾 ' + (Get-GdCoreReadout -ElapsedSec ((Get-Date) - $coreT0).TotalSeconds))
 exit $code

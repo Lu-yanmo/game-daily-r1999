@@ -2,11 +2,13 @@
 
 分工铁律(和 PS→C# 十批同一口径)：
   * 本文件的**纯段**(kinds 表/取值校验/verb 规则/动作总闸/回复解析/消息组装/回滚计划/回执拼装)
-    与 lib\\agent.ps1 的语义**逐字对齐**，由 tools\\probe-agent-golden.ps1 双跑对拍钉住
-    —— 对拍只喂确定性 fixture(纯 ASCII 值，绕开编码转义差)，模型回复走假队列不真联网。
+    由 tools\\probe-agent-golden.ps1 钉住 —— 2026-10-20 起门的那一侧不再现跑 lib\\agent.ps1，
+    改读当时 PS 真身现跑现落的旧侧名册 tools\\gdagent\\agent-ps-golden.jsonl(换基线，取证见 docs)；
+    下面各处"照搬 X"的 X 是 lib\\agent.ps1 里那个**已于本批删除**的函数名，只作迁移出处读，不当成还在场的对照面。
+    对拍只喂确定性 fixture(纯 ASCII 值，绕开编码转义差)，模型回复走假队列不真联网。
   * 活层(读写 settings/journal、起 daily-clear、问模型)全部走**注入缝**
     (send_exchange 的 model_fn/verb_fn/apply_fn/confirm/snapshot_fn)，自检喂假件即可全链路断言。
-  * lib\\agent.ps1 自此冻结：函数体原样留着当对拍基准，新功能一律进这里。
+  * lib\\agent.ps1 自此只剩 -Snapshot 那一路活段(判表真身在 ark-farm)：新功能一律进这里，不要回 PS 加规则。
 
 PS 语义的三处刻意复刻(都是当年在案的老坑)：
   1) PowerShell 的 -eq/-in/hashtable 键/switch 全部**不分大小写** —— 所以白名单/path/type 的比较
@@ -441,8 +443,9 @@ def test_action(action, known_stages=None, spec_parser=None):
     if atype.lower() == 'run-verb':
         raw = _map_get(action, 'args')
         if raw is None:
-            # PS 侧 @(Get-GdMapValue ... 'args') 拿到的是 @($null)(占位一格，批次 9 在案的坑)，
+            # 当年 PS 侧 @(Get-GdMapValue ... 'args') 拿到的是 @($null)(占位一格，批次 9 在案的坑)，
             # 往下 [''] 既进不了 Test-GdAgentVerbArgs(Mandatory 拒空串)也过不了白名单 ——
+            # (那枚 PS 真身 2026-10-20 已随换基线退役，这里只留它当时为什么"必崩"的出处)
             # PS 那是要崩的形状不进对拍(见 probe-agent-golden 头注③)，Python 侧收成一条干净的"拒"。
             raw = ['']
         strs = [ps_str(x) for x in (raw if isinstance(raw, list) else [raw])]

@@ -55,16 +55,36 @@ if ($Uninstall) {
     exit 0
 }
 
-# 找"用哪个 pwsh.exe 注册任务"：当前引擎优先(Get-GdLocalPwsh = $PSHOME → 装机版，且排除不能直接
-# Execute 的 WindowsApps 别名)。exe 自带的引擎跑这一步时，任务就指向 <安装目录>\engine\pwsh.exe ——
-# 每天到点跑的还是它自己，这正是"零依赖"能持续的原因(引擎随 exe 更新、路径不变，任务不用重注册)。
-# 仓库直跑时它就是你命令行里那个 pwsh；系统的 PATH 照旧当末档兜底(此前唯一来源)，全落了才报错。
+# 找"用哪个 pwsh.exe 注册任务"：钉进计划任务的这条路径必须**不随 pwsh 自升级漂移**。
+# 商店/winget 版真身在带版本号的包目录里(...\WindowsApps\Microsoft.PowerShell_<主.次.修>_x64__<包名>\pwsh.exe)，
+# 一次 7.6.6.0→7.6.7.0 的自升级就把旧目录删了，两班任务当场 0x80070002(系统找不到指定的文件)；更糟的是
+# 脚本根本没启动 ⇒ logs 零本、台账零行，缺勤是静默的(10-19 起连缺三班，直到 10-20 现读 Last Task Result 才成形)。
+# 旧写法那句"PATH 照旧当末档兜底"正是把带版本号的路径钉进任务的出处，故改按稳定度现扫、取第一枚在位的：
+#   ① 装机版/exe 自带引擎(Get-GdLocalPwsh：路径不含 WindowsApps，升级不换目录，仍第一优先)
+#   ② 当前用户的应用执行别名(别名里不进版本号；10-20 实测计划任务拿它当 Execute 起得来、Last Task Result 0x00000000)
+#   ③ 两枚都不在才退回 PATH 那一枚，但钉之前先量一把尺：所在目录名带 主.次.修 版本号 ⇒ 当场留一行 WARN 说明
+#      "这枚会随升级断班"，不许静默把雷埋回任务里。
 $pwshPath = Get-GdLocalPwsh
-if (-not $pwshPath) { $pwshPath = (Get-Command pwsh.exe -ErrorAction SilentlyContinue).Source }
+$pinHow = '装机版/自带引擎'
+if (-not $pwshPath) {
+    $aliasPwsh = Join-Path $env:LOCALAPPDATA 'Microsoft\WindowsApps\pwsh.exe'
+    if (Test-Path -LiteralPath $aliasPwsh) { $pwshPath = $aliasPwsh; $pinHow = '应用执行别名(版本无关)' }
+}
+if (-not $pwshPath) {
+    $pwshPath = [string](Get-Command pwsh.exe -ErrorAction SilentlyContinue).Source
+    $pinHow = 'PATH 末档'
+    $pinDir = ''
+    if ($pwshPath) {
+        try { $pinDir = [System.IO.Path]::GetFileName([System.IO.Path]::GetDirectoryName($pwshPath)) } catch { $pinDir = '' }
+    }
+    if ($pinDir -match '_\d+\.\d+\.\d+') {
+        Write-GdLog "钉的是带版本号的包目录($pinDir)——pwsh 一自升级这条路径就失效、任务会静默缺勤(10-19 那三班的出处)；建议改装 MSI 版 PowerShell 7，或让应用执行别名在位后重跑本脚本" -Level WARN
+    }
+}
 if (-not $pwshPath) { throw '找不到 pwsh.exe(PowerShell 7)。先装 PowerShell 7：winget install Microsoft.PowerShell（装完新开一个终端再跑）' }
 $actionArgs = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$script`" -Tag auto"
 
-Write-GdLog "pwsh：$pwshPath"
+Write-GdLog ('pwsh：' + [string]$pwshPath + '(取处：' + $pinHow + ')')
 Write-GdLog "脚本：$script"
 Write-GdLog "时间点：$($Times -join ', ')"
 

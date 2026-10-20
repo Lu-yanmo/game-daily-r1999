@@ -25,7 +25,8 @@
 //
 // 期望串逐字抄自 lib\common.ps1 的旧实现(Start-GdElevatedSelf / Send-GdNotice / Start-GdRunLock /
 // Stop-GdRunLock / Get-GdTaskState / Stop-GdProcessTree / Get-GdElevateBatchLine)、lib\modules.ps1 的
-// Invoke-GdDailyRound(通知标题那两句)，以及 ②-b1 的六份真身(Get-ArkEvent / Get-R1999Event /
+// Invoke-GdDailyRound(通知标题那两句 —— 那枚十段真身已于 2026-10-20 乙批② 划掉，本件这几句是**抄定即冻结**的
+// 转写体，不随工作树改口，原文只剩轮骨架门钉住的那份 blob)，以及 ②-b1 的六份真身(Get-ArkEvent / Get-R1999Event /
 // Set-GdArkShopState / Set-GdR1999Ack / Set-GdR1999ShopState / Get-Gd{Ack,ShopDone}Map)、
 // ②-b2 的十份真身(Invoke-GdTakeover / Stop-MaaAndGame / Stop-M9A / Get-GdMaa{FightSkip,StageObservation} /
 // Start-GdArkClient＋Wait-GdArkLauncherReady / Start-GdMuMu / Set-MaaDailyConfig / Set-M9AInstance /

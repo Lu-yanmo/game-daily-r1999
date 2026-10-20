@@ -1340,7 +1340,10 @@ function Start-GdNativeStreamed {
        本函数只做两件事：起进程 + 在等待循环里排空 sink 并逐行回调，退出后再末次排空一次。
        ⚠ 判据一律留在调用方：回调里怎么打日志、信封怎么判、动作怎么执行，全在调用方(判据只住一处的纪律不因收流方式而变)。
        ⚠ 两条实测约束：① stdout/stderr 必须**两路同时异步收**(ReadToEndAsync)，否则管道一满子进程就卡在写流上；
-         ② 这里不走 `2>&1` 管道，5.1 那颗 stderr→终止错误的雷天然碰不到，但**本函数只在 pwsh7 上验过** —— 别当双引擎可用。 #>
+         ② 这里不走 `2>&1` 管道，5.1 那颗 stderr→终止错误的雷天然碰不到，但**本函数只在 pwsh7 上验过** —— 别当双引擎可用。
+       ⚠ 10-20 加第三档(见 -HardWaitMs)：子进程**自己不退出**时，旧写法的等待循环是无界的，壳会陪着核一起睡到
+         计划任务的执行时限(PT3H)把整班硬砍 —— 那一刀不落台账，等于缺勤一天。这一档与第二道保险是两种病，
+         返回值分开计数、调用方分开说话，不许并成一句。 #>
     param(
         [Parameter(Mandatory)][string]$Exe,
         [string[]]$Arguments = @(),
@@ -1348,7 +1351,11 @@ function Start-GdNativeStreamed {
         [Parameter(Mandatory)][ref]$SinkOffset,
         [scriptblock]$OnSinkRow,
         # 第二道保险的等待上限(毫秒)：只在"子进程已退、管道却没等到 EOF"这一支生效，健康路径上 Wait 当场为真。
-        [int]$StreamDrainTimeoutMs = 5000
+        [int]$StreamDrainTimeoutMs = 5000,
+        # 第三道保险(10-20)：子进程**没退出**的硬上限(毫秒)。0 = 照旧无界(三门的夹具桩与其余调用点行为一字不变)；
+        # 生产三处按各自 settings 的超时传值。等满就 Kill 并交回 WaitTimedOut=$true —— 结束它是调用方的决断，
+        # 这一枚只提供"等满"这个事实与收尸动作，不替调用方判成败。
+        [int]$HardWaitMs = 0
     )
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = $Exe
@@ -1362,10 +1369,21 @@ function Start-GdNativeStreamed {
     $null = $p.Start()
     $outTask = $p.StandardOutput.ReadToEndAsync()
     $errTask = $p.StandardError.ReadToEndAsync()
+    # 第三道保险的deadline：$HardWaitMs=0 时保持无界($null)，三门夹具桩与其余调用点一字不变。
+    $waitTimedOut = $false
+    $dline = if ($HardWaitMs -gt 0) { (Get-Date).AddMilliseconds([double]$HardWaitMs) } else { $null }
     try {
         while (-not $p.WaitForExit(200)) {
             foreach ($r in @(Read-GdSinkIncrement -Path $SinkPath -Offset $SinkOffset)) {
                 if ($OnSinkRow) { & $OnSinkRow $r }
+            }
+            # 每 200ms 排空之后才问一次"到点没"：判据顺序不许反过来，否则排空回调会被deadline抢掉。
+            # 到点这一支只收尸不判成败 —— 结束它是调用方的决断，这里只交回"等满"这个事实。
+            if ($null -ne $dline -and (Get-Date) -gt $dline) {
+                $waitTimedOut = $true
+                try { $null = $p.Kill() } catch { }
+                try { $null = $p.WaitForExit(5000) } catch { }
+                break
             }
         }
     } finally {
@@ -1374,7 +1392,9 @@ function Start-GdNativeStreamed {
             if ($OnSinkRow) { & $OnSinkRow $r }
         }
     }
-    $code = $p.ExitCode
+    # Kill 那一支上 ExitCode 也可能读不到(收尸没等到)，读不到按 -1 交回，不许让这一行自己炸掉整轮。
+    $code = -1
+    try { $code = $p.ExitCode } catch { }
     # 第二道保险(10-13 现场定因)：子进程已退，但**被它起的进程继承了 stdout/stderr 管道的写端** ⇒ EOF 永不到，
     # 旧码在这里取 `.Result` 那一句能把整轮钉死到计划任务按执行时限砍班(读数见 docs\b2e-eventstream-feasibility.md §6)。
     # 现在每路只等有界：等满就放弃那一路的**兜底文本** —— 信封的正常落点是 --out 那个文件，不依赖 stdout，
@@ -1388,7 +1408,9 @@ function Start-GdNativeStreamed {
         $lines += @($text -split "`r?`n")
     }
     $p.Dispose()
-    return [pscustomobject]@{ ExitCode = $code; Lines = @($lines); StreamTimeouts = $timeouts }
+    # 三种病分开交回：WaitTimedOut=核没退出(被这一档收尸) / StreamTimeouts>0=核退了但管道没等到 EOF / 两者皆无=真的没输出。
+    # 新键加在末尾：既有调用方与三门夹具桩都不读它，读不存在的键得 $null(falsy)，行为等价。
+    return [pscustomobject]@{ ExitCode = $code; Lines = @($lines); StreamTimeouts = $timeouts; WaitTimedOut = $waitTimedOut }
 }
 
 # ---------- GdCore 进程内内核加载器(K0 收官件，形态=丙·宿主各自现编；契约全文 docs\gd-core-contract.md) ----------

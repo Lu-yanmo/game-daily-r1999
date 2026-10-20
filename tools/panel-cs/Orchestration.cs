@@ -13,7 +13,8 @@
 //     Start-Process / Start-Sleep 轮询 / 文件续读 / 视觉兜底 / adb 都是"活段"，无头拍不了；
 //     且 test-ark(行号不引，那本在并行在途；取证见 docs/rust-core-plan.md §11.92 ⑥)、test-r1999:271 是**文本断言**，钉的正是两份 -daily 壳里的重试跳过清单
 //     (`Status -notin @(...)`)，test-ark(同上，不引行号)钉 maa.ps1 的 `Status = 'unknown-format'` 字面 —— 断言一字不改是批次纪律。
-//   * daily-clear.ps1 只是参数外壳，真编排 Invoke-GdDailyRound 住 lib\modules.ps1(并行会话在改，禁动)；
+//   * daily-clear.ps1 只是参数外壳；真编排那十段现在**只住核内**(gdcore --daily-round)——PS 原身 Invoke-GdDailyRound
+//     已于 2026-10-20 乙批② 从 lib\modules.ps1 划掉，那份十段的基线从此只剩轮骨架门钉住的 git blob(§11.104／§11.105)；
 //     install-task.ps1 主体是 Register-ScheduledTask 现场 cmdlet，纯段只剩任务名格式化，不值单开 verb。
 //   * supervisor / Send-GdNotice 归批次 6。
 //   * "无结论"照批次 2/3/4 协议编码成 Found:false，PS 壳翻回 $null。

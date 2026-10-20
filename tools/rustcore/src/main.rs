@@ -4216,10 +4216,21 @@ impl ArkDailyFx for FixtureFx<'_> {
     }
 }
 
+/// verb 外调的硬上限（毫秒）。这一格**必须比最慢的一枚 verb 自己的内部超时更宽**，否则外层闸会把
+/// 正常等待掐成失败 —— 现扫最慢的是 `start-mumu`：panel-cs 那侧递给等待的是 `runtime.mumuBootTimeoutSeconds`
+/// 那枚键的**现值**(本批取证时它是全仓最大的一枚内部超时，再串上 adb 那几拍与视觉那一枚)⇒ 取 900s 留足
+/// 倍数余量；外层壳那一路的硬闸是"业务超时 +15 分钟"，更宽一档，层次自洽（单枚 verb < 一段 < 一轮 <
+/// 计划任务 PT3H）。⚠ 这里**故意不写死那几枚配置项的读数** —— 它们是活账，钉进注释就等着过期
+/// (10-20 上午"取数帧"那条闸以反方向兑现的那笔账)。碰到这一格一定是在场异常，宁可放弃这一枚 verb
+/// 也不能把整轮钉死到被砍班 —— 现场教训见 `call_panel_verb` 里 10-20 那段。
+const GD_VERB_WAIT_BOUND_MS: u64 = 900_000;
+
 /// 按 Invoke-GdCli 的同一条协议真跑一枚 verb：Body 写 --in 信封、读回 --out 信封、
 /// 校验 verb / 退出码 / ok —— 任一环对不上就 Err（不带着半截结论往下跑）。临时文件成败都删。
 /// 错误文案里"C# 侧(…)"的句式照 Invoke-GdCli 原话，verb 名参数化后逐字不变；
 /// 起不来（exe 不在）这句是本档自己的补充。B-2a 起 --arkskip 与 --maa-run 两档共用这一处。
+/// ⚠ 10-20 起这一枚**不等管道、只等退出**（原因与现场读数在函数体里那段注释），等满 `GD_VERB_WAIT_BOUND_MS`
+/// 就 kill 并 Err —— 判据一律不变：信封还是从 `--out` 文件读，两路兜底文本本来就没参与过任何判定。
 fn call_panel_verb(panel_cs: &str, verb: &str, body: &JVal) -> Result<JVal, String> {
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -4231,13 +4242,44 @@ fn call_panel_verb(panel_cs: &str, verb: &str, body: &JVal) -> Result<JVal, Stri
     let text_body = jv_to_json(body);
     let r = (|| -> Result<JVal, String> {
         std::fs::write(&in_path, text_body.as_bytes()).map_err(|e| format!("Body 信封写不下去：{}", e))?;
-        let outp = std::process::Command::new(panel_cs)
+        // **10-20 现场定因改的这一行**：旧写法是 `.output()`，它把 stdout/stderr 建成管道并
+        // `read_to_end` 等 EOF —— 而 panel-cs 起的 adb 会 fork 出常驻 server，那枚 daemon **继承了管道的写端**：
+        // panel-cs 早退了(它自己那两拍 adb 各有界超时)，写端却没全关 ⇒ 核睡在收流上再也醒不过来。
+        // 18:00 那班的现场读数：gdcore threads=1、CPU 静止 0.02 秒、34 分钟零增长，名下只剩一枚 conhost，
+        // 而那枚 adb server 还在场。与 10-13 那笔 `Stdio::null()`×3 同族 —— 那一刀修的是核起 MAA
+        // 那一路，这次漏在 panel-cs 起 adb 那一路。
+        // 三律一律 null 而不是"照旧 piped 但改有界读"：这个函数**从来没读过** outp.stdout/stderr
+        // (旧码只取 `outp.status`)，结果的唯一正常落点是 `--out` 那个文件；留着管道只有害处。
+        let mut child = std::process::Command::new(panel_cs)
             .arg(verb)
             .arg(format!("--in={}", in_path.display()))
             .arg(format!("--out={}", out_path.display()))
-            .output()
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
             .map_err(|e| format!("{} 起不来（{}）：{}", verb, panel_cs, e))?;
-        let code = outp.status.code().unwrap_or(-1);
+        // 等退出而不是等管道 ⇒ `try_wait` 轮询，硬上限见 GD_VERB_WAIT_BOUND_MS 那条注释。
+        // 等满就是"它压根没答"，与"答了但答错"必须分两档话术(卡住／被放弃／真的没输出是三种病)。
+        let bound = std::time::Instant::now() + std::time::Duration::from_millis(GD_VERB_WAIT_BOUND_MS);
+        let code = loop {
+            match child.try_wait() {
+                Ok(Some(st)) => break st.code().unwrap_or(-1),
+                Ok(None) => {
+                    if std::time::Instant::now() >= bound {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        return Err(format!(
+                            "C# 侧({})等满 {}s 仍没退出，已放弃并结束它(它压根没答，不是答错)",
+                            verb,
+                            GD_VERB_WAIT_BOUND_MS / 1000
+                        ));
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                }
+                Err(e) => return Err(format!("C# 侧({})收不到退出状态：{}", verb, e)),
+            }
+        };
         let text = match std::fs::read_to_string(&out_path) {
             Ok(t) => t,
             Err(_) => return Err(format!("C# 侧({})没吐出结果文件(退出码 {})", verb, code)),
@@ -6435,7 +6477,8 @@ fn round_relaunch_load(path: &str) -> JVal {
 }
 
 /// `--daily-round` 的 ctx（壳写一遍、journal 的 init 行原样存它 ⇒ 换 ctx 必须起新 journal）。
-/// 十枚对应 `Invoke-GdDailyRound` 的十枚参数：`Ids Gates Opt Force DryRun SkipCleanup NoElevate
+/// 十枚对应转接层 `Invoke-GdDailyRoundDispatch` 的十枚参数（原身 `Invoke-GdDailyRound` 的签名，
+/// 那枚已于 2026-10-20 乙批② 划掉，参数面由转接层原样接走）：`Ids Gates Opt Force DryRun SkipCleanup NoElevate
 /// NameField NoticeOwner Tag`。刻意**不带**的两枚：`S`（settings 由 ctx verb 现取，整块不许进核）、
 /// `ElevateScript`/`BoundParams` —— ⚠ 这一枚的理由在 R9-a 被**改口**了（原文在册：「提权那发重跑的是
 /// **入口自己的**路径，核不知道也不该知道 ⇒ 走 ask」，10-17 所有者拍板"全收编：动参数面"后改判）：
@@ -6450,7 +6493,7 @@ fn round_relaunch_load(path: &str) -> JVal {
 /// 不知道自己那本账在生产里叫什么名）。所以由壳把 leaf 一起写进 ctx。⚠ 它缺省是空串 ⇒
 /// 那两处少掉括号段，**这是登记在册的形状差**（不是漏写）：leaf 没来路时不许瞎猜一个。
 /// `maaRun`／`m9aRun` 是**第十二、十三枚、也不是参数**：段 9 那两路的 run 真做要它们，而
-/// `Invoke-GdDailyRound` 从来不需要这两格 —— 它把整块 `$S` 交给链体，链体自己从 `$S` 里取。
+/// PS 那份十段原身（`Invoke-GdDailyRound`，已随 2026-10-20 乙批② 划掉）从来不需要这两格 —— 它把整块 `$S` 交给链体，链体自己从 `$S` 里取。
 /// 换成头以后核只拿到点名过的格，所以 run 载荷必须由**壳**照 `--drive-ark-daily`／`--drive-m9a-daily`
 /// 那两档的同一把尺写进 ctx（`maarun_parse` / `m9a_scen_core` 共用，键名与 settings 逐字同名）；
 /// 缺失不在这里报错（与那两档同规矩，走到 run 才炸"不替生产猜默认路径"）。
@@ -7314,7 +7357,8 @@ fn round_ctx_empty() -> RoundCtx {
 }
 
 /// 十段走完（或早退那几档之一）的读数。
-/// `code` 就是真身 `Invoke-GdDailyRound` `return` 的那个退出码（0 全成 / 1 部分成 / 2 有失败或环境不完整，
+/// `code` 就是 PS 那份十段原身（`Invoke-GdDailyRound`，10-20 乙批② 已划掉、基线只剩轮骨架门钉的 blob）当年
+/// `return` 的那个退出码（0 全成 / 1 部分成 / 2 有失败或环境不完整，
 /// 提权那一档是**子轮的码**）；`reached_summary` 分"走没走到第十段"，因为早退那三档既没有汇总也没有通知。
 /// 驱动协议的 rc 与它**不是一件事**（done/ask 恒 0、拒跑 2、fail 1），所以这一枚只能从 done 信封的
 /// `result.code` 读 —— ②-d 转接时入口按它 exit。
@@ -7384,9 +7428,10 @@ fn round_answer_available(d: &JVal) -> bool {
     }
 }
 
-/// **十段轮骨架**（真身 = `lib\modules.ps1` 的 `Invoke-GdDailyRound`，逐行复刻）。
+/// **十段轮骨架**（原身 = `lib\modules.ps1` 的 `Invoke-GdDailyRound`，逐行复刻；那枚真身已于 2026-10-20 乙批②
+/// 划掉 ⇒ 从这一批起**核内这一份就是唯一一份**，等值基线只剩轮骨架门钉住的那份 git blob(§11.105)）。
 /// 段的划分与顺序照 `DRIVE_WHY_ROUND` 那十枚名：选路／环境／提权闸／门表／判定／锁／监督／睡眠屏蔽／
-/// 逐路链体／收尾汇总通知。dry-run 预览挂在判定之后（真身就在那个位置 return 0）。
+/// 逐路链体／收尾汇总通知。dry-run 预览挂在判定之后（原身就在那个位置 return 0）。
 ///
 /// 三件事压在下面每一行上，改之前先读：
 /// 1. **判据一行不许新写**。这一段只做"什么时候问、问完拿那一句写日志、按读数走哪条分支"；
@@ -7702,7 +7747,7 @@ fn daily_round_chain(
     }
 
     // ---------- 段 9 逐路链体 ----------
-    // C-0①(a)：一路一档 try，**不是一整圈一个 try**。真身那半段(`Invoke-GdModuleRuns`)的理由原样成立：
+    // C-0①(a)：一路一档 try，**不是一整圈一个 try**。原身那半段(`Invoke-GdModuleRuns`，已随乙批② 划掉)的理由原样成立：
     // 链体里全是会抛的东西（配置回读校验、接管、助手自己的抛），以前一路崩同时带走两件事 ——
     // ① 排在后面的那一路压根不派发，② 崩那路因为结果是整对象赋值、抛在半路就没有这一格，于是汇总行／
     // history.csv／气泡通知**三处都没有它的一行**，只剩一句"存在未完成项"，翻遍账本查不出是谁没完成。
@@ -7832,8 +7877,8 @@ fn daily_round_chain(
     }
 
     // ---------- 每一路必须留下一行账 ----------
-    // C-0①(b)：真身那圈兜底管的是**外层 catch**（框架派发时抛），正常路径下 `Invoke-GdModuleRuns`
-    // 已经保证每路都有结果。核内同理：一路一档 try 之后缺结果只剩"派发层没跑成"那一档，
+    // C-0①(b)：原身那圈兜底管的是**外层 catch**（框架派发时抛），正常路径下 `Invoke-GdModuleRuns`
+    // (已随乙批② 划掉)保证每路都有结果。核内同理：一路一档 try 之后缺结果只剩"派发层没跑成"那一档，
     // 但**宁可记一行 error 也不许某一路在 history.csv 和通知里凭空消失** —— 消失的那一路比失败更难查。
     // 这条不修的话，段 9 那一圈 try 只是把"整轮崩"改成"这一路没账"，治的还是半个病。
     // 形状照真身：`Status=error`／`Detail='这一路没有返回结果(框架派发时中断)'`／`Duration` 空；
@@ -18904,8 +18949,9 @@ fn selftest() -> i32 {
         );
 
         // ---------- 24n 崩路五档（C-0①(a)(b)(c) ＋ ② 那枚退出码）----------
-        // 判据住在真身 `lib\modules.ps1`：`Invoke-GdModuleRuns` 的**一路一档 try**、它外层那个 catch、
-        // 以及汇总前"每路必须留下一行账"那圈兜底。等值门比的是"两侧在同一台机器上说同样的话"，
+        // 判据的原家住 `lib\modules.ps1`：`Invoke-GdModuleRuns` 的**一路一档 try**、它外层那个 catch、
+        // 以及汇总前"每路必须留下一行账"那圈兜底 —— 那两枚真身已于 2026-10-20 乙批② 划掉，判据从此只剩两户：
+        // **这一段代码**与**轮骨架门钉住的那份 blob**(§11.105)。等值门比的是"两侧在同一台机器上说同样的话"，
         // 这五格比的是"核内这一套话说得对不对"—— 少一路的账、多一次 break、退出码谎报，都当场红。
         // ⚠ 触发点为什么是"喂一枚答不动的 verb"而不是"让 run 假身回 Err"：链体**自己**把 run 抛吞成
         //   `status=error`＋「方舟 异常：…」(真身同形，23k/23j 两格早已钉死)，那种抛根本走不到段 9。

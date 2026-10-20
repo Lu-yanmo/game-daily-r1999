@@ -272,6 +272,13 @@ function Invoke-GdR1999DailyRust {
         }
     })
 
+    # 外层硬闸(10-20，与 ark 那路同源同形)：核自己不退出时旧写法是无界等待，壳会陪着睡到计划任务 PT3H
+    # 把整班硬砍 —— 10-20 18:00 班正是这一支：核睡在 panel-cs→adb server 那根没关的管道上，日志停在
+    # "STEP ADB 连接"34 分钟，M9A 从没启动、台账零行。取"内层 r1999TimeoutMinutes + 15"，必须比内层宽；
+    # 那枚键没填时兜底 85，不许兜底成 0(那等于 15 分钟就砍，比内层还短)。
+    $hardMin = [int]$S.runtime.r1999TimeoutMinutes
+    if ($hardMin -le 0) { $hardMin = 85 }
+    $hardMs = ($hardMin + 15) * 60000
     $round = 0
     while ($true) {
         $round += 1
@@ -289,7 +296,7 @@ function Invoke-GdR1999DailyRust {
                 $lvl = [string]$r.Level
                 $txt = [string]$r.Text
                 if ($lvl -and ($lvl -ne 'INFO')) { Write-GdLog $txt -Level $lvl } else { Write-GdLog $txt }
-            }
+            } -HardWaitMs $hardMs
             $envText = ''
             if ([int]$cap.StreamTimeouts -gt 0) {
                 # 口径（10-16 #473 取证后定档，与 ark 那路同源同改）：持有管道写端的是链体点过的**外部常驻服务**
@@ -297,6 +304,12 @@ function Invoke-GdR1999DailyRust {
                 # 那进程不归我们创建 ⇒ 这一格每轮必现，级别降 INFO、每轮一行仍可查，
                 # 真日志走 --log-sink、进度判据走 journal／协议文件(见 docs\rust-core-plan.md §11.61)。
                 Write-GdLog "B-2d④ 换头：收流按有界等待放弃 $([int]$cap.StreamTimeouts) 路 stdout/stderr(外部常驻服务持写端，stdout 兜底那一路本轮不可用；真日志见 --log-sink)"
+            }
+            if ($cap.WaitTimedOut) {
+                # 第三种病(10-20)：核压根没退出，被外层硬闸收尸。18:00 那一班正是这一支 —— 今晚这条线上
+                # M9A 一次都没被启动过，日志停在"STEP ADB 连接"，而旧写法会一直等到 21:00 砍班。
+                # 这一支往下必然走"没给出信封"那条 throw ⇒ 台账有行、失败可归因(与"已退但放弃收流"分两句，不许并)。
+                Write-GdLog "B-2d④ 换头：核 $([int]($hardMs / 1000))s 仍没退出，已按外层硬闸结束它(它是没答，不是答错) —— 这一段按失败记账" -Level WARN
             }
             if (Test-Path -LiteralPath $envFile) { $envText = [System.IO.File]::ReadAllText($envFile) }
             else {

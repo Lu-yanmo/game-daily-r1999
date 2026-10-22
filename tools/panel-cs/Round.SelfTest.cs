@@ -32,9 +32,9 @@
 // Start-GdArkClient＋Wait-GdArkLauncherReady / Start-GdMuMu / Set-MaaDailyConfig / Set-M9AInstance /
 // Update-GdArkFarmLedger —— 逐条出处见 Chain.cs 头注的两段双源登记)、
 // R9-a 那四枚的对应真身(Get-GdScreensaverConfig(common.ps1:359-378) / Enter-GdNoSleep 的 keepScreenOn 半段
-// (common.ps1:486-498) / Add-GdHistory(common.ps1:907-935) / Update-GdArkEventProbe(ark-decisions.ps1:146-177)
+// (该真身整枚已于丙档落码刀①从 lib\common.ps1 删除，去向见 docs\rust-core-plan.md §11.116) / Add-GdHistory(common.ps1:870-898) / Update-GdArkEventProbe(ark-decisions.ps1:146-177)
 // —— 逐条出处见 Round.cs 与 Round.Data.cs 各自那段的头注)——
-// 生产接线(②-d)之前它们仍是事实源，这里红了就是移植走样，
+// 生产接线(②-d)之前它们仍是事实源(Enter-GdNoSleep 那半段除外——PS 侧原身已于丙档落码刀①删除，那一格没有原身可对)，这里红了就是移植走样，
 // 改 Round.cs / Round.Data.cs / Chain.cs，不改这里的期望(批次 1 起同一条纪律)。
 //
 // 专门钉住的原样怪癖：① `-ne $false` 由**左侧类型**决定怎么折 $false ⇒ 字符串 "0" 算**开着**
@@ -1947,7 +1947,7 @@ namespace GdPanel
                     && S(d["Active"]) == "" && I(d["TimeoutSec"]) == 0;
             });
 
-            // ---------- disable-screensaver-for-round(Enter-GdNoSleep 的 keepScreenOn 半段，common.ps1:486-498) ----------
+            // ---------- disable-screensaver-for-round(Enter-GdNoSleep 的 keepScreenOn 半段，该真身已删·丙档落码刀①) ----------
             b.Chk("关屏保：active=true ⇒ 三枚同序 Read/WasActive/Disabled=true、true、true(键序＝转接层当年写进 res 那枚)", delegate
             {
                 Dictionary<string, object> d = Row(Round.ScreensaverOff(In("active", true)));
@@ -1985,7 +1985,7 @@ namespace GdPanel
                 return !File.Exists(restore2) && B(d["Read"]) && !B(d["WasActive"]) && !B(d["Disabled"]);
             });
 
-            // ---------- append-round-history(Add-GdHistory，common.ps1:907-935) ----------
+            // ---------- append-round-history(Add-GdHistory，common.ps1:870-898) ----------
             string histFile = Path.Combine(histDir, "history.csv");
             b.Chk("history 首建：无 BOM＋表头逐字＋CRLF 行尾、六字段带引号，回执只有 Written 一枚(核内那一臂据此折成裸 true)", delegate
             {

@@ -190,8 +190,8 @@ function Invoke-GdR1999DailyLegacy {
 #   行序锚，而下面 takeover 动作里就要写那枚接管函数 —— 本节挪到回退段之前，那把锚当场红。
 function Start-GdR1999Daily {
     <# 调度器：两分支返回值同形(@{Status;Detail;Duration?})，调用方无感 ——
-       modules.ps1:419-423 这五枚行里只读 $r 的 Status/Detail/Duration 三格(时长/历史)，回退段那句 return $r 多带的 Rescued/Tasks 格没人读，
-       所以核内 done 信封只带三格不是少了东西，是"框架射程就只有这三格"(plan §11.39 ①-9)。 #>
+       框架侧只读 $r 的 Status/Detail/Duration 三格(时长/历史)：回退段那句 return $r 多带的 Rescued/Tasks 格没人读，所以核内 done 信封只带三格不是少了东西，是"框架射程就只有这三格"(plan §11.39 ①-9)。
+       ⚠ 这一句原引 `lib\modules.ps1` 汇总段那五枚行的行号，而那十段 PS 真身已随乙批②(`e3dec2b`)整块出仓 ⇒ 按坐标清账批口径不引行号，"只读三格"这条射程今天由核内 done 信封自己承担。 #>
     param([Parameter(Mandatory)]$S, [Parameter(Mandatory)]$Instance)
     if (Test-GdRustDailyPath -S $S) { return Invoke-GdR1999DailyRust -S $S -Instance $Instance }
     return Invoke-GdR1999DailyLegacy -S $S -Instance $Instance

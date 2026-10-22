@@ -321,8 +321,8 @@ function Join-GdPath {
 # 与下面 Add-GdCore(本文件末尾)的分工：内核 GdCore 装的是**纯规则**(路径/序列化/版本行/历史行)，
 # 编不过可以回退逐行冻结的 PS 原身；interop 装的是 **P/Invoke 签名**，PS 侧没有原身可退(类型只能现编)，
 # 所以这里的"回退"= 让调用方拿到它本来就写好的那条"读不到/失败"语义：Add-GdInterop 永不向上抛、只落状态，
-# 由调用方按状态各走各的分支(Add-GdSleepTypeDef 抛给 Enter-GdNoSleep 的 catch 说"禁止睡眠失败"，
-# Get-GdInputDesktopName 直接返回空串 = "不知道")。内核和 interop 都不是硬依赖——不许把 06:00 那轮置于死地。
+# 由调用方按状态各走各的分支(Add-GdSleepTypeDef 仍会抛：转接层 Start-GdRoundHostNoSleep 的 catch 吞成"没设位、本轮照跑"，
+# Set-GdScreensaverActive 自己不接、原样上抛；Get-GdInputDesktopName 直接返回空串 = "不知道")。内核与 interop 都不是硬依赖——不许把 06:00 那轮置于死地。
 $script:GdInteropState = 'off'    # off|live|fallback
 $script:GdInteropMs = -1          # 本进程现编 interop 花了几毫秒(-1 = 没编过)
 function Add-GdInterop {
@@ -350,8 +350,8 @@ $global:GdSleepHandle = $false
 $global:GdDeskTypeDef = $false    # Get-GdInputDesktopName 的 interop 只做一次
 function Add-GdSleepTypeDef {
     <# B0 起这里不再内联 C#：签名在 tools\gdinterop\GdPower.cs，现编由 Add-GdInterop 负责。
-       编不过要**抛**(与旧 `Add-Type ... -ErrorAction Stop` 同形)——调用方 Enter-GdNoSleep 的 catch 才说得出"禁止睡眠失败"，
-       Exit-GdNoSleep 靠 $global:GdSleepHandle 为假直接不碰 [GdPower]，两边语义都与迁移前一致。 #>
+       编不过要**抛**(与旧 `Add-Type ... -ErrorAction Stop` 同形)——丙档落码刀①删掉 Enter/Exit-GdNoSleep 那两枚真身后，接这一抛的是
+       转接层 Start-GdRoundHostNoSleep 的 catch(吞成"没设位、本轮照跑")；Set-GdScreensaverActive 自己不接、原样上抛(`Get-GdScreensaverActive` 那枚已于丙档落码刀②删除，去向见 docs\rust-core-plan.md §11.118)。 #>
     if ($global:GdSleepHandle) { return }
     if ((Add-GdInterop) -ne 'live') { throw "interop 现编失败(GdPower 不可用)，状态=$script:GdInteropState" }
     $global:GdSleepHandle = $true
@@ -430,7 +430,7 @@ function Get-GdScreensaverVerdict {
     #                     '注意它不是终态：' + $(if ($who) { $who } else { '挂屏保的那个程序' }) + ' 的设置里仍勾着屏保时，改一次设置就可能被重新武装，体检看到这行变成"仍武装"就是这个原因') }
 }
 
-function Get-GdScreensaverStateFile { Join-Path $global:GD.State 'screensaver.restore' }
+# Get-GdScreensaverStateFile 已删(丙档落码刀②，docs\rust-core-plan.md §11.118)：唯一调用方随 Enter-GdNoSleep 一起退役，screensaver.restore 那本 state 自此没有 PS 侧的读写者。
 function Get-GdInputDesktopName {
     <# 输入事件当前落到哪个桌面：正常='Default'；Lock Screen/Screen-saver/Winlogon 时鼠标键盘到不了普通窗口。
        返回 ''=读不到(按"不知道"处理，不得据此判锁屏)。2026-09-26 加：06:00 两轮方舟全是死在
@@ -458,12 +458,8 @@ function Get-GdInputDesktopName {
         } finally { [void][GdDesk]::CloseDesktop($h) }
     } catch { return '' }
 }
-function Get-GdScreensaverActive {
-    Add-GdSleepTypeDef
-    $v = $false
-    if ([GdPower]::SPIGetActive([GdPower]::SPI_GETSCREENSAVEACTIVE, 0, [ref]$v, 0)) { return [bool]$v }
-    return $null
-}
+# Get-GdScreensaverActive 已删(丙档落码刀②，docs\rust-core-plan.md §11.118)：生产面零调用方，它唯一的调用方随 Enter-GdNoSleep 一起退役(§11.116)。
+# SPI 武装位那一格现由核内 verb disable-screensaver-for-round 现读(Round.cs::ScreensaverOff 里的 GdPower.SPIGetActive)；本枚"读不到返回 null"那半三态随体退场。
 function Set-GdScreensaverActive {
     param([Parameter(Mandatory)][bool]$Active)
     Add-GdSleepTypeDef
@@ -471,41 +467,8 @@ function Set-GdScreensaverActive {
     return [bool][GdPower]::SPISetActive([GdPower]::SPI_SETSCREENSAVEACTIVE, $pv, [IntPtr]::Zero,
                                          [GdPower]::SPIF_SENDWININICHANGE)
 }
-function Enter-GdNoSleep {
-    param([bool]$KeepScreenOn = $false)
-    try {
-        Add-GdSleepTypeDef
-        $flags = [GdPower]::ES_CONTINUOUS -bor [GdPower]::ES_SYSTEM_REQUIRED
-        if ($KeepScreenOn) { $flags = $flags -bor [GdPower]::ES_DISPLAY_REQUIRED }
-        [void][GdPower]::SetThreadExecutionState($flags)
-        Write-GdLog "已临时禁止系统睡眠(跑完自动恢复)"
-        if ($KeepScreenOn) {
-            # 策略(2026-09-26 改)：屏保拉闸后不再合闸。旧行为"起跑关、收尾恢复"有两个实证死穴：
-            # 恢复等于每天给明早 06:00 重新武装一次屏保；而起跑时若已被屏保桌面接管，
-            # SPI 关闭必失败(06:00 日志「关闭屏保失败」)，12 分钟白烧。屏保关闭自此是稳态。
-            $sf = Get-GdScreensaverStateFile
-            if (Test-Path -LiteralPath $sf) { Remove-Item -LiteralPath $sf -Force -ErrorAction SilentlyContinue }   # 旧机制遗留文件，直接清，不再照它合闸
-            $cur = Get-GdScreensaverActive
-            if ($null -eq $cur) {
-                Write-GdLog '读屏保状态失败，本轮不动屏保' -Level WARN
-            } elseif ($cur) {
-                if (Set-GdScreensaverActive -Active $false) {
-                    Write-GdLog '屏保已关闭(策略：只关不复，收尾不再恢复)'
-                } else {
-                    Write-GdLog '关闭屏保失败：会话可能已被屏保桌面接管(方舟会因此早退)；长期解法见 status.ps1 的「屏保」那一行(解除命令 tools\unarm-screensaver.ps1 -Apply)' -Level WARN
-                }
-            } else {
-                Write-GdLog '屏保本来就是关闭状态(稳态)'
-            }
-        }
-    } catch { Write-GdLog "禁止睡眠失败：$($_.Exception.Message)" -Level WARN }
-}
-function Exit-GdNoSleep {
-    # 只撤睡眠屏蔽(线程句柄语义)；屏保按"只关不复"策略不再恢复(见 Enter-GdNoSleep)
-    try {
-        if ($global:GdSleepHandle) { [void][GdPower]::SetThreadExecutionState([GdPower]::ES_CONTINUOUS) }
-    } catch { }
-}
+# Enter-GdNoSleep／Exit-GdNoSleep 两枚真身已删(丙档落码刀①，docs\rust-core-plan.md §11.116)：生产面零调用方。
+# 睡眠屏蔽与"只关不复"那两档现由核内段 8 与转接层 lib\rust-round.ps1 的 Start-/Stop-GdRoundHostNoSleep 那一对补位件做。
 
 # --- 进程工具 ---
 function Test-GdProcessRunning {

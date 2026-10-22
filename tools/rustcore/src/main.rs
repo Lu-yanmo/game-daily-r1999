@@ -92,7 +92,7 @@ extern "system" {
     fn CloseHandle(h_object: *mut c_void) -> i32;
     fn GetLocalTime(lp_system_time: *mut SystemTime);
     // B-3②-b3：睡眠屏蔽。这三枚标志的生效范围是**调用它的那根线程/进程**（句柄语义，见
-    // tools\gdinterop\GdPower.cs 的注释与 lib\common.ps1 的 Enter-GdNoSleep / Exit-GdNoSleep），
+    // tools\gdinterop\GdPower.cs 的注释；lib\common.ps1 那两枚真身已于丙档落码刀①删除，见 §11.116），
     // 所以它天生不是 verb —— 外发给壳答，等于让另一个进程去设一个对本进程无效的开关。
     // 这是 B-3 里唯一一处「该在核内新立 Win32 面」的例外，依据写在 docs\rust-core-plan.md §11.50 ①-8。
     // ⚠ 这里只做 ES_CONTINUOUS / ES_SYSTEM_REQUIRED / ES_DISPLAY_REQUIRED 三枚**设置**与一枚**查询**；
@@ -3930,7 +3930,7 @@ struct ArkCfgOut {
 }
 
 /// Invoke-MaaRun 的返回里链体要的三格；duration 无 = 返回对象没带 Duration 键
-/// （Invoke-GdStep 原样透传 Body 返回，Duration 是 Invoke-MaaRun 自己算的那枚——common.ps1:718-727 已核）。
+/// （Invoke-GdStep 原样透传 Body 返回，Duration 是 Invoke-MaaRun 自己算的那枚——common.ps1:681-690 已核）。
 struct ArkRunOut {
     status: String,
     detail: String,
@@ -4344,7 +4344,7 @@ fn arksk_fixture_decision(sc: &ArkskScen) -> JVal {
 }
 
 /// `Invoke-GdStep -Name -Body { & $run … }` 的等价体：跑体 = 拉端游（按开关）+ 跑 MAA；体里任一步
-/// Fail 都被吞成 error 态、**不 rethrow**（Invoke-GdStep 的 catch 口径，common.ps1:718 已核）；
+/// Fail 都被吞成 error 态、**不 rethrow**（Invoke-GdStep 的 catch 口径，common.ps1:681 已核）；
 /// 非 ok 打 WARN"结束状态"。`lean` 只决定"窗口没等到"那句的尾部变体（真身 $run/$runLean 闭包
 /// 的唯一差别就是这半句 + chains 来源）。Ask/Proto 不接、一路冒到顶。
 fn ark_daily_step(
@@ -4616,7 +4616,7 @@ struct R1999StepOut {
 /// 与 ark 那枚 `ark_daily_step` 的差别只有两处，都是这一路自己的事实：
 ///   · 体重**没有拉端游那半句**（真身 `$run9` 闭包里就没有 Start-GdArkClient，也就没有"窗口没等到"那两句）；
 ///   · 体只有 `fx.run()` 一句、**不吃 chains**。
-/// 相同的是 catch 边界：体内 Fail 吞成 error 态、**不 rethrow**（common.ps1:718-727 那条口径），
+/// 相同的是 catch 边界：体内 Fail 吞成 error 态、**不 rethrow**（common.ps1:681-690 那条口径），
 /// 非 ok 打 WARN「{名} 结束状态：{status} — {detail}」；Ask/Proto 不接、一路冒到顶。
 fn r1999_daily_step(fx: &mut dyn R1999DailyFx, name: &str) -> Result<R1999StepOut, ArkAbort> {
     let body = (|| -> Result<M9aRunOut, ArkAbort> { fx.run() })();
@@ -4716,8 +4716,8 @@ fn r1999_daily_chain(
             Err(e) => return Err(e),
         }
     }
-    // 终态三格（status/detail/duration）与 ark 那一路同形 —— 真身虽然 `return $r` 整块（还带
-    // Rescued/Tasks 等格），但框架侧（modules.ps1:419-423）只读这三格，done 信封就多带只会多一处比。
+    // 终态三格（status/detail/duration）与 ark 那一路同形 —— PS 侧回退段那句 `return $r` 虽然整块（还带 Rescued/Tasks 等格），
+    // 但框架侧历来只读这三格；而那一枚"只读三格"的框架侧真身（`modules.ps1` 汇总段）已随乙批② `e3dec2b` 出仓 ⇒ 不引行号，done 信封多带只会多一处比。
     Ok(ArkDOut { status: r.status, detail: r.detail, duration: r.duration })
 }
 
@@ -6732,7 +6732,7 @@ fn round_entry_verb(game: &str, verb: &str, root: &str) -> String {
     format!("-{}", verb)
 }
 
-/// 环境检查那一段（modules.ps1:242-255）的读数：就绪条数 + 缺失行（行文本与真身逐字同形）。
+/// 环境检查那一段的读数：就绪条数 + 缺失行（行文本与 PS 侧 `Get-GdModuleEnvRows` 逐字同形，那枚函数至今仍在场、被面板点；原引的那枚 `modules.ps1` 坐标**在删除之前就已指歪**——它落在函数头注与 param 上，环境检查段在其后——而那十段 PS 真身已随乙批② `e3dec2b` 整块出仓 ⇒ 按坐标清账批口径不引行号）。
 /// 第二枚返回值非空 ⇒ 骨架写 ERROR 后 `return 2`（**不是报错**、也不抛：真身就是"环境不完整"退 2）。
 /// ⚠ 这里读到的是 `Test-Path`，与 `resolve-round-context` 的 `Ready` 同一把尺（填了且真存在），
 /// 但那一格按**单键**算、这一处按**拼接后的整行**算 —— 'MAA 配置' 的 Ready 在 verb 侧比的是相对段，
@@ -7028,7 +7028,7 @@ fn round_answer(
         }
         ("round", ROUND_NOSLEEP_ACT) => {
             // 段 8 的睡眠屏蔽：**本进程**设、本进程验（这就是它不做成 verb 的理由，见 extern 那段注释）。
-            // 位型照 Enter-GdNoSleep:475-477 那三行：CONTINUOUS|SYSTEM_REQUIRED（keepScreenOn 再或上 DISPLAY）。
+            // 位型照 Enter-GdNoSleep 那三行(真身已删·丙档落码刀①，去向见 docs\rust-core-plan.md §11.116)：CONTINUOUS|SYSTEM_REQUIRED（keepScreenOn 再或上 DISPLAY）。
             let keep = jv_truthy(&jv_get_ci(params, "keepScreenOn"));
             let mut flags = ES_CONTINUOUS | ES_SYSTEM_REQUIRED;
             if keep {
@@ -7050,8 +7050,8 @@ fn round_answer(
             ]))
         }
         ("round", ROUND_NOSLEEP_OFF_ACT) => {
-            // Exit-GdNoSleep 那一句：真身只在"曾经设过"时才撤（$global:GdSleepHandle），
-            // 核内没有那枚全局句柄 ⇒ 撤的判据改成"这一段本轮真设过"（骨架只在设过之后才发这一格）。
+            // Exit-GdNoSleep 那一句（该真身已于丙档落码刀①从 lib\common.ps1 删除，§11.116）：当年只在
+            // "曾经设过"时才撤（$global:GdSleepHandle），核内没有那枚全局句柄 ⇒ 撤的判据改成"这一段本轮真设过"（骨架只在设过之后才发这一格）。
             let set = (hooks.es)(ES_CONTINUOUS);
             DirectOut::only(JVal::B(set != 0))
         }
@@ -7073,7 +7073,7 @@ fn round_answer(
         }
         ("round", a) if a == GD_MODULE_ARK.history_act || a == GD_MODULE_R1999.history_act => {
             // R9-a 收编：`state\history.csv` 那一行由新立的 `append-round-history` 落盘。
-            // 三处形状都照真身（lib\common.ps1:904-932）：舍入仍按 `[math]::Round` 那把中点取偶、
+            // 三处形状都照真身（lib\common.ps1:867-895）：舍入仍按 `[math]::Round` 那把中点取偶、
             // `-0` 那格由 `GdCore.Csv.DurationText` 钉成 "0"、detail 里的换行折成 " | "、
             // 表头与 CRLF/无 BOM 由 verb 按实测字节补（实测见 §11.67）。
             // 时间戳**不在核内给**：真身每写一行现取一次 `Get-Date`，而 ctx 的 NowText 是**起轮那一刻**的快照
@@ -7569,7 +7569,7 @@ fn daily_round_chain(
 
     // ---------- 段 5 判定 ----------
     // 判定失败=今天不知道该跑什么，硬跑只会乱点 ⇒ 真身在这里 Stop-GdBeforeRun（写一句 ERROR、退 2），
-    // 不是一屏 "Exception: …\modules.ps1:298"。所以这一格**自己接住 err**（Fail 那一档），
+    // 不是一屏 "Exception: …\modules.ps1"(原引过那文件里的一个行号，那十段 PS 真身已随乙批② `e3dec2b` 出仓 ⇒ 按坐标清账批口径不引行号)。所以这一格**自己接住 err**（Fail 那一档），
     // Ask/Proto 照旧冒泡 —— "哪个点接住"是骨架的判断，不是宿主的（trait 头注那条纪律）。
     let mut plan: Vec<(&'static GdModule, JVal)> = Vec::new();
     for m in mods.iter() {
@@ -7707,7 +7707,7 @@ fn daily_round_chain(
                     // 但**核内仍然一个 user32 都不碰** —— SPI 那两发在 `disable-screensaver-for-round`
                     // 里，用的是 tools\gdinterop\GdPower.cs 那份唯一真身（同 build.ps1 带 GdWin.cs 的口径，
                     // extern 声明不在 panel-cs 抄第二份）。四档话术留在骨架，判据在 verb 那侧。
-                    // ⚠ 这一格的 Fail **不许冒泡**：真身整段 `Enter-GdNoSleep` 只有一个 try/catch，
+                    // ⚠ 这一格的 Fail **不许冒泡**：当年真身整段 `Enter-GdNoSleep`（已删·丙档落码刀①）只有一个 try/catch，
                     // 屏保那几句全在 try 内 ⇒ 拿不到读数只留一句「禁止睡眠失败：…」，本轮照跑
                     // （§11.55 ③ 抓出来的真红之一：写成 `?` 等于把"屏保读不动"升级成本轮崩）。
                     //   收编改的是**谁来答**，不是**答不动了怎么办** —— 这一段一行没跟着动。
@@ -7862,7 +7862,7 @@ fn daily_round_chain(
         }
     }
     if nosleep_on {
-        // Exit-GdNoSleep：真身整枚是 catch{} ⇒ 撤失败一句都不吭（撤不成也只是下一班照旧，不该挡本轮）。
+        // Exit-GdNoSleep（真身已删·丙档落码刀①）：当年整枚是 catch{} ⇒ 撤失败一句都不吭（撤不成也只是下一班照旧，不该挡本轮）。
         let off = fx.ans("round", ROUND_NOSLEEP_OFF_ACT, JVal::Null, |_| ());
         if let Err(ArkAbort::Fail(_)) = off {
         } else if let Err(other) = off {
@@ -8630,7 +8630,7 @@ trait MaaHost {
     fn sleep(&mut self, seconds: u32);
     /// `Test-Path` + `(Get-Item).Length` 合成一件：None = 文件不在（真身那两行总是成对出现）。
     fn file_len(&mut self, path: &str) -> Option<u64>;
-    /// Get-GdFileTail（common.ps1:1033-1048）：返回（新增文本, 新偏移）。口径含"偏移越界 → 归零全读"。
+    /// Get-GdFileTail（common.ps1:996-1011）：返回（新增文本, 新偏移）。口径含"偏移越界 → 归零全读"。
     fn file_tail(&mut self, path: &str, offset: u64) -> (String, u64);
     /// Test-GdProcessRunning（Get-Process -Name：不分大小写、名字不带扩展名）。
     fn proc_running(&mut self, name: &str) -> bool;
@@ -8972,7 +8972,7 @@ fn is_null_or_white(s: &str) -> bool {
     s.trim().is_empty()
 }
 
-/// `Wait-GdCondition`(common.ps1:1017-1031) 的复刻：先测后睡、`now < deadline` 才继续，
+/// `Wait-GdCondition`(common.ps1:980-994) 的复刻：先测后睡、`now < deadline` 才继续，
 /// 超时那句 WARN 的整句与参数面（秒数是 [int] 原样）逐字对齐。
 fn wait_condition<H: MaaHost, F: FnMut(&mut H) -> bool>(
     h: &mut H,

@@ -30,6 +30,9 @@ $cs += $gdwin
 # 理由与上面那条完全同形 —— 宁可在装配里多带一条路径，也不在 tools\panel-cs 抄第二份：
 #   ..\tools\gdinterop\GdPower.cs   屏保 SPI 那两枚 P/Invoke(Get-/Set-GdScreensaverActive 的声明本体)，
 #                                   新立的 disable-screensaver-for-round 要用；PS 侧靠 Add-GdInterop 现编同一份。
+#   ⚠ 10-22 丙档落码刀② 之后这一句的现状：PS 侧那两枚转发壳里 `Get-GdScreensaverActive` 已删(连同 `Get-GdScreensaverStateFile`)，只有 `Set-GdScreensaverActive` 在场；
+#                                   而 Add-GdInterop 是按目录**整份**现编(不一份份列)⇒ GdPower.cs 里"读 SPI 现值"那两枚声明自此在 PS 侧**编而不被调**，真消费者只剩 panel-cs 这一装配。
+#                                   共享声明面不随体收缩 —— 这不是漏删，是不可拆(拆就要在 PS 侧抄第二份，正是本头注上面那条"宁可多带一条路径"反着来的东西)。
 #   ..\tools\gdcore\GdCore.Logs.cs  history.csv 的 CSV 规则(GdCore.Csv.Flatten/BuildRow/DurationText)，
 #                                   新立的 append-round-history 要用；PS 侧 Add-GdHistory 走的是同一份内核真身。
 # 缺文件一律当编译失败(不许静默跳过：跳过了 Round.cs 会编不过，报错点反而更难读)。

@@ -11,8 +11,8 @@
 // 切分口径(批次 5 的边界，全部有断言面或副作用为证)：
 //   * 两路 Start-Gd*Daily 与两个监控循环(Invoke-MaaRun / Invoke-M9ARun)整体留 PS：
 //     Start-Process / Start-Sleep 轮询 / 文件续读 / 视觉兜底 / adb 都是"活段"，无头拍不了；
-//     且 test-ark(行号不引，那本在并行在途；取证见 docs/rust-core-plan.md §11.92 ⑥)、test-r1999:271 是**文本断言**，钉的正是两份 -daily 壳里的重试跳过清单
-//     (`Status -notin @(...)`)，test-ark(同上，不引行号)钉 maa.ps1 的 `Status = 'unknown-format'` 字面 —— 断言一字不改是批次纪律。
+//     且 test-ark／test-r1999(行号都不引；10-24 刀②／刀③ 把"重试跳过清单"那两格的桌子从两份 -daily 壳搬到本件的
+//     DailyRetry 两支，取证见 docs/rust-core-plan.md §11.128 ③)是**文本断言**，钉的正是在这两支里的状态名字面(ark 三枚／r1999 五枚，一枚不许少)与 maa.ps1 的 `Status = 'unknown-format'` 字面 —— 断言一字不改是批次纪律。
 //   * daily-clear.ps1 只是参数外壳；真编排那十段现在**只住核内**(gdcore --daily-round)——PS 原身 Invoke-GdDailyRound
 //     已于 2026-10-20 乙批② 从 lib\modules.ps1 划掉，那份十段的基线从此只剩轮骨架门钉住的 git blob(§11.104／§11.105)；
 //     install-task.ps1 主体是 Register-ScheduledTask 现场 cmdlet，纯段只剩任务名格式化，不值单开 verb。

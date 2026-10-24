@@ -265,13 +265,18 @@ Check '读到过标志时仍按 timeout 判(不被 unknown-format 抢走)' ($rL.
 $unparsed = Read-GdM9ALine -Line '[2026-xx][INF] [inst=日常-长草/deadbeef] 任务链已全部执行 SUCCESS' -InstanceId 'deadbeef'
 Check '新版文案不认识时 Read-GdM9ALine 返回 $null(而不是硬凑一个事件)' ($null -eq $unparsed) "$($unparsed.Kind)"
 
-# 重试策略跟着"跑一轮"一起搬进了 lib\r1999-daily.ps1，入口脚本只剩参数分发。
-# 断言对象随之换文件，断言内容(那条跳过清单)一个字没改。
+# 重试策略跟着"跑一轮"一起搬进了 lib\r1999-daily.ps1，入口脚本只剩参数分发；10-24 刀② 把回退段
+# 整段出仓后这三格的桌子跟着换：跳过清单与 rescued 翻案的家在 tools\panel-cs\Orchestration.cs 的
+# DailyRetry r1999 支，"失败只 WARN"那句话术的家在 tools\rustcore\src\main.rs 的 updgate 分流，
+# lib\r1999-daily.ps1 只剩现场件(executor)。断言内容一个字没改——五枚状态名一枚不许少，改的只是到哪家去问。
 $r1999Daily = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\lib\r1999-daily.ps1') -Raw -Encoding utf8
-Check '1999 重试会跳过 not-started/empty-queue/unknown-format/blocked' ($r1999Daily -match "Status -notin @\('ok', 'not-started', 'empty-queue', 'unknown-format', 'blocked'\)")
+$orchCs = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'panel-cs\Orchestration.cs') -Raw -Encoding utf8
+$rustCore = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'rustcore\src\main.rs') -Raw -Encoding utf8
+$orchRetry = [regex]::Match($orchCs, '(?s)bool baseRetry(?<win>.*?)retryable = true').Groups['win'].Value
+Check '1999 重试会跳过 not-started/empty-queue/unknown-format/blocked' (($orchRetry -match '"ok"') -and ($orchRetry -match '"not-started"') -and ($orchRetry -match '"empty-queue"') -and ($orchRetry -match '"unknown-format"') -and ($orchRetry -match '"blocked"'))
 # M9A 自动更新闸(tools\m9a-update.ps1，2026-09-30 用户「检查到更新自己更就行了」)：这里只做静态锚，
 # 不联网、不起子进程 —— 实测链路当晚 12:40 人工 -Apply 走过一次(v4.10.0→v4.11.0)，测试不许依赖网络。
-Check '1999 起跑段挂了 M9A 自动更新闸(调 tools\m9a-update.ps1 -Apply，失败只 WARN)' (($r1999Daily -match 'm9a-update\.ps1') -and ($r1999Daily -match 'M9A 自动更新未完成'))
+Check '1999 起跑段挂了 M9A 自动更新闸(调 tools\m9a-update.ps1 -Apply，失败只 WARN)' (($r1999Daily -match 'm9a-update\.ps1') -and ($rustCore -match 'M9A 自动更新未完成'))
 Check '自动更新闸放在 Invoke-GdTakeover 之前(更新器见进程在跑就拒动，顺序就是正确性)' ($r1999Daily.IndexOf('m9a-update.ps1') -ge 0 -and $r1999Daily.IndexOf('m9a-update.ps1') -lt $r1999Daily.IndexOf('Invoke-GdTakeover'))
 Check '更新器本体在位且退出码契约写在头注' ((Test-Path -LiteralPath (Join-Path $PSScriptRoot 'm9a-update.ps1')) -and ((Get-Content -LiteralPath (Join-Path $PSScriptRoot 'm9a-update.ps1') -Raw -Encoding utf8) -match '0 = 已是最新'))
 # 活动打完没打完的 agent 判定(tools\1999-event-audit.ps1，2026-09-30 用户「让agent判断」)：同样只做静态锚，
@@ -360,7 +365,8 @@ Write-Host "`n[t18] 1999 这一路也接上视觉兜底(2026-09-26 加强 AI 干
 # 我们的日志只会说"进程提前退出"，而画面上一眼就能看出是"停在更新界面"。
 $mumuLib = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\lib\vision-mumu.ps1') -Raw -Encoding utf8
 $m9aLib = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\lib\m9a.ps1') -Raw -Encoding utf8
-$dailyLib = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\lib\r1999-daily.ps1') -Raw -Encoding utf8
+# (原来这里还读一份 lib\r1999-daily.ps1 给下面那两格外层重试锚用；10-24 刀② 后那两格打的是 Orchestration.cs，
+#  读面在 [t16] 段的 $orchCs/$orchRetry 已经取好，这里不再重复读同一份文件)
 if (Get-Command New-GdVisionTarget-mumu -ErrorAction SilentlyContinue) {
     # 契约：内核(lib\vision-rescue.ps1)只按字段名调它，少一个字段就是"兜底静默不生效"，所以逐字段点名
     $tm = New-GdVisionTarget-mumu -S $S
@@ -448,11 +454,13 @@ $fnEp = Get-GdTestCodeOnly (Get-Command Get-GdMuMuAdbEndpoint).Definition
         $m9aLib -match '视觉兜底 \$\(@\(\$rescue\.Notes\)\.Count\) 次')
     Check '状态名一律没改(收尾与通知按状态名分流，造新名字等于把判因链弄断)' (
         $m9aLib -notmatch "Status = 'rescued'" -and $m9aLib -notmatch "Status = 'vision")
-    # 外层重试的分流：画面被兜清楚了，本来"重试也没用"的那几种才值得再跑一次
-    Check 'r1999-daily 里 $retryable 认这个标记(not-started/empty-queue/blocked 只有兜清楚才重试)' (
-        $dailyLib -match '\$retryable' -and $dailyLib -match '\$r\.Rescued -and \$r\.Status -in @\(''not-started''')
+    # 外层重试的分流：画面被兜清楚了，本来"重试也没用"的那几种才值得再跑一次。
+    # 10-24 刀② 后这段判据住在 Orchestration.cs DailyRetry 的 r1999 支($orchRetry 那枚窗口在 [t16] 段就取好了)，
+    # 话术逐字由它交出、executor 只回放 —— 桌子换了，钉的还是同一件事：rescued 只翻那三种状态。
+    Check '重试分流认这个标记(not-started/empty-queue/blocked 只有兜清楚才翻案)' (
+        $orchRetry -match 'baseRetry \|\| \(rescued &&' -and $orchRetry -match '"not-started"' -and $orchRetry -match '"empty-queue"' -and $orchRetry -match '"blocked"')
     Check '带标记时日志说得清是"兜清楚了才重试"(不是原来那句"关闭游戏后重试一次")' (
-        $dailyLib -match '视觉兜底把挡路的界面点掉了')
+        $orchCs -match '视觉兜底把挡路的界面点掉了')
 } else {
     Check 'lib\vision-mumu.ps1 有 New-GdVisionTarget-mumu(1999 仓库少了它兜底就是死代码)' $false '没找到这个函数'
 }

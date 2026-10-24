@@ -4047,7 +4047,7 @@ struct R1999DInput {
 /// 无 catch 的调用点直接 `?` 冒泡（等价真身"整函数异常上抛"，换头后落成 fail 信封）。
 trait R1999DailyFx {
     fn log(&mut self, level: &str, text: &str);
-    /// 更新闸：`& $selfEngine -File tools\m9a-update.ps1 -Apply 2>&1` 那整段（真身 :90-101）。
+    /// 更新闸：`& $selfEngine -File tools\m9a-update.ps1 -Apply 2>&1` 那整段（落点是 executor 的 'updgate' 动作臂；旧回退段逐字在钉位 6157448:lib/r1999-daily.ps1，按坐标清账批口径不引行号）。
     /// Ok = 子进程起来了（退出码非 0 也算 Ok，那一档在真身里是 WARN 不是异常）；
     /// Err(Fail) = 真身 catch 到的那句"闸本身抛错"。
     fn updgate(&mut self) -> Result<M9aGateOut, ArkAbort>;
@@ -4063,7 +4063,7 @@ trait R1999DailyFx {
     fn stop(&mut self) -> Result<(), ArkAbort>;
     /// Start-Sleep -Seconds（真身重试前那枚 20）。
     fn sleep(&mut self, seconds: u32) -> Result<(), ArkAbort>;
-    /// 审计闸：`& $selfEngine -File tools\1999-event-audit.ps1 -Apply 2>&1` 那整段（真身 :155-165）。
+    /// 审计闸：`& $selfEngine -File tools\1999-event-audit.ps1 -Apply 2>&1` 那整段（落点是 executor 的 'audit' 动作臂；旧回退段逐字在钉位 6157448:lib/r1999-daily.ps1）。
     /// 只在 status ∈ {ok, empty-queue} 时链体才会调它。
     fn audit(&mut self) -> Result<M9aGateOut, ArkAbort>;
 }
@@ -4382,7 +4382,7 @@ fn ark_daily_step(
     Ok(ArkStepOut { status: r.status, detail: r.detail, duration: r.duration })
 }
 
-/// 链体：`Start-GdArkDaily` 主体按句转写（真身 lib\ark-daily.ps1 106-255）。宿主差异全在 Fx
+/// 链体：`Start-GdArkDaily` 主体按句转写（逐字基线＝钉位 251bd3c 的那份；PS 那臂已随 10-24 刀③ 出仓）。宿主差异全在 Fx
 /// （夹具记 seq / 驱动走 journal+ask），这里只管"做什么、什么顺序、哪句什么 Level、哪个点接不接
 /// 异常"——8 档投影与旧转写逐字节同源是硬门（probe-arkskip-rust-golden 咬的 316 行块）。
 fn ark_daily_chain(
@@ -4575,12 +4575,12 @@ fn ark_daily_chain(
     Ok(ArkDOut { status: r.status, detail: r.detail, duration: r.duration })
 }
 
-/// m9a 一路的重试分流：真身 lib\r1999-daily.ps1:117-122 那句 `Invoke-GdCli -Verb 'decide-daily-retry'`
-/// 的 body 是**四键**（game/status/**rescued**/retryOnce），比 ark 那路多一枚 rescued —— C# 那侧
+/// m9a 一路的重试分流：真身那句 `Invoke-GdCli -Verb 'decide-daily-retry'` 的 body 是**四键**
+/// （game/status/**rescued**/retryOnce），比 ark 那路多一枚 rescued —— C# 那侧
 /// （Orchestration.cs:549-603）只有 r1999 支会读它（`not-started/empty-queue/blocked` 三档靠它翻案），
 /// ark 支压根不碰这格。所以两路各写一枚调用体，不共用 arksk_call_decide：共用就要给 ark 的 body
 /// 添一枚它不该有的键，判定侧的宽容面会因此变成契约。
-/// 键序照真身 [pscustomobject] 的书写序（game→status→rescued→retryOnce）。
+/// 键序照真身 [pscustomobject] 的书写序（game→status→rescued→retryOnce）；那枚真身长在 PS 回退臂 `Invoke-GdR1999DailyLegacy` 里，该臂已随 10-24 兜底撤除批 刀② 整段出仓 ⇒ 旧形只活在钉位 blob `6157448:lib/r1999-daily.ps1`（按坐标清账批口径不引行号）。
 fn m9a_call_decide(
     panel_cs: &str,
     status: &str,
@@ -4612,7 +4612,7 @@ struct R1999StepOut {
     rescued: bool,
 }
 
-/// `Invoke-GdStep -Name '1999' -Body $run9` 的等价体（真身 :106-107）。
+/// `Invoke-GdStep -Name '1999' -Body $run9` 的等价体（$run9 在旧回退段里，已随 10-24 刀② 出仓，逐字在钉位 6157448:lib/r1999-daily.ps1）。
 /// 与 ark 那枚 `ark_daily_step` 的差别只有两处，都是这一路自己的事实：
 ///   · 体重**没有拉端游那半句**（真身 `$run9` 闭包里就没有 Start-GdArkClient，也就没有"窗口没等到"那两句）；
 ///   · 体只有 `fx.run()` 一句、**不吃 chains**。
@@ -4651,7 +4651,7 @@ fn r1999_daily_chain(
     decide: &mut dyn FnMut(&str, bool, bool) -> Result<(bool, Vec<(String, String)>), String>,
 ) -> Result<ArkDOut, ArkAbort> {
     fx.log("STEP", "--- 重返未来：1999(MuMu + M9A)---");
-    // ===== 更新闸（真身 :87-101）。整段最坏十几分钟，但任何失败只 WARN 不挡当日轮 =====
+    // ===== 更新闸（旧回退段那一段起更新器的活；已随 10-24 刀② 出仓，落点是 executor 的 'updgate' 动作臂）。整段最坏十几分钟，但任何失败只 WARN 不挡当日轮 =====
     // 必须排在起 M9A 之前：更新器见 m9a 进程在跑就拒动（且永不硬杀）。
     // 三态照真身：退出码 0 ⇒ INFO 一句挑出来的行；退出码非 0 ⇒ WARN 带全量输出；抛 ⇒ WARN 带异常串。
     match fx.updgate() {
@@ -4671,7 +4671,7 @@ fn r1999_daily_chain(
         Err(e) => return Err(e),
     }
     fx.takeover()?;
-    // ===== 起模拟器（真身 :103）：判句在链体，executor 只回裸 bool =====
+    // ===== 起模拟器（判句在链体，executor 只回裸 bool —— 旧回退段那句 Start-GdMuMu 已随 10-24 刀② 出仓）=====
     if !fx.mumu()? {
         fx.log("WARN", "MuMu 未能确认启动，仍尝试让 M9A 自行处理");
     }
@@ -4680,7 +4680,7 @@ fn r1999_daily_chain(
         fx.log("INFO", &format!("  M9A：{}", c));
     }
     let mut r = r1999_daily_step(fx, "1999")?;
-    // ===== 批次 8：重试分流问 decide-daily-retry(panel-cs)（真身 :108-127）=====
+    // ===== 批次 8：重试分流问 decide-daily-retry(panel-cs)（旧回退段那段 $retryable 分流，已随 10-24 刀② 出仓）=====
     // 判据(not-started/empty-queue/blocked 只有 Rescued 才翻案)、if/elseif 链的落穿语义
     // 与全部话术都在 C#；链体只回放日志 + 落地"活"(Stop-M9A / sleep 20 / 重跑)。
     let (retryable, logs) = decide(&r.status, r.rescued, input.retry_once)?;
@@ -4690,12 +4690,12 @@ fn r1999_daily_chain(
     }
     if retryable {
         fx.stop()?;
-        // 20 秒，不是 ark 那一路的 25 —— 真身 :130 写的就是这个数（plan §11.39 ⑤-4：两套话术不许统一）。
+        // 20 秒，不是 ark 那一路的 25 —— 旧回退段重试前那枚 sleep 写的就是这个数（plan §11.39 ⑤-4：两套话术不许统一）。
         fx.sleep(20)?;
         r = r1999_daily_step(fx, "1999重试")?;
     }
     fx.stop()?;
-    // ===== 活动审计闸（真身 :150-165）：只在队列真跑完的形态问 =====
+    // ===== 活动审计闸（旧回退段收尾段那一段，已随 10-24 刀② 出仓）：只在队列真跑完的形态问 =====
     // 状态名册不许造新词：这一支的条件就是 'ok'/'empty-queue' 两枚（真身 `-in @('ok','empty-queue')`）。
     // 审计是加分项，任何失败只 WARN，不许把当日轮带崩 —— catch 边界照真身。
     if r.status.eq_ignore_ascii_case("ok") || r.status.eq_ignore_ascii_case("empty-queue") {
@@ -6305,7 +6305,7 @@ fn gd_module_by_id(id: &str) -> Option<&'static GdModule> {
 /// 环境探测那七枚键之外，骨架还要两枚**取名用**的键：
 /// `takeover` 直答要喂 `takeover-processes` 的 `names`，而那两个名字在真身里是
 /// `[IO.Path]::GetFileNameWithoutExtension($S.paths.maaExe / .arknightsExe / .m9aExe)` 现算的
-/// （ark-daily.ps1:134、r1999-daily.ps1:116）—— 不是清单里的字面，只能从 paths 取名。
+/// （ark-daily.ps1 与 r1999-daily.ps1 里 executor 各自的 `takeover` 答臂现算那两/三枚名——那两枚调用原本在 PS 回退臂里还各另有一份，随 10-24 刀②③ 两份都出仓了，按坐标清账批口径不引行号）—— 不是清单里的字面，只能从 paths 取名。
 /// ⚠ 这两枚只进 `resolve-round-context` 的 `pathKeys`（点名取键、逐枚），不参与环境检查：
 /// 真身的环境探测只有 `EnvProbes` 那三行，多催一项就是把"缺什么"那本账改了形状。
 const ROUND_NAME_PATH_KEYS: &[&str] = &["maaExe", "m9aExe"];
@@ -6338,7 +6338,7 @@ fn round_path_keys() -> Vec<&'static str> {
 /// - `retryOnce` ⇒ 两路 `ArkDInput.retry_once` / `R1999DInput.retry_once`
 /// ⚠ 两枚**不在这本名册上**的键，各自因为一把尺不同而被挪走（b3 落码前的取键修正，§11.55 ③）：
 /// - `launchArkFromHelper` ⇒ 真身是 `$S.runtime.launchArkFromHelper -ne $false`（**缺键算开**，
-///   `lib\ark-daily.ps1:330` 实证），与本名册的**真值判**（缺键算关）方向相反。挪到 `elevFlags`，
+///   executor 写 ctx 的 `launch` 那一格实证（现读 executor 的 ctx 装配；回退臂出仓前另有行号，按坐标清账批口径不引行号），与本名册的**真值判**（缺键算关）方向相反。挪到 `elevFlags`，
 ///   由 verb 侧 `Round.FlagEnabled` 折成真值 —— 留在 runtimeKeys 会把"没配的一轮"从"照样拉起端游"
 ///   读成"不拉起"，那是判定翻案不是取数。
 /// - `closeEmulatorAfter` ⇒ 唯一消费点在 r1999 的收尾钩子，而收尾段按 ② 的名册走 **ask**
@@ -6350,7 +6350,7 @@ const ROUND_RUNTIME_KEYS: &[&str] = &["blockSleep", "keepScreenOn", "retryOnce"]
 /// 1. 两枚清单声明的 `ElevationFlag` —— 真身 `$S.runtime.<flag> -ne $false` 提权闸门读的就是它。
 ///    ⚠ 两路的清单**写的是同一枚字面**（`arkRequiresElevation`；r1999 那路 `RequiresAdmin=false`
 ///    所以框架读不到它，但字段照抄清单原值）⇒ 名册必须**去重**，喂两枚同名键只是把同一格算两遍。
-/// 2. `launchArkFromHelper` —— 不在清单里，但真身用的是**同一把尺**（`lib\ark-daily.ps1:330`），
+/// 2. `launchArkFromHelper` —— 不在清单里，但真身用的是**同一把尺**（与上面那条挪走记录同指一处：ark 那路 executor 写 ctx 的 `launch` 那一格），
 ///    所以搭这趟车由 verb 侧折成真值，核内不抄第二把 PowerShell 真值语义（§11.52 ⑤）。
 fn round_elev_flags() -> Vec<&'static str> {
     let mut out: Vec<&'static str> = Vec::new();
@@ -6812,8 +6812,8 @@ fn round_ark_decision_slot() -> std::rc::Rc<std::cell::RefCell<JVal>> {
 
 /// 答手的第三枚 out-of-band 现场值：**本轮 1999 那一路要切哪个 M9A 实例**。
 /// 为什么它是槽而不是 ctx 常量（B-4②「入口转接」批，§11.65；ADR-3 第十次升号的出处）：
-/// 真身那一格不是常量 —— `lib\r1999-daily.ps1:77` 按**方案**挑实例（映射表
-/// `settings.re1999.planToInstance`），`:250` 再由实例派生 adb/serial；而轮档的 ctx **一轮一定稿**
+/// 真身那一格不是常量 —— `lib\r1999-daily.ps1:83` 按**方案**挑实例（映射表
+/// `settings.re1999.planToInstance`），executor 的 ctx 取键段再由实例派生 adb/serial（同文件那枚 `Get-M9AConnection`，10-24 刀② 起回退臂出仓、只剩这一处，按坐标清账批口径不引行号）；而轮档的 ctx **一轮一定稿**
 /// （journal 的 init 与 ctx 全等校验 ⇒ 段 5 之后补不进 ctx），所以核内只能在段 5 就地覆盖。
 /// 形状照 `round_ark_decision_slot` 的先例：初值＝ctx 的 `m9aRun.instance`（**这是回落那一档**，
 /// 门里的旧夹具与 `--drive-m9a-daily` 那一路都靠它，缺 `Instance` 键时不许把实例切成空），
@@ -6855,7 +6855,7 @@ fn round_m9a_apply_decision(
 }
 
 /// 把第五段的判定对象按 PS executor 那两枚动词要的键名折出来。
-/// ark 的 `cfg` 直答有两腿（照 lib\ark-daily.ps1:441-450 那两档逐字）：
+/// ark 的 `cfg` 直答有两腿（照 executor 的 `'cfg'` 答臂那两档逐字，按坐标清账批口径不引行号）：
 /// - 主轮 = 把 decision 整块交给 verb（PS 那侧就是 `-Decision $Decision`）；
 /// - 剔关轮 = PS 现场**另构造**一枚 lean 哈希（八键，`Stage` 取 params 给的、没有 `Farm` 键），
 ///   verb 侧于是读到 `Farm`=缺 ⇒ `farmActive=false`／`farmMode=''` —— 这是真身的形状，
@@ -7144,7 +7144,7 @@ fn round_answer(
             // R9-a 收编：这一格要的是"屏保当时装着什么"那枚**活读**（HKCU\Control Panel\Desktop 的稳态，
             // 不是 SPI 现值 —— 新立的 `read-screensaver-config` 逐字照 Get-GdScreensaverConfig），
             // 判据与四档话术**仍在那枚既有 verb** 里（`resolve-screensaver-verdict`／Decisions.cs:436-490）。
-            // ⚠ **恒返串**：真身那一整段是 `try { … } catch { $svTxt = '' }`（lib\ark-daily.ps1:423-433），
+            // ⚠ **恒返串**：真身那一整段是 `try { … } catch { $svTxt = '' }`（executor 的 `'svdetail'` 答臂，按坐标清账批口径不引行号），
             //   两枚 verb 任何一发起不来都不许把错冒泡成本轮崩，只答空串（早退原因少掉屏保那一行）。
             //   注册表读不到 ≠ 起不来：那一档 verb 返 `Found:false` ⇒ cfg 交 **Null** ⇒ 判定给出
             //   unknown 档那句"读不到 HKCU\Control Panel\Desktop，判断不了武装没有(不代表没事)"，
@@ -7175,7 +7175,7 @@ fn round_answer(
         }
         ("ark", "takeover") => {
             // 丙档：两枚名字都是**现算**出来的 exe 名（`(Get-MaaPaths -S $S).Name` + 端游名，
-            // lib\ark-daily.ps1:415 那两枚），而取名的来路是 ctx 的 pathKeys（只两枚取名键，不动环境判据）。
+            // executor 的 `'takeover'` 答臂那两枚），而取名的来路是 ctx 的 pathKeys（只两枚取名键，不动环境判据）。
             let mut names: Vec<JVal> = Vec::new();
             for k in ["maaExe", "arknightsExe"] {
                 names.push(jv_s(&env.proc_name(k)));
@@ -7599,7 +7599,7 @@ fn daily_round_chain(
             ark_dec.replace(dec.clone());
         }
         // B-4②「入口转接」（§11.65）：1999 那一路的实例与 adb 落点**在段 5 才定得下来** —— 真身是判定层
-        // 按方案挑的（`lib\r1999-daily.ps1:77`），conn 再由实例派生（`:250` 的 `Get-M9AConnection`），
+        // 按方案挑的（`lib\r1999-daily.ps1:83`），conn 再由实例派生（executor 的 ctx 取键段那枚 `Get-M9AConnection`，10-24 刀② 起不引行号），
         // 而 ctx 一轮一定稿（换 ctx 得起新 journal）⇒ 段 5 之后补不进 ctx，只能就地覆盖。
         // 判据本体在 `round_m9a_apply_decision`（三档直测）；这里只留"哪一路才覆盖"这一句闸。
         if m.id == "r1999" {
@@ -10874,7 +10874,7 @@ impl MaaHost for RealHost {
 /// 生产侧那枚 run 闭包的真身：ctx 的 `maaRun` 载荷（已解析成 MaaScen）＋链体现给的 chains → maa_run。
 /// 两枚 paths 缺一就当场 Err：往空目录去起 MAA 只会造出一条没法归因的现场错，不如在这里点名
 /// "载荷缺哪一格"（这句话进 journal 的 err 行，链体照旧把它吞成 status=error 那档）。
-/// `dry_run` 在这里按死=false —— 生产三处调用点（ark-daily.ps1:157/221/408）都不给 `-DryRun`，
+/// `dry_run` 在这里按死=false —— 生产调用点只剩核内两枚 run 闭包（ark 驱动档出口、轮骨架出口各一处；PS 侧那几枚 `Invoke-MaaRun` 随 10-24 刀②③ 出仓）都不给 `-DryRun`，
 /// ctx 里也没有这一格；给它留口子等于给生产载荷开一扇"什么都不做也算 ok"的门。
 fn drive_real_run(
     panel_cs: &str,
@@ -17079,7 +17079,7 @@ fn selftest() -> i32 {
                 "audit".to_string()
             ]
             && run_calls23c.get() == 1,
-        "m9a 链体的动作序或真做分派不对：ask 名册该是 updgate/takeover/mumu/cfg/stop/audit 六枚（run 真做、不许问），run 该恰好做一次 —— 多出 run 说明壳侧白名单没删干净（双删即回归抓器），少一枚说明链体与真身 :87-165 不同源",
+        "m9a 链体的动作序或真做分派不对：ask 名册该是 updgate/takeover/mumu/cfg/stop/audit 六枚（run 真做、不许问），run 该恰好做一次 —— 多出 run 说明壳侧白名单没删干净（双删即回归抓器），少一枚说明链体与 executor 那七格动作臂不同源（旧回退段逐字在钉位 6157448:lib/r1999-daily.ps1）",
         &mut fails,
         &mut total,
     );
@@ -17197,7 +17197,7 @@ fn selftest() -> i32 {
             && rows23e.len() == 2
             && rows23e[1].starts_with("{\"seq\":12,\"action\":\"run\"")
             && l23e.iter().any(|x| x == "INFO|重试分流：判可重试"),
-        "m9a 的重试分流这一支不对：sleep 的 params 该是 20（**不是 ark 那一路的 25**，真身 :130 写的就是这个数）、动作序该是 stop/sleep/再 run/收尾 stop、decide 回传的日志该按序进账进侧信道 —— 两套话术不许顺手统一，统一了门就再也分不清是哪一路",
+        "m9a 的重试分流这一支不对：sleep 的 params 该是 20（**不是 ark 那一路的 25**，旧回退段重试前那枚 sleep 写的就是这个数）、动作序该是 stop/sleep/再 run/收尾 stop、decide 回传的日志该按序进账进侧信道 —— 两套话术不许顺手统一，统一了门就再也分不清是哪一路",
         &mut fails,
         &mut total,
     );
@@ -18211,7 +18211,7 @@ fn selftest() -> i32 {
         );
 
         // ---------- R9-a 专块 B：svdetail 的「恒返串」三档 ----------
-        // 真身那一整段是 `try { … } catch { $svTxt = '' }`（lib\ark-daily.ps1:423-433）⇒ 两枚 verb
+        // 真身那一整段是 `try { … } catch { $svTxt = '' }`（executor 的 `'svdetail'` 答臂，按坐标清账批口径不引行号）⇒ 两枚 verb
         // 任何一发起不来都只答空串，**绝不许把 Err 冒泡成本轮崩**（这一格崩了不该崩本轮）。
         // 但「注册表读不到」≠「起不来」：那一档 verb 老老实实回 `Found:false` ⇒ cfg 交 **Null**，
         // 让判定自己给出 unknown 档那句 —— 收编不许把两种状态糊成一档（前者是读数，后者是故障）。

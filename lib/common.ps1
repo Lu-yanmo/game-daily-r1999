@@ -146,7 +146,7 @@ function Invoke-GdCli {
       退出码语义(0 完成 / 1 内部错 / 2 前置缺或规则拒)：非 0 一律 throw —— 判定层拿不到可信结论时，
       宁可这一轮拒跑，也不带着猜出来的配置继续跑(与 Stop-GdBeforeRun 同哲学)。
       throw 的是信封 error 原话；调用方怎么处置这句，各家不一样(10-19 C-3 首刀〗i 现读；⚠ 10-19 〗q 补一层：下面两枚 catch 包的都是 Resolve-R1999Instance，原话经 lib\r1999-decisions.ps1:73 那一发 Invoke-GdCli 传上来，而直接调 Invoke-GdCli 的那发不在这一对 try/catch 面内)：
-      lib\r1999-daily.ps1:78 catch 后打一条 ERROR 日志再原样 throw(〗u 重取：catch 紧跟 try 那行)；lib\r1999-status.ps1:48 catch 把它接在 Reason
+      lib\r1999-daily.ps1:84 catch 后打一条 ERROR 日志再原样 throw(〗u 重取：catch 紧跟 try 那行)；lib\r1999-status.ps1:48 catch 把它接在 Reason
       后面打印，但不改 $r.Reason。原注那句"调用方(Show-GdDecision)会把这句并进 Reason"随那枚真身一起作废——
       "并进 Reason"那种写法全仓只有 decisions.ps1 里那一处，〗i 之后它已不在场(读数见 docs\rust-core-plan.md §11.81)。
     #>
@@ -1157,28 +1157,6 @@ function Test-GdExportLeaks {
 # 期望契约号有一份(壳侧)、要扫的东西有一份(仍走 Get-GdLocalOnlyValues 这个唯一口径 + 从环境现推的短串)、
 # 逐字节扫法有一份(两副眼镜：cargo 产物里是 UTF-8/ASCII，csc 产物里是 UTF-16，只看一副就有半边盲区)。
 function Get-GdRustContract { 'RustCore-R11.0' }   # 与 tools\rustcore\src\main.rs 的 const CONTRACT 同改；同一轮内不许单侧动
-
-function Test-GdRustDailyPath {
-    <# R3③ 换头开关(2026-10-06)：判据三把，原文住 docs\r0-adrs.md §5.4 / 方案 §11.4 ——
-       ① $env:GD_RUST_OFF=1 优先于配置(出问题当场拨，沿 coreOff 那条既有习惯)；
-       ② settings.runtime.rustOff 字符串数组按件名屏蔽，含 'gdcore' 即关(读法照 Sync-GdCoreOff 的同族形状)；
-       ③ settings.runtime.rustEnabled **显式为 $true** 才开(默认 false = 进包但不上路径)。
-       缺键/形状坏一律当关(缺键宽容，同族语义见 Sync-GdCoreOff 与 Test-GdArkFightSkipMarkToday)；
-       默认关 = 一字不变走 PS 原身 Invoke-GdArkDailyLegacy / Invoke-GdR1999DailyLegacy(B-2d④ 起两路共用这把开关，
-       两路同进退 —— 不开第三枚键：能分别拨就得出"一路换头一路原生"的混合格，那不在任何一道的射程里)。真接管那轮的留证口径见 R3③d。
-       判据只住这一处：ark-daily.ps1 的调度器与两门的强开覆盖版都从这里对齐(接线点唯一，ADR §5.4)。 #>
-    param($S)
-    try { if ($env:GD_RUST_OFF -eq '1') { return $false } } catch { }
-    try {
-        if ($S -and $S.runtime) {
-            $off = @()
-            if ($S.runtime.rustOff) { $off = @($S.runtime.rustOff | ForEach-Object { [string]$_ }) }
-            if ($off -contains 'gdcore') { return $false }
-            if ($S.runtime.rustEnabled -eq $true) { return $true }
-        }
-    } catch { }
-    return $false
-}
 
 function Get-GdBinaryLeakSet {
     <# 二进制门要扫的东西 = 文本门那一份(Get-GdLocalOnlyValues，唯一口径) + 三条**从环境变量现推**的短串/形状。

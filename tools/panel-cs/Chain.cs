@@ -54,7 +54,7 @@
 //   4. **$null 成员占位**：skip 的 plan／evidence 在旧侧走 `@($sv.Plan)`，空数组与 @(单枚 null) 的 Count 不同
 //      (批次 9 那三坑之一)。这里 Gd.List 回来什么就原样给什么，不做"顺手压成空表"的整理。
 //   5. **takeover 的 names 由调用方组装**：ark 那路是 MAA + 端游两枚名，m9a 那路只 M9A 一枚名 ——
-//      那是链体的编排(lib\ark-daily.ps1:134／lib\r1999-daily.ps1:116)，不进 verb。verb 只认 names 数组，
+//      那是链体的编排(lib\ark-daily.ps1 与 lib\r1999-daily.ps1 各自 executor 的 takeover 答臂——那两枚调用原本在 PS 回退臂里还各另有一份，随 10-24 刀②③ 两份都整段出仓了，按坐标清账批口径不引行号)，不进 verb。verb 只认 names 数组，
 //      空名照旧 continue(真身那一句挡的是"paths 没填 ⇒ 文件名算出空串")。
 //   6. **paths 没填 ⇒ 进程名算出空串 ⇒ 这一档不抛**：Stop-MaaAndGame 真身在 maaDir／maaExe 空时会拿空名去
 //      Get-Process(恒空 ⇒ 0 个进程 ⇒ 一句都不吭)。这里同形：ProcTreeValue 见空名直接回 0，不把那句

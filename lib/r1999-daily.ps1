@@ -19,20 +19,26 @@
 # Start-GdR1999Daily 的 $retryable 分流(五状态跳过清单 + "画面被兜清楚才翻案"的 or 支、
 #  retryOnce 合取、if/elseif 链的落穿语义与四句文案)已迁到 tools\panel-cs\Orchestration.cs
 #  (verb：decide-daily-retry，-Game r1999)。壳里留的正是"活"：Stop-M9A、sleep 20、重跑 $run9、
-#  日志回放。旧判据段在分流处逐行 # 前缀冻结(test-r1999 钉 $retryable 表达式与话术字面锚)。
+#  日志回放。旧判据段曾在 PS 回退臂里逐行 # 前缀冻结(test-r1999 按那些字面钉锚)；10-24 兜底撤除批
+#  刀② 起那整段回退臂出仓(旧形逐字仍活在钉位 blob 里，见下面 B-2d④ 那节的记录)，test-r1999 的
+#  四格静态锚随之改口到判据真正的家：Orchestration.cs 的 r1999 支与 main.rs 的链体。
 #  改分流规则/话术请改 Orchestration.cs 并复拍 tools\probe-live-golden.ps1，不要在这里加 if。
 # ──────────────────────────────────────────────────────────────────────────────
 #
 # ── 追加冻结(2026-10-12，换宿主 B-2d④「r1999 链体进核＋PS 侧 executor」)───────────
-# Start-GdR1999Daily 自此是**调度器**：默认关 = 一字不变走回退段 Invoke-GdR1999DailyLegacy(原身逐字保留，
-# 上面批次 5/批次 8 那两段冻结自此只对这一份成立)；开关拨开 = Invoke-GdR1999DailyRust 起内置件 gdcore.exe
-# 走 --drive-m9a-daily 的问-答-重放。链体(八格动作的顺序/Level/话术/异常边界)与 run 真做已迁到
-# tools\rustcore\src\main.rs 的 r1999_daily_chain；**这一档的契约号随批次逐次升，本行不钉死它** ——
-# 现值只由 lib\common.ps1 的 Get-GdRustContract 一处理，落冻结段里写死一枚数字就是双源事实(本仓已为此改过三次口)；执行器只剩现场七格
+# Start-GdR1999Daily 自此是**调度器**；10-24 兜底撤除批 刀② 起这一路**只剩一条路** = Invoke-GdR1999DailyRust
+# 起内置件 gdcore.exe 走 --drive-m9a-daily 的问-答-重放，PS 回退臂 Invoke-GdR1999DailyLegacy 整段出仓
+# (原身逐字仍活在钉位 blob `6157448:lib/r1999-daily.ps1` 里，由 probe-m9adrive 的 legacy 侧从 blob 解包来拍
+#  —— 上面批次 5/批次 8 那两段冻结自此只对"对面在钉位、不在现树"成立)。链体(八格动作的顺序/Level/话术/
+# 异常边界)与 run 真做住在 tools\rustcore\src\main.rs 的 r1999_daily_chain；**这一档的契约号随批次逐次升，
+# 本行不钉死它** —— 现值只由 lib\common.ps1 的 Get-GdRustContract 一处理，落冻结段里写死一枚数字就是
+# 双源事实(本仓已为此改过三次口)；执行器只剩现场七格
 # (updgate/takeover/mumu/cfg/sleep/stop/audit)与 ctx 名册十五枚的逐枚点名取键，**零自有日志**。
-# 两路共用同一把回退开关 Test-GdRustDailyPath(不开第三枚键，两路同进退)；接线点仍只此一处。
-# ⚠ 回退段必须排在文件末尾那节**之前**、逐行 # 前缀的冻结段一枚不许删：test-r1999 的四组静态锚
-#   与那把"更新器件名首现早于接管函数名首现"的行序锚都钉在这份身上(接管函数名在下面 executor 里还会出现一次)。
+# 本路自此不再读那把回退开关 Test-GdRustDailyPath("两路共用一把闸、两路同进退"自此只剩历史：
+# ark 那一路随 10-24 刀③ 断读，两路都断读之后那把闸的本体随同批 刀④ 整段出仓)；生产侧自此零读闸处。
+# ⚠ 那把"更新器件名首现早于接管函数名首现"的行序锚(test-r1999)自此钉在下面 executor 的 updgate 与
+#   takeover 两枚动作上 —— 两枚仍在同一枚文件里、 updgate 仍在前，顺序没动才绿；谁要把 executor 那节
+#   拆到别的文件，先动那把锚，别让它静默失效。
 # 改链体/话术/名册请改 main.rs 并复拍 B-2d⑤ 那枚等值门(probe-m9adrive-rust-golden.ps1，⑤ 立)，不要在这里加 if。
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -91,110 +97,22 @@ function Show-GdR1999Preview {
     Write-GdLog "  MuMu 虚拟机 $($S.mumu.vmIndex)：$(if ($st.AndroidStarted) { '运行中' } else { '未运行(将自动启动)' })"
 }
 
-function Invoke-GdR1999DailyLegacy {
-    <# 真正跑一轮 1999：起 MuMu → 切实例 → 跑 M9A → 该重试就重试 → 关掉 M9A。返回 @{Status;Detail;Duration}
-       (B-2d④ 起这一份是**回退段**：逐字保留，同名调度器与换头执行器在本节末尾另立) #>
-    param([Parameter(Mandatory)]$S, [Parameter(Mandatory)]$Instance)
-    $inst = $Instance
-    Write-GdLog '--- 重返未来：1999(MuMu + M9A)---' -Level STEP
-    $selfEngine = (Get-Process -Id $PID).Path   # 起子进程用当前引擎自己(pwsh 7 —— 本仓库只支持 7)，两处外挂共用
-    <# M9A 自动更新闸(2026-09-30 用户口径「检查到更新自己更就行了」)：必须放在起 M9A 之前 ——
-       更新器见 m9a 进程在跑就拒动(且永不硬杀)。整链(备份/下载/覆盖/校验)最坏十几分钟，
-       但任何失败只 WARN 不挡当日轮；已是最新时子进程秒退，日常不拖节奏。契约在 tools\m9a-update.ps1 头注。 #>
-    try {
-        $updOut = @(& $selfEngine -NoProfile -ExecutionPolicy Bypass -File (Join-Path $global:GD.Root 'tools\m9a-update.ps1') -Apply 2>&1)
-        $updCode = $LASTEXITCODE
-        if ($updCode -eq 0) {
-            $updLine = (@($updOut | Where-Object { [string]$_ -match '已是最新|更新完成' }) | Select-Object -Last 1)
-            Write-GdLog ('M9A 自动更新闸：' + [string]$updLine)
-        } else {
-            Write-GdLog ('M9A 自动更新未完成(退出码 ' + $updCode + ')，不挡当日轮：' + ((@($updOut | ForEach-Object { [string]$_ })) -join ' / ')) -Level WARN
-        }
-    } catch {
-        Write-GdLog "M9A 自动更新闸本身抛错，跳过它照常跑：$($_.Exception.Message)" -Level WARN
-    }
-    Invoke-GdTakeover -S $S -Names @((Get-M9APaths -S $S).Name) -Label 'M9A'
-    if (-not (Start-GdMuMu -S $S)) { Write-GdLog 'MuMu 未能确认启动，仍尝试让 M9A 自行处理' -Level WARN }
-    $m9aCfg = Set-M9AInstance -S $S -Instance $inst -Apply
-    $m9aCfg.Changes | ForEach-Object { Write-GdLog "  M9A：$_" }
-    $run9 = { Invoke-M9ARun -S $S -Instance $inst }
-    $r = Invoke-GdStep -Name '1999' -Body $run9
-    <#
-      ===== 批次 8：$retryable 分流改问 decide-daily-retry(Orchestration.cs) =====
-      判据(not-started/empty-queue/blocked 只有 Rescued 才翻案)、if/elseif 链的落穿语义
-      (retryOnce 关着不重试也照样落告警句)与全部话术都在 C#；本壳只回放日志 + 落地"活"
-      (Stop-M9A / sleep 20 / 重跑)。旧的 $retryable 表达式逐行 # 前缀冻结在下方 —— test-r1999
-      按那些字面钉锚(块注释不可嵌套，只能这么保)。
-    #>
-    #     $retryable = ($r.Status -notin @('ok', 'not-started', 'empty-queue', 'unknown-format', 'blocked')) -or
-    #                  ($r.Rescued -and $r.Status -in @('not-started', 'empty-queue', 'blocked'))
-    $d = Invoke-GdCli -Verb 'decide-daily-retry' -Body ([pscustomobject]@{
-        game      = 'r1999'
-        status    = [string]$r.Status
-        rescued   = [bool]$r.Rescued
-        retryOnce = [bool]$S.runtime.retryOnce
-    })
-    foreach ($l in @($d.Logs)) {
-        $lvl = [string]$l.Level
-        if ($lvl -and ($lvl -ne 'INFO')) { Write-GdLog ([string]$l.Text) -Level $lvl } else { Write-GdLog ([string]$l.Text) }
-    }
-    $retryable = [bool]$d.Retryable
-    if ($retryable) {
-        Stop-M9A -S $S
-        Start-Sleep -Seconds 20
-        $r = Invoke-GdStep -Name '1999重试' -Body $run9
-    }
-    <# 批次 8 冻结段：旧 if/elseif 的两句 WARN/ERROR 兜底话术(原文语义见 Orchestration.cs r1999 支)。
-       实测 09-25 19:24：客户端在模拟器里下 1.91G 更新包，10 个任务里 8 个「任务失败」，
-       重试只是再空转 5 分钟 —— "游戏没在界面上"的形态重试无用，要人去处理。 #>
-    #     if ($retryable -and $S.runtime.retryOnce) {
-    #         Write-GdLog $(if ($r.Rescued) { '1999 本轮未成功，但视觉兜底把挡路的界面点掉了 → 关闭 M9A 后重试一次' }
-    #                       else { '1999 本轮未成功 → 关闭游戏后重试一次' }) -Level WARN
-    #         Stop-M9A -S $S
-    #         Start-Sleep -Seconds 20
-    #         $r = Invoke-GdStep -Name '1999重试' -Body $run9
-    #     } elseif ($r.Status -eq 'unknown-format') {
-    #         Write-GdLog '1999 日志标志一条都没认出来 → 重试同样看不懂，直接记入本轮告警(见下面的处理建议)' -Level ERROR
-    #     } elseif ($r.Status -eq 'blocked') {
-    #         Write-GdLog '1999 从头一个任务起就没进游戏 → 是客户端/资源要更新或模拟器状态不对，重试没有意义，直接记入本轮告警' -Level ERROR
-    #     } elseif ($r.Status -in @('not-started', 'empty-queue')) {
-    #         Write-GdLog '1999 队列没开始/空跑完成 → 重试没有意义，直接记入本轮告警' -Level WARN
-    #     }
-    Stop-M9A -S $S
-    <# 活动打完没打完 —— 让 agent 看画面判断(2026-09-30 用户口径，工具 tools\1999-event-audit.ps1)：
-       只在队列真跑完的形态问；工具内部对"没有待确认活动"自带秒退，且自己负责把被 M9A「关闭游戏」
-       顺手关掉的虚拟机重新起起来、用完关回去(09-30 18:21 首跑实锤的时序)。
-       判定 yes 才会 ack，unknown/no 维持 event-pending 照旧等人。整段最坏七八分钟(起 VM+拉游戏+问一次)，
-       任何失败只 WARN —— 审计是加分项，不许把当日轮带崩。 #>
-    if ($r.Status -in @('ok', 'empty-queue')) {
-        try {
-            $audOut = @(& $selfEngine -NoProfile -ExecutionPolicy Bypass -File (Join-Path $global:GD.Root 'tools\1999-event-audit.ps1') -Apply 2>&1)
-            $audCode = $LASTEXITCODE
-            $audLine = (@($audOut | ForEach-Object { [string]$_ }) | Where-Object { $_ -match '审计结论|无事发生|维持 event-pending' } | Select-Object -Last 1)
-            if ($audCode -eq 0) { Write-GdLog ('1999 活动审计：' + [string]$audLine) }
-            else { Write-GdLog ('1999 活动审计没审成(退出码 ' + $audCode + ')，维持现状：' + ((@($audOut | ForEach-Object { [string]$_ })) -join ' / ')) -Level WARN }
-        } catch {
-            Write-GdLog "1999 活动审计本身抛错，跳过它照常收尾：$($_.Exception.Message)" -Level WARN
-        }
-    }
-    return $r
-}
-
-# ===== B-2d④ 换头(2026-10-12)：调度器 + Rust 驱动档 executor =====
-# 上面那一整段自今起是**回退段**(Invoke-GdR1999DailyLegacy)，逐字保留、行为一字不变；
-# 同名入口 Start-GdR1999Daily 变成**调度器**：开关(Test-GdRustDailyPath，住 common.ps1)拨开 →
-# Invoke-GdR1999DailyRust 起内置件 gdcore.exe 走换头重入协议(驱动档 --drive-m9a-daily：问-答-重放)；
-# 拨关(默认) → 走回退段。这一路**共用 ark 那一路同一把开关**(两路同进退，不开第三枚键 —— 理由见
-# common.ps1 那处头注)；接线点仍只此一处：改协议先改 main.rs 再复拍门，不要在这里加规则。
-# ⚠ 本节必须排在回退段**之后**：tools\test-r1999.ps1:275 钉的是"更新器件名首现早于接管函数名首现"的
-#   行序锚，而下面 takeover 动作里就要写那枚接管函数 —— 本节挪到回退段之前，那把锚当场红。
+# ===== 兜底撤除批 刀②(2026-10-24)：调度器只剩一条路 = 直连核内驱动档 executor =====
+# B-2d④(2026-10-12)立的那段 PS 回退臂 Invoke-GdR1999DailyLegacy 已整段出仓：旧形逐字仍活在钉位 blob
+# `6157448:lib/r1999-daily.ps1` 里，probe-m9adrive 的 legacy 侧从那一枚解包来拍等值，"两边同链"的
+# 空转由 刀① 立的 C-legacy-from-pin / C-rust-from-live / C-sources-distinct 三格看着。
+# 同名入口 Start-GdR1999Daily 自此只调 Invoke-GdR1999DailyRust：起内置件 gdcore.exe 走换头重入协议
+# (驱动档 --drive-m9a-daily：问-答-重放)。内置件不在场就当轮抛错(话术见那枚函数)，不再退回 PS 重跑
+# —— 这是"不需要兜底了"的决定，不是疏漏；改协议先改 main.rs 再复拍门，不要在这里加规则。
+# ⚠ 那把"更新器件名首现早于接管函数名首现"的行序锚(test-r1999，按口径不引行号)自此钉在下面 executor
+#   的 updgate 与 takeover 两枚动作上：两枚仍在同一枚文件里、updgate 仍在前，顺序没动才绿。
 function Start-GdR1999Daily {
-    <# 调度器：两分支返回值同形(@{Status;Detail;Duration?})，调用方无感 ——
-       框架侧只读 $r 的 Status/Detail/Duration 三格(时长/历史)：回退段那句 return $r 多带的 Rescued/Tasks 格没人读，所以核内 done 信封只带三格不是少了东西，是"框架射程就只有这三格"(plan §11.39 ①-9)。
+    <# 唯一分支：核内驱动档执行器交回什么就往上抛什么。
+       框架侧只读 $r 的 Status/Detail/Duration 三格(时长/历史)：被删的那段回退臂当年多带回 Rescued/Tasks
+       两格、没人读过，所以核内 done 信封只带三格不是少了东西，是"框架射程就只有这三格"(plan §11.39 ①-9)。
        ⚠ 这一句原引 `lib\modules.ps1` 汇总段那五枚行的行号，而那十段 PS 真身已随乙批②(`e3dec2b`)整块出仓 ⇒ 按坐标清账批口径不引行号，"只读三格"这条射程今天由核内 done 信封自己承担。 #>
     param([Parameter(Mandatory)]$S, [Parameter(Mandatory)]$Instance)
-    if (Test-GdRustDailyPath -S $S) { return Invoke-GdR1999DailyRust -S $S -Instance $Instance }
-    return Invoke-GdR1999DailyLegacy -S $S -Instance $Instance
+    return Invoke-GdR1999DailyRust -S $S -Instance $Instance
 }
 
 function Get-GdM9ADriveExe {
@@ -211,7 +129,7 @@ function Get-GdM9ADriveExe {
 }
 
 function Invoke-GdR1999DailyRust {
-    <# B-2d④ 换头执行器：把回退段那串同步逻辑换成"问-答-重放"——
+    <# B-2d④ 换头执行器：把旧回退臂那串同步逻辑(已随 10-24 刀② 出仓，逐字在钉位 6157448)换成"问-答-重放"——
        每一轮起一个 gdcore.exe：它从 journal 重放已办事项回到断点，把下一个要办的动作写成 ask 信封
        (seq/action/params)退出；这里照单执行完，把结果写 res 回执，再起下一轮。
        链体事实源在 main.rs 的 r1999_daily_chain(改它=改协议)。**八格动作里真做只有 run**
@@ -229,9 +147,9 @@ function Invoke-GdR1999DailyRust {
     param([Parameter(Mandatory)]$S, [Parameter(Mandatory)]$Instance)
 
     $exe = Get-GdM9ADriveExe
-    if (-not $exe) { throw 'B-2d④ 换头拨开了但找不到内置件 gdcore.exe —— 先跑 tools\rustcore\build.ps1(或重打 exe)再试' }
+    if (-not $exe) { throw 'B-2d④ 这一路只剩核内驱动档了，但找不到内置件 gdcore.exe —— 先跑 tools\rustcore\build.ps1(或重打 exe)再试(兜底臂已随 10-24 刀② 出仓，没有 PS 退路)' }
     $panel = Get-GdCliExe
-    $selfEngine = (Get-Process -Id $PID).Path   # 两处外挂子进程共用当前引擎自己，与回退段 :86 同一句
+    $selfEngine = (Get-Process -Id $PID).Path   # 两处外挂子进程共用当前引擎自己，与被删的那段回退臂里同一句(旧形在钉位 blob，按坐标清账批口径不引行号)
 
     # 一次日常 = 一本账：ctx 换了 journal 就不能复用(内核按 init 与 ctx 全等校验)，每次开头清场重起。
     $journal = Join-Path $global:GD.State 'rust-m9a-daily-journal.ndjson'

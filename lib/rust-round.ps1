@@ -66,14 +66,14 @@ function Get-GdRoundOuterActs {
 }
 
 function Test-GdRustRoundPath {
-    <# 主闸(乙批② 起只剩这一把)：读的就是"内置件整体上不上路径"那两枚现成的键，与 lib\common.ps1 的
-       Test-GdRustDailyPath 同源同判据($env:GD_RUST_OFF=1、runtime.rustOff 含 'gdcore')；轮档不许越过主闸。
+    <# 主闸(乙批② 起只剩这一把)：读的就是"内置件整体上不上路径"那两枚现成的键，与 lib\common.ps1 里
+       那把已随 10-24 刀④ 出仓的换头主闸同源同判据($env:GD_RUST_OFF=1、runtime.rustOff 含 'gdcore')；轮档不许越过主闸。
        ⚠ 这里**不再读** $env:GD_RUST_ROUND_OFF 与 runtime.rustRoundOff：那两枚开关的内容是"退回 PS 十段"，
        十段真身已随乙批② 划掉 ⇒ 键留着就是两处"拨了没反应"的骗人配置，比没有键更坏。
        (判据变更本要拍板，这一条的所有者决定就是 10-20 那句「两扇都要，按乙→丙排」里的乙档。)
        返回 $false 的语义也从"走原身"换成"这一轮拒跑(2)"(见 Invoke-GdDailyRoundDispatch)：
        有人拨了"不许起内置件"、而树上已没有第二条腿 ⇒ 只能停下来把话说清楚，不许嘴上答应、手上照样起核。
-       缺键/形状坏一律当**不关**(缺省＝起核)，与 Test-GdRustDailyPath 的缺键宽容同形；
+       缺键/形状坏一律当**不关**(缺省＝起核)，与那把已出仓的换头主闸同形(缺键宽容)；
        真正的现场保险不在这把闸上：拿不到内置件或判定 exe 时 dispatch 自己会拒跑(不是跳过、不是假成功)。 #>
     param($S)
     try { if ($env:GD_RUST_OFF -eq '1') { return $false } } catch { }
@@ -88,7 +88,7 @@ function Test-GdRustRoundPath {
 }
 
 function Get-GdRoundMaaRunPayload {
-    <# ctx 的 maaRun 那一格：与 lib\ark-daily.ps1:333-351 **同一名册**(paths 六枚＋runtime 七枚)，
+    <# ctx 的 maaRun 那一格：与 lib\ark-daily.ps1 里 executor 写 ctx 的那枚 maaRun **同一名册**(paths 六枚＋runtime 七枚)，
        因为核内用的是同一把解析器(maarun_parse)，键名与 config\settings.json 逐字同名。
        **取键逐枚点名是硬约束**：$S.runtime 整块里住着视觉兜底的 API key(visionApiKey)，
        序列化进来等于把 key 递进核、递进 ctx/journal 两本会留盘的账。
@@ -118,9 +118,9 @@ function Get-GdRoundMaaRunPayload {
 }
 
 function Get-GdRoundM9aRunPayload {
-    <# ctx 的 m9aRun 那一格：名册与 lib\r1999-daily.ps1:262-272 同把(paths 三枚＋conn 两枚＋instance 两枚＋package＋runtime 六/七枚)。
+    <# ctx 的 m9aRun 那一格：名册与 lib\r1999-daily.ps1 里 `Invoke-GdR1999DailyRust` 的取键段同把(paths 三枚＋conn 两枚＋instance 两枚＋package＋runtime 六/七枚；10-24 刀② 起回退臂出仓、那一名册只剩 executor 这一份，按坐标清账批口径不引行号)。
        ⚠ **这一格给不出"真值"，只能给"不许退化的回落档"**，这是 B-4② 实测推翻题面的那一结(§11.65)：
-         · instance —— 真身是判定层按方案挑的(lib\r1999-daily.ps1:77)，方案键名册里根本没有 default，
+         · instance —— 真身是判定层按方案挑的(lib\r1999-daily.ps1:83)，方案键名册里根本没有 default，
            在这里猜一枚＝替判定层做决定 ⇒ 写空串，由核内段 5 拿判定回执就地覆盖(round_m9a_apply_decision)。
          · conn.serial —— 由实例配置派生(Get-M9AConnection 读那份实例 json)，实例没定下来之前无从取 ⇒ 同样留空、段 5 覆盖。
          · conn.adb —— **不许留空**：核内 m9a_scen_core 的硬闸就是 m9aDir/adb 为空即 Err，

@@ -9,8 +9,8 @@
 //   read-decision-state   "五本 state 读"一次取齐：<game>-event-ack.json / <game>-shop-done.json / ark-event-probe.json，
 //                         外加 Test-GdShopDoneEnabled(lib\decisions-common.ps1:98) 那把 flag 尺的**读值半段**。
 //   set-ark-shop-state    Set-GdArkShopState(lib\ark-daily.ps1:44)；
-//   set-r1999-ack         Set-GdR1999Ack(lib\r1999-daily.ps1:39)；
-//   set-r1999-shop-state  Set-GdR1999ShopState(lib\r1999-daily.ps1:50)。
+//   set-r1999-ack         Set-GdR1999Ack(lib\r1999-daily.ps1:45)；
+//   set-r1999-shop-state  Set-GdR1999ShopState(lib\r1999-daily.ps1:56)。
 //   —— 门表写三枚的名字**逐字对着那三个 PS 函数**，将来 ②-d 转接时是一一替换关系，不是"另起一套"。
 //
 // 与本批切分有关的三件事(为什么只有读没有判定)：
@@ -22,7 +22,7 @@
 //     本 verb 只把**原表**和**那把 flag 尺的读数**(ShopDoneGateOpen)一起摆上桌，谁用谁自己折。
 //
 // 双源登记(改一句要两侧同改；生产接线(②-d)之前 PS 那侧仍是事实源)：
-//   * 上面每一句 WARN/OK 原话 ↔ lib\ark-daily.ps1:48-58 / lib\r1999-daily.ps1:43-62 / lib\ark-decisions.ps1:96-118；
+//   * 上面每一句 WARN/OK 原话 ↔ lib\ark-daily.ps1:48-58 / lib\r1999-daily.ps1:49-68 / lib\ark-decisions.ps1:96-118；
 //   * state 文件名与外层键(`$Game-event-ack`+`acked`、`$Game-shop-done`+`done`、`ark-event-probe` 的五键)
 //     ↔ lib\decisions-common.ps1:57-110 与 lib\ark-decisions.ps1:128-168 —— 键名与时间戳格式('yyyy-MM-dd HH:mm')是磁盘协议，
 //     PS 那侧还在按这个名字读，这里写错了就是"门自己关不上"；
@@ -42,7 +42,7 @@
 //   3. **`if (-not $data)` 在 PS 里对 ConvertFrom-Json 的产物恒假**(pscustomobject 哪怕空也是真)，
 //      而空数组 `@()` 算假。C# 侧 DeserializeObject 给的是字典／object[]，HasData 按"非 null 且非空数组"判 ——
 //      空对象 `{}` 两侧同算"拉到东西了"(下一句 source 就是"MAA 活动接口")，这一格 --roundtest 钉住。
-//   4. **1999 的确认话术里那个箭头前没有空格**："…[$tip]→ 日常将使用活动方案"(lib\r1999-daily.ps1:46 原文如此)，
+//   4. **1999 的确认话术里那个箭头前没有空格**："…[$tip]→ 日常将使用活动方案"(lib\r1999-daily.ps1:52 原文如此)，
 //      而 ark 那两句是"…[$tip] 商店领空 → …"有空格。两侧本来就不一致，②-a 那条"话术不许统一"的纪律在这儿同样成立。
 //   5. **ark 那一路只读不写 ack 表**：Set-GdArkShopState 只碰 shop-done，ark 的 ack 门已随 -AckArk 退场(10-12 第 1 刀)，
 //      判定层 Decisions.cs:158 也明写"ack／verbAck 两枚入参不再读"。所以名册里没有 set-ark-ack —— 那是给一枚不存在的门造桌子。
@@ -541,7 +541,7 @@ namespace GdPanel
         }
 
         // ==================== verb: set-r1999-ack ====================
-        // Set-GdR1999Ack(lib\r1999-daily.ps1:39-48)：只有"标记"一档(这道门没有撤销口)。
+        // Set-GdR1999Ack(lib\r1999-daily.ps1:45-54)：只有"标记"一档(这道门没有撤销口)。
         internal static object R1999Ack(Dictionary<string, object> raw)
         {
             Dictionary<string, object> c = View(raw);
@@ -562,7 +562,7 @@ namespace GdPanel
         }
 
         // ==================== verb: set-r1999-shop-state ====================
-        // Set-GdR1999ShopState(lib\r1999-daily.ps1:50-64)：与 ark 那枚同构，差两句人话 + 回落值是实例名不是关卡。
+        // Set-GdR1999ShopState(lib\r1999-daily.ps1:56-70)：与 ark 那枚同构，差两句人话 + 回落值是实例名不是关卡。
         internal static object R1999ShopState(Dictionary<string, object> raw)
         {
             Dictionary<string, object> c = View(raw);

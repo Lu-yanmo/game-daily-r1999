@@ -190,11 +190,11 @@ namespace GdPanel
             AnnounceDetails("这一轮跑完了");
         }
 
-        // 状态卡的一次重读(-DumpSummary 那趟子进程 + 分页渲染)。三处收尾都要用，
+        // 状态卡的一次重读(核内取一次摘要 + 分页渲染；刀② 2026-10-23 起这里不再有子进程)。三处收尾都要用，
         // 集中一处写错误处理：读不到时卡片保留上一次的内容，只把原因说清楚。
         bool RefreshNow(string when)
         {
-            try { ParseSummary(RunDumpSummary()); }
+            try { ParseSummary(BuildDumpSummary()); }
             catch (Exception ex)
             {
                 AppendLog("[WARN] " + when + "没读到新状态(" + ex.Message + ")，卡片还是上一次的内容。");

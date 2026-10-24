@@ -1,4 +1,4 @@
-// 读数：起一次 -DumpSummary、按协议行解析(含 PROTO 版本对不上时要说的那句话)，
+// 读数：取一次摘要协议(刀② 起是核内直取，见本文件 BuildDumpSummary)、按协议行解析(含 PROTO 版本对不上时要说的那句话)，
 // 再把 state\history.csv 里判定层写下的原因挂到卡片行上。Row 是这一层的数据结构。
 // 这一份是 partial class 的一段；文件级用法/编译/自检动词的说明在 Panel.cs 顶部。
 
@@ -41,7 +41,7 @@ namespace GdPanel
         // engine 为空(=这台机器没有 pwsh 7)时子进程全起不来：这句话给各调用点拼错误消息用。
         const string NoEngineHint = "这台机器上没有 pwsh.exe(PowerShell 7)——本程序只支持 PowerShell 7，请先安装：winget install Microsoft.PowerShell";
 
-        static string PickEngine()
+        internal static string PickEngine()
         {
             // 面板起的每个子进程都要一个 PowerShell。本仓库只支持 PowerShell 7(2026-10-06 C 轮退役 5.1)：
             // 这里只找 pwsh.exe，全落空了回空串(调用点各自把"没引擎"报成一句人话 NoEngineHint，不再静默回落 5.1)。
@@ -72,29 +72,28 @@ namespace GdPanel
             return "";
         }
 
-        string RunDumpSummary()
+        // 刀②(2026-10-23，与乙档刀③ 同批)：这一枚原来起一个 pwsh 子进程跑 `tools\panel.ps1 -DumpSummary`，
+        // 现在直取核内 GdPanelSummary.Build() —— 判定面已在刀① 逐字转写进 Panel.Summary.cs，等值门
+        // (tools/probe-panel-summary-parity.ps1)验过两侧同文，而下面 ParseSummary 要的就是那份协议原文，
+        // 所以返回类型、解析器、两处调用点的 try/catch 语义一字不动，少的只是那枚子进程(冷启一到两秒)。
+        // 更名 Run→Build：留着"Run"会指着一枚不再起的进程。
+        // 顺带拆掉的隐患：老代码先 StandardOutput.ReadToEnd() 再 ReadToEnd()  stderr、最后才 WaitForExit(60000) ——
+        // 这正是「同族管道雷」那条在册的形状(子进程 stderr 写满 4KB 管道缓冲区就互等，60 秒超时是唯一出口)。
+        // 现在这一枚不起进程，也就没有管道；代价是面板第一次在自己的 UI 进程里做 Schedule.Service COM
+        // (TIME 行，见 Panel.Summary.cs:374 起那段的取证) —— 这几调用 Round.cs 的 read-task-state 已在 CLI 进程里做过，
+        // 全同步、毫秒级；真出现挂住，没有 60 秒超时兜着了，这一条登记为刀② 的已知未验面。
+        // engine 为空不再在这条路上报 NoEngineHint：摘要这一路本来就不需要 pwsh —— 它要的引擎名字只是
+        // 被转述的那一列读数(见 Panel.Summary.cs 的 HEADER／ENV 两行)。真要引擎的那一路(动作、打包、
+        // 提权重启)照旧把 NoEngineHint 说清楚：Panel.Run.cs:57／Panel.Console.cs:446、:560。
+        string BuildDumpSummary()
         {
-            if (engine.Length == 0) throw new InvalidOperationException(NoEngineHint);
-            ProcessStartInfo psi = new ProcessStartInfo();
-            psi.FileName = engine;
-            psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -File \"" + Path.Combine(root, @"tools\panel.ps1") + "\" -DumpSummary";
-            psi.WorkingDirectory = root;
-            psi.UseShellExecute = false;
-            psi.CreateNoWindow = true;
-            psi.RedirectStandardOutput = true;
-            psi.StandardOutputEncoding = Encoding.UTF8;
-            psi.RedirectStandardError = true;
-            Process p = Process.Start(psi);
-            string stdout = p.StandardOutput.ReadToEnd();
-            string stderr = p.StandardError.ReadToEnd();
-            if (!p.WaitForExit(60000)) { try { p.Kill(); } catch { } throw new TimeoutException("panel.ps1 -DumpSummary 60 秒没返回"); }
-            if (string.IsNullOrEmpty(stdout) && !string.IsNullOrEmpty(stderr)) throw new Exception(stderr.Trim());
-            return stdout;
+            List<string> lines = GdPanelSummary.Build();
+            return string.Join("\n", lines.ToArray());
         }
 
         void ParseSummary(string dump)
         {
-            lastDump = dump;    // 诊断页把这份协议原文当"当前读数"存档，不另起一次子进程
+            lastDump = dump;    // 诊断页把这份协议原文当"当前读数"存档，不另取一次
             // 刷新会再解析一遍：这些列表必须先清空，否则"上一轮/门/环境"每刷新一次翻一倍
             games.Clear(); rowsLast.Clear(); rowsGates.Clear(); rowsEnv.Clear();
             probesByGame.Clear(); helpRows.Clear(); timesByPage.Clear(); elevNames.Clear();
@@ -234,7 +233,7 @@ namespace GdPanel
             }
         }
 
-        // 把 detail 挂到「上一轮」那些红/黄行上。判据只有 kind：kind 是 panel.ps1 算好的，外壳不另判一次。
+        // 把 detail 挂到「上一轮」那些红/黄行上。判据只有 kind：kind 由核内那一份判定面算好(Panel.Summary.cs 的 BuildDumpSummary)，外壳不另判一次 —— 刀② 之前这一句写的是 panel.ps1。
         void AttachDetails()
         {
             if (detailByGame.Count == 0) return;
@@ -248,7 +247,7 @@ namespace GdPanel
             }
         }
 
-        static string ReadAllShared(string path)
+        internal static string ReadAllShared(string path)
         {
             // 跑着的那轮结束时会往 history.csv 追加，独占读会直接抛 —— 必须 FileShare.ReadWrite。
             using (FileStream fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
@@ -279,7 +278,7 @@ namespace GdPanel
             return s;
         }
 
-        static int CsvCol(string[] head, string name)
+        internal static int CsvCol(string[] head, string name)
         {
             for (int i = 0; i < head.Length; i++) if (head[i].Trim().Trim('"') == name) return i;
             return -1;
@@ -358,7 +357,7 @@ namespace GdPanel
 
         // 只认 CSV 的这四件事：字段用 " 包、串里的 " 写成 ""、换行分隔记录、行尾 CRLF/LF 都可能。
         // 引号里的逗号和 '|' 都不能当分隔符用 —— history.csv 的 detail 里全是中文标点和路径。
-        static List<string[]> ParseCsv(string text)
+        internal static List<string[]> ParseCsv(string text)
         {
             List<string[]> recs = new List<string[]>();
             List<string> fields = new List<string>();
@@ -414,5 +413,135 @@ namespace GdPanel
             return "，" + string.Join("/", elevNames.ToArray()) + "那一路要管理员";
         }
 
+        // ---------- 引擎别名的「真身」解析(乙档刀②，2026-10-23 所有者拍板：ENV 那行『面板 PS 版本』不许长期印「读不出」) ----------
+        // 为什么需要它：PickEngine()(本件 :44)在只装商店版 PowerShell 的机器上回的是**应用执行别名**
+        // (`%LOCALAPPDATA%\Microsoft\WindowsApps\pwsh.exe`)，那枚文件是 ReparsePoint 里的 0 字节存根，
+        // FileVersionInfo 读它回**空串** ⇒ 摘要里『面板 PS x.y』那一格只能回「读不出」(刀① 登记为转写差 2)。
+        // PS 真身没这一说：panel.ps1:133 报的是 `(Get-Process -Id $PID).Path`，那是 OS 解析之后的包目录路径。
+        // 本件**不**按包目录名挑版本(本机现量两枚 PowerShell 包目录，挑一枚＝新判定)，只做一件事：
+        // 读别名自己的 reparse blob，按 IO_REPARSE_TAG_APPEXECLINK 的字段位次取真身路径，交给调用方去读版本。
+        // 解析不成一律回空串(不抛)，由调用方决定怎么说 —— 读不出就说读不出，不静默补一个数。
+        // 本机现量(2026-10-23 仓外 c13-alias-probe.ps1／c13-alias-hex.ps1，五枚别名逐枚读，四枚形状一致)：
+        //   blob[0..3]=reparse tag 0x8000001B，blob[4..5]=数据长度，blob[6..7]=保留(现量 0)，blob[8..11]=布局版本(现量 3)，
+        //   自 blob[12] 起是以 NUL 分隔的 UTF-16LE 字段：[0]=PackageFamilyName、[1]=AUMID、[2]=真身路径、[3]=一枚标志。
+        //   pwsh 那枚的 [2]=`C:\Program Files\WindowsApps\Microsoft.PowerShell_7.6.7.0_x64__8wekyb3d8bbwe\pwsh.exe`，
+        //   与 PS 侧 HEADER 第 5 列逐字节相同 ⇒ 解析成功后 HEADER 那一列与版本号那一格两侧同字节，等值门的口子退回「只在解析不成时开」。
+        //   ⚠ 不许拿"别名与真身同名"当校验：本机 ArmouryCrate.exe 的真身是 SystemUWPLauncher.exe(别名文件名字面猜不到)，
+        //     所以位次取到之后只校"是绝对路径＋文件在场＋不是目录"三条形状，不校名字。
+        // ⚠ 三枚声明都写死 EntryPoint + ExactSpelling(本轮实测的坑)：CharSet.Unicode 下 marshaller 会往方法名后
+        //   补一个 W 去找 `GdCreateFileW`，找不到就抛 EntryPointNotFoundException —— 而下面 ReadReparseBlob 的
+        //   catch 把它当"这台机器读不出"咽掉了，表现是门里 mode 一直停在 alias、ENV 那一格一直印「读不出」，
+        //   静默到看不出自己坏了。名字与入口点解耦(带 Gd 前缀防与别的声明相撞)＋把入口点写死，才是这一族该有的形状；
+        //   这一形自此由 --coretest 的「入口点在位」那一格咬(它不需要现场别名，见 ReparseEntryPointsOk)。
+        [DllImport("kernel32.dll", EntryPoint = "CreateFileW", ExactSpelling = true, CharSet = CharSet.Unicode, SetLastError = true)]
+        static extern IntPtr GdCreateFile(string name, uint access, uint share, IntPtr sa, uint disp, uint flags, IntPtr tmpl);
+        [DllImport("kernel32.dll", EntryPoint = "DeviceIoControl", ExactSpelling = true, SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        static extern bool GdDeviceIoControl(IntPtr h, uint code, IntPtr inBuf, uint inLen, byte[] outBuf, uint outLen, out uint returned, IntPtr overlapped);
+        [DllImport("kernel32.dll", EntryPoint = "CloseHandle", ExactSpelling = true, SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        static extern bool GdCloseHandle(IntPtr h);
+
+        const uint GdAccessReadAttributes = 0x0080;
+        const uint GdDispositionOpenExisting = 3;
+        const uint GdShareAll = 3;                       // READ|WRITE|DELETE：只取属性，不与任何在跑的开句相冲
+        const uint GdFlagOpenReparsePoint = 0x00200000;  // 关键：不跟着别名走，读别名**自己**那一坨
+        const uint GdFlagBackupSemantics = 0x02000000;
+        const uint GdFsctlGetReparsePoint = 0x000900A8;
+        const uint GdReparseTagAppExecLink = 0x8000001B;
+        const uint GdAppExecLinkLayoutVersion = 3;       // 本机现量；不是这个数就不猜字段位次(回空串，让调用方说读不出)
+
+        static bool BadHandle(IntPtr h)
+        {
+            return h == IntPtr.Zero || h.ToInt64() == -1L;
+        }
+
+        // 应用执行别名 → 真身路径。不是别名／开不了／布局版本不认识／真身不在场 ⇒ 回空串(不抛)。
+        internal static string ResolveEngineTarget(string engine)
+        {
+            if (string.IsNullOrEmpty(engine)) return "";
+            try { if ((File.GetAttributes(engine) & FileAttributes.ReparsePoint) == 0) return ""; }
+            catch { return ""; }
+            byte[] blob = ReadReparseBlob(engine);
+            string target = ParseAppExecLinkBlob(blob);
+            if (target.Length == 0) return "";
+            if (!Path.IsPathRooted(target)) return "";
+            try
+            {
+                if (!File.Exists(target)) return "";
+                if ((File.GetAttributes(target) & FileAttributes.Directory) != 0) return "";
+            }
+            catch { return ""; }
+            return target;
+        }
+
+        static byte[] ReadReparseBlob(string path)
+        {
+            IntPtr h = IntPtr.Zero;
+            try
+            {
+                h = GdCreateFile(path, GdAccessReadAttributes, GdShareAll, IntPtr.Zero, GdDispositionOpenExisting,
+                                 GdFlagOpenReparsePoint | GdFlagBackupSemantics, IntPtr.Zero);
+                if (BadHandle(h)) return null;
+                byte[] buf = new byte[8192];
+                uint ret;
+                if (!GdDeviceIoControl(h, GdFsctlGetReparsePoint, IntPtr.Zero, 0u, buf, (uint)buf.Length, out ret, IntPtr.Zero)) return null;
+                if (ret < 16u || ret > (uint)buf.Length) return null;
+                byte[] outb = new byte[(int)ret];
+                Array.Copy(buf, 0, outb, 0, (int)ret);
+                return outb;
+            }
+            catch { return null; }   // 这是"读不出"，不是"读出了空"：调用方一律按读不出处置
+            finally
+            {
+                if (!BadHandle(h)) { try { GdCloseHandle(h); } catch { } }
+            }
+        }
+
+        // 纯函数：只按字节形状解，一个文件系统调用都不碰 —— 这样 --coretest 才能喂合成帧自证(机器现场状态不进自检)。
+        internal static string ParseAppExecLinkBlob(byte[] blob)
+        {
+            if (blob == null || blob.Length < 16) return "";
+            if (BitConverter.ToUInt32(blob, 0) != GdReparseTagAppExecLink) return "";
+            int dataSize = (int)BitConverter.ToUInt16(blob, 4);
+            int avail = blob.Length - 8;
+            if (dataSize <= 0 || dataSize > avail) dataSize = avail;   // 长度字段与实际读到的字节不符时按短的来
+            if (BitConverter.ToUInt32(blob, 8) != GdAppExecLinkLayoutVersion) return "";
+            int start = 12;                          // 跳过 tag/长度/保留 8 字节 ＋ 布局版本 4 字节
+            int bytes = 8 + dataSize - start;
+            if (bytes <= 0) return "";
+            string[] fields = Encoding.Unicode.GetString(blob, start, bytes).Split('\0');
+            int seen = 0;
+            for (int i = 0; i < fields.Length; i++)
+            {
+                if (fields[i].Length == 0) continue;
+                seen++;
+                if (seen == 3) return fields[i];     // 第三枚非空字段＝真身路径(位次见上面那段现量)
+            }
+            return "";
+        }
+
+        // 只给 --coretest 用的一格：上面三枚 kernel32 声明的**入口点**对不对。
+        // 为什么单开一格：入口点写错的炸法是 EntryPointNotFoundException，而 ReadReparseBlob 的 catch 把它和
+        // "这台机器真的读不出"混成同一个回空串 —— 本轮实测就是这么静默地把一枚已落码的判定读成"没有别名可解析"。
+        // 这一格不需要现场那枚别名(只读自检不许要求机器现场状态)：拿一枚注定开不了的路径走一遍，
+        // 只要**没抛入口点找不到／模块不在**就算三枚声明成立；开没开上、返回码是什么一概不判(那不是这一格问的事)。
+        internal static string ReparseEntryPointsOk()
+        {
+            try
+            {
+                IntPtr h = GdCreateFile(@"C:\gd-coretest-no-such-alias.exe", GdAccessReadAttributes, GdShareAll,
+                                        IntPtr.Zero, GdDispositionOpenExisting,
+                                        GdFlagOpenReparsePoint | GdFlagBackupSemantics, IntPtr.Zero);
+                uint ret;
+                byte[] buf = new byte[64];
+                GdDeviceIoControl(h, GdFsctlGetReparsePoint, IntPtr.Zero, 0u, buf, (uint)buf.Length, out ret, IntPtr.Zero);
+                if (!BadHandle(h)) GdCloseHandle(h);
+                return "ok";
+            }
+            catch (EntryPointNotFoundException) { return "entrypoint"; }
+            catch (DllNotFoundException) { return "dll"; }
+            catch { return "ok"; }
+        }
     }
 }

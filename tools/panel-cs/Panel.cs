@@ -1,8 +1,9 @@
 // tools/panel-cs/Panel.cs —— 每日清体力的图形状态面板(C# / WinForms，.NET Framework 4，系统自带 csc.exe 直接编译)。
 //
-// 和 panel.ps1 的分工：判定/读数仍然只在 panel.ps1 那一套里 —— 本文件不算任何结论，
+// 判定面的所在(乙档刀②，2026-10-23 换的接线)：不再起子进程问 `panel.ps1 -DumpSummary`，
+// 面板摘要那一面读数的真身就是本目录的 Panel.Summary.cs(GdPanelSummary.Build()) —— 本文件不算任何结论，
 // 它做的只有这几件事：
-//   1. 起一个隐藏子进程跑 `panel.ps1 -DumpSummary`，读 '|' 分隔的协议行(PROTO/HEADER/GAME/TIME/LAST/GATE/ENV/PROBE/FLAGS/HELP)；
+//   1. 取一次协议行(PROTO/HEADER/GAME/TIME/LAST/GATE/ENV/PROBE/FLAGS/HELP)，'|' 分隔；
 //      第一行 PROTO|<版本> 是这份读数的版本号：不认识时面板要在日志区明说"判定层协议 v几 / 我只认 v几"，
 //      而不是让某个格子静默变空 —— 面板只会转达，读不懂必须说出来。
 //   2. 把行画成卡片/导航/日志，并把按钮动作转调现成脚本(daily-clear / status / run-via-task)；
@@ -12,12 +13,14 @@
 //      用不用视觉兜底、准不准它点"领取"，仍由 lib\vision-rescue.ps1 读同一批键决定。
 //      卡上那颗「只问不点」只是代跑 tools\vision-ask.ps1(只截屏问模型、不点任何东西)，面板自己不加任何判定。
 //   5. 主控台四页(配置/定时/历史/诊断)：把原来只能敲命令行的日常操作搬进界面。
-//      读 = 行内读 settings.json 的那几个键 + 转达 -DumpSummary 已有的 PROBE/TIME 行 + 直读 history.csv；
+//      读 = 行内读 settings.json 的那几个键 + 转达摘要读数里已有的 PROBE/TIME 行 + 直读 history.csv；
 //      写 = 路径改动代跑 setup.ps1、装卸任务代跑 install-task.ps1、换时间点代跑 reschedule-daily.ps1，
 //            只有视觉模型/地址/Key/Webhook 这类标量走行内替换(和 arkVisionRescue 同一套规矩)；
 //      一条硬的：**视觉 Key 不进命令行参数**(命令行在别的用户/工具面前是明文)，也不写进日志。
 //      面板仍然不加判定："这一路就绪没有""下一个时间点几点"都是脚本说的原话。
-// 所以 panel.ps1 里的措辞或 Kind 判据一改，这里一个字不改也跟着变 —— 不会出现两个面板各说各话。
+// 所以 Panel.Summary.cs 里的措辞或 Kind 判据一改，这里一个字不改也跟着变 —— 不会出现两个面板各说各话。
+// (刀② 之前这一句说的是 panel.ps1；面板与 PS 侧最后的对拍面是等值门 tools/probe-panel-summary-parity.ps1，
+//  它在刀③ 随件退役的处置写在 Panel.Summary.cs 的头注里。)
 //
 // 用法：
 //   panel-cs.exe                 打开面板(左侧导航：总览 / 每一路 / 配置 / 定时 / 历史 / 诊断)
@@ -142,7 +145,7 @@ namespace GdPanel
         // beat：状态自动刷新。没有它的时候"现在到底跑没跑/跑到哪"只能靠手点刷新，
         // 而日常一轮要跑十几到几十分钟，要盯着的人恰恰最不该去点按钮。
         readonly System.Windows.Forms.Timer beat = new System.Windows.Forms.Timer();
-        int beatSec = 45;             // 一轮 DumpSummary 要起一个 pwsh 子进程，45 秒是"够快"和"不抢判定层的锁"的折中
+        int beatSec = 45;             // 状态自动刷新的节拍。刀② 之前这一枚 45 秒是「起一个 pwsh 子进程问 panel.ps1 -DumpSummary」的代价折中；接线换进核内(beat 那一趟调 BuildDumpSummary)之后不再有子进程，45 这一档原样留着——它是给人看的刷新粒度，不是电气约束，要动属改体验、另批再拍。
         // --no-beat 关掉自动刷新，只留手点「刷新状态」(自检和极慢机器用)。
         // 走 static 是因为要在构造之前传进来：构造函数的签名已经有 headless 一个参数，
         // 不为这个开关去动它的调用点和重载。
@@ -158,14 +161,24 @@ namespace GdPanel
         // 两种不进屏幕的验证路径共用
         public string HlResult;
         readonly DateTime hlDeadline;
+        // headless 的统计面(2026-10-23 刀② 从 panel.ps1 的 Get-PanelHeadlessStats 逐字转写)：
+        // 窗体一 Close，控件里的文本跟着释放，所以这六格必须在关窗前一拍抓下来 —— 和 PS 侧同一个理由。
+        bool hlCaptured;
+        int hlLines, hlErrLines;
+        bool hlChild, hlDone, hlExitLine, hlIdle;
+        string[] hlTail = new string[0];
 
         public PanelForm(bool headless)
         {
-            // 定位仓库根：exe 在 <root>\tools\panel-cs\ 下；被复制走(桌面快捷方式等)时退回当前目录
+            // 定位仓库根：exe 在 <root>\tools\panel-cs\ 下；被复制走(桌面快捷方式等)时退回当前目录。
+            // 刀②(2026-10-23)认的锚从 `tools\panel.ps1` 换成仓库根那个 `VERSION`：判定面已进核，
+            // panel.ps1 是同批要退役的件 —— 拿一个即将不在场的文件当"这是不是一棵仓库根"的判据，
+            // 退役当天就会让面板把自己认成"当前目录"。VERSION 是全工程唯一版本来源，出货 zip 里也带着它，
+            // 三棵树形状(源码树／首跑释放出的 app 目录／和仓库摆一起的快捷方式)都成立。
             string exeDir = AppDomain.CurrentDomain.BaseDirectory;
             string guess = Path.GetFullPath(Path.Combine(exeDir, @"..\.."));
-            if (File.Exists(Path.Combine(guess, "tools", "panel.ps1"))) root = guess;
-            else if (File.Exists(Path.Combine(exeDir, "tools", "panel.ps1"))) root = exeDir;
+            if (File.Exists(Path.Combine(guess, "VERSION"))) root = guess;
+            else if (File.Exists(Path.Combine(exeDir, "VERSION"))) root = exeDir;
             else root = Directory.GetCurrentDirectory();
 
             engine = PickEngine();
@@ -193,7 +206,7 @@ namespace GdPanel
             ApplyTheme();
 
             string dump;
-            try { dump = RunDumpSummary(); }
+            try { dump = BuildDumpSummary(); }
             catch (Exception ex)
             {
                 games.Add(new[] { "all", "总览" });
@@ -238,8 +251,49 @@ namespace GdPanel
             Show();
             Application.Run(this);
             Console.WriteLine("---- panel-cs headless(子进程输出 -> 事件队列 -> 日志区) ----");
-            Console.WriteLine("结论: " + (HlResult ?? "TIMEOUT"));
-            return HlResult == "PASS" ? 0 : 1;
+            if (!hlCaptured)
+            {
+                Console.WriteLine("没抓到任何统计：定时器一次都没进回调，这条链直接判失败。");
+                Console.WriteLine("结论：        " + (HlResult ?? "TIMEOUT"));
+                return 1;
+            }
+            Console.WriteLine("日志区行数：  " + hlLines);
+            Console.WriteLine("看到子进程行：" + hlChild);
+            Console.WriteLine("看到结论行：  " + hlDone);
+            Console.WriteLine("看到退出码：  " + hlExitLine);
+            Console.WriteLine("stderr 行数： " + hlErrLines);
+            Console.WriteLine("忙碌已复位：  " + hlIdle);
+            Console.WriteLine("结论：        " + (HlResult ?? "TIMEOUT"));
+            if (HlResult != "PASS")
+            {
+                Console.WriteLine("末 20 行日志：");
+                foreach (string l in hlTail) Console.WriteLine("  " + l);
+                return 1;
+            }
+            // 和 PS 侧同一条对冲：PASS 的判据里有"看到过子进程的行"，一句没见着就是泵没生效，
+            // 这一格不许跟着结论一起绿。
+            if (!hlChild) { Console.WriteLine("PASS 但没看到子进程输出：泵没生效，判失败。"); return 1; }
+            return 0;
+        }
+
+        // 关窗前一拍把六格抓下来(窗体一 Close，logBox 里的文本跟着释放，事后再读只能读到空)。
+        // 判据与 panel.ps1 的 Get-PanelHeadlessStats 逐字同一把：三棵树的开场横幅措辞不同
+        // (合体=「每日清体力日常开始」，单游戏仓=「方舟日常开始」/「1999 日常开始」)，
+        // 认的都是 Write-GdLog 那句 "=== …日常开始(tag=…)" 的共同后缀，不把合体那一份写死。
+        void CaptureHeadlessStats()
+        {
+            string txt = "";
+            string[] lines = new string[0];
+            try { txt = logBox.Text; lines = logBox.Lines; } catch { }
+            hlLines = lines.Length;
+            hlChild = Regex.IsMatch(txt, @"日常开始\(tag=");
+            hlDone = Regex.IsMatch(txt, @"\[dry-run\] 完成");
+            hlExitLine = Regex.IsMatch(txt, @"退出码 \d+");
+            int errs = 0;
+            foreach (string l in lines) if (l.StartsWith("[stderr")) errs++;
+            hlErrLines = errs;
+            hlIdle = !busy && runBtn != null && runBtn.Text == idleRunText;
+            hlCaptured = true;
         }
 
         protected override void OnLoad(EventArgs e)
@@ -253,10 +307,15 @@ namespace GdPanel
                 string txt = logBox.Text;
                 bool ended = txt.Contains("退出码 ") || txt.Contains("没取到退出码");
                 if (!busy && txt.Contains("[dry-run] 完成") && ended)
-                { HlResult = "PASS"; check.Stop(); Close(); return; }
+                { CaptureHeadlessStats(); HlResult = "PASS"; check.Stop(); Close(); return; }
                 if (DateTime.Now > hlDeadline)
                 {
                     AppendLog("[headless] 超时，停止跟随。");
+                    CaptureHeadlessStats();
+                    string[] all = logBox.Lines;
+                    int from = all.Length > 20 ? all.Length - 20 : 0;
+                    hlTail = new string[all.Length - from];
+                    Array.Copy(all, from, hlTail, 0, hlTail.Length);
                     HlResult = "TIMEOUT";
                     check.Stop();
                     StopChild();
@@ -272,8 +331,26 @@ namespace GdPanel
         [STAThread]
         static void Main(string[] argv)
         {
+            // 2026-10-23 版号轮：编码这件事得赶在**任何**输出之前处理，而且不能只装在 verb 分发那一条路上。
+            // 这一枚是 /target:winexe(见 build.ps1 的编译命令行)，.NET Framework 不给 winexe 查控制台码页 ⇒ Console.OutputEncoding
+            // 落到系统 ANSI(本机 cp936)，那十几枚无头档(--selftest/--headless/--coretest…)写的中文全是 GBK 字节，而同一根
+            // 管道里 GDLauncher(控制台子系统，共享 pwsh 设的 65001)那段是 UTF-8：一次 stdout、两套编码。build-exe 的冒烟门
+            // 用 & 收流、按 UTF-8 解码，「文件都在: True」「布局自检: OK」必然 miss —— 门红而面板内容完好(前后退出码恒 0、
+            // 十一行文本一字不差)。处方按在册纪律回修转写体(不改期望、不放宽比对)，同批把 build.ps1 那把读数眼镜从 OEM
+            // 码页翻成 UTF-8，否则 Get-GdSelfTestTally 判的那句中文「全绿|有红项」就是一枚空尺。⚠ 首版这里抄的是
+            // TryAttachConsole 那三行，错在它的第一件事是 AttachConsole：一枚 winexe 贴上父控制台之后，系统把它**已经继承来**
+            // 的标准句柄改挂到那块屏幕缓冲上 ⇒ 上游那根管道、cmd 的那个 > 文件从此一个字节都收不到(同日现量两臂 0 字节，
+            // 只有不经 attach 的 Start-Process -Redirect 那一臂拿到 731)。⇒ 无头档只换写手、不贴控制台(见 Cli.cs 那枚
+            // UseUtf8IfRedirected)，真控制台里人肉跑 --selftest 那一臂不改(按系统 ANSI 写、同一码页渲染，中文本来是对的)。
+            // 射程仍只认**带 -- 旗标的无头档**：verb 分发下面那段在 GdCli.Run 里已装过一次，裸双击是去起窗体、装一次控制台
+            // 会把玩家那个 cmd 窗口的码页一起翻掉，不值得为它动别人那台控制台。⇒ 扫 argv。
+            for (int ai = 0; ai < argv.Length; ai++)
+            {
+                if (argv[ai].StartsWith("--")) { GdCli.UseUtf8IfRedirected(); break; }
+            }
             // verb 分发(批次 0，契约见 docs\ps-migration-batch0.md)：第一个参数不带 -- 就是子命令，
-            // 无头跑完直接退 —— 必须赶在任何 WinForms/PanelForm 之前，绝不碰窗体构造里的 DumpSummary 子进程。
+            // 无头跑完直接退 —— 必须赶在任何 WinForms/PanelForm 之前，绝不碰窗体构造里那一趟 BuildDumpSummary
+            // (刀② 之前它是「起 pwsh 子进程问 panel.ps1」，现在它在本进程里读判定面；两者都不该被 verb 分发路过)。
             if (argv.Length > 0 && !string.IsNullOrEmpty(argv[0]) && !argv[0].StartsWith("--"))
             {
                 string[] tail = new string[argv.Length - 1];

@@ -394,7 +394,7 @@ function Get-GdScreensaverWho {
 
 function Get-GdScreensaverVerdict {
     <# 转发壳(批次 10)：四档判据顺序(unknown→none→armed→off)与全部面板/体检话术在 C# Decisions.cs，
-       verb resolve-screensaver-verdict。参数名/默认值不许动(test-lib [t1g]、status.ps1、tools\panel.ps1、
+       verb resolve-screensaver-verdict。参数名/默认值不许动(test-lib [t1g]、status.ps1、tools\panel.ps1(已于 10-23 刀③ 删除，此处留作历史钉家)、
        tools\unarm-screensaver.ps1、lib\ark-daily.ps1 都按老签名调)；回 hashtable @{Kind;Risk;Text;Detail}
        与旧形状逐字对齐。改文案请改 C# 并对拍 —— test-lib 三条硬约束(短话无箭头≤30、armed 点名
        unarm-screensaver、off 说"不是终态")钉的就是这些串，改期望是禁手。 #>
@@ -1385,7 +1385,7 @@ function Start-GdNativeStreamed {
 # 单个内核函数出 bug 改一行 settings 当日止血，不挡其余函数继续跑。
 # 注意：自 2026-09-29 的**接线批**起，生产入口(三个 daily-clear / status / run-via-task / supervise)在
 # 读到 settings 之前显式调一次 Add-GdCore，并把一行读数写进日志(见下面的 Get-GdCoreReadout)；
-# 没接线的宿主(panel.ps1 兜底、setup/install 一次性入口)照旧恒 off = 全走 PS 原身，行为一字不变。
+# 没接线的宿主(setup/install 一次性入口)照旧恒 off = 全走 PS 原身，行为一字不变；panel.ps1 那一路兜底宿主已于 2026-10-23 乙档刀③ 整件删除。
 $script:GdCoreState = 'off'      # off|live|fallback
 $script:GdCoreNote = ''          # 回退时该说的一句话(调用方经 Get-GdCoreStatus 取自印)；live 恒空串
 $script:GdCoreFunctions = @('Join-GdPath', 'Read-GdJson', 'Backup-GdFile', 'Get-GdSettings', 'Get-GdVersion', 'Add-GdHistory', 'Stop-GdRunLock')   # 已内核化白名单(K1a 路径；K1b 序列化三件套的纯规则残余；K2 版本规范/CSV 行/归属判定。出局面按契约 §8/§9 记档：Write-GdJson、Write-GdLog、Show-GdVersionFile)

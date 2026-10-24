@@ -748,20 +748,21 @@ namespace GdPanel
             }
         }
 
-        static object Prop(object target, string name)
+        // internal(乙档刀①)：Panel.Summary.cs 的定时那一格要读同一套 COM 助手，不许在那边另编一份属性反射。
+        internal static object Prop(object target, string name)
         {
             if (target == null) return null;
             try { return target.GetType().InvokeMember(name, BindingFlags.GetProperty, null, target, null); }
             catch { return null; }
         }
 
-        static object Invoke(object target, string name, params object[] args)
+        internal static object Invoke(object target, string name, params object[] args)
         {
             return target.GetType().InvokeMember(
                 name, BindingFlags.InvokeMethod | BindingFlags.GetProperty, null, target, args);
         }
 
-        static long Num(object v)
+        internal static long Num(object v)
         {
             if (v == null) return -1;
             try { return Convert.ToInt64(v, CultureInfo.InvariantCulture); } catch { return -1; }
@@ -777,6 +778,16 @@ namespace GdPanel
             if (state == 3) return "Ready";
             if (state == 4) return "Running";
             return state.ToString(CultureInfo.InvariantCulture);
+        }
+
+        // TASK_PRINCIPAL_RUN_LEVEL(0=Limited／1=Highest)：PS 侧 [string]$task.Principal.RunLevel 拿到的是同名枚举的
+        // 英文字，这里拿到的是 Int32 ⇒ 换成同一个词。数外的值原样回数字，与 TaskStateName 同规矩(不编新词)。
+        // 取不到属性的调用方(Round.TaskState 不报这一格)不受影响；乙档刀① 的定时行是第一个消费方。
+        internal static string RunLevelName(long level)
+        {
+            if (level == 0) return "Limited";
+            if (level == 1) return "Highest";
+            return level.ToString(CultureInfo.InvariantCulture);
         }
 
         // [string]$info.LastRunTime 的同形：VT_DATE 可能是 DateTime 也可能是 double(OleDate)，都收。

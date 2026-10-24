@@ -544,6 +544,11 @@ namespace GdPanel
                 knobs["noSpawn"] = false;             // 真走请求装配那一格：只写文件，进程起不来就照 uncertain 回
                 knobs["pythonExe"] = @"C:\gd-livetest-并不存在的\python.exe";
                 knobs["askDir"] = askDir;
+                // 起了进程就得把这一支的两枚也喂上：allowReward / baseUrl 在"缺键才去读 settings"那一形下
+                // 会走 Runtime() —— 而临时树里没有 config\settings.json，一读就 FileNotFoundException。
+                // 这格要钉的是话术，不是配置读取；只读自检不许要求机器现场状态(同 --roundtest 那批的纪律)。
+                knobs["allowReward"] = false;
+                knobs["baseUrl"] = "https://livetest.invalid/v1";
                 Dictionary<string, object> d = Row(Live.ArkLauncherCheck(knobs));
                 string[] files = Directory.GetFiles(askDir, "ask-*.json");
                 if (files.Length == 0) return false;

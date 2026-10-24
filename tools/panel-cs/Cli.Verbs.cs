@@ -15,7 +15,8 @@ namespace GdPanel
         // 钉死的枚数。加/减 verb 必须同时改这个数字 —— 它红了就说明名册没跟着走。
         // R9-a(2026-10-17 轮骨架四格收编)：84 → 88，新立四枚排在链尾(read-screensaver-config /
         // disable-screensaver-for-round / append-round-history / update-ark-event-probe)。
-        public const int ExpectedCount = 88;
+        // 乙档刀①(2026-10-23 面板摘要判定面进核)：88 → 89，链尾再加 emit-panel-summary。
+        public const int ExpectedCount = 89;
 
         // 顺序＝Cli.cs 分派链里的出现顺序（自检只比集合，不比顺序；顺序留着是为了肉眼对照分派链方便）。
         public static readonly string[] Names = new string[]
@@ -110,7 +111,10 @@ namespace GdPanel
             "read-screensaver-config",
             "disable-screensaver-for-round",
             "append-round-history",
-            "update-ark-event-probe"
+            "update-ark-event-probe",
+            // ---- 乙档刀①(2026-10-23)：panel.ps1 的 -DumpSummary 判定面转写进核(tool 侧只有一份真身) ----
+            //   消费方＝tools\probe-panel-summary-parity.ps1(与 PS 侧 -DumpSummary 逐行对拍)；生产链暂不接，接在刀③。
+            "emit-panel-summary"
         };
 
         // "未知子命令"那句报错用的名册串：逐枚全名，不再有通配与纯计数。

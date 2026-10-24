@@ -70,6 +70,9 @@ namespace GdPanel
             Console.WriteLine("这一仓=" + string.Join(" + ", GameIds()) + "  入口=" + entryName + "  FLAGS: Ack=" + ackFlagName + " Shop=" + shopFlagName + " Games=" + flagsGames + " ViaTask=" + flagsViaTask);
             Console.WriteLine("导航项: " + string.Join(" / ", new List<string>(navBtns.Keys).ToArray()));
             Console.WriteLine("帮助行 " + helpRows.Count + " 条");
+            List<string> miss = HelpRowMisses();
+            Console.WriteLine("帮助行里点名的文件都在: " + (miss.Count == 0 ? "True" : "False") +
+                              (miss.Count == 0 ? "" : "  → " + string.Join(" , ", miss.ToArray())));
             Location = new Point(-16000, -16000);
             ShowInTaskbar = false;
             Show();
@@ -117,7 +120,35 @@ namespace GdPanel
             OnThemeClick(null, EventArgs.Empty);
             Console.WriteLine("布局自检: " + (bad == 0 ? "OK，每一页都不重叠、都在各自容器内、各张卡片都有内容" : "有问题(见上)"));
             Close();
-            return bad == 0 ? 0 : 1;
+            // 死命令和布局问题一样计入退出码 —— 原 panel.ps1 的 -SelfTest 是 `if ($bad.Count -or $miss.Count) { exit 1 }`，
+            // 只印不判就等于没有这一格：验收链那一步只认退出码。
+            return (bad == 0 && miss.Count == 0) ? 0 : 1;
+        }
+
+        // 帮助行(「命令行怎么跑」那几行)里点名的 .ps1/.cmd 必须真在这棵树里。
+        // 逐字转写原 panel.ps1:1343-1356 的 Get-PanelHelpRowMisses：上面按 Need 滤过一遍，这一条查的是
+        // "写行的时候漏了 Need" —— 只有 --selftest 会在导出目录里被跑到，所以它能挡住
+        // "发布仓库里教玩家敲一个不存在的命令"。正则、TrimStart、两条查找路径(先 root\ 再 root\tools\)都不许改口径。
+        List<string> HelpRowMisses()
+        {
+            List<string> miss = new List<string>();
+            foreach (string[] r in helpRows)
+            {
+                string cmd = r.Length > 1 && r[1] != null ? r[1] : "";
+                foreach (Match m in Regex.Matches(cmd, "[A-Za-z0-9_\\-\\\\]+\\.(?:ps1|cmd)"))
+                {
+                    string name = m.Value.TrimStart('\\', '.');
+                    if (PathIsThere(Path.Combine(root, name)) || PathIsThere(Path.Combine(root, Path.Combine("tools", name)))) continue;
+                    miss.Add(r[0] + " → " + name);
+                }
+            }
+            return miss;
+        }
+
+        // PS 侧用的是 Test-Path -LiteralPath：目录也算"在"，所以这里不能只写 File.Exists。
+        static bool PathIsThere(string p)
+        {
+            return File.Exists(p) || Directory.Exists(p);
         }
 
         string cardTitleOf(Panel card)
@@ -222,7 +253,22 @@ namespace GdPanel
                 else File.WriteAllText(tmpSettings, "{\n  \"paths\": {\n    \"maaDir\": \"C:\\\\Fake\\\\MAA\"\n  },\n  \"notify\": {\n    \"webhook\": \"\"\n  }\n}\n", new UTF8Encoding(false));
                 settingsPathOverride = tmpSettings;
                 string beforeMaa = ReadSettingString("maaDir");
-                Chk("临时副本读得到 maaDir", beforeMaa != null, "值=" + (beforeMaa == null ? "null" : beforeMaa));
+                // 这一格的对面是「这一仓要求玩家填的 paths 键」，不是写死的 maaDir：maaDir 只在装了
+                // lib\maa.ps1 的那棵树（合体树／方舟仓）才是必填项，1999 那本 settings.json 里根本没有这一行，
+                // 那边读得到的是 m9aDir —— 与下面第 4 段那句「单游戏仓正常，跳过」是同一套分档(判据源都是
+                // GdSettings.RequiredPathKeys，它按 lib 里真有的库点名)，两格不许一个认仓、一个写死方舟。
+                // 2026-10-24 推仓㊿ 的验收链第一次咬到这格：刀② 把 build.ps1 里"起 winexe 那把尺"换成
+                // Start-Process -Wait -PassThru 之后退出码才是真的，此前 `& $exe --consoletest` 从不等退也不更新
+                // $LASTEXITCODE ⇒ 这一格在 1999 树上从 2026-09-26 起就一直是红的，只是没人量得到（假绿）。
+                List<string> reqKeys = GdSettings.RequiredPathKeys();
+                string probeKey = null, probeVal = null;
+                foreach (string k in reqKeys)
+                {
+                    string v = ReadSettingString(k);
+                    if (v != null) { probeKey = k; probeVal = v; break; }
+                }
+                Chk("临时副本读得到 paths 里的路径键（" + (probeKey == null ? "一枚都没有" : probeKey) + "）", probeKey != null,
+                    "这一仓要求的键=" + (reqKeys.Count == 0 ? "无" : string.Join(" , ", reqKeys.ToArray())));
                 Chk("键不存在时说的是『老模板、改不动』而不是硬塞",
                     WriteSettingString("no_such_key_for_test", "x").IndexOf("老模板") >= 0, "");
 
@@ -232,7 +278,8 @@ namespace GdPanel
                 string w = WriteSettingString("webhook", hook);
                 Chk("写 webhook 有成(" + ShortMsg(w) + ")", w.Length == 0 || w.IndexOf("写好了") >= 0, w);
                 Chk("读回来和写进去一模一样", ReadSettingString("webhook") == hook, "读到 " + ReadSettingString("webhook"));
-                Chk("改动没牵连别处：maaDir 还是原来那条", ReadSettingString("maaDir") == beforeMaa, "");
+                Chk("改动没牵连别处：" + (probeKey == null ? "paths 键" : probeKey) + " 还是原来那条",
+                    probeKey == null || ReadSettingString(probeKey) == probeVal, "");
                 string w2 = WriteSettingString("webhook", origHook);
                 Chk("能原样写回(" + ShortMsg(w2) + ")", w2.Length == 0 || w2.IndexOf("写好了") >= 0, w2);
                 Chk("写回后和动手前一字不差", ReadSettingString("webhook") == origHook, "读到[" + ReadSettingString("webhook") + "]");

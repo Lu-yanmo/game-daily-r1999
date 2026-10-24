@@ -20,7 +20,9 @@ namespace GdPanel
         static string versionCache;
 
         // 根定位和 PanelForm 构造里那三级猜测一致：exe 在 <root>\tools\panel-cs\ 下退两级；
-        // 被复制走(和仓库摆一起的快捷方式)看当前目录；最后兜底工作目录。
+        // 被复制走(和仓库摆一起的快捷方式)看当前目录；最后兜底工作目录。认的锚是仓库根那个 VERSION
+        // (刀② 2026-10-23 与 Panel.cs:164 那段同批改口，两处必须同一把尺 —— 原来认的是 tools\panel.ps1，
+        //  而它是乙档刀③ 要退役的件；VERSION 是全工程唯一版本来源，出货 zip 也带着它)。
         // overrideRoot 给自检喂临时树用(只读自检不许要求机器现场状态的老规矩)。幂等：已定位过就不再找。
         public static void Init(string overrideRoot)
         {
@@ -30,8 +32,8 @@ namespace GdPanel
             {
                 string exeDir = AppDomain.CurrentDomain.BaseDirectory;
                 string guess = Path.GetFullPath(Path.Combine(exeDir, @"..\.."));
-                if (File.Exists(Path.Combine(guess, "tools", "panel.ps1"))) root = guess;
-                else if (File.Exists(Path.Combine(exeDir, "tools", "panel.ps1"))) root = exeDir;
+                if (File.Exists(Path.Combine(guess, "VERSION"))) root = guess;
+                else if (File.Exists(Path.Combine(exeDir, "VERSION"))) root = exeDir;
                 else root = Directory.GetCurrentDirectory();
             }
             Root = root;

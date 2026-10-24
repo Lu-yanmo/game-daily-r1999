@@ -23,8 +23,8 @@
 
 双击 `panel.cmd`（或不带参数打开打包好的 exe）会先用 **Windows 自带的 .NET 编译器**把
 `tools\panel-cs\` 里那几份 `.cs`（同一个 `partial class` 按职责拆的 11 份，`Panel.cs` 是入口那份）现编成 `tools\panel-cs\panel-cs.exe`（几秒钟，不用装任何东西）再打开它。
-这是一份**黑白双主题**的 C# 面板，右上角可以切深/浅。极精简系统上编不出来才回落到 PowerShell 面板
-（`tools\panel.ps1`，功能一致，是兜底版）。
+这是一份**黑白双主题**的 C# 面板，右上角可以切深/浅。极精简系统上编不出来就明说编不出来、给命令行出路 ——
+面板只有 C# 这一份实现，没有「回落 PowerShell 面板」那一路（2026-10-23 定案）。
 
 左边一条导航，上面两项是「看哪一路的读数」，下面四项是主控台的四页：
 
@@ -40,14 +40,14 @@
 它拍的是 MuMu 虚拟机的屏、点的也是虚拟机，用的却是**同一个模型、同一把 key**。
 这两行以前按"是不是方舟"门控，1999 仓里干脆不出现；现在按"这棵树上有没有兜底后端"给 —— 门控条件写错一次的后果是"这一路的 key 永远没地方填"，所以宁可露出来。
 
-**面板不自己判定任何东西**：界面上每一行结论都来自判定层（`panel.ps1 -DumpSummary` 的机器协议行，
+**面板外壳不做第二个判定**：界面上每一行结论都来自判定面那一份 `BuildDumpSummary`（真身 `tools\panel-cs\Panel.Summary.cs`，2026-10-23 起在面板自己进程里算，不再起子进程问 PowerShell；它产的就是过去 `panel.ps1 -DumpSummary` 那套机器协议行，
 以及判定层逐字写进 `state\history.csv` 的那句原因），面板只转达、不改写。所以面板里看到的和命令行跑出来的是同一个。
 「开始跑一轮」要连点两次才真的开跑。
 读数第一行是 `PROTO|<版本>`：判定层和面板对不上版本时，面板会在日志区明说「判定层协议 v几 / 我只认 v几」，
 而不是让某个格子静默变空 —— 读不懂必须说出来。
 
-不想用鼠标的人可以 `pwsh -File tools\panel.ps1 -SelfTest`（不显示窗口，把状态摘要、参数探测、布局检查打出来）；
-C# 面板另有三个不弹窗的自检：`tools\panel-cs\panel-cs.exe --selftest`（布局/主题链）、`--consoletest`
+不想用鼠标的人不需要 PowerShell 版面板（2026-10-23 定案整件退役，也没有回落那一路）；
+C# 面板有三个不弹窗的自检：`tools\panel-cs\panel-cs.exe --selftest`（布局/主题链）、`--consoletest`
 （四页取数、写配置的转义与备份、代跑参数怎么拼、诊断包里搜不搜得到敏感值 —— 全程只在 `settings.json` 的**临时副本**上写，
 跑完逐字节比对确认原件没动）和 `--exptest`（「实验功能」那三个布尔键的读写回环：翻一次读得回来、只有那一行动过、
 补出来的那一行要让 `ConvertFrom-Json` 复述一遍、`runtime` 形状认不出时必须拒着不写 —— 同样只打在临时副本上）。打包成 exe 的场合对应动词是 `--panel`。
@@ -295,7 +295,7 @@ pwsh -File install-task.ps1 -Uninstall
   status.ps1           只读体检
   install-task.ps1     计划任务注册/卸载
   run-daily.cmd        双击手动跑
-  panel.cmd            双击打开主控台（现编 C# 面板；编不出来回落 tools\panel.ps1，见第 1 节）
+  panel.cmd            双击打开主控台（现编 C# 面板；编不出来就明说编不出来、给命令行出路，见第 1 节）
   VERSION              唯一的版本号来源（就一行 x.y.z）：status 的「版本」行、面板标题栏、诊断包里的 版本.txt、exe 的 --version 全读它（见第 6 节）
   config\settings.example.json  配置模板（入仓）
   config\settings.json  唯一需要配的文件（不入仓）
@@ -310,8 +310,8 @@ pwsh -File install-task.ps1 -Uninstall
   tools\supervise.ps1 监督的心跳子进程本体（真跑一轮时自动隐藏起；-Once 手动拍一拍）
   tools\vision-ask.ps1 只问不点：把虚拟机现屏交给模型、原样打印回答，一次点击都不做
   tools\vision\ask.py "问模型"那一层（收 PowerShell 写的请求文件、回模型原文）；截图与点击都不在这里
-  tools\panel.ps1      面板本体（-SelfTest 不显示窗口，给自动化验证用；-DumpSummary 出机器协议行）
-  tools\panel-cs\      C# 主控台本体（Panel.cs 是入口，其余 Panel.*.cs 是同一个 partial class 的分工；build.ps1 按目录扫 *.cs 用系统自带 csc 现编；只转达 panel.ps1 的结论）
+  （2026-10-23 乙档刀③ 起本行不再是目录项：tools\panel.ps1 已整件删除、本仓库不再带这一枚文件；它是退役的 PowerShell 版面板本体，判定面真身见下面那一份 Panel.Summary.cs）
+  tools\panel-cs\      C# 主控台本体（Panel.cs 是入口，其余 Panel.*.cs 是同一个 partial class 的分工；build.ps1 按目录扫 *.cs 用系统自带 csc 现编；判定面就是这份里的 Panel.Summary.cs(BuildDumpSummary)，外壳只转达、不另判一次）
   tools\               自检 / 探测脚本（含 replay-m9a-log）
   logs\ state\ backups\  运行时生成（不入仓）
 ```

@@ -94,6 +94,22 @@ namespace GdPanel
             return File.ReadAllText(p, Encoding.UTF8);
         }
 
+        // 合成一枚 IO_REPARSE_TAG_APPEXECLINK 的 reparse blob —— 形状对着 Panel.Data.cs:424 那段本机现量拼：
+        // [0..3] tag 0x8000001B｜[4..5] 数据长度(不含这 8 字节的头)｜[6..7] 保留(现量 0)｜[8..11] 布局版本(现量 3)
+        // ｜[12..] 以 NUL 分隔的 UTF-16LE 字段：包家族名、AUMID、真身路径、标志。
+        // 自检喂的是这一份，不喂现场那枚别名：现场解析结果归等值门现拍(只读自检不许要求机器现场状态)。
+        static byte[] AppExecLinkBlob(string pkgFamilyName, string aumid, string target, string flags)
+        {
+            string body = pkgFamilyName + "\0" + aumid + "\0" + target + "\0" + flags + "\0";
+            byte[] fields = Encoding.Unicode.GetBytes(body);
+            byte[] blob = new byte[12 + fields.Length];
+            blob[0] = 0x1B; blob[1] = 0x00; blob[2] = 0x00; blob[3] = 0x80;   // 小端的 0x8000001B(本机现量头四字节 1B 00 00 80)
+            blob[4] = (byte)(fields.Length & 0xFF); blob[5] = (byte)((fields.Length >> 8) & 0xFF);
+            blob[8] = 3;                                                       // 布局版本不是这个数，解析器就该回空串
+            Array.Copy(fields, 0, blob, 12, fields.Length);
+            return blob;
+        }
+
         // ============================ --coretest ============================
         public static int CoreTest()
         {
@@ -256,6 +272,59 @@ namespace GdPanel
                     string bak = GdEnv.BackupFile(victim);
                     return bak != null && File.Exists(bak) && File.ReadAllText(bak) == "A"
                         && Path.GetFileName(bak).StartsWith("victim.txt.") && bak.EndsWith(".bak");
+                });
+
+                // ---- 乙档刀②(2026-10-23)那枚新判定：应用执行别名 → 真身路径 ----
+                // 六形全部喂合成帧／临时普通件，不要求这台机器装有商店版 PowerShell ——
+                // 现场那一枚别名的真实解析结果不进自检(它由等值门 tools/probe-panel-summary-parity.ps1 现拍，
+                // 见 Panel.Data.cs:416 起那段现量记录；"现场实测留证 ≠ 门已绿"是同一条规矩)。
+                b.Chk("别名 blob 正形：第三枚非空字段＝真身路径(位次不是名字)", delegate
+                {
+                    string target = @"C:\Program Files\WindowsApps\Microsoft.PowerShell_7.6.7.0_x64__8wekyb3d8bbwe\pwsh.exe";
+                    byte[] blob = AppExecLinkBlob("Microsoft.PowerShell_7.6.7.0_8wekyb3d8bbwe", "Microsoft.PowerShell_7.6.7.0!pwsh", target, "1");
+                    return PanelForm.ParseAppExecLinkBlob(blob) == target;
+                });
+                b.Chk("错 reparse tag(不是 APPEXECLINK)：回空串，不猜字段位次", delegate
+                {
+                    byte[] blob = AppExecLinkBlob("pkg", "aumid", @"C:\x\pwsh.exe", "1");
+                    blob[0] = 0x03; blob[1] = 0x00; blob[2] = 0x00; blob[3] = 0xA0;   // IO_REPARSE_TAG_MOUNT_POINT
+                    return PanelForm.ParseAppExecLinkBlob(blob).Length == 0;
+                });
+                b.Chk("布局版本不是 3：回空串(本机现量只有 3，别的形状不认)", delegate
+                {
+                    byte[] blob = AppExecLinkBlob("pkg", "aumid", @"C:\x\pwsh.exe", "1");
+                    blob[8] = 2;
+                    return PanelForm.ParseAppExecLinkBlob(blob).Length == 0;
+                });
+                b.Chk("截断／只有两枚非空字段／整坨为空：三形都回空串且不抛", delegate
+                {
+                    byte[] full = AppExecLinkBlob("pkg", "aumid", @"C:\x\pwsh.exe", "1");
+                    byte[] shortBlob = new byte[10];
+                    Array.Copy(full, 0, shortBlob, 0, 10);
+                    byte[] twoFields = AppExecLinkBlob("pkg", "aumid", "", "");
+                    return PanelForm.ParseAppExecLinkBlob(null).Length == 0
+                        && PanelForm.ParseAppExecLinkBlob(shortBlob).Length == 0
+                        && PanelForm.ParseAppExecLinkBlob(twoFields).Length == 0
+                        && PanelForm.ParseAppExecLinkBlob(new byte[0]).Length == 0;
+                });
+                b.Chk("真身是相对路径／不在场／是目录：ResolveEngineTarget 三形一律回空串", delegate
+                {
+                    byte[] rel = AppExecLinkBlob("pkg", "aumid", @"pwsh.exe", "1");
+                    if (PanelForm.ParseAppExecLinkBlob(rel) != @"pwsh.exe") return false;   // 纯函数只管位次，形状校在上一层
+                    if (PanelForm.ResolveEngineTarget("").Length != 0) return false;
+                    if (PanelForm.ResolveEngineTarget(Path.Combine(tmp, "no-such-alias.exe")).Length != 0) return false;
+                    // 临时树里那枚普通文件不是 ReparsePoint ⇒ 第一道形状校就该回空串(不进去读 blob)
+                    if (PanelForm.ResolveEngineTarget(Path.Combine(tmp, "victim.txt")).Length != 0) return false;
+                    return true;
+                });
+                b.Chk("别名文件名字面猜不到真身：解析按位次、不按同名(本机 ArmouryCrate→SystemUWPLauncher 现量)", delegate
+                {
+                    byte[] blob = AppExecLinkBlob("pkg", "aumid", @"C:\Windows\System32\SystemUWPLauncher.exe", "1");
+                    return PanelForm.ParseAppExecLinkBlob(blob) == @"C:\Windows\System32\SystemUWPLauncher.exe";
+                });
+                b.Chk("三枚 kernel32 声明的入口点在位(本轮实测：CharSet.Unicode 会补 W 去找不存在的名字，EntryPointNotFound 被 catch 咽成「读不出」)", delegate
+                {
+                    return PanelForm.ReparseEntryPointsOk() == "ok";
                 });
             }
             catch (Exception ex)

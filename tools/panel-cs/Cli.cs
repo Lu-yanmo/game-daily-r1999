@@ -186,6 +186,8 @@ namespace GdPanel
                 else if (verb == "disable-screensaver-for-round") r = Decide(a, Round.ScreensaverOff);
                 else if (verb == "append-round-history") r = Decide(a, Round.RoundHistory);
                 else if (verb == "update-ark-event-probe") r = Decide(a, RoundData.ArkEventProbeUpdate);
+                // ---- 乙档刀①(2026-10-23)：面板状态摘要的判定面进核 —— 照读 --in(可以是空 {})，摘要只吃盘上四样，不吃输入字段 ----
+                else if (verb == "emit-panel-summary") r = PanelSummaryRun(a);
                 else throw new GdUsageException("未知子命令：" + verb + "(现有：" + GdCliVerbs.Roster() + "；后续批次见 docs\\ps-migration-batch0.md 与 docs\\ps-migration-live-caliber.md)");
             }
             catch (GdUsageException ex)
@@ -278,6 +280,29 @@ namespace GdPanel
             return r;
         }
 
+        // ---------- emit-panel-summary 的骨架：在 Decide 之上多认一枚 --root(等值门换树用) ----------
+        // 为什么要 --root：编译树里既没有 config\settings.json 也没有 state\history.csv，
+        // 只在这一棵树上比 = 只演"读不到"那一档，判定面的其余形状(满档/已确认/带详情)一次都没被对拍过 ——
+        // "恒绿的正是没验过的正例面"这条在案纪律要求门能给一枚**别的树**当靶。
+        // tools\probe-panel-summary-parity.ps1 就靠它把 PS 侧和 C# 侧指到同一棵树(现场那棵只读取数)。
+        // 换的是**读数来源**，不是判据：两侧仍各读自己的 root，摘要里 HEADER 第 6 枚会把 root 印出来，
+        // 门拿它自检"两侧确实同一棵树"，指错了当场红，不会悄悄比了两棵不同的树。
+        static VerbResult PanelSummaryRun(Dictionary<string, string> a)
+        {
+            RequireKnown(a, "--in", "--out", "--no-out", "--garbage", "--transcript", "--root");
+            string root = Get(a, "--root");
+            if (!string.IsNullOrEmpty(root))
+            {
+                string full;
+                try { full = Path.GetFullPath(root.TrimEnd('\\', '/')); }
+                catch { throw new GdUsageException("--root 不是一条能解析的路径：" + root); }
+                if (!Directory.Exists(full)) throw new GdPreconditionException("--root 指的目录不在：" + full);
+                GdEnv.InitForTest(full);        // 连 VERSION 缓存一起清：读数是那棵树的(和只读自检同一把尺)
+                a.Remove("--root");             // 已经用过了，剩下的照 Decide 的老名册判，别让它在下一道闸里被当成未知参数
+            }
+            return Decide(a, GdPanelSummary.Emit);
+        }
+
         // ---------- 参数工具 ----------
         static Dictionary<string, string> Parse(string[] tail)
         {
@@ -313,6 +338,27 @@ namespace GdPanel
         public static bool Has(Dictionary<string, string> a, string k)
         {
             return a != null && a.ContainsKey(k);
+        }
+
+        // 2026-10-23 版号轮第二形：无头档要的是"字节按 UTF-8 落到本来就在那里的句柄上"，不是"贴一台控制台"。
+        // 上面那枚 TryAttachConsole 的第一件事是 AttachConsole(ATTACH_PARENT_PROCESS)，而一枚 /target:winexe 一旦
+        // 贴上父控制台，系统就把它**已经继承来**的标准句柄改挂到那块屏幕缓冲上 —— 上游那根管道或 cmd 重定向出去的
+        // 那个文件从此一个字节都收不到(同日现量：& 收流臂与 cmd 重定向臂各 0 字节，只有不经 attach 的
+        // Start-Process -RedirectStandardOutput 那一臂拿到 731 字节)。这里不碰控制台：只在这一路确实被重定向时
+        // 把 Console.Out/Error 换成不带 BOM 的 UTF-8 写手；真控制台里人肉跑无头档那一臂什么都不做(winexe 默认按
+        // 系统 ANSI 写字节、控制台按同一码页渲染，中文本来是对的，去翻它反倒动玩家那台窗口的码页)。verb 分发那条
+        // 路仍走 TryAttachConsole —— 那是长期生产行为，机读只认 --out 文件，本批不动它。
+        public static void UseUtf8IfRedirected()
+        {
+            try
+            {
+                UTF8Encoding enc = new UTF8Encoding(false);
+                if (Console.IsOutputRedirected)
+                    Console.SetOut(new StreamWriter(Console.OpenStandardOutput(), enc) { AutoFlush = true });
+                if (Console.IsErrorRedirected)
+                    Console.SetError(new StreamWriter(Console.OpenStandardError(), enc) { AutoFlush = true });
+            }
+            catch { }
         }
     }
 }

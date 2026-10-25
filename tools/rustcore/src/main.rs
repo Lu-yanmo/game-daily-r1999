@@ -1612,7 +1612,7 @@ fn gd_local_date() -> String {
     format!("{:04}-{:02}-{:02}", st.w_year, st.w_month, st.w_day)
 }
 
-/// `Get-Date -Format 'yyyyMMdd'` —— M9A 日志文件名里那一截（`Get-M9ADailyLog`，m9a.ps1:126-130：
+/// `Get-Date -Format 'yyyyMMdd'` —— M9A 日志文件名里那一截（`Get-M9ADailyLog`，m9a.ps1:136-140，10-25 刀②后现读、原写 126-130：
 /// `Join-Path $P.LogDir "log-$(Get-Date -Format 'yyyyMMdd').log"`）。**没有横线**，跟上面那枚
 /// `yyyy-MM-dd` 不是一套形状；每轮重算 ⇒ 跨 00:00 就换一个文件，偏移必须按路径 keyed。
 /// 剧本侧不吃这一枚：那边由夹具喂的日期表按虚拟钟查（`day_lookup`），两边在投影上同记一条 `D|`。
@@ -8877,7 +8877,7 @@ struct M9aScen {
     live: Vec<(String, JVal)>,
 }
 
-/// `Get-M9APaths`(m9a.ps1:43-53) 里循环用得上的四格。
+/// `Get-M9APaths`(m9a.ps1:53-63，10-25 刀②后现读、原写 43-53) 里循环用得上的四格。
 /// 真身那六格的 AppSettings/FrameLog 两格**不复刻**：ma 循环一次都不读它们，
 /// 而 m9a 的 dry-run 话术写的是 `$($P.Exe)`（正确插值，不是 maa.ps1:228 那种整对象渲染），
 /// 所以这边不需要 `ps_to_string` —— 两格补上来只是死字段。
@@ -10258,9 +10258,9 @@ impl MaaHost for ScriptHost {
     }
 }
 
-// ---- B-2d②：m9a 一路的采集面与循环骨架（lib\m9a.ps1:126-528 逐段进核）----
+// ---- B-2d②：m9a 一路的采集面与循环骨架（旧区间 lib\m9a.ps1:126-528；⚠ 10-25 刀② 后 :126-318 那截还在现树，:319-528 整段出仓）----
 
-/// `Get-M9ADailyLog`(m9a.ps1:126-130) 的复刻：`<LogDir>\log-<yyyyMMdd>.log`，**每轮重算**（跨 00:00 就换文件）。
+/// `Get-M9ADailyLog`(m9a.ps1:136-140，10-25 刀②后现读、原写 126-130) 的复刻：`<LogDir>\log-<yyyyMMdd>.log`，**每轮重算**（跨 00:00 就换文件）。
 /// 真身那句是裸 `Join-Path` 而不是宽容的 `Join-GdPath` —— LogDir 为空时真身当场抛，
 /// 所以 `m9arun_parse` 把 `paths.m9aDir` 做成拒跑闸，运行期这一格不可能为空（少这一闸就要多复刻一句 PS 绑定异常）。
 fn m9a_daily_path(log_dir: &str, day: &str) -> String {
@@ -10334,7 +10334,7 @@ fn keyed_offset_set(v: &mut Vec<(String, u64)>, k: &str, val: u64) {
     v.push((k.to_string(), val));
 }
 
-/// `Read-M9ALogEvents`(m9a.ps1:146-172) 的复刻：日志路径每轮现算，偏移按路径 keyed。
+/// `Read-M9ALogEvents`(m9a.ps1:156-182，10-25 刀②后现读、原写 146-172) 的复刻：日志路径每轮现算，偏移按路径 keyed。
 /// 返回 `(日志路径, 事件数组)`；事件形状是真身那两键 hashtable（`Kind`/`Text`），不是信封原物。
 fn m9a_read_log<H: MaaHost>(
     h: &mut H,
@@ -10372,7 +10372,7 @@ fn m9a_read_log<H: MaaHost>(
     Ok((log, events))
 }
 
-/// `Register-M9AEvents`(m9a.ps1:174-198) 的复刻：0 条事件连 verb 都不问 →
+/// `Register-M9AEvents`(m9a.ps1:184-208，10-25 刀②后现读、原写 174-198) 的复刻：0 条事件连 verb 都不问 →
 /// 摘名单十二键（只摘真在的）→ 整批一次转发 → 按档重印日志 → 回执 State 全键回写 →
 /// `Directives.TouchLastLog` 置挂钟（剧本世界里那枚挂钟就是虚拟钟）。
 /// 三个在案 PS 语义坑（`@($null)` 占位 / `$null -eq @()` 塌缩 / `-ne` 不分大小写）全在 C# 逐字复刻，
@@ -10411,7 +10411,7 @@ fn m9a_register_events<H: MaaHost>(
     Ok(())
 }
 
-/// `Resolve-M9AStatus`(m9a.ps1:282-317) 的复刻：十键 body 顺序照真身；`Found:false` = 还在跑 → `None`
+/// `Resolve-M9AStatus`(m9a.ps1:293-328，10-25 刀②后现读、原写 282-317) 的复刻：十键 body 顺序照真身；`Found:false` = 还在跑 → `None`
 /// （主循环那记 `continue` 的落点）；`FailedTasks` 按**键存在**取值（只有 blocked 那一路 C# 才带这枚键）。
 /// 真身那句"拷一份、摘掉 lastLog"在核内没有对应物：这里的 lastLog 从来不进映射，
 /// 另存成 `last_log` 本地量（ark 侧同一处置，见 `maa_run` 的 `last_growth`）—— 是形状不同，不是漏搬。
@@ -10462,7 +10462,11 @@ fn m9a_resolve_status<H: MaaHost>(
     Ok(Some(r))
 }
 
-/// `Invoke-M9ARun` 的循环骨架（lib\m9a.ps1:319-528）逐段进核。
+/// `Invoke-M9ARun` 的循环骨架（旧真身 lib\m9a.ps1:319-528，a8ec6ed 帧）逐段进核。
+/// ⚠ 10-25 甲档刀② 改口（本族九枚共用这一句，其余各枚不改）：那 210 行现树真身已整段出仓，本文件里所有
+///   `真身 m9a.ps1:3xx~5xx` 形态的锚（:9095／:9454／:10297／:10650／:10719／:16256／:16497／:16575）自此
+///   指**施工当时那一帧的历史行号**、不再指现树——现树已无该段可指。逐字副本的家在
+///   tools\rustcore\probe-m9arun-rust-golden.ps1 的 child（a8ec6ed 帧），钉住它的是 H0-m9arun-copy-verbatim。
 /// 与 ark 一路（`maa_run`）是同一段形状：装配启动参数 → 启动等待 → 每 10 秒采集 → 喂判定 verb →
 /// 同一 tick 内执行 effect 并带回执重入。三处不同是**真身本来就不同**，不许"顺手统一"（§11.39 ⑤）：
 ///   · 偏移按**日志路径 keyed**（跨 00:00 换文件、新文件从 0 起算），不是 ark 那两枚固定变量；

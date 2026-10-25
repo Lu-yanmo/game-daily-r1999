@@ -367,6 +367,8 @@ $mumuLib = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\lib\vision-mumu
 $m9aLib = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\lib\m9a.ps1') -Raw -Encoding utf8
 # (原来这里还读一份 lib\r1999-daily.ps1 给下面那两格外层重试锚用；10-24 刀② 后那两格打的是 Orchestration.cs，
 #  读面在 [t16] 段的 $orchCs/$orchRetry 已经取好，这里不再重复读同一份文件)
+# ⚠ 10-25 甲档刀①-b：下面那九格正向文本锚也从 lib\m9a.ps1 搬走了，$m9aLib 只剩最后那格**否定式**在用
+#   ("状态名一律没改"——现树里不许出现新状态名，这一形与真身在不在场无关，摘件的刀② 之后仍要留在现树身上)
 if (Get-Command New-GdVisionTarget-mumu -ErrorAction SilentlyContinue) {
     # 契约：内核(lib\vision-rescue.ps1)只按字段名调它，少一个字段就是"兜底静默不生效"，所以逐字段点名
     $tm = New-GdVisionTarget-mumu -S $S
@@ -433,25 +435,47 @@ $fnEp = Get-GdTestCodeOnly (Get-Command Get-GdMuMuAdbEndpoint).Definition
         $fnTap -match 'Mode = ' -and $fnTap -match 'Sent = ')
 
     # 接线：这一路此前**压根没有**兜底调用点(后端是死代码)。现在按"进程还在不在"分两类接上。
-    Check 'm9a.ps1 挂了兜底调用点，且 -Target mumu、带上实例的 adb 通道' (
-        $m9aLib -match "Invoke-GdVisionRescue .*-Target 'mumu'" -and $m9aLib -match '-Conn \$conn')
-    Check '兜底用 Get-Command 探路(这份库单独被拿去用时没这函数也只是不兜)' (
-        $m9aLib -match 'Get-Command Invoke-GdVisionRescue')
-    Check '预算装在哈希表里、只用成员赋值扣(& 调用跑在子作用域，$x-- 扣不动)' (
-        $m9aLib -match '\$rescue\.Left = \[int\]\$rescue\.Left - 1' -and $m9aLib -notmatch '\$rescue\.Left--')
+    # ⚠ 10-25 甲档刀①-b 换桌：下面九格原先咬的是 lib\m9a.ps1 的 Invoke-M9ARun 整段循环，而那一刀要把它摘掉。
+    #   新桌子两张，都是活码：判据/话术/扣数/分流 = tools\panel-cs\RunLoops.cs 的 decide-m9a-run-tick，
+    #   调用点/记账/靶子名与 adb 通道 = tools\rustcore\src\main.rs 的执行侧(of_m9a／do_rescue／do_record／合体轮)。
+    #   断言内容一个字没改，改的只是到哪家去问(与上面 [t16] 那三格 10-24 刀② 同一处置)。
+    #   唯一一处**形变**写在第 3 格：旧那半句"`$rescue.Left--` 不许出现"是 PowerShell 闭包子作用域特有的坑
+    #   (& 调用里扣不动)，C# 侧恰恰用 `rescueLeft--` 且跨拍状态由 verb 自己中继 ⇒ 那一形在新桌上不成立，
+    #   换成钉"扣的那一数必须写回跨拍状态"。另补一格"尺接没接电"：窗口一枚取不到就当场红，
+    #   免得桌子搬了家而九格靠空串 -match 假绿(在册纪律：现场那一路要补正例自检格)。
+    $runLoopsCs = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'panel-cs\RunLoops.cs') -Raw -Encoding utf8
+    $m9aLadder = [regex]::Match($runLoopsCs, '(?s)void ResumeRecord\(\).*?Eq\(status, "empty-queue"\);').Value
+    $m9aAsk = [regex]::Match($runLoopsCs, '(?s)if \(InAskSet\(\) && rescueLeft > 0 && rescueAvail\).*?phase = "ask-rescue"').Value
+    $m9aEmit = [regex]::Match($runLoopsCs, '(?s)"Directives", Gd\.Out\(.*?if \(hasDuration\)').Value
+    $rsRound = [regex]::Match($rustCore, '(?s)let mut m9a_scen = m9a_scen_core.*?m9a_scen\.grab_available = false').Value
+    $rsEnv9 = [regex]::Match($rustCore, '(?s)fn of_m9a.*?serial: sc\.serial\.clone\(\)').Value
+    $rsRescue = [regex]::Match($rustCore, '(?s)fn do_rescue.*?\*rescue_left = rl;').Value
+    $rsTick = [regex]::Match($rustCore, '(?s)let rescue_avail = h\.rescue_available\(\).*?st_m9a = jv_get\(&d, "State"\);').Value
+    $rsM9aRt = [regex]::Match($rustCore, '(?s)let rt = jv_get\(v, "runtime"\);\n    // mode 缺键.*?sc\.stall_min = jv_int\(&jv_get\(&rt, "stallTimeoutMinutes"\), 0\);').Value
+    $rsClock = [regex]::Match($rustCore, '(?s)if jv_truthy\(&jv_get\(&jv_get\(&d, "Directives"\), "ResetLastLog"\)\).*?last_log = h\.clock\(\);').Value
+    $rsRescued = [regex]::Match($rustCore, '(?s)if jv_truthy\(&jv_get\(&d, "Rescued"\)\).*?res\.rescued = true;').Value
+    $rsRecord = [regex]::Match($rustCore, '(?s)fn do_record.*?jv_s\("record"\)').Value
+    Check '兜底这九格的桌子都取到了窗口(尺接没接电，空串 -match 会假绿)' (
+        $m9aLadder.Length -gt 0 -and $m9aAsk.Length -gt 0 -and $m9aEmit.Length -gt 0 -and $rsRound.Length -gt 0 -and $rsEnv9.Length -gt 0 -and $rsRescue.Length -gt 0 -and $rsTick.Length -gt 0 -and $rsM9aRt.Length -gt 0 -and $rsClock.Length -gt 0 -and $rsRescued.Length -gt 0 -and $rsRecord.Length -gt 0) $(
+        'len: ladder=' + $m9aLadder.Length + ' ask=' + $m9aAsk.Length + ' emit=' + $m9aEmit.Length + ' round=' + $rsRound.Length + ' env9=' + $rsEnv9.Length + ' rescue=' + $rsRescue.Length + ' tick=' + $rsTick.Length + ' rt=' + $rsM9aRt.Length + ' clock=' + $rsClock.Length + ' rescued=' + $rsRescued.Length + ' record=' + $rsRecord.Length)
+    Check '兜底调用点认 mumu 这枚靶子，且带上实例的 adb 通道(桌子＝main.rs 的 of_m9a 与合体轮)' (
+        $rsEnv9 -match 'target: sc\.target\.clone\(\)' -and $rsEnv9 -match 'adb: sc\.adb\.clone\(\)' -and $rsRound -match 'm9a_scen\.target = "mumu"')
+    Check '兜底不是硬调：先问可用性，树上没有就只是不兜、不炸(旧那格问的是 Get-Command 探路)' (
+        $m9aAsk -match 'rescueAvail' -and $rsRescue -match 'h\.rescue_available\(\)' -and $rsTick -match 'let rescue_avail = h\.rescue_available\(\)')
+    Check '预算扣的那一数必须写回跨拍状态(一轮里真扣得动，扣完就不再问)' (
+        $m9aAsk -match 'rescueLeft--' -and $rsRescue -match 'rl -= 1' -and $rsRescue -match '\*rescue_left = rl;')
     Check '次数上限沿用同一个键 runtime.visionMaxRescue(限的是"一轮里跟模型没完没了的次数")' (
-        $m9aLib -match '\[int\]\$S\.runtime\.visionMaxRescue')
-    # (这里用 -like 而不是 -match：双引号里的 `\$res` 会被 PowerShell 当成变量展开，正则反而什么都匹配不上 —— 假红过一次)
+        $rsM9aRt -match 'jv_get\(&rt, "visionMaxRescue"\)' -and $rsTick -match '"rescueMaxRaw"')
     Check '停滞/超时(进程还在)兜成了就撤回调款、计时从头算继续等' (
-        ($m9aLib -like "*res.Status -in @('stalled', 'timeout')*") -and $m9aLib -match '\$state\.lastLog = Get-Date')
+        $m9aLadder -match 'if \(Alive\(\)\)' -and $m9aLadder -match 'resetLastLog = true;' -and $rsClock -match 'last_log = h\.clock\(\);')
     Check 'blocked/not-started/empty-queue 也问一次(把猜测换成"画面上确实是 XX")' (
-        $m9aLib -match "blocked', 'not-started', 'empty-queue" -and $m9aLib -match "'判因'")
-    Check '兜清楚的证据是唯一能翻掉"重试没意义"的东西 → 打 $res.Rescued 标记' (
-        $m9aLib -match '\$res\.Rescued = \$true')
-    Check '这一路的救火账由 m9a.ps1 记(-Game r1999 / -Target mumu)' (
-        $m9aLib -match "Add-GdRescueRecord .*-Game 'r1999'")
+        $m9aLadder -match 'Eq\(status, "blocked"\)' -and $m9aLadder -match 'Eq\(status, "not-started"\)' -and $m9aLadder -match 'Eq\(status, "empty-queue"\)' -and $m9aLadder -match '"判因"')
+    Check '兜清楚的证据是唯一能翻掉"重试没意义"的东西 → 打 Rescued 标记并交给核认下' (
+        $m9aLadder -match 'rescued = true;' -and $m9aEmit -match 'd\["Rescued"\] = rescued;' -and $rsRescued -match 'res\.rescued = true;')
+    Check '这一路的救火账记在核里，game 归 r1999、target 归 mumu(do_record→add_rescue_record)' (
+        $rsRecord -match 'add_rescue_record' -and $rsEnv9 -match 'game: sc\.game\.clone\(\)' -and $rsRound -match 'm9a_scen\.game = "r1999"')
     Check '兜底次数与最后一问拼进 Detail(判因链不许丢这条线)' (
-        $m9aLib -match '视觉兜底 \$\(@\(\$rescue\.Notes\)\.Count\) 次')
+        $m9aLadder -match '；视觉兜底 ' -and $m9aLadder -match '次，最后一次：' -and $m9aLadder -match '\[停滞已解除，继续等待\]')
     Check '状态名一律没改(收尾与通知按状态名分流，造新名字等于把判因链弄断)' (
         $m9aLib -notmatch "Status = 'rescued'" -and $m9aLib -notmatch "Status = 'vision")
     # 外层重试的分流：画面被兜清楚了，本来"重试也没用"的那几种才值得再跑一次。

@@ -6,7 +6,8 @@
 // 这一份管的是"链体那十一枚 ask 里，必须由这台机器亲手干的那一半"：
 //   takeover-processes         Invoke-GdTakeover(lib\common.ps1:665)：接管关闭，先判 takeOverAssistant。
 //   stop-maa-and-game          Stop-MaaAndGame(lib\maa.ps1:739)。
-//   stop-m9a                   Stop-M9A(lib\m9a.ps1:530)。
+//   stop-m9a                   Stop-M9A(lib\m9a.ps1:337)。⚠ 10-25 甲档刀② 换算：Invoke-M9ARun 真身出仓后本族现树锚随位移改口
+//                              (原写 530；Stop-M9A 现读 :337、那句"已关闭 M9A($n 个进程)"现读 :342，行号取自摘件+话术随动后的现树实拍)。
 //   read-maa-fight-skip        Get-GdMaaFightSkip(lib\maa.ps1:60 起)的**读日志尾那半**：gui.log 全量 → 递给已在场的
 //                              detect-maa-fight-skip(Orchestration.cs 批次 5)，判据一枚都不在这儿重写。
 //   read-maa-stage-observation Get-GdMaaStageObservation(lib\maa.ps1:83 起)的同一半：asst.log 尾 16MB + gui.log 全量
@@ -38,7 +39,7 @@
 //   * "…正在运行；要么手动关掉再跑，要么把 settings.runtime.takeOverAssistant 设为 true"、
 //     "$Label 正在运行 → 先关掉再改配置(避免它退出时把配置写回旧值)" ↔ lib\common.ps1:676-678；
 //   * "已关闭 MAA($n 个进程)"、"已关闭明日方舟端游($n 个进程)" ↔ lib\maa.ps1:744／748；
-//     "已关闭 M9A($n 个进程)" ↔ lib\m9a.ps1:535 —— 三句的括号里都带进程数、都不带句号，逐字照抄；
+//     "已关闭 M9A($n 个进程)" ↔ lib\m9a.ps1:342 —— 三句的括号里都带进程数、都不带句号，逐字照抄；
 //   * gui.log／asst.log 两枚路径与 `debug\asst.log` 那条兜底、asst.log 只取尾 16MB(16777216) 那把尺
 //     ↔ lib\maa.ps1:46-52 与 Get-GdMaaStageObservation 的注释(「asst.log 连日不轮转能涨到几十 MB」)。
 //
@@ -77,7 +78,7 @@
 //                          info 读数 → 已在跑就吭一声 → control launch → 轮询到 AndroidStarted。
 //  ③ `apply-maa-daily-config` Set-MaaDailyConfig(maa.ps1:140)：现场检查＋读盘＋递给 plan-maa-queue＋
 //                          备份／写盘／回读逐队列比 IsEnable。规则段一枚都不在这儿( Processes.cs 第 3 批)。
-//  ④ `apply-m9a-instance` Set-M9AInstance(m9a.ps1:83)：点号字面键那两格＋三句原话＋回读校验。
+//  ④ `apply-m9a-instance` Set-M9AInstance(m9a.ps1:93，10-25 刀②后现读、原写 83)：点号字面键那两格＋三句原话＋回读校验。
 //  ⑤ `update-ark-farm-ledger` Update-GdArkFarmLedger(ark-farm.ps1:125)＋Get-GdArkItemMaps(:53)＋
 //                          Read-GdArkFarmLedger(lib\ark-farm.ps1:93)：首跑按 DepotData 标定、offset 续读、记两本账、
 //                          回一句总结(链体那句 `[string](Update-GdArkFarmLedger)` 要的就是 bare string)。
@@ -94,7 +95,7 @@
 //   * "MAA 正在运行，请先关闭再改配置"、"MAA 配置不存在：…"、"MAA 配置回读不一致：…(备份：leaf)"、
 //     "MAA 配置已更新并校验通过(备份：leaf)"、"(无需改动)" ↔ lib\maa.ps1:140-215；
 //   * "M9A 正在运行，请先关闭再改实例"、"M9A appsettings 不存在：…"、"M9A 实例切换回读失败(备份：leaf)"、
-//     "M9A 实例已切到[Name](备份：leaf)"、"(M9A 在跑，交给命令行 -i 转发)"、"(已是 Name，无需改动)" ↔ lib\m9a.ps1:83-113；
+//     "M9A 实例已切到[Name](备份：leaf)"、"(M9A 在跑，交给命令行 -i 转发)"、"(已是 Name，无需改动)" ↔ lib\m9a.ps1:93-123(10-25 刀②后现读、原写 83-113)；
 //   * "stages.json 解析失败：…"、"未能建立 MAA 关卡表，理智计划不会被校验" ↔ lib\ark-decisions.ps1:14-40；
 //     "item_index.json 解析失败：…"、ark-inventory／ark-droptable 那两句读不懂的话、
 //     首跑标定那三句、"记了 N 场掉落、入账 +P"、"N 个名字没在材料表认出来(前 3 以 / 连)" ↔ lib\ark-farm.ps1:53-216；
@@ -399,7 +400,7 @@ namespace GdPanel
         }
 
         // ==================== verb: stop-m9a ====================
-        // Stop-M9A(m9a.ps1:530)：**只有一档** quitAssistantAfter，话术是"M9A"不是"MAA"
+        // Stop-M9A(m9a.ps1:337)：**只有一档** quitAssistantAfter，话术是"M9A"不是"MAA"
         // (两侧话术不许统一，②-a 那条纪律在这儿同样成立)。
 
         internal static object StopM9A(Dictionary<string, object> raw)
@@ -1025,7 +1026,7 @@ namespace GdPanel
         }
 
         // ==================== verb: apply-m9a-instance ====================
-        // Set-M9AInstance(m9a.ps1:83)：点号字面键('Instances.LastActive')是 M9A 自己 appsettings 的形状，
+        // Set-M9AInstance(m9a.ps1:93，10-25 刀②后现读、原写 83)：点号字面键('Instances.LastActive')是 M9A 自己 appsettings 的形状，
         // Gd.Get 不做点号拆分 ⇒ 直接当字面键取，这一格与 PS 的 $cfg.'Instances.LastActive' 同效。
         // 命令行入口那枚开关(m9aCliArgs)的语义是"没写就是开着"(null ⇒ true)，与 takeover 那一路的
         // 真值判同族、与 arkAutoUpdateClick 的 `-ne $false` 又一族 —— 三族各照各的，不许统一。

@@ -5539,7 +5539,8 @@ fn drive_mark(state_dir: &str, stages: &[String], reason: &str) -> Result<String
 }
 
 /// 已搬动作 obsrec（B-1a）：观测账本进程内写，返回账本条数（Found 假 → None，不落文件）。
-/// 语义逐句照 PS 真身 Update-GdArkStageObs（lib\ark-farm.ps1）：
+/// 语义逐句照 PS 真身 Update-GdArkStageObs（lib\ark-farm.ps1，10-25 甲档刀② 已出仓；旧形＝a9dea09 帧那份，
+/// 逐字副本钉在 tools\rustcore\probe-arkdrive-rust-golden.ps1 的 child 里）：
 /// - 读账：文件不在/读不出/解析坏 → 空账；Records 缺/null → [null]（@($null) 单元素占位，实测语义：
 ///   探针 json3 把 @($null) 序列化成 [null]）；空数组摊平为空；标量按单个元素。
 /// - Dow：日期解不出 → Err（照真身 Get-Date 抛）；周日 0 → 7。

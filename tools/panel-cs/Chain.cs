@@ -78,8 +78,8 @@
 //  ③ `apply-maa-daily-config` Set-MaaDailyConfig(maa.ps1:140)：现场检查＋读盘＋递给 plan-maa-queue＋
 //                          备份／写盘／回读逐队列比 IsEnable。规则段一枚都不在这儿( Processes.cs 第 3 批)。
 //  ④ `apply-m9a-instance` Set-M9AInstance(m9a.ps1:83)：点号字面键那两格＋三句原话＋回读校验。
-//  ⑤ `update-ark-farm-ledger` Update-GdArkFarmLedger(ark-farm.ps1:157)＋Get-GdArkItemMaps(:85)＋
-//                          Read-GdArkFarmLedger(lib\ark-farm.ps1:125)：首跑按 DepotData 标定、offset 续读、记两本账、
+//  ⑤ `update-ark-farm-ledger` Update-GdArkFarmLedger(ark-farm.ps1:125)＋Get-GdArkItemMaps(:53)＋
+//                          Read-GdArkFarmLedger(lib\ark-farm.ps1:93)：首跑按 DepotData 标定、offset 续读、记两本账、
 //                          回一句总结(链体那句 `[string](Update-GdArkFarmLedger)` 要的就是 bare string)。
 //
 // 第二笔的双源登记(改一句要两侧同改；生产接线(②-d)之前 lib 那几份仍是事实源)：
@@ -97,7 +97,7 @@
 //     "M9A 实例已切到[Name](备份：leaf)"、"(M9A 在跑，交给命令行 -i 转发)"、"(已是 Name，无需改动)" ↔ lib\m9a.ps1:83-113；
 //   * "stages.json 解析失败：…"、"未能建立 MAA 关卡表，理智计划不会被校验" ↔ lib\ark-decisions.ps1:14-40；
 //     "item_index.json 解析失败：…"、ark-inventory／ark-droptable 那两句读不懂的话、
-//     首跑标定那三句、"记了 N 场掉落、入账 +P"、"N 个名字没在材料表认出来(前 3 以 / 连)" ↔ lib\ark-farm.ps1:85-248；
+//     首跑标定那三句、"记了 N 场掉落、入账 +P"、"N 个名字没在材料表认出来(前 3 以 / 连)" ↔ lib\ark-farm.ps1:53-216；
 //   * "命令不存在：File"、"timeout after Ns"、`-join ' '` 拼参数 ↔ lib\common.ps1:493-517。
 //
 // 第二笔新增的原样怪癖(照抄，不许"顺手修")：
@@ -1108,10 +1108,10 @@ namespace GdPanel
         }
 
         // ==================== verb: update-ark-farm-ledger ====================
-        // Update-GdArkFarmLedger(ark-farm.ps1:157) 整枚直答：offset 续读 → 递给已在场的 parse-ark-drop-text →
+        // Update-GdArkFarmLedger(ark-farm.ps1:125) 整枚直答：offset 续读 → 递给已在场的 parse-ark-drop-text →
         // 记 inventory／droptable 两本 → 认不出的名字留 30 条 → 回一句总结。
         // 掉落行的解析规则(剥前缀／块头／配对／拒绝表)一枚都不在这儿重写(批次 5 的 Orchestration.cs)；
-        // 材料名↔代号两张表(ark-farm.ps1:85)与关卡表同一族：现场读一次定终身，夹具档不写缓存。
+        // 材料名↔代号两张表(ark-farm.ps1:53)与关卡表同一族：现场读一次定终身，夹具档不写缓存。
         // ⚠ 原样怪癖第 12 笔：offset.path 落进 inventory.json 是**本机绝对路径**，只落盘，不进 Summary／不进回执。
 
         static Dictionary<string, object> itemMapsCache;
@@ -1133,7 +1133,7 @@ namespace GdPanel
             return itemMapsCache;
         }
 
-        // Get-GdArkItemMaps(ark-farm.ps1:85) 的解读段：PS 那侧用 `@{}` 建表 ⇒ hashtable 键**不分大小写**，
+        // Get-GdArkItemMaps(ark-farm.ps1:53) 的解读段：PS 那侧用 `@{}` 建表 ⇒ hashtable 键**不分大小写**，
         // 所以这里两张表都用 OrdinalIgnoreCase(材料名里有英文大小写混排的，按区分大小写就会认不出)。
         // "首现胜"那一格(`if (-not $n2i.ContainsKey($nm))`)同形；IdToName 是后写覆盖前写，也同形。
         static Dictionary<string, object> BuildItemMaps(object j, List<object> lines)

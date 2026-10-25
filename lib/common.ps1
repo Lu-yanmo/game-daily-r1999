@@ -681,17 +681,13 @@ function Invoke-GdTakeover {
     }
 }
 
-function Invoke-GdStep {
-    param([Parameter(Mandatory)][string]$Name, [Parameter(Mandatory)][scriptblock]$Body)
-    try {
-        $r = & $Body
-        if ($r.Status -ne 'ok') { Write-GdLog "$Name 结束状态：$($r.Status) — $($r.Detail)" -Level WARN }
-        return $r
-    } catch {
-        return @{ Status = 'error'; Detail = "$Name 异常：$($_.Exception.Message)" }
-    }
-}
-
+# Invoke-GdStep 已删(10-25 甲档摘件，docs\rust-core-plan.md §11.132)：生产面自 10-24 刀③ 起整词 0 命中；
+# 三座等值门那八发调用(probe-live-golden ⑥路 3／probe-arkskip 老侧 3／probe-m9adrive 旧侧 2，第三发在钉位
+# 那份 r1999-daily.ps1 里本就注释掉)自 10-25 补尺笔起改咬各门自带的逐字副本——三门父侧同拿钉位 97e2f6c 的
+# blob 本体 -ceq 钉住不许漂；核内等价体在 tools/rustcore/src/main.rs::ark_daily_step ⇒ **现树**再无读者。
+# ⚠ 上一版这句写的是"全仓再无读者"，那是补尺笔只看见两门时的话术：m9adrive 的钉位 blob 经 child
+#   dot-source 现树拿真身，静态文本尺与 AST 尺都读不到那一形 ⇒ 由摘件帧 32 枚红当场纠回。
+# 它体内那一发 Write-GdLog 随它出仓，本件第六列由门现量代改。
 # --- 网络：Windows PowerShell 5.1 默认不启用 TLS 1.2，走 HTTPS 前必须先打开 ---
 function Enable-GdTls12 {
     <#

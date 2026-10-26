@@ -7330,7 +7330,7 @@ fn round_answer(
         // 这里**不写任何判据**：外发那一族的真身动作在 PS 侧，转接层（B-4②）答它们。
         // ⚠ R10 时代这份名单里还有六枚（`round-history:*` 两枚／`round-probe:ark`／`round-screensaver`／
         //   `svdetail`／`round-elevate`），R9-a 把它们改成了核内直答 —— 换的是"谁来答"，
-        //   问法与落账形状逐字不动（判据在 `probe-round-rust-golden.ps1` 的 X1 那一格）。
+        //   问法与落账形状逐字不动（判据在核内 --selftest 第 28 节的 R-outer／X3 两族；round 门已退役）。
         _ => return Ok(None),
     };
     Ok(Some(out))
@@ -19857,6 +19857,1594 @@ asst-failed|ev|2|asst|10000|TaskChainError|TaskChainError|task_chain|Error|local
             }
             let _ = std::fs::remove_dir_all(&k15_root);
         }
+    }
+
+    // 27. 甲档第十六刀「probe-m9adrive 等值门整件退役(§11.153)」：门的对拍命题随 legacy 侧一起消失
+    //     (logs/calls/results/shapes 的两侧互比、C-legacy-*、H0 系列前置、m9aExe/m9aLogDir 相对原值
+    //     那半边都住在 PS executor 的取数面上 —— 随门死，只留边界)；协议与链体自己已由 §23 钉死
+    //     (23a~23n)，这里只搬门独有而全仓无处钉的 rust 侧不变量，五格：
+    //     ⑴ 三本同源的自反半边 —— journal 的 log 账行与 --log-sink 侧信道**同序同字**(门里 C-jlog 的
+    //        rust 半边，legacy 半边随门死)。两本由两条不同码路写出(drive_append_row / drive_sink_row)，
+    //        一本走 JSON 往返一本没走，字不同步当场红。
+    //     ⑵ m9aCliArgs 三态的缺省档：runtime 里**没有这枚键**时 scen.cli 必须是 None(门里 cli-absent
+    //        档的 rust 半边；§23fg 只钉了 cli=true 一态)。
+    //     ⑶ needle 正对照(门里 C-no-needle 的 rust 半边；PS executor 写 ctx 滤名册外键那一半边随门死)：
+    //        ctx.runtime 里塞一枚假 key，**记录行/侧信道/done 结果**里 0 命中 —— 名册 15 枚进核、名册外
+    //        不回声。journal 的 init 行**原样存整份 ctx** 是协议本体(main.rs run_drive_m9a_daily 的
+    //        init_row = ctx_val；换 ctx 必须起新账)，init 行豁免，其余账行出现即"整块序列化"的回声。
+    //        恒绿三形里的"哨兵"格：平时绿是常态，牙在"谁往账里多序列化了什么"那一刻。
+    //     ⑷ res 读后即删：会话收尾时 res 文件**不在场**、journal/sink 在场(门里 C-two-chains 的 rust
+    //        半边 absent=res；legacy 半边"四枚全不在场"随门死)。
+    //     ⑸ 会话正路在"ctx 缺 m9aCliArgs＋runtime 带名册外键"这两处偏离 §23 夹具时照常推到 done
+    //        (⑵⑶ 的承载：偏离本身不许坏会话)。
+    let d27 = std::env::temp_dir().join(format!("gd-m9adrive-selftest-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&d27);
+    let _ = std::fs::create_dir_all(&d27);
+    let d27s = d27.to_str().unwrap_or("").to_string();
+    let t27 = |n: &str| format!("{}\\{}", d27s, n);
+    let s27 = t27("state");
+    let _ = std::fs::create_dir_all(&s27);
+    let needle27 = "GATE-NEEDLE-VISION-0123456789abcdef";
+    // ctx 照 §23 的夹具改两处：runtime **去掉 m9aCliArgs**(⑵)＋塞一枚名册外假 key(⑶)。
+    let c27 = t27("ctx.json");
+    let _ = std::fs::write(
+        &c27,
+        format!(
+            "{{\"retry_once\":false,\"m9aRun\":{{\"paths\":{{\"m9aDir\":\"D:/M9A\",\"m9aExe\":\"M9A.exe\",\"m9aLogDir\":\"log\"}},\"conn\":{{\"adb\":\"D:/adb.exe\",\"serial\":\"127.0.0.1:7555\"}},\"instance\":{{\"id\":\"0\",\"name\":\"MuMu Android 12\"}},\"package\":\"com.example.revenuguild\",\"runtime\":{{\"m9aInstanceArg\":\"id\",\"m9aForceStart\":true,\"r1999StartTimeoutMinutes\":6,\"r1999TimeoutMinutes\":45,\"stallTimeoutMinutes\":12,\"visionMaxRescue\":3,\"gdNeedleProbe\":\"{}\"}}}}}}",
+            needle27
+        ),
+    );
+    let seen_cli27: std::cell::Cell<Option<bool>> = std::cell::Cell::new(None);
+    let mut run27 = |_sc: &M9aScen| -> Result<M9aRunOut, String> {
+        seen_cli27.set(_sc.cli);
+        Ok(M9aRunOut {
+            status: "ok".to_string(),
+            detail: "队列跑完".to_string(),
+            duration: Some(62.5),
+            rescued: false,
+        })
+    };
+    let mut dec27 = |_st: &str, _rs: bool, _ro: bool| -> Result<(bool, Vec<(String, String)>), String> {
+        Ok((false, Vec::new()))
+    };
+    let mut resp27 = |a: &str, p: &JVal| drive_m9a_selftest_respond(a, p);
+    let j27 = t27("journal.ndjson");
+    let k27 = t27("sink.ndjson");
+    let r27 = t27("res.json");
+    let (a27, _l27, kind27, res27, e27) = drive_m9a_selftest_session(&j27, &c27, &r27, &s27, &k27, &mut resp27, &mut run27, &mut dec27);
+    // ⑸ 会话照常推到 done、动作序一枚不少(run 真做、不许出现在 ask 名册)。
+    chk(
+        e27.is_none()
+            && kind27 == "done"
+            && a27
+                == vec![
+                    "updgate".to_string(),
+                    "takeover".to_string(),
+                    "mumu".to_string(),
+                    "cfg".to_string(),
+                    "stop".to_string(),
+                    "audit".to_string(),
+                ],
+        "m9adrive 门的缺省夹具跑不成会话(runtime 缺 m9aCliArgs 或带名册外键时链体坏了)：门退役后这一档没有别处看着 —— cli 缺省档是「运行时不配命令行参数」的正路，不是异常",
+        &mut fails,
+        &mut total,
+    );
+    // ⑵ cli 三态缺省档：run 闭包看到的 scen.cli 必须是 None。
+    chk(
+        seen_cli27.get().is_none(),
+        "ctx.runtime 没给 m9aCliArgs 时 scen.cli 不是 None(被供成了别的)：缺省档被解释成「带参数」或「不带参数」都会改真做那条命令行的形状，而门里 cli-absent 档钉的就是「键不存在＝开命令行入口由默认值决定」",
+        &mut fails,
+        &mut total,
+    );
+    // ⑴ 三本同源：journal 的 log 账行与 sink 侧信道同序同字(level|text 逐对)。
+    let jlog27 = |p: &str| -> Vec<String> {
+        let mut out = Vec::new();
+        for l in std::fs::read_to_string(p).unwrap_or_default().lines() {
+            if !l.contains("\"action\":\"log\"") {
+                continue;
+            }
+            if let Ok(v) = jv_parse(l) {
+                let d = jv_get(&v, "data");
+                out.push(format!("{}|{}", jv_str(&jv_get_ci(&d, "level")), jv_str(&jv_get_ci(&d, "text"))));
+            }
+        }
+        out
+    };
+    let sink27 = |p: &str| -> Vec<String> {
+        let mut out = Vec::new();
+        for l in std::fs::read_to_string(p).unwrap_or_default().lines() {
+            let l = l.trim();
+            if l.is_empty() {
+                continue;
+            }
+            if let Ok(v) = jv_parse(l) {
+                out.push(format!("{}|{}", jv_str(&jv_get_ci(&v, "level")), jv_str(&jv_get_ci(&v, "text"))));
+            }
+        }
+        out
+    };
+    let jl27 = jlog27(&j27);
+    let kl27 = sink27(&k27);
+    chk(
+        !jl27.is_empty() && jl27 == kl27,
+        "journal 的 log 账行与 --log-sink 侧信道不同序同字(或有一本空了)：两本由两条码路写出、一本走 JSON 往返一本没走 —— PS executor 按账回放话术，账与侧信道不同步就是「壳说一套、账记一套」",
+        &mut fails,
+        &mut total,
+    );
+    // ⑶ needle：假 key 只许住在 ctx 输入与 init 行(协议豁免)，记录行/侧信道/done 结果 0 命中。
+    let jrec27: String = std::fs::read_to_string(&j27)
+        .unwrap_or_default()
+        .lines()
+        .filter(|l| !l.contains("\"init\""))
+        .collect::<Vec<&str>>()
+        .join("\n");
+    let ktxt27 = std::fs::read_to_string(&k27).unwrap_or_default();
+    chk(
+        !jrec27.contains(needle27) && !ktxt27.contains(needle27) && !jv_to_json(&res27).contains(needle27),
+        "ctx.runtime 里的名册外键回声进了记录行/侧信道/done 结果：runtime 只许按 15 枚名册进核(init 行原样存 ctx 是协议本体，豁免)，整块序列化就是把 visionApiKey 一类的现值抄进账本",
+        &mut fails,
+        &mut total,
+    );
+    // ⑷ res 读后即删；journal/sink 在场(协议四件的在场性，rust 半边)。
+    chk(
+        std::fs::metadata(&r27).is_err() && std::fs::metadata(&j27).is_ok() && std::fs::metadata(&k27).is_ok(),
+        "会话收尾时协议四件的落点不对(res 该读后即删、journal/sink 该在场)：res 留盘就是给下一轮留一份已并过的回执，幂等重入的判据(23j)会把它当新账",
+        &mut fails,
+        &mut total,
+    );
+    let _ = std::fs::remove_dir_all(&d27);
+    chk(
+        !d27.exists(),
+        "m9adrive 门退役格(第 27 节)的临时目录没收干净：自检会在 %TEMP% 里留垃圾",
+        &mut fails,
+        &mut total,
+    );
+
+    // ==================== 第 28 节：round 门退役七族补尺（probe-round-rust-golden.ps1 2,125 行退役前置；§11.154 刀①） ====================
+    // 门的「对面」＝ e3dec2b 冻结 git blob 五枚 ⇒ 门里这些族随门死、本节不复立（登记边界）：
+    //   X1/X2 的 blob 半边逐字全等、R2 两喂法 journal 同源（壳代答那一跑住在 lib\rust-round.ps1 活生产件）、
+    //   R-argv 壳侧 argv 名册（panel-cs/root/core 三落点）、R1-ctx 名册（壳写的 ctx）。
+    // 本节落的七族＝核现输出对冻签名册的自证，全程进程内、不摸任何 PS 文件：
+    //   ⑴ 20 档段级句子话术（X3/X4 的 rust 半边；AdmDep 三档跑 adm/plain 两遍，IsAdmin 由假 verb 回执给）
+    //   ⑵ 段 9 折叠 X-collapse／X-nocollapse  ⑶ X-sink-superset（账行按序 ⊆ 侧信道）
+    //   ⑷ A-elev 三本账＋入程参数针泄漏面  ⑸ R3-order-hard 差集（ask 序／kind 序／done result 键集）
+    //   ⑹ R-obsdate（现采观测喂 verb 的 nowText 只许纯日期）  ⑺ 白名单冻签名册 13 枚＋seg9 六枚真出现。
+    // 夹具形状逐字照门（场景册／verb 册／ctx／entry.json／应答册 FIFO／投影／折叠），不引门文件、不引行号。
+    {
+        const S28_MSG_RUN: &str = "夹具让 Run 抛";
+        const S28_MSG_RESOLVE: &str = "夹具让 Resolve 抛";
+        const S28_MSG_GATE: &str = "夹具让门抛";
+        const S28_MSG_PREVIEW: &str = "夹具让预览抛";
+        const S28_MSG_FW: &str = "夹具让派发层炸了";
+        // R9-a 提权入参那枚唯一针（门 $ElevNeedle 逐字）：只许住在 start-elevated-round 的转交 body 里，
+        // journal／侧信道／ask 信封／done 结果一枚都不许见（A-elev-noleak）。
+        const S28_ELEV_NEEDLE: &str = "FIXTURE-ELEV-ENTRY-NEEDLE";
+        // 白名单冻签名册 13 枚（R-outer 的 B 面：lib\rust-round.ps1::Get-GdRoundOuterActs 现值的冻结；ASCII 序）。
+        const S28_ROSTER: &[&str] = &[
+            "audit",
+            "round-elevate",
+            "round-gate:ark",
+            "round-gate:r1999",
+            "round-preview:ark",
+            "round-preview:r1999",
+            "round-resolve:ark",
+            "round-resolve:r1999",
+            "round-supervisor-start",
+            "round-supervisor-stop",
+            "stop:ark",
+            "stop:r1999",
+            "updgate",
+        ];
+        // 段 9 那六枚的硬期望（门 $Seg9Want 逐字；事实源＝核内骨架的段序与链体那两枚闸，不是本节的读数）。
+        const S28_SEG9: &[&str] = &[
+            "round-supervisor-start",
+            "round-supervisor-stop",
+            "stop:ark",
+            "stop:r1999",
+            "updgate",
+            "audit",
+        ];
+
+        #[derive(Clone, Copy)]
+        struct S28Scen {
+            name: &'static str,
+            ids: &'static [&'static str],
+            gates: &'static [(&'static str, &'static str)],
+            dry_run: bool,
+            skip_cleanup: bool,
+            no_elevate: bool,
+            need_admin: bool,
+            adm_dep: bool,
+            fail_run: &'static [&'static str],
+            fail_resolve: &'static [&'static str],
+            fail_gate: &'static [&'static str],
+            fail_preview: &'static [&'static str],
+            fw_break: bool,
+            elev_code: i64,
+            relaunch_entry: bool,
+            proc_rc: i64,
+            drop_mod: &'static [&'static str],
+            missing: &'static [&'static str],
+            blank: &'static [&'static str],
+            run_status: &'static str,
+            run_detail: &'static str,
+            run_duration: i64,
+            must_have: &'static [&'static str],
+            if_admin: &'static [&'static str],
+            if_plain: &'static [&'static str],
+            must_not: &'static [&'static str],
+            x_nocollapse: &'static [&'static str],
+        }
+
+        fn s28_new(name: &'static str) -> S28Scen {
+            S28Scen {
+                name,
+                ids: &["ark"],
+                gates: &[],
+                dry_run: false,
+                skip_cleanup: false,
+                no_elevate: false,
+                need_admin: false,
+                adm_dep: false,
+                fail_run: &[],
+                fail_resolve: &[],
+                fail_gate: &[],
+                fail_preview: &[],
+                fw_break: false,
+                elev_code: 0,
+                relaunch_entry: false,
+                proc_rc: 0,
+                drop_mod: &[],
+                missing: &[],
+                blank: &[],
+                run_status: "ok",
+                run_detail: "队列跑完",
+                run_duration: 120,
+                must_have: &[],
+                if_admin: &[],
+                if_plain: &[],
+                must_not: &[],
+                x_nocollapse: &[],
+            }
+        }
+
+        fn s28_flat(t: &str) -> String {
+            t.replace('\r', "").replace('\n', "¶")
+        }
+
+        fn s28_scalar(v: &JVal) -> String {
+            match v {
+                JVal::S(s) => s.clone(),
+                JVal::I(n) => n.to_string(),
+                JVal::F(f) => {
+                    if f.fract() == 0.0 {
+                        (*f as i64).to_string()
+                    } else {
+                        f.to_string()
+                    }
+                }
+                JVal::B(b) => b.to_string(),
+                _ => "-".to_string(),
+            }
+        }
+
+        fn s28_is_date(s: &str) -> bool {
+            let b = s.as_bytes();
+            b.len() == 10
+                && b[4] == b'-'
+                && b[7] == b'-'
+                && b.iter().enumerate().all(|(i, c)| i == 4 || i == 7 || c.is_ascii_digit())
+        }
+
+        fn s28_pop(bk: &mut std::collections::HashMap<String, Vec<String>>, verb: &str) -> JVal {
+            if let Some(list) = bk.get_mut(verb) {
+                if !list.is_empty() {
+                    let t = list.remove(0);
+                    return jv_parse(&t).unwrap_or(JVal::Null);
+                }
+            }
+            JVal::Null
+        }
+
+        // 折叠尺（门 Collapse-Projection 复刻）：从 S|round-supervisor-start 起到 S|round-supervisor-stop 止，
+        // 区间内（不含两端）丢掉，但命中两句逃逸的步原样留；Z| 恒留。返回（留下的行, 折掉的步数, 因逃逸留下的步数）。
+        fn s28_collapse(lines: &[String]) -> (Vec<String>, usize, usize) {
+            let mut keep: Vec<String> = Vec::new();
+            let mut inn = false;
+            let mut n = 0usize;
+            let mut k = 0usize;
+            for l in lines {
+                if l.starts_with("Z|") {
+                    keep.push(l.clone());
+                    continue;
+                }
+                if l.starts_with("S|round-supervisor-start") {
+                    inn = true;
+                    keep.push(l.clone());
+                    continue;
+                }
+                if l.starts_with("S|round-supervisor-stop") {
+                    inn = false;
+                    keep.push(l.clone());
+                    continue;
+                }
+                if inn {
+                    if l.contains("这一路运行中抛异常") || l.contains("框架派发 Run 钩子时中断") {
+                        keep.push(l.clone());
+                        k += 1;
+                        continue;
+                    }
+                    n += 1;
+                    continue;
+                }
+                keep.push(l.clone());
+            }
+            (keep, n, k)
+        }
+
+        // 投影尺（门 Build-RustLines 复刻）：账行（含 W| 与 S| 的真序）＋假 verb body 回填＋ask params 回填。
+        // 链体内侧的格（desk/cfg/run/sleep/…）一律不进投影；崩路 fail 信封＝头部插一句 ERROR＋Z|1|。
+        fn s28_proj(
+            journal_text: &str,
+            calls: &[(String, String)],
+            params: &[(i64, JVal)],
+            env_text: &str,
+            proc_rc: i32,
+        ) -> Vec<String> {
+            let mut bk: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+            for (v, b) in calls {
+                bk.entry(v.clone()).or_default().push(b.clone());
+            }
+            let mut out: Vec<String> = Vec::new();
+            let mut done_res: Option<JVal> = None;
+            for line in journal_text.lines() {
+                let line = line.trim();
+                if line.is_empty() {
+                    continue;
+                }
+                let row = match jv_parse(line) {
+                    Ok(v) => v,
+                    Err(_) => continue,
+                };
+                if !matches!(jv_get_ci(&row, "init"), JVal::Null) {
+                    continue;
+                }
+                let dr = jv_get_ci(&row, "done");
+                if !matches!(dr, JVal::Null) {
+                    done_res = Some(dr);
+                    continue;
+                }
+                let act = jv_str(&jv_get_ci(&row, "action"));
+                let seq = jv_int(&jv_get_ci(&row, "seq"), 0);
+                let pp = |key: &str| -> String {
+                    for (s, p) in params {
+                        if *s == seq {
+                            return jv_str(&jv_get_ci(p, key));
+                        }
+                    }
+                    String::new()
+                };
+                if act == "log" {
+                    let d = jv_get_ci(&row, "data");
+                    out.push(format!(
+                        "W|{}|{}",
+                        jv_str(&jv_get_ci(&d, "level")),
+                        s28_flat(&jv_str(&jv_get_ci(&d, "text")))
+                    ));
+                    continue;
+                }
+                if act == "round-lock" {
+                    let b = s28_pop(&mut bk, "start-run-lock");
+                    out.push(format!(
+                        "S|round-lock|games={}|tag={}",
+                        jv_str(&jv_get_ci(&b, "games")),
+                        jv_str(&jv_get_ci(&b, "tag"))
+                    ));
+                    continue;
+                }
+                if act == "round-unlock" {
+                    let _ = s28_pop(&mut bk, "stop-run-lock");
+                    out.push("S|round-unlock".to_string());
+                    continue;
+                }
+                if act == "round-notice" {
+                    let b = s28_pop(&mut bk, "send-round-notice");
+                    out.push(format!(
+                        "S|round-notice|{}|{}",
+                        jv_str(&jv_get_ci(&b, "level")),
+                        s28_flat(&jv_str(&jv_get_ci(&b, "text")))
+                    ));
+                    continue;
+                }
+                if act == "round-nosleep" || act == "round-nosleep-off" {
+                    let _ = s28_pop(&mut bk, "noop");
+                    continue;
+                }
+                if act == "round-screensaver" || act == "round-select" || act == "round-env" || act == "round-admin" {
+                    continue;
+                }
+                if act.starts_with("round-probe:") {
+                    continue;
+                }
+                if act == "round-elevate" {
+                    // 提权那一格是无参外发 ⇒ 退出码只能从账上的回执取（data.Code），不能从 ask 的 params 取。
+                    let dt = jv_get_ci(&row, "data");
+                    out.push(format!("S|round-elevate|code={}", s28_scalar(&jv_get_ci(&dt, "Code"))));
+                    continue;
+                }
+                if act == "round-supervisor-start" {
+                    out.push(format!("S|round-supervisor-start|games={}", pp("games")));
+                    continue;
+                }
+                if act == "round-supervisor-stop" {
+                    out.push("S|round-supervisor-stop".to_string());
+                    continue;
+                }
+                if act.starts_with("round-gate:") {
+                    out.push(format!("S|round-gate|{}|{}", &act["round-gate:".len()..], pp("verb")));
+                    continue;
+                }
+                if act.starts_with("round-resolve:") {
+                    out.push(format!("S|round-resolve|{}", &act["round-resolve:".len()..]));
+                    continue;
+                }
+                if act.starts_with("round-preview:") {
+                    out.push(format!("S|round-preview|{}", &act["round-preview:".len()..]));
+                    continue;
+                }
+                if act.starts_with("stop:") {
+                    out.push(format!("S|stop|{}", &act["stop:".len()..]));
+                    continue;
+                }
+                if act.starts_with("round-history:") {
+                    // 直答行只有 {seq,action,data:true} ⇒ 取数面换成假 panel-cs 记下的那一发 body（六枚键）。
+                    // 七枚竖线、秒位三档（键缺／null／空串）都写 '-'，与门同一把尺。
+                    let id = &act["round-history:".len()..];
+                    let b = s28_pop(&mut bk, "append-round-history");
+                    if matches!(b, JVal::Null) {
+                        out.push(format!("S|round-history|{}|<假 panel-cs 没接到 append-round-history 的那一发>", id));
+                        continue;
+                    }
+                    let dv = jv_get_ci(&b, "durationSec");
+                    let sec = match &dv {
+                        JVal::Null => "-".to_string(),
+                        JVal::S(s) if s.is_empty() => "-".to_string(),
+                        other => s28_scalar(other),
+                    };
+                    out.push(format!(
+                        "S|round-history|{}|{}|{}|{}|{}",
+                        id,
+                        jv_str(&jv_get_ci(&b, "status")),
+                        jv_str(&jv_get_ci(&b, "mode")),
+                        s28_flat(&jv_str(&jv_get_ci(&b, "detail"))),
+                        sec
+                    ));
+                    continue;
+                }
+            }
+            if let Some(res) = done_res {
+                out.push(format!(
+                    "Z|{}|{}",
+                    s28_scalar(&jv_get_ci(&res, "code")),
+                    s28_flat(&jv_str(&jv_get_ci(&res, "summary")))
+                ));
+            } else {
+                let ev = jv_parse(env_text).ok();
+                let is_fail = ev.as_ref().map(|e| jv_str(&jv_get(e, "kind")) == "fail").unwrap_or(false);
+                if is_fail {
+                    let m = ev.map(|e| jv_str(&jv_get(&e, "error"))).unwrap_or_default();
+                    out.insert(0, format!("W|ERROR|{}", s28_flat(&m)));
+                    out.push("Z|1|".to_string());
+                } else {
+                    out.push(format!("Z|{}|-", proc_rc));
+                }
+            }
+            out
+        }
+
+        // 假 verb 册（门 Get-VerbTable 复刻；30 余臂照摆，err 注入两枚＝ark 取 desk、r1999 取 mumu）。
+        // read-screensaver-config 照门给 Found:false；disable-screensaver-for-round 照门**不给**
+        //（段 8 在这 20 档不出场，它一旦被点到就该响「册子耗尽」）。
+        fn s28_verb_reply(
+            verb: &str,
+            paths_json: &str,
+            maa_cfg: &str,
+            is_admin: bool,
+            need_admin: bool,
+            fail_ark: bool,
+            fail_r9: bool,
+            elev_code: i64,
+        ) -> Result<JVal, String> {
+            if verb == "resolve-round-context" {
+                return Ok(jv_o(vec![
+                    (
+                        "Runtime",
+                        jv_o(vec![
+                            ("blockSleep", JVal::B(false)),
+                            ("keepScreenOn", JVal::B(false)),
+                            ("retryOnce", JVal::B(false)),
+                        ]),
+                    ),
+                    (
+                        "Elevation",
+                        jv_o(vec![
+                            ("arkRequiresElevation", JVal::B(need_admin)),
+                            ("launchArkFromHelper", JVal::B(true)),
+                        ]),
+                    ),
+                    ("Paths", jv_parse(paths_json).unwrap_or(JVal::Null)),
+                    ("NowText", jv_s("2026-10-15 06:00:00")),
+                    ("IsAdmin", JVal::B(is_admin)),
+                    ("NowMs", JVal::I(1760000000000)),
+                    ("Dow", JVal::I(4)),
+                ]));
+            }
+            if verb == "ark-desktop-state" {
+                if fail_ark {
+                    return Err(S28_MSG_RUN.to_string());
+                }
+                return Ok(jv_o(vec![
+                    ("Desktop", jv_s("Default")),
+                    ("Locked", JVal::B(false)),
+                    ("LockedKnown", JVal::B(true)),
+                ]));
+            }
+            if verb == "start-mumu" {
+                if fail_r9 {
+                    return Err(S28_MSG_RUN.to_string());
+                }
+                return Ok(jv_o(vec![("Done", JVal::B(true)), ("Started", JVal::B(true))]));
+            }
+            if verb == "start-elevated-round" {
+                return Ok(jv_o(vec![
+                    ("Code", JVal::I(elev_code)),
+                    ("Carrier", jv_s("fixture")),
+                    ("BatchLine", jv_s("fixture")),
+                ]));
+            }
+            let r = match verb {
+                "takeover-processes" => jv_o(vec![
+                    ("Done", JVal::B(true)),
+                    ("Label", jv_s("方舟/MAA")),
+                    ("Stopped", JVal::A(vec![jv_s("MAA")])),
+                    ("Lines", JVal::A(vec![jv_s("夹具接管句")])),
+                ]),
+                "apply-maa-daily-config" => jv_o(vec![
+                    ("Done", JVal::B(true)),
+                    ("Path", jv_s(maa_cfg)),
+                    ("Changes", JVal::A(vec![jv_s("队列：作战 开")])),
+                    ("ExpectedChains", JVal::A(vec![jv_s("combat")])),
+                    ("Stage", jv_s("CE-5")),
+                    ("Applied", JVal::B(true)),
+                    ("Lines", JVal::A(vec![])),
+                ]),
+                "start-ark-client" => jv_o(vec![
+                    ("Done", JVal::B(true)),
+                    ("Started", JVal::B(true)),
+                    ("Lines", JVal::A(vec![jv_s("夹具端游就绪")])),
+                ]),
+                "stop-maa-and-game" => jv_o(vec![
+                    ("Done", JVal::B(true)),
+                    ("MaaClosed", JVal::I(1)),
+                    ("ArkClosed", JVal::I(0)),
+                    ("Lines", JVal::A(vec![jv_s("夹具已关 MAA")])),
+                ]),
+                "stop-process-tree" => jv_o(vec![("Done", JVal::B(true)), ("Closed", JVal::I(0))]),
+                "read-maa-fight-skip" => jv_o(vec![("Found", JVal::B(false)), ("Reason", jv_s("gui-log-missing"))]),
+                "read-maa-stage-observation" => jv_o(vec![
+                    ("Found", JVal::B(false)),
+                    ("LogsRead", JVal::B(false)),
+                    ("Reason", jv_s("no-logs")),
+                    ("Date", jv_s("2026-10-15")),
+                ]),
+                "update-ark-farm-ledger" => jv_o(vec![
+                    ("Done", JVal::B(true)),
+                    ("Summary", jv_s("夹具记账")),
+                    ("Blocks", JVal::I(2)),
+                    ("Plus", JVal::I(0)),
+                    ("Unknown", JVal::I(0)),
+                    ("Lines", JVal::A(vec![])),
+                ]),
+                "adb-connect" => jv_o(vec![("Ok", JVal::B(true))]),
+                "adb-game-pid" => jv_o(vec![("Ok", JVal::B(false)), ("Pid", JVal::I(0))]),
+                "apply-m9a-instance" => jv_o(vec![
+                    ("Done", JVal::B(true)),
+                    ("Changes", JVal::A(vec![jv_s("Instances.LastActive: a -> b")])),
+                    ("Applied", JVal::B(true)),
+                    ("Lines", JVal::A(vec![])),
+                ]),
+                "stop-m9a" => jv_o(vec![("Done", JVal::B(true)), ("M9aClosed", JVal::I(1))]),
+                "decide-daily-retry" => jv_o(vec![("Retryable", JVal::B(false)), ("Logs", JVal::A(vec![]))]),
+                "decide-ark-event-probe" => jv_o(vec![("Retry", JVal::B(false)), ("Lines", JVal::A(vec![]))]),
+                "check-ark-launcher" => jv_o(vec![("Phase", jv_s("idle")), ("Lines", JVal::A(vec![]))]),
+                "start-run-lock" => jv_o(vec![
+                    ("Wrote", JVal::B(true)),
+                    ("Pid", JVal::I(4242)),
+                    ("Started", jv_s("2026-10-15 06:00:00")),
+                    ("PrevAlive", JVal::B(false)),
+                    ("Lines", JVal::A(vec![])),
+                ]),
+                "stop-run-lock" => jv_o(vec![
+                    ("Had", JVal::B(true)),
+                    ("Removed", JVal::B(true)),
+                    ("Pid", JVal::I(4242)),
+                ]),
+                "send-round-notice" => jv_o(vec![
+                    ("Title", jv_s("-")),
+                    ("Level", jv_s("OK")),
+                    ("Time", jv_s("2026-10-15 06:20:00")),
+                    ("File", JVal::B(true)),
+                    ("FileKey", jv_s("state\\last-notice.json")),
+                    ("Webhook", jv_s("none")),
+                    ("Toast", jv_s("sent")),
+                    ("Lines", JVal::A(vec![])),
+                ]),
+                "read-task-state" => jv_o(vec![("Enabled", JVal::B(false)), ("Lines", JVal::A(vec![]))]),
+                "ark-find-window" => jv_o(vec![
+                    ("Found", JVal::B(false)),
+                    ("Hwnd", JVal::I(0)),
+                    ("Lines", JVal::A(vec![])),
+                ]),
+                "ark-window-shot" => jv_o(vec![("Ok", JVal::B(false)), ("Lines", JVal::A(vec![]))]),
+                "ark-window-click" => jv_o(vec![("Ok", JVal::B(false)), ("Lines", JVal::A(vec![]))]),
+                "ark-grab-foreground" => jv_o(vec![("Ok", JVal::B(false)), ("Lines", JVal::A(vec![]))]),
+                "vision-ask-model" => jv_o(vec![
+                    ("Ok", JVal::B(false)),
+                    ("Verdict", jv_s("unknown")),
+                    ("Lines", JVal::A(vec![])),
+                ]),
+                "mumu-screen-shot" => jv_o(vec![("Ok", JVal::B(false)), ("Lines", JVal::A(vec![]))]),
+                "mumu-screen-click" => jv_o(vec![("Ok", JVal::B(false)), ("Lines", JVal::A(vec![]))]),
+                "read-screensaver-config" => jv_o(vec![
+                    ("Found", JVal::B(false)),
+                    ("Saver", jv_s("")),
+                    ("Product", jv_s("")),
+                    ("Active", JVal::B(false)),
+                    ("TimeoutSec", JVal::I(0)),
+                ]),
+                "append-round-history" => jv_o(vec![("Written", JVal::B(true))]),
+                "update-ark-event-probe" => jv_o(vec![
+                    ("Written", JVal::B(false)),
+                    ("NoticeLevel", jv_s("")),
+                    ("NoticeText", jv_s("")),
+                ]),
+                _ => return Err(format!("§28 夹具册子没有这枚 verb：{}", verb)),
+            };
+            Ok(r)
+        }
+
+        // ---------- 场景册 20 档（门 $Scens 逐字转写；X1/M9aCliArgs/Dispatch 等门内旗标随门死不搬） ----------
+        let scens28: Vec<S28Scen> = vec![
+            S28Scen {
+                ids: &["ark", "r1999"],
+                must_have: &[
+                    "S|round-lock|games=ark+r1999|tag=gate",
+                    "S|round-supervisor-start|games=ark+r1999",
+                    "S|round-supervisor-stop",
+                    "S|stop|ark",
+                    "S|stop|r1999",
+                    "S|round-history|ark",
+                    "S|round-history|r1999",
+                    "S|round-notice",
+                    "S|round-unlock",
+                    "W|OK|=== 本轮结束：全部完成 ===",
+                    "Z|0|ark：ok 2 分钟 — 队列跑完",
+                ],
+                must_not: &["S|round-elevate", "round-screensaver"],
+                ..s28_new("both-ok")
+            },
+            S28Scen {
+                must_have: &["S|round-lock|games=ark|tag=gate", "S|round-history|ark"],
+                must_not: &["S|round-history|r1999", "r1999"],
+                ..s28_new("ark-only")
+            },
+            S28Scen {
+                blank: &["arknightsExe"],
+                must_have: &[
+                    "W|ERROR|缺失：方舟端游 → (没填)",
+                    "W|ERROR|环境不完整：见上面缺失项(可跑 setup.ps1 或改 config\\settings.json 的路径)",
+                    "Z|2|",
+                ],
+                must_not: &["S|round-lock", "S|round-notice", "S|round-resolve"],
+                ..s28_new("env-bad")
+            },
+            S28Scen {
+                dry_run: true,
+                must_have: &[
+                    "W|STEP|[dry-run] 预览将要下发的配置，不启动任何程序",
+                    "S|round-preview|ark",
+                    "W|OK|[dry-run] 完成",
+                    "Z|0|",
+                ],
+                must_not: &["S|round-lock", "S|round-supervisor-start", "S|round-notice"],
+                ..s28_new("dry-run")
+            },
+            S28Scen {
+                gates: &[("ark", "ShopDone")],
+                dry_run: true,
+                must_have: &[
+                    "S|round-gate|ark|ShopDone",
+                    "W|OK|[dry-run] 仅记录确认/领空状态，结束",
+                    "Z|0|",
+                ],
+                must_not: &["S|round-resolve", "S|round-lock"],
+                ..s28_new("gate-dry")
+            },
+            S28Scen {
+                gates: &[("ark", "Ack")],
+                must_have: &[
+                    "S|round-gate|ark|Ack",
+                    "W|INFO|状态已更新；继续执行本轮日常",
+                    "S|round-lock",
+                ],
+                ..s28_new("gate-run")
+            },
+            S28Scen {
+                no_elevate: true,
+                need_admin: true,
+                adm_dep: true,
+                if_admin: &["W|INFO|管理员权限已具备(端游/MAA 需要)", "S|round-lock"],
+                if_plain: &[
+                    "W|WARN|非管理员且指定了 -NoElevate：MAA 可能连不上端游，方舟这一路会偏脆",
+                    "S|round-lock",
+                ],
+                must_not: &["S|round-elevate"],
+                ..s28_new("noadmin-elev")
+            },
+            S28Scen {
+                need_admin: true,
+                adm_dep: true,
+                elev_code: 3,
+                if_admin: &["W|INFO|管理员权限已具备(端游/MAA 需要)", "S|round-lock"],
+                if_plain: &[
+                    "W|WARN|方舟端游要管理员权限(MAA 未提权时连不上客户端) → 以管理员身份重启本轮，请在 UAC 弹窗点「是」",
+                    "S|round-elevate|code=3",
+                    "W|WARN|提权子轮结束，退出码 3(它的日志同样写在 logs\\，不在本文件里)",
+                ],
+                ..s28_new("noadmin-run")
+            },
+            // R9-a 第六枚：同一套现场条件＋--relaunch-entry ⇒ 核那一臂直答（转交 start-elevated-round）。
+            S28Scen {
+                need_admin: true,
+                adm_dep: true,
+                elev_code: 3,
+                relaunch_entry: true,
+                if_admin: &["W|INFO|管理员权限已具备(端游/MAA 需要)", "S|round-lock"],
+                if_plain: &[
+                    "W|WARN|方舟端游要管理员权限(MAA 未提权时连不上客户端) → 以管理员身份重启本轮，请在 UAC 弹窗点「是」",
+                    "S|round-elevate|code=3",
+                    "W|WARN|提权子轮结束，退出码 3(它的日志同样写在 logs\\，不在本文件里)",
+                ],
+                ..s28_new("elev-entry")
+            },
+            S28Scen {
+                fail_resolve: &["ark"],
+                must_have: &[
+                    "W|ERROR|这一轮没跑：方舟 这一路今天判定不出来：夹具让 Resolve 抛(详情见 logs\\round.log)",
+                    "Z|2|",
+                ],
+                must_not: &["S|round-lock", "S|round-notice"],
+                ..s28_new("res-fail")
+            },
+            S28Scen {
+                ids: &["ark", "r1999"],
+                missing: &["m9a.ps1"],
+                must_have: &[
+                    "W|WARN|r1999 已注册但这一路没装(lib\\m9a.ps1 不在)，本轮跳过它",
+                    "S|round-history|ark",
+                    "S|round-lock|games=ark+r1999|tag=gate",
+                ],
+                must_not: &["S|round-history|r1999"],
+                ..s28_new("not-installed")
+            },
+            S28Scen {
+                ids: &["r1999"],
+                drop_mod: &["r1999-module.ps1"],
+                proc_rc: 1,
+                must_have: &["没有这个模块：r1999(这棵树上有：ark)", "Z|1|"],
+                must_not: &["S|round-lock"],
+                ..s28_new("unregistered")
+            },
+            S28Scen {
+                ids: &["zzz"],
+                proc_rc: 1,
+                must_have: &["没有这个模块：zzz(这棵树上有：ark / r1999)", "Z|1|"],
+                must_not: &["S|round-lock"],
+                ..s28_new("bad-id")
+            },
+            S28Scen {
+                skip_cleanup: true,
+                must_have: &["S|round-supervisor-stop", "S|round-unlock", "S|round-history|ark"],
+                must_not: &["W|STEP|--- 收尾 ---", "S|stop|ark"],
+                ..s28_new("skip-cleanup")
+            },
+            S28Scen {
+                run_status: "error",
+                run_detail: "助手报错了",
+                run_duration: 60,
+                must_have: &[
+                    "W|WARN|=== 本轮结束：存在未完成项 ===",
+                    "S|round-notice|WARN",
+                    "Z|2|ark：error 1 分钟 — 助手报错了",
+                ],
+                ..s28_new("notice-warn")
+            },
+            // ==================== 崩路五档（门 C-0 场景与 --selftest 24n 同源，这里按门册再钉一遍投影面） ====================
+            S28Scen {
+                ids: &["ark", "r1999"],
+                fail_run: &["ark"],
+                must_have: &[
+                    "W|ERROR|方舟 这一路运行中抛异常：夹具让 Run 抛",
+                    "S|round-history|ark|error|farm|运行中抛异常：夹具让 Run 抛|-",
+                    "S|round-history|r1999|ok|farm|队列跑完|120",
+                    "W|WARN|=== 本轮结束：存在未完成项 ===",
+                    "S|round-notice|WARN",
+                    "Z|1|",
+                ],
+                must_not: &["S|round-history|r1999|error"],
+                x_nocollapse: &["W|ERROR|方舟 这一路运行中抛异常：夹具让 Run 抛"],
+                ..s28_new("run-crash-one")
+            },
+            S28Scen {
+                ids: &["ark", "r1999"],
+                fail_run: &["ark", "r1999"],
+                must_have: &[
+                    "W|ERROR|方舟 这一路运行中抛异常：夹具让 Run 抛",
+                    "W|ERROR|1999 这一路运行中抛异常：夹具让 Run 抛",
+                    "S|round-history|ark|error|farm|运行中抛异常：夹具让 Run 抛|-",
+                    "S|round-history|r1999|error|farm|运行中抛异常：夹具让 Run 抛|-",
+                    "Z|2|本轮异常中断：方舟：夹具让 Run 抛；1999：夹具让 Run 抛¶ark：error — 运行中抛异常：夹具让 Run 抛¶r1999：error — 运行中抛异常：夹具让 Run 抛",
+                ],
+                must_not: &["S|round-notice|OK"],
+                x_nocollapse: &["W|ERROR|1999 这一路运行中抛异常：夹具让 Run 抛"],
+                ..s28_new("run-crash-both")
+            },
+            S28Scen {
+                ids: &["ark", "r1999"],
+                fail_run: &["ark"],
+                fw_break: true,
+                must_have: &[
+                    "W|ERROR|框架派发 Run 钩子时中断：夹具让派发层炸了",
+                    "S|round-history|ark|error|farm|这一路没有返回结果(框架派发时中断)|-",
+                    "S|round-history|r1999|error|farm|这一路没有返回结果(框架派发时中断)|-",
+                    "W|STEP|--- 收尾 ---",
+                    "S|stop|ark",
+                    "S|stop|r1999",
+                    "S|round-unlock",
+                    "Z|2|",
+                ],
+                must_not: &["运行中抛异常", "S|round-probe"],
+                x_nocollapse: &["W|ERROR|框架派发 Run 钩子时中断：夹具让派发层炸了"],
+                ..s28_new("run-framework-break")
+            },
+            S28Scen {
+                gates: &[("ark", "Ack")],
+                fail_gate: &["ark"],
+                must_have: &[
+                    "S|round-gate|ark|Ack",
+                    "W|ERROR|这一轮没跑：手动门没敲进去(ark Ack)：夹具让门抛(详情见 logs\\round.log)",
+                    "Z|2|",
+                ],
+                must_not: &["S|round-lock", "S|round-notice", "S|round-resolve"],
+                ..s28_new("gate-crash")
+            },
+            S28Scen {
+                dry_run: true,
+                fail_preview: &["ark"],
+                must_have: &[
+                    "W|STEP|[dry-run] 预览将要下发的配置，不启动任何程序",
+                    "S|round-preview|ark",
+                    "W|ERROR|这一轮没跑：方舟 的预览没做成：夹具让预览抛(详情见 logs\\round.log)",
+                    "Z|2|",
+                ],
+                must_not: &["W|OK|[dry-run] 完成", "S|round-lock", "S|round-notice"],
+                ..s28_new("preview-crash")
+            },
+        ];
+        chk(
+            scens28.len() == 20,
+            &format!("§28 场景册不是 20 档（门 $Scens 的枚数是防漂移锚）：{}", scens28.len()),
+            &mut fails,
+            &mut total,
+        );
+
+        let d28 = std::env::temp_dir().join("gd-selftest-s28-round");
+        let _ = std::fs::remove_dir_all(&d28);
+        let mut outer_seen28: Vec<String> = Vec::new();
+        let mut obs_total28 = 0usize;
+        let mut obs_bad28 = 0usize;
+        for sc in scens28.iter() {
+            // 门同款（L1656「提权状态读真的」）：每档只跑一遍；AdmDep 三档的期望句跟着**现场真实提权态**
+            // 二选一 —— 核内段 3 读的是 drive_is_admin() 真令牌（resolve-round-context 回执的 IsAdmin
+            // 一格不接，头注明说），没有夹具缝可注入，所以这里没有"adm/plain 两遍"这回事；
+            // 提权态下 A-elev 整段跳过（门 L1757：不是回归，也不许当已验）。
+            let adm = drive_is_admin();
+            let vtag = if sc.adm_dep {
+                if adm { "adm" } else { "plain" }
+            } else {
+                "one"
+            };
+            {
+                let vtag = if adm { "adm" } else { "plain" };
+                let tree = d28.join(format!("tree-{}-{}", sc.name, vtag));
+                for sub in ["lib", "logs", "state", "config", "rust", "fake\\maa", "fake\\maa\\game", "fake\\m9a", "fake\\mumu"] {
+                    let _ = std::fs::create_dir_all(tree.join(sub));
+                }
+                let w28 = |rel: &str, text: &str| {
+                    let _ = std::fs::write(tree.join(rel), text);
+                };
+                for f in ["ark-module.ps1", "r1999-module.ps1"] {
+                    if sc.drop_mod.contains(&f) {
+                        continue;
+                    }
+                    w28(&format!("lib\\{}", f), "fake\n");
+                }
+                for f in ["maa.ps1", "m9a.ps1", "mumu.ps1", "ark-daily.ps1", "r1999-daily.ps1"] {
+                    if sc.missing.contains(&f) {
+                        continue;
+                    }
+                    w28(&format!("lib\\{}", f), "fake\n");
+                }
+                let blank28 = |k: &str| sc.blank.contains(&k);
+                if !blank28("arknightsExe") {
+                    w28("fake\\Arknights.exe", "fake\n");
+                }
+                if !blank28("maaExe") {
+                    w28("fake\\maa\\MAA.exe", "fake\n");
+                }
+                if !blank28("m9aExe") {
+                    w28("fake\\m9a\\M9A.exe", "fake\n");
+                }
+                if !blank28("mumuManager") {
+                    w28("fake\\mumu\\NxMaster.exe", "fake\n");
+                }
+                if !blank28("maaConfig") {
+                    w28("fake\\maa\\game\\general.json", "fake\n");
+                }
+                if !blank28("m9aAppSettings") {
+                    w28("fake\\m9a\\appsettings.json", "fake\n");
+                }
+                w28("logs\\round.log", "");
+                w28("VERSION", "0.0.0");
+                // paths 九键（门 Get-PathsFor：Blank 只改键值）。
+                let maa_dir = if blank28("maaDir") {
+                    String::new()
+                } else {
+                    tree.join("fake\\maa").to_string_lossy().to_string()
+                };
+                let m9a_dir = if blank28("m9aDir") {
+                    String::new()
+                } else {
+                    tree.join("fake\\m9a").to_string_lossy().to_string()
+                };
+                let mumu_dir = if blank28("mumuDir") {
+                    String::new()
+                } else {
+                    tree.join("fake\\mumu").to_string_lossy().to_string()
+                };
+                let paths_jv = jv_o(vec![
+                    ("maaDir", jv_s(&maa_dir)),
+                    ("maaConfig", if blank28("maaConfig") { jv_s("") } else { jv_s("game\\general.json") }),
+                    (
+                        "arknightsExe",
+                        if blank28("arknightsExe") {
+                            jv_s("")
+                        } else {
+                            jv_s(&tree.join("fake\\Arknights.exe").to_string_lossy())
+                        },
+                    ),
+                    (
+                        "maaExe",
+                        if blank28("maaExe") {
+                            jv_s("")
+                        } else {
+                            jv_s(&tree.join("fake\\maa\\MAA.exe").to_string_lossy())
+                        },
+                    ),
+                    (
+                        "m9aDir",
+                        if blank28("m9aDir") { jv_s("") } else { jv_s(&m9a_dir) },
+                    ),
+                    (
+                        "m9aAppSettings",
+                        if blank28("m9aAppSettings") {
+                            jv_s("")
+                        } else {
+                            jv_s("appsettings.json")
+                        },
+                    ),
+                    (
+                        "mumuDir",
+                        if blank28("mumuDir") { jv_s("") } else { jv_s(&mumu_dir) },
+                    ),
+                    (
+                        "mumuManager",
+                        if blank28("mumuManager") { jv_s("") } else { jv_s("NxMaster.exe") },
+                    ),
+                    (
+                        "m9aExe",
+                        if blank28("m9aExe") {
+                            jv_s("")
+                        } else {
+                            jv_s(&tree.join("fake\\m9a\\M9A.exe").to_string_lossy())
+                        },
+                    ),
+                ]);
+                let paths_json = jv_to_json(&paths_jv);
+                let maa_cfg = format!("{}\\game\\general.json", maa_dir);
+                // ctx（门 Get-CtxJson 逐字形状：pid 4242／tag gate／logLeaf round.log／maaRun 15 键／m9aRun 全套）。
+                let state_dir = tree.join("rust\\state").to_string_lossy().to_string();
+                let ctx_jv = jv_o(vec![
+                    ("ids", JVal::A(sc.ids.iter().map(|s| jv_s(s)).collect())),
+                    (
+                        "gates",
+                        JVal::A(sc
+                            .gates
+                            .iter()
+                            .map(|(gid, gv)| jv_o(vec![("id", jv_s(gid)), ("verb", jv_s(gv))]))
+                            .collect()),
+                    ),
+                    ("opt", jv_o(vec![])),
+                    ("force", JVal::B(false)),
+                    ("dryRun", JVal::B(sc.dry_run)),
+                    ("skipCleanup", JVal::B(sc.skip_cleanup)),
+                    ("noElevate", JVal::B(sc.no_elevate)),
+                    ("nameField", jv_s("Id")),
+                    ("noticeOwner", jv_s("每日")),
+                    ("tag", jv_s("gate")),
+                    ("logLeaf", jv_s("round.log")),
+                    ("logPath", jv_s(&tree.join("logs\\round.log").to_string_lossy())),
+                    ("pid", JVal::I(4242)),
+                    (
+                        "maaRun",
+                        jv_o(vec![
+                            ("maaDir", jv_s(&maa_dir)),
+                            (
+                                "maaExe",
+                                if blank28("maaExe") {
+                                    jv_s("")
+                                } else {
+                                    jv_s(&tree.join("fake\\maa\\MAA.exe").to_string_lossy())
+                                },
+                            ),
+                            ("guiLog", jv_s(&format!("{}\\logs\\gui.log", maa_dir))),
+                            ("asstLog", jv_s("")),
+                            ("stateDir", jv_s(&state_dir)),
+                            ("maxTicks", JVal::I(2)),
+                            ("tickSeconds", JVal::I(1)),
+                            ("startTimeoutMinutes", JVal::I(1)),
+                            ("timeoutMinutes", JVal::I(1)),
+                            ("stallTimeoutMinutes", JVal::I(1)),
+                            ("retryOnce", JVal::B(false)),
+                            ("launchArkFromHelper", JVal::B(true)),
+                            ("closeGameAfter", JVal::B(false)),
+                            ("rescueAvailable", JVal::B(false)),
+                            ("grabFrontAvailable", JVal::B(false)),
+                        ]),
+                    ),
+                    (
+                        "m9aRun",
+                        jv_o(vec![
+                            (
+                                "paths",
+                                jv_o(vec![
+                                    ("m9aDir", jv_s(&m9a_dir)),
+                                    (
+                                        "m9aExe",
+                                        if blank28("m9aExe") {
+                                            jv_s("")
+                                        } else {
+                                            jv_s(&tree.join("fake\\m9a\\M9A.exe").to_string_lossy())
+                                        },
+                                    ),
+                                    ("m9aLogDir", jv_s("logs")),
+                                ]),
+                            ),
+                            ("conn", jv_o(vec![("adb", jv_s("")), ("serial", jv_s(""))])),
+                            ("instance", jv_o(vec![("id", jv_s("1")), ("name", jv_s("1999"))])),
+                            ("package", jv_s("com.paz.wm")),
+                            (
+                                "runtime",
+                                jv_o(vec![
+                                    ("m9aInstanceArg", jv_s("name")),
+                                    ("m9aForceStart", JVal::B(false)),
+                                    ("visionMaxRescue", JVal::I(0)),
+                                    ("r1999StartTimeoutMinutes", JVal::I(1)),
+                                    ("r1999TimeoutMinutes", JVal::I(1)),
+                                    ("stallTimeoutMinutes", JVal::I(1)),
+                                ]),
+                            ),
+                        ]),
+                    ),
+                ]);
+                let jf28 = tree.join("rust\\journal.ndjson").to_string_lossy().to_string();
+                let rf28 = tree.join("rust\\res.json").to_string_lossy().to_string();
+                let kf28 = tree.join("rust\\sink.ndjson").to_string_lossy().to_string();
+                let cf28 = tree.join("rust\\ctx.json").to_string_lossy().to_string();
+                let sf28 = tree.join("rust\\state").to_string_lossy().to_string();
+                let root28 = tree.to_string_lossy().to_string();
+                let _ = std::fs::write(&cf28, jv_to_json(&ctx_jv));
+                // R9-a 提权入参：--relaunch-entry 那一枚只活在这一轮内存里的文件（针放 ArgList 末位，
+                // Script 的值本来就是树内路径分不清来路——理由见门的头注）。
+                let rel28 = if sc.relaunch_entry {
+                    let ep = tree.join("rust\\entry.json");
+                    let _ = std::fs::write(
+                        &ep,
+                        jv_to_json(&jv_o(vec![
+                            ("Script", jv_s(&tree.join("lib\\daily-clear.ps1").to_string_lossy())),
+                            (
+                                "ArgList",
+                                JVal::A(vec![
+                                    jv_s("-NoProfile"),
+                                    jv_s("-ExecutionPolicy"),
+                                    jv_s("Bypass"),
+                                    jv_s("-File"),
+                                    jv_s("daily-clear.ps1"),
+                                    jv_s("-NoElevate"),
+                                    jv_s(S28_ELEV_NEEDLE),
+                                ]),
+                            ),
+                        ])),
+                    );
+                    ep.to_string_lossy().to_string()
+                } else {
+                    String::new()
+                };
+                // 外发格应答册（门 Get-AskTable 逐字；同名 FIFO 同一条纪律：round-gate/preview/stop 真身不读返回值 ⇒ 交 true）。
+                let mut ask_tbl: Vec<(String, bool, JVal)> = Vec::new();
+                for (gid, _gv) in sc.gates.iter() {
+                    let bad = sc.fail_gate.contains(gid);
+                    ask_tbl.push((
+                        format!("round-gate:{}", gid),
+                        bad,
+                        if bad { jv_s(S28_MSG_GATE) } else { JVal::B(true) },
+                    ));
+                }
+                let ark_bad = sc.fail_resolve.contains(&"ark");
+                ask_tbl.push((
+                    "round-resolve:ark".to_string(),
+                    ark_bad,
+                    if ark_bad {
+                        jv_s(S28_MSG_RESOLVE)
+                    } else {
+                        jv_o(vec![
+                            ("Mode", jv_s("farm")),
+                            ("ClearSanity", JVal::B(true)),
+                            ("Stage", jv_s("CE-5")),
+                            ("Farm", JVal::Null),
+                            ("FarmMode", jv_s("")),
+                        ])
+                    },
+                ));
+                let ark_prev_bad = sc.fail_preview.contains(&"ark");
+                ask_tbl.push((
+                    "round-preview:ark".to_string(),
+                    ark_prev_bad,
+                    if ark_prev_bad { jv_s(S28_MSG_PREVIEW) } else { JVal::B(true) },
+                ));
+                ask_tbl.push(("stop:ark".to_string(), false, JVal::B(true)));
+                let r9_bad = sc.fail_resolve.contains(&"r1999");
+                ask_tbl.push((
+                    "round-resolve:r1999".to_string(),
+                    r9_bad,
+                    if r9_bad {
+                        jv_s(S28_MSG_RESOLVE)
+                    } else {
+                        jv_o(vec![
+                            ("Mode", jv_s("farm")),
+                            ("ClearSanity", JVal::B(false)),
+                            ("Stage", jv_s("CE-5")),
+                            ("Farm", JVal::Null),
+                            ("FarmMode", jv_s("")),
+                        ])
+                    },
+                ));
+                let r9_prev_bad = sc.fail_preview.contains(&"r1999");
+                ask_tbl.push((
+                    "round-preview:r1999".to_string(),
+                    r9_prev_bad,
+                    if r9_prev_bad { jv_s(S28_MSG_PREVIEW) } else { JVal::B(true) },
+                ));
+                ask_tbl.push(("stop:r1999".to_string(), false, JVal::B(true)));
+                ask_tbl.push((
+                    "round-supervisor-start".to_string(),
+                    false,
+                    jv_o(vec![("Available", JVal::B(true)), ("Err", jv_s(""))]),
+                ));
+                ask_tbl.push((
+                    "round-supervisor-stop".to_string(),
+                    false,
+                    jv_o(vec![("Available", JVal::B(true)), ("Err", jv_s(""))]),
+                ));
+                ask_tbl.push(("round-elevate".to_string(), false, jv_o(vec![("Code", JVal::I(sc.elev_code))])));
+                ask_tbl.push(("updgate".to_string(), false, jv_o(vec![("Done", JVal::B(true))])));
+                ask_tbl.push(("audit".to_string(), false, jv_o(vec![("Done", JVal::B(true))])));
+                // 假 verb 册闭包（逐次调用记 body，回执走 s28_verb_reply）。
+                let calls_cell = std::rc::Rc::new(std::cell::RefCell::new(Vec::<(String, String)>::new()));
+                let calls_fx = calls_cell.clone();
+                let paths_json_c = paths_json.clone();
+                let maa_cfg_c = maa_cfg.clone();
+                let sc_need = sc.need_admin;
+                let sc_elev = sc.elev_code;
+                let fail_ark = sc.fail_run.contains(&"ark");
+                let fail_r9 = sc.fail_run.contains(&"r1999");
+                let mut call28 = move |v: &str, b: &JVal| -> Result<JVal, String> {
+                    calls_fx.borrow_mut().push((v.to_string(), jv_to_json(b)));
+                    s28_verb_reply(v, &paths_json_c, &maa_cfg_c, adm, sc_need, fail_ark, fail_r9, sc_elev)
+                };
+                let st28a = sc.run_status.to_string();
+                let dt28a = sc.run_detail.to_string();
+                let du28a = sc.run_duration as f64;
+                let st28b = st28a.clone();
+                let dt28b = dt28a.clone();
+                let du28b = du28a;
+                let mut run28 = move |_s: &MaaScen, _ch: &[String]| -> Result<ArkRunOut, String> {
+                    Ok(ArkRunOut { status: st28a.clone(), detail: dt28a.clone(), duration: Some(du28a) })
+                };
+                let mut run928 = move |_s: &M9aScen| -> Result<M9aRunOut, String> {
+                    Ok(M9aRunOut {
+                        status: st28b.clone(),
+                        detail: dt28b.clone(),
+                        duration: Some(du28b),
+                        rescued: false,
+                    })
+                };
+                let fw28: &str = if sc.fw_break { S28_MSG_FW } else { "" };
+                // 驱动循环（门 Invoke-RustSide 同形：一轮一驱动→读信封→ask 就替它办→写 res→再入）。
+                let mut kinds28v: Vec<String> = Vec::new();
+                let mut asked28v: Vec<String> = Vec::new();
+                let mut params28v: Vec<(i64, JVal)> = Vec::new();
+                let mut env28 = String::new();
+                let mut rc28 = 9i32;
+                let mut rounds28 = 0usize;
+                for _ in 0..120 {
+                    rounds28 += 1;
+                    let pair = {
+                        let mut nap28 = |_s: u32| {};
+                        let mut es28 = |_f: u32| -> u32 { 1 };
+                        let mut hk28 = RoundHooks { call: &mut call28, nap: &mut nap28, es: &mut es28 };
+                        let mut dec28 =
+                            |_st: &str, _ro: bool| -> Result<(bool, Vec<(String, String)>), String> { Ok((false, Vec::new())) };
+                        let mut dec928 = |_st: &str, _rs: bool, _ro: bool| -> Result<(bool, Vec<(String, String)>), String> {
+                            Ok((false, Vec::new()))
+                        };
+                        drive_round_daily_envelope(
+                            true, &jf28, &cf28, &rf28, "unused-panel-cs", &sf28, &kf28, &root28, fw28, &rel28, &mut hk28,
+                            &mut dec28, &mut dec928, &mut run28, &mut run928,
+                        )
+                    };
+                    rc28 = pair.0;
+                    env28 = pair.1;
+                    let ev28 = jv_parse(&env28).unwrap_or(JVal::Null);
+                    let kind28 = jv_str(&jv_get(&ev28, "kind"));
+                    if kind28 != "ask" {
+                        kinds28v.push(kind28);
+                        break;
+                    }
+                    kinds28v.push("ask".to_string());
+                    let act28 = jv_str(&jv_get(&ev28, "action"));
+                    let seq28 = jv_int(&jv_get(&ev28, "seq"), 0);
+                    asked28v.push(act28.clone());
+                    params28v.push((seq28, jv_get(&ev28, "params")));
+                    let ix28 = match ask_tbl.iter().position(|(k, _, _)| *k == act28) {
+                        Some(i) => i,
+                        None => break, // 外发的那一格不在应答册里 ⇒ sanity 那格会红
+                    };
+                    let (_, err28, payload28) = ask_tbl.remove(ix28);
+                    let row28 = if err28 {
+                        jv_o(vec![
+                            ("seq", JVal::I(seq28)),
+                            ("action", jv_s(&act28)),
+                            ("ok", JVal::B(false)),
+                            ("err", payload28),
+                        ])
+                    } else {
+                        jv_o(vec![
+                            ("seq", JVal::I(seq28)),
+                            ("action", jv_s(&act28)),
+                            ("ok", JVal::B(true)),
+                            ("data", payload28),
+                        ])
+                    };
+                    let _ = std::fs::write(&rf28, jv_to_json(&row28));
+                }
+                let calls28v = calls_cell.borrow().clone();
+                let journal28 = std::fs::read_to_string(&jf28).unwrap_or_default();
+                let sink28 = std::fs::read_to_string(&kf28).unwrap_or_default();
+                let proj28 = s28_proj(&journal28, &calls28v, &params28v, &env28, rc28);
+                let (col28, ncol28, nkept28) = s28_collapse(&proj28);
+                let body28 = col28.join("\n");
+                let last28 = kinds28v.last().map(|s| s.as_str()).unwrap_or("");
+                chk(
+                    (last28 == "done" || last28 == "fail") && rounds28 < 120,
+                    &format!(
+                        "§28 {}({}) 没推到终局(kind={} 轮数={} rc={})：夹具或驱动序断了",
+                        sc.name, vtag, last28, rounds28, rc28
+                    ),
+                    &mut fails,
+                    &mut total,
+                );
+                chk(
+                    rc28 == sc.proc_rc as i32,
+                    &format!("§28 X2 {}({})：进程 rc={} 期望={}", sc.name, vtag, rc28, sc.proc_rc),
+                    &mut fails,
+                    &mut total,
+                );
+                let mh28: &[&str] = if sc.adm_dep {
+                    if adm {
+                        sc.if_admin
+                    } else {
+                        sc.if_plain
+                    }
+                } else {
+                    sc.must_have
+                };
+                let mut miss28: Vec<&str> = Vec::new();
+                for m in mh28 {
+                    if !body28.contains(m) {
+                        miss28.push(m);
+                    }
+                }
+                chk(
+                    miss28.is_empty(),
+                    &format!(
+                        "§28 X3 {}({}) 缺句：{}｜投影头={}",
+                        sc.name,
+                        vtag,
+                        miss28.join(" ⏐ "),
+                        body28.chars().take(600).collect::<String>()
+                    ),
+                    &mut fails,
+                    &mut total,
+                );
+                let mut hitnot28: Vec<&str> = Vec::new();
+                for m in sc.must_not {
+                    if body28.contains(m) {
+                        hitnot28.push(m);
+                    }
+                }
+                chk(
+                    hitnot28.is_empty(),
+                    &format!("§28 X4 {}({}) 不许出现的句子出现了：{}", sc.name, vtag, hitnot28.join(" ⏐ ")),
+                    &mut fails,
+                    &mut total,
+                );
+                for nc in sc.x_nocollapse {
+                    chk(
+                        body28.contains(nc) && nkept28 > 0,
+                        &format!(
+                            "§28 X-nocollapse {}({}) 针={} 看得见={} 留={}：崩路账不许被段 9 折叠吃掉",
+                            sc.name, vtag, nc, body28.contains(nc), nkept28
+                        ),
+                        &mut fails,
+                        &mut total,
+                    );
+                }
+                if sc.name == "both-ok" {
+                    chk(
+                        ncol28 > 0 && body28.contains("S|round-supervisor-start") && body28.contains("S|round-supervisor-stop"),
+                        &format!(
+                            "§28 X-collapse：折={} 两端锚={}/{}(区间里一步都没有 = 链体根本没出场，这一档是假绿)",
+                            ncol28,
+                            body28.contains("S|round-supervisor-start"),
+                            body28.contains("S|round-supervisor-stop")
+                        ),
+                        &mut fails,
+                        &mut total,
+                    );
+                    // 两本日志账的同源判据：账上的 log 行必须按同一顺序全部出现在侧信道里（侧信道可以多）。
+                    let mut jlog28: Vec<(String, String)> = Vec::new();
+                    for line in journal28.lines() {
+                        let line = line.trim();
+                        if line.is_empty() {
+                            continue;
+                        }
+                        if let Ok(o) = jv_parse(line) {
+                            if jv_str(&jv_get_ci(&o, "action")) == "log" {
+                                let d = jv_get_ci(&o, "data");
+                                jlog28.push((jv_str(&jv_get_ci(&d, "level")), jv_str(&jv_get_ci(&d, "text"))));
+                            }
+                        }
+                    }
+                    let mut slog28: Vec<(String, String)> = Vec::new();
+                    for line in sink28.lines() {
+                        let line = line.trim();
+                        if line.is_empty() {
+                            continue;
+                        }
+                        if let Ok(o) = jv_parse(line) {
+                            slog28.push((jv_str(&jv_get_ci(&o, "level")), jv_str(&jv_get_ci(&o, "text"))));
+                        }
+                    }
+                    let mut k28 = 0usize;
+                    let mut bad28 = String::new();
+                    for one in &jlog28 {
+                        let mut found = false;
+                        while k28 < slog28.len() {
+                            if slog28[k28] == *one {
+                                found = true;
+                                k28 += 1;
+                                break;
+                            }
+                            k28 += 1;
+                        }
+                        if !found {
+                            bad28 = format!("账上这一行在侧信道里找不到(或次序不同)：{}|{}", one.0, one.1);
+                            break;
+                        }
+                    }
+                    chk(
+                        bad28.is_empty() && slog28.len() >= jlog28.len(),
+                        &format!("§28 X-sink-superset：{} 账={} 侧={}", bad28, jlog28.len(), slog28.len()),
+                        &mut fails,
+                        &mut total,
+                    );
+                }
+                // R-outer：核问出去的每一枚动作，必须当场能在白名单（冻签名册＋本档门格）里找到。
+                let mut unk28: Vec<String> = Vec::new();
+                for a in &asked28v {
+                    let ok = S28_ROSTER.contains(&a.as_str())
+                        || sc.gates.iter().any(|(gid, _)| format!("round-gate:{}", gid) == *a);
+                    if !ok {
+                        unk28.push(a.clone());
+                    }
+                }
+                outer_seen28.extend(asked28v.iter().cloned());
+                chk(
+                    unk28.is_empty(),
+                    &format!(
+                        "§28 R-outer {}({})：核问出去而白名单不认识：{} 问出={}",
+                        sc.name,
+                        vtag,
+                        unk28.join(","),
+                        asked28v.join(",")
+                    ),
+                    &mut fails,
+                    &mut total,
+                );
+                // R-obsdate：现采观测喂 verb 的 nowText 只许纯日期（判据长在 body 里那枚值上）。
+                let mut obs_bad_now = 0usize;
+                let mut obs_cnt_now = 0usize;
+                for (v, b) in &calls28v {
+                    if v == "read-maa-stage-observation" {
+                        obs_cnt_now += 1;
+                        match jv_parse(b) {
+                            Ok(o) => {
+                                let nt = jv_str(&jv_get_ci(&o, "nowText"));
+                                if !s28_is_date(&nt) {
+                                    obs_bad_now += 1;
+                                }
+                            }
+                            Err(_) => obs_bad_now += 1,
+                        }
+                    }
+                }
+                obs_total28 += obs_cnt_now;
+                obs_bad28 += obs_bad_now;
+                chk(
+                    obs_bad_now == 0,
+                    &format!(
+                        "§28 R-obsdate {}({})：nowText 带了钟点(坏={}/本档调用={})",
+                        sc.name, vtag, obs_bad_now, obs_cnt_now
+                    ),
+                    &mut fails,
+                    &mut total,
+                );
+                // A-elev 三本账（只 plain 变体有读数；adm 变体段 7 走不到提权那一发）。
+                if sc.need_admin && !sc.no_elevate && !adm {
+                    let asked_e = asked28v.iter().filter(|a| *a == "round-elevate").count();
+                    let called_e = calls28v.iter().filter(|(v, _)| v == "start-elevated-round").count();
+                    let row_e = proj28.iter().filter(|l| l.starts_with("S|round-elevate|code=")).count();
+                    if sc.relaunch_entry {
+                        chk(
+                            asked_e == 0 && called_e == 1 && row_e == 1,
+                            &format!(
+                                "§28 A-elev-direct {}：给了 --relaunch-entry 的直答档(要 ask=0／转交=1／账=1)：ask={} 转交={} 账={}",
+                                sc.name, asked_e, called_e, row_e
+                            ),
+                            &mut fails,
+                            &mut total,
+                        );
+                        let needle_in = calls28v.iter().filter(|(_, b)| b.contains(S28_ELEV_NEEDLE)).count();
+                        let mut blob28 = journal28.clone();
+                        blob28.push('\n');
+                        blob28.push_str(&sink28);
+                        blob28.push('\n');
+                        blob28.push_str(&env28);
+                        for (_, p) in &params28v {
+                            blob28.push_str(&jv_to_json(p));
+                        }
+                        let mut leak28: Vec<&str> = Vec::new();
+                        for nd in [S28_ELEV_NEEDLE, "entry.json"] {
+                            if blob28.contains(nd) {
+                                leak28.push(nd);
+                            }
+                        }
+                        chk(
+                            needle_in >= 1 && leak28.is_empty(),
+                            &format!(
+                                "§28 A-elev-noleak {}：针在转交 body 里={} 次(要 ≥1，0＝这一格没接线上)；账上出现的针={} (必须为空)",
+                                sc.name,
+                                needle_in,
+                                leak28.join(",")
+                            ),
+                            &mut fails,
+                            &mut total,
+                        );
+                    } else {
+                        chk(
+                            asked_e == 1 && called_e == 0 && row_e == 1,
+                            &format!(
+                                "§28 A-elev-outer {}：没给入参的回落档(要 ask=1／转交=0／账=1)：ask={} 转交={} 账={}",
+                                sc.name, asked_e, called_e, row_e
+                            ),
+                            &mut fails,
+                            &mut total,
+                        );
+                    }
+                }
+                // R3-order-hard：动作名序＋kind 序＋done result 键集（dry-run／gate-dry 两档硬期望）。
+                if sc.name == "dry-run" || sc.name == "gate-dry" {
+                    let (want_a, want_k): (&[&str], &[&str]) = if sc.name == "dry-run" {
+                        (
+                            &["round-resolve:ark", "round-preview:ark"],
+                            &["ask", "ask", "done"],
+                        )
+                    } else {
+                        (&["round-gate:ark"], &["ask", "done"])
+                    };
+                    let got_a: Vec<&str> = asked28v.iter().map(|s| s.as_str()).collect();
+                    let got_k: Vec<&str> = kinds28v.iter().map(|s| s.as_str()).collect();
+                    let mut res_keys28: Vec<String> = match jv_get(&jv_parse(&env28).unwrap_or(JVal::Null), "result") {
+                        JVal::O(kv) => {
+                            let mut ks: Vec<String> = kv.iter().map(|(k, _)| k.clone()).collect();
+                            ks.sort();
+                            ks
+                        }
+                        _ => Vec::new(),
+                    };
+                    res_keys28.sort();
+                    chk(
+                        got_a == want_a && got_k == want_k && res_keys28.join(",") == "allOk,code,reachedSummary,summary",
+                        &format!(
+                            "§28 R3-order-hard {}：ask 序={:?} kind 序={:?} done result 键集={:?}(硬期望 ask={:?} kind={:?} 键集=allOk,code,reachedSummary,summary)",
+                            sc.name, got_a, got_k, res_keys28, want_a, want_k
+                        ),
+                        &mut fails,
+                        &mut total,
+                    );
+                }
+            }
+        }
+        // R-outer-seg9：段 9 那六枚必须真在 ask 序里出现过 ⇒ 否则 A⊆B 是空集恒绿。
+        chk(
+            S28_SEG9.iter().all(|s| outer_seen28.iter().any(|a| a == s)),
+            &format!(
+                "§28 R-outer-seg9：段 9 那六枚没真被问出去过，缺={}",
+                S28_SEG9
+                    .iter()
+                    .filter(|s| !outer_seen28.iter().any(|a| a == *s))
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(",")
+            ),
+            &mut fails,
+            &mut total,
+        );
+        // R-obsdate-seen：整节至少真调到过一次现采观测（空集分档：没调到不许算验过）。
+        chk(
+            obs_total28 >= 1 && obs_bad28 == 0,
+            &format!("§28 R-obsdate-seen：现采观测整节要真调到过(本节调用={} 次、坏={} 枚)", obs_total28, obs_bad28),
+            &mut fails,
+            &mut total,
+        );
+        let _ = std::fs::remove_dir_all(&d28);
+        chk(
+            !d28.exists(),
+            "§28 round 门退役格的临时目录没收干净：自检会在 %TEMP% 里留垃圾",
+            &mut fails,
+            &mut total,
+        );
     }
 
     if fails.is_empty() {

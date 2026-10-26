@@ -303,6 +303,11 @@ Check '审计工具只问不点：点击通道一个字都不许出现' (($r1999
 # (adb server 列表为空时 -s 序列号直接 device not found)、序列化拿不到时有界轮询而不是当场判死。
 Check '审计工具自己保虚拟机在场：起 VM、只有我们起的才关回去(对称还原)' (($r1999Audit -match 'Start-GdMuMu') -and ($r1999Audit -match 'Stop-GdMuMu') -and ($r1999Audit -match 'weBootedVm'))
 Check '审计工具拿到落点先 Connect-GdAdb 再走 -s(实锤 09-30 19:20 空列表 device not found)' ($r1999Audit -match 'Connect-GdAdb')
+# 2026-10-27 第十六刀：probe-m9adrive 等值门整件退役，门里 C-ps-whitelist 那格咬现树 executor 的三个字面，
+# 判据原样落到这里(与 [t16] 既有静态锚同形状)。三条都是从门里逐字搬的口径：白名单七枚、'run' case 不许复活、role 字面。
+Check 'PS executor 的 ask 白名单仍是七枚(与核内 DriveFx 动作名逐字同源，改一侧必改另一侧)' ($r1999Daily.Contains("@('updgate', 'takeover', 'mumu', 'cfg', 'sleep', 'stop', 'audit')"))
+Check "executor 里没有复活 'run' case(双删是回归抓器：run 是这一路唯一的真做动作，在核内)" (-not $r1999Daily.Contains("'run' {"))
+Check '信封 role 校验那枚字面仍在(executor 认账本是谁的)' ($r1999Daily.Contains('B2d-drive-m9a-daily'))
 
 Write-Host "`n[t17] 单任务识别失败 / 版本落后 / 连不上模拟器 —— 09-25 19:24 那一轮的复盘"
 <#

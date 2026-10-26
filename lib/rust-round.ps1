@@ -451,7 +451,7 @@ function Invoke-GdDailyRoundRust {
                         #      `svdetail`／`round-screensaver` 五枚改由核内直答(答的仍是 panel-cs 那四枚 verb)，
                         #      这里的臂与名册同批摘除。⚠ **一次删两侧**：main.rs 的 `round_answer` 若还答 None
                         #      而这里删了臂，那一发 ask 会走"收到不认识的动作"拒跑 ⇒ 整轮没跑(2)。
-                        #      这条对账由 `probe-round-rust-golden.ps1` 的应答册钉着，不靠人记得。
+                        #      这条对账由核内 --selftest 第 28 节的 R-outer 白名单格钉着（round 门已退役），不靠人记得。
                         'stop:ark' {
                             Invoke-GdModuleHook -Module (Get-GdModule -Id 'ark') -Hook Stop -Params @{ S = $S }
                             $data = $true

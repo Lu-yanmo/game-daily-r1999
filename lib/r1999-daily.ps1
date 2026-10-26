@@ -28,8 +28,8 @@
 # ── 追加冻结(2026-10-12，换宿主 B-2d④「r1999 链体进核＋PS 侧 executor」)───────────
 # Start-GdR1999Daily 自此是**调度器**；10-24 兜底撤除批 刀② 起这一路**只剩一条路** = Invoke-GdR1999DailyRust
 # 起内置件 gdcore.exe 走 --drive-m9a-daily 的问-答-重放，PS 回退臂 Invoke-GdR1999DailyLegacy 整段出仓
-# (原身逐字仍活在钉位 blob `6157448:lib/r1999-daily.ps1` 里，由 probe-m9adrive 的 legacy 侧从 blob 解包来拍
-#  —— 上面批次 5/批次 8 那两段冻结自此只对"对面在钉位、不在现树"成立)。链体(八格动作的顺序/Level/话术/
+# (原身逐字只活在 git 对象库那一枚 blob `6157448:lib/r1999-daily.ps1` 里；曾经从它解包来拍等值的
+#  probe-m9adrive 门已随 10-27 第十六刀整件退役，等值面搬进 gdprobe --selftest 第 27 节 —— 上面批次 5/批次 8 那两段冻结自此只对"对面在钉位、不在现树"成立)。链体(八格动作的顺序/Level/话术/
 # 异常边界)与 run 真做住在 tools\rustcore\src\main.rs 的 r1999_daily_chain；**这一档的契约号随批次逐次升，
 # 本行不钉死它** —— 现值只由 lib\common.ps1 的 Get-GdRustContract 一处理，落冻结段里写死一枚数字就是
 # 双源事实(本仓已为此改过三次口)；执行器只剩现场七格
@@ -39,7 +39,7 @@
 # ⚠ 那把"更新器件名首现早于接管函数名首现"的行序锚(test-r1999)自此钉在下面 executor 的 updgate 与
 #   takeover 两枚动作上 —— 两枚仍在同一枚文件里、 updgate 仍在前，顺序没动才绿；谁要把 executor 那节
 #   拆到别的文件，先动那把锚，别让它静默失效。
-# 改链体/话术/名册请改 main.rs 并复拍 B-2d⑤ 那枚等值门(probe-m9adrive-rust-golden.ps1，⑤ 立)，不要在这里加 if。
+# 改链体/话术/名册请改 main.rs 并复拍 gdprobe --selftest(第 23 节钉协议与链体、第 27 节是 m9adrive 门退役后搬进来的等值面增量)，不要在这里加 if。
 # ──────────────────────────────────────────────────────────────────────────────
 
 function Set-GdR1999Ack {
@@ -99,8 +99,8 @@ function Show-GdR1999Preview {
 
 # ===== 兜底撤除批 刀②(2026-10-24)：调度器只剩一条路 = 直连核内驱动档 executor =====
 # B-2d④(2026-10-12)立的那段 PS 回退臂 Invoke-GdR1999DailyLegacy 已整段出仓：旧形逐字仍活在钉位 blob
-# `6157448:lib/r1999-daily.ps1` 里，probe-m9adrive 的 legacy 侧从那一枚解包来拍等值，"两边同链"的
-# 空转由 刀① 立的 C-legacy-from-pin / C-rust-from-live / C-sources-distinct 三格看着。
+# `6157448:lib/r1999-daily.ps1` 里；曾经从那一枚解包来拍等值的 probe-m9adrive 门已随 10-27 第十六刀整件退役
+# (等值面搬进 gdprobe --selftest 第 27 节，"两边同链"的空转由取源三格看着的那一页账随门走)，
 # 同名入口 Start-GdR1999Daily 自此只调 Invoke-GdR1999DailyRust：起内置件 gdcore.exe 走换头重入协议
 # (驱动档 --drive-m9a-daily：问-答-重放)。内置件不在场就当轮抛错(话术见那枚函数)，不再退回 PS 重跑
 # —— 这是"不需要兜底了"的决定，不是疏漏；改协议先改 main.rs 再复拍门，不要在这里加规则。

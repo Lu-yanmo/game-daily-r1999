@@ -139,14 +139,28 @@ Show-GdCommonTailChecks
 
 Write-Host "`n[t12] M9A 命令行脚本化入口 + 结果判定"
 $inst12 = [pscustomobject]@{ Id = 'deadbeef'; Name = '日常-长草' }
-$a1 = @(Get-M9ALaunchArgs -Instance $inst12 -Mode 'id')
+# ⚠ 10-26 甲档第五刀刀① 换桌：下面四格原先真调现树 lib\m9a.ps1 的转发壳 Get-M9ALaunchArgs，而那枚壳生产面零调用
+#   (拼装本体在 tools\panel-cs\Processes.cs 的 verb m9a-launch-args)、本批起出仓。四格判据一字未动，只换取法：
+#   套件按壳原先递进信封的那五键(cliArgs/mode/id/name/forceStart，顺序也照它)直调 Invoke-GdCli ⇒ 拍的仍是那张桌。
+function Get-GdM9ALaunchArgsFromDesk {
+    param($Instance, [string]$Mode = 'id', [bool]$ForceStart = $true, [bool]$CliArgs = $true)
+    $d = Invoke-GdCli -Verb 'm9a-launch-args' -Body ([pscustomobject]@{
+        cliArgs    = [bool]$CliArgs
+        mode       = $Mode
+        id         = [string]$Instance.Id
+        name       = [string]$Instance.Name
+        forceStart = [bool]$ForceStart
+    })
+    return @(foreach ($a in @($d.Args)) { [string]$a })
+}
+$a1 = @(Get-GdM9ALaunchArgsFromDesk -Instance $inst12 -Mode 'id')
 Check '命令行入口用长参数(--instance/--autostart/…)' (($a1 -join ' ') -eq '--instance deadbeef --autostart --quit-after-run --force-start') ($a1 -join ' ')
 Check '绝不使用短参数(-a/-i/-q/-f 实测不可靠)' (-not ($a1 -contains '-a') -and -not ($a1 -contains '-i') -and -not ($a1 -contains '-q') -and -not ($a1 -contains '-f'))
-$a2 = @(Get-M9ALaunchArgs -Instance $inst12 -Mode 'name')
+$a2 = @(Get-GdM9ALaunchArgsFromDesk -Instance $inst12 -Mode 'name')
 Check '--instance 也能按实例中文名传' (($a2 -join ' ') -eq '--instance 日常-长草 --autostart --quit-after-run --force-start') ($a2 -join ' ')
-$a3 = @(Get-M9ALaunchArgs -Instance $inst12 -Mode 'id' -ForceStart $false)
+$a3 = @(Get-GdM9ALaunchArgsFromDesk -Instance $inst12 -Mode 'id' -ForceStart $false)
 Check '关掉 force-start 时只留三项' (($a3 -join ' ') -eq '--instance deadbeef --autostart --quit-after-run') ($a3 -join ' ')
-$a4 = @(Get-M9ALaunchArgs -Instance $inst12 -CliArgs $false)
+$a4 = @(Get-GdM9ALaunchArgsFromDesk -Instance $inst12 -CliArgs $false)
 Check '关掉命令行入口时不加任何参数(回退老路子)' ($a4.Count -eq 0)
 Check 'settings 里三个 M9A 开关都在' ($null -ne $S.runtime.m9aCliArgs -and $null -ne $S.runtime.m9aInstanceArg -and $null -ne $S.runtime.m9aForceStart)
 Check '默认走命令行入口' ((Get-GdM9ACliEnabled -S $S) -eq $true)

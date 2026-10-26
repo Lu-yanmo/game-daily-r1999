@@ -2,9 +2,9 @@
 #
 # ── 冻结(2026-09-26，PS→C# 批次 3)────────────────────────────────────────────
 # 本体已迁到 tools\panel-cs\Processes.cs(契约见 docs\ps-migration-batch0.md)：
-#   Get-M9ALaunchArgs  → verb m9a-launch-args(一律长参数：短参数 -a 实测无效的老规矩在 C# 注释里)
+#   Get-M9ALaunchArgs  → verb m9a-launch-args(一律长参数：短参数 -a 实测无效的老规矩在 C# 注释里)｜⚠ 10-26 第五刀刀②：这枚转发壳已从本文件出仓，映射本身照旧
 #   Read-GdM9ALine     → verb parse-m9a-lines(单行走一次；解析顺序敏感，改文案改 C# 那份)
-#   Read-M9ALogEvents  → verb parse-m9a-lines(整批文本一次转发，绝不逐行起进程)
+#   Read-M9ALogEvents  → verb parse-m9a-lines(整批文本一次转发，绝不逐行起进程)｜⚠ 10-26 第五刀刀②：这枚采集壳已从本文件出仓，整批取数的家只剩核内 m9a_read_log
 #   Resolve-M9AStatus  → verb resolve-m9a-status(所有结论文案/优先级在 C#；
 #                        本壳把 $State.lastLog 换算成 quietSeconds 递进去，Found:false 翻译回 $null)
 # 所以：改日志解析/结论话术请改 Processes.cs 并跑 tools\probe-process-golden.ps1 对拍，不要在这里加规则。
@@ -43,7 +43,7 @@
 #     Directives.TouchLastLog 置 $State.lastLog = Get-Date。Invoke-M9ARun 轮询改用批量入口
 #     Register-M9AEvents(批 3 省钱点延伸：一轮一个进程，绝不每事件一个)。
 #     ⚠ 10-25 甲档刀②：那句里"Invoke-M9ARun 轮询"这个读者已随真身出仓。本枚批量入口现读只剩两处在调——
-#     本文件 :216 那发单事件壳转发(表账 ps-map 第六列 1:0 就是它)＋门内逐字副本 probe-m9arun-rust-golden.ps1:995。
+#     本文件 :169 那发单事件壳转发(表账 ps-map 第六列 1:0 就是它；⚠ 10-26 第五刀刀② 现读：原写 :216 本就漂了两格，摘件后同段再 −49)＋门内逐字副本 probe-m9arun-rust-golden.ps1:1047(现读；原写 995 那枚先被上一轮族级说明自己加的四行推成 999，再被刀① 那 48 行推到 1047——§11.136 ⑥ 那条"本文件加行推漂自己"第二次复现)。
 # (批 3 头注里"故意留在 PS 侧的 Register-M9AEvent(状态累计+日志染色)"到本批作废：状态累计本体已走，
 #  壳只剩转发与染色。旧十三档逐行 # 仍冻在原位(那一段没随刀② 出仓)；⚠ 但原句"test-r1999 的 `$state.lastLog = Get-Date`、
 #  各档话术字面锚在冻结行里 substring 照命中，别删别改字"已于刀①-b(本仓 0ac6dcb)作废——正向锚九格改打 RunLoops.cs／main.rs
@@ -67,27 +67,6 @@ function Get-GdM9ACliEnabled {
     param([Parameter(Mandatory)]$S)
     if ($null -eq $S.runtime.m9aCliArgs) { return $true }
     return [bool]$S.runtime.m9aCliArgs
-}
-
-function Get-M9ALaunchArgs {
-    <#
-      转发壳：参数拼装本体在 Processes.cs(m9a-launch-args)。
-      老规矩留在 C# 注释里：一律长参数 —— 短参数 -a 会被 M9A 记成 key "a"、自动开始判定匹配不上(09-23 实测)。
-    #>
-    param(
-        [Parameter(Mandatory)]$Instance,
-        [string]$Mode = 'id',
-        [bool]$ForceStart = $true,
-        [bool]$CliArgs = $true
-    )
-    $d = Invoke-GdCli -Verb 'm9a-launch-args' -Body ([pscustomobject]@{
-        cliArgs    = [bool]$CliArgs
-        mode       = $Mode
-        id         = [string]$Instance.Id
-        name       = [string]$Instance.Name
-        forceStart = [bool]$ForceStart
-    })
-    return @(foreach ($a in @($d.Args)) { [string]$a })
 }
 
 function Set-M9AInstance {
@@ -144,41 +123,13 @@ function Read-GdM9ALine {
       转发壳(parse-m9a-lines 的单行入口)：一行 → 至多一个事件。
       实测语义/顺序敏感点(如 res-latest 必须排在 noise 前)全部在 Processes.cs 的 ParseM9aLine 注释里。
       返回形状与旧实现一致：$null 或 @{Kind;Text}(Register-M9AEvent 吃 hashtable，别改成对象)。
-      注意：轮询路径上的正式取数走 Read-M9ALogEvents 的整批转发，这里只给别人手动解析单行用。
+      注意：轮询路径上的整批转发壳 Read-M9ALogEvents 已于 10-26 第五刀刀② 出仓(那一路的家只剩核内 m9a_read_log)，这里只给别人手动解析单行用。
     #>
     param([Parameter(Mandatory)][string]$Line, [string]$InstanceId = '')
     $d = Invoke-GdCli -Verb 'parse-m9a-lines' -Body ([pscustomobject]@{ text = $Line; instanceId = $InstanceId })
     $evs = @($d.Events)
     if ($evs.Count -eq 0) { return $null }
     return @{ Kind = [string]$evs[0].Kind; Text = [string]$evs[0].Text }
-}
-
-function Read-M9ALogEvents {
-    <# 从上次读到的字节偏移继续读 M9A 日志，返回 @{LogPath;Events}。Offsets/PreOffsets 是同一个 hashtable，原地更新 #>
-    param(
-        [Parameter(Mandatory)]$P,
-        [Parameter(Mandatory)]$Instance,
-        [Parameter(Mandatory)][hashtable]$Offsets,
-        [Parameter(Mandatory)][hashtable]$PreOffsets
-    )
-    $logPath = Get-M9ADailyLog -P $P
-    $events = @()
-    if (-not (Test-GdPathReady $logPath)) { return @{ LogPath = $logPath; Events = $events } }
-    if (-not $Offsets.ContainsKey($logPath)) {
-        $Offsets[$logPath] = if ($PreOffsets.ContainsKey($logPath)) { $PreOffsets[$logPath] } else { 0 }
-    }
-    $tail = Get-GdFileTail -Path $logPath -Offset ([long]$Offsets[$logPath])
-    $Offsets[$logPath] = $tail.Offset
-    <#
-      整批一次转发(批次 3 的省钱点)：拆行/空行过滤/逐行解析都在 parse-m9a-lines 本体里，
-      轮询一次只起一次进程 —— 别改回 foreach 行内调 Read-GdM9ALine，那是每行一个进程。
-      本轮没有新字节就干脆不起进程(和旧实现在这一点上同形)。
-    #>
-    if ($tail.Text.Trim()) {
-        $d = Invoke-GdCli -Verb 'parse-m9a-lines' -Body ([pscustomobject]@{ text = $tail.Text; instanceId = $Instance.Id })
-        foreach ($e in @($d.Events)) { $events += @{ Kind = [string]$e.Kind; Text = [string]$e.Text } }
-    }
-    return @{ LogPath = $logPath; Events = $events }
 }
 
 function Register-M9AEvents {
@@ -329,8 +280,8 @@ function Resolve-M9AStatus {
 
 # 10-25 甲档刀② 摘件：Invoke-M9ARun 的 PS 真身(原 319-528 共 210 行)整段出仓。
 #   生产面本来就没经过它——唯一的真做入口是核内 m9a_run(tools\rustcore\src\main.rs，走 --m9a-run／--daily-round)，
-#   反应段判据与话术的家在 tools\panel-cs\RunLoops.cs 的 decide-m9a-run-tick；两枚壳(Get-M9ALaunchArgs／Read-M9ALogEvents
-#   等)在本文件上方原位保留，只转发不判据。
+#   反应段判据与话术的家在 tools\panel-cs\RunLoops.cs 的 decide-m9a-run-tick；当时那句"两枚转发壳在本文件上方原位保留、
+#   只转发不判据"已被 10-26 甲档第五刀刀② 推翻：Get-M9ALaunchArgs(原 72-91)与 Read-M9ALogEvents(原 156-182)生产面零调用，随真身同批出仓，逐字副本住进两扇 golden 门的 child。
 #   逐字副本钉在 tools\rustcore\probe-m9arun-rust-golden.ps1 的 child 里(a8ec6ed 帧)，H0-m9arun-copy-verbatim 逐字钉住、
 #   H0-m9arun-teeth 拿玻璃锚验那副眼镜有牙；test-r1999 [t18] 那九格文本锚已于刀①-b 搬去两张活桌，不再咬这里。
 

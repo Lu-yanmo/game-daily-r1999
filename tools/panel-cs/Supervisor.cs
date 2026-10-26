@@ -2,7 +2,7 @@
 //
 // 单一事实源纪律：自本批起 PS 侧的 Get-GdSupervisorEnabled/IntervalSec/QuietSec/MaxInterventions、
 // Get-GdSupervisorState、Get-GdSupervisorAction、Get-GdSupervisorDetailLines —— 规则与话术只写 C# 这一份。
-// 话术必须与 PS 原话逐字符一致：tools\probe-sv-golden.ps1 拿基线 commit(7b07650)的旧实现做全字面对拍，
+// 话术必须与 PS 原话逐字符一致：tools\rustcore\probe-sv-rust-golden.ps1 拿基线 commit(7b07650)的旧实现做全字面对拍，
 // 有差异回修这里，禁止改期望、禁止放宽比对(docs\ps-migration-batch0.md §7)。
 //
 // 切分口径(批次 6 的边界)：

@@ -122,7 +122,7 @@ function Write-GdJson {
 
 # ---------- PS→C# 转发(批次 1 起判定层的真身住在 tools\panel-cs\Decisions.cs) ----------
 # 契约全文在 docs\ps-migration-batch0.md §2：机读结果只认 --out 信封文件，stdout 不参与判定。
-# 探针 tools\probe-cli-contract.ps1 已在 5.1/7.6 双引擎把这套握手钉绿，这里是它的正式化。
+# 这套握手的判据面归 C# 自证：`panel-cs.exe --echotest`(回环/--exit=2/未知参数/子进程各走一遍)＋`--coretest`(verb 名册双向对账)，随 build.ps1 -Verify 跑；⚠ 2026-10-26 甲档第七刀 起 `tools\probe-cli-contract.ps1` 整件退役——它测的是本函数**草案期**的副本(自己定义 -In/-Out 三件，与下面的 -Body 签名分家)，对面根本不在这里。
 function Get-GdCliExe {
     <# 判定层 exe 是编译产物、永不入仓(.gitignore 的规矩，和 C# 面板现编现用同源)：
        没编译过/被人清掉 → 现场自愈编一次(build.ps1 -Quiet 里已含 System.Web.Extensions 引用链)；

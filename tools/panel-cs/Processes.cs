@@ -1,7 +1,7 @@
 // tools/panel-cs/Processes.cs —— 批次 3：外部进程层的"纯解析/纯规划"本体，从 lib\maa.ps1 / lib\m9a.ps1 / lib\mumu.ps1 逐条搬来。
 //
 // 单一事实源纪律：自本批起 PS 侧的 Get-MaaAsstStuckState / Get-MaaAsstStuckHint / Set-MaaDailyConfig 的规则段、
-// Get-M9ALaunchArgs / Read-GdM9ALine / Resolve-M9AStatus、Get-GdMuMuState 的 JSON 解读、Get-GdMuMuVmList 的
+// Get-M9ALaunchArgs(⚠ 10-26 甲档第五刀刀②：那枚 PS 壳已出仓，这一份就是唯一实现)／Read-GdM9ALine／Resolve-M9AStatus、Get-GdMuMuState 的 JSON 解读、Get-GdMuMuVmList 的
 // 属性表转换、Connect-GdAdb / Get-Gd1999Pid 的输出判定 —— 全部只剩薄转发壳，规则只写 C# 这一份。
 // 文案必须与 PS 原话逐字符一致：tools\probe-process-golden.ps1 拿 git HEAD 的旧实现做全字面对拍，
 // 有差异回修这里，禁止改期望、禁止放宽比对(docs\ps-migration-batch0.md §7)。
@@ -399,7 +399,7 @@ namespace GdPanel
         }
 
         // ==================== verb: parse-m9a-lines(原 Read-GdM9ALine，整批文本进、事件数组出) ====================
-        // 单行壳 Read-GdM9ALine 与批量壳 Read-M9ALogEvents 共用这一个本体：批量场景绝不逐行起进程。
+        // 单行壳 Read-GdM9ALine 与批量壳 Read-M9ALogEvents(⚠ 10-26 第五刀刀② 已出仓，批量那一路的家只剩核内 m9a_read_log)共用这一个本体：批量场景绝不逐行起进程。
         // 解析顺序敏感(res-latest 必须排在 noise 前)；认不出的行不产出事件，$null 语义由"事件条数"承载。
         public static object M9aLines(Dictionary<string, object> inp)
         {

@@ -2,8 +2,8 @@
 //
 // 单一事实源纪律：自本批起 PS 侧的 Get-GdSupervisorEnabled/IntervalSec/QuietSec/MaxInterventions、
 // Get-GdSupervisorState、Get-GdSupervisorAction、Get-GdSupervisorDetailLines —— 规则与话术只写 C# 这一份。
-// 话术必须与 PS 原话逐字符一致：tools\rustcore\probe-sv-rust-golden.ps1 拿基线 commit(7b07650)的旧实现做全字面对拍，
-// 有差异回修这里，禁止改期望、禁止放宽比对(docs\ps-migration-batch0.md §7)。
+// 话术必须与 PS 原话逐字符一致：等值面原由 tools\rustcore\probe-sv-rust-golden.ps1 拿基线 commit(7b07650) 全字面对拍，
+// 该门已于 2026-10-26 退役(甲档第九刀)，48 档搬进 Supervisor.SelfTest.cs 的 --svtest；有差异回修这里，禁止改期望、禁止放宽比对(docs\ps-migration-batch0.md §7)。
 //
 // 切分口径(批次 6 的边界)：
 //   * 三个有副作用的函数(Collect-GdSupervisorEvidence 读文件指针 / Request-GdSupervisorScreen 问视觉 /

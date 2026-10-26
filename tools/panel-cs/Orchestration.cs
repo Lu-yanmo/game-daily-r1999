@@ -5,8 +5,8 @@
 // 单一事实源纪律：自本批起 PS 侧的 Parse-GdArkFarmTargetSpec / Parse-GdArkDropText / Resolve-ArkFarmPlan、
 // Resolve-GdArkDecision 的意图构造段(-Stage/-Force/farm 合算)、Resolve-GdR1999Decision 的 -Plan/-Force 构造段、
 // Invoke-MaaRun 的每行标志分类段、Get-GdTaskArgsWithGames 的剥参切词段 —— 规则只写 C# 这一份。
-// 文案必须与 PS 原话逐字符一致：tools\probe-orch-golden.ps1 拿基线 commit(a2fdd67)的旧实现做全字面对拍，
-// 有差异回修这里，禁止改期望、禁止放宽比对(docs\ps-migration-batch0.md §7)。
+// 文案必须与 PS 原话逐字符一致：等值面原由 tools\probe-orch-golden.ps1 拿基线 commit(a2fdd67)全字面对拍，
+// 该门已于 2026-10-26 退役(甲档第九刀)，场景搬进本目录 SelfTest 的 --orchtest；有差异回修这里，禁止改期望、禁止放宽比对(docs\ps-migration-batch0.md §7)。
 //
 // 切分口径(批次 5 的边界，全部有断言面或副作用为证)：
 //   * 两路 Start-Gd*Daily 与两个监控循环(Invoke-MaaRun / Invoke-M9ARun)整体留 PS：
@@ -541,7 +541,7 @@ namespace GdPanel
         // ==================== verb: decide-daily-retry(批次 8：两路 daily 的重试分流纯判定段) ====================
         // 基线真身 = lib\ark-daily.ps1 行 141-148 与 lib\r1999-daily.ps1 行 90-106 的 if/elseif 分流
         // (钉 commit c498da0)。壳拿 {Retryable, Logs:[{Level,Text}]}：Retryable 为真才 Stop/Sleep/重跑(全留壳)，
-        // Logs 逐条原样 Write-GdLog。文案必须与 PS 原话逐字符一致(probe-live-golden 对拍面)：
+        // Logs 逐条原样 Write-GdLog。文案必须与 PS 原话逐字符一致(panel-cs --orchtest 对拍面)：
         // 有差异回修这里，禁止改期望、禁止放宽比对(docs\ps-migration-batch0.md §7)。
         // 分流链逐字复刻 if/elseif 次序，不做"逻辑化简"：retryOnce=$false 时首支不成立会**落到**后面的
         // elseif —— 不重试也照样打错误日志，就是这个行为。ark 那句 not-started∧非管理员的独立 if 提示不在本 verb。

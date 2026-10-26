@@ -280,13 +280,13 @@ namespace GdPanel
             return r;
         }
 
-        // ---------- emit-panel-summary 的骨架：在 Decide 之上多认一枚 --root(等值门换树用) ----------
+        // ---------- emit-panel-summary 的骨架：在 Decide 之上多认一枚 --root(换树读数用) ----------
         // 为什么要 --root：编译树里既没有 config\settings.json 也没有 state\history.csv，
         // 只在这一棵树上比 = 只演"读不到"那一档，判定面的其余形状(满档/已确认/带详情)一次都没被对拍过 ——
         // "恒绿的正是没验过的正例面"这条在案纪律要求门能给一枚**别的树**当靶。
-        // tools\probe-panel-summary-parity.ps1 就靠它把 PS 侧和 C# 侧指到同一棵树(现场那棵只读取数)。
-        // 换的是**读数来源**，不是判据：两侧仍各读自己的 root，摘要里 HEADER 第 6 枚会把 root 印出来，
-        // 门拿它自检"两侧确实同一棵树"，指错了当场红，不会悄悄比了两棵不同的树。
+        // --root 干的就这一件：把摘要指到另一棵树(现场那棵只读取数)；原等值门靠它让两侧同树，那道门已随件退役。
+        // 换的是**读数来源**，不是判据：摘要里 HEADER 第 6 枚会把 root 印出来，自检拿它认"这一帧读的正是那棵树"，
+        // 指错了当场红，不会悄悄把两棵树的读数混成一份。
         static VerbResult PanelSummaryRun(Dictionary<string, string> a)
         {
             RequireKnown(a, "--in", "--out", "--no-out", "--garbage", "--transcript", "--root");

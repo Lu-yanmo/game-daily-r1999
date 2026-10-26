@@ -276,8 +276,8 @@ namespace GdPanel
 
                 // ---- 乙档刀②(2026-10-23)那枚新判定：应用执行别名 → 真身路径 ----
                 // 六形全部喂合成帧／临时普通件，不要求这台机器装有商店版 PowerShell ——
-                // 现场那一枚别名的真实解析结果不进自检(它由等值门 tools/probe-panel-summary-parity.ps1 现拍，
-                // 见 Panel.Data.cs:416 起那段现量记录；"现场实测留证 ≠ 门已绿"是同一条规矩)。
+                // 现场那一枚别名的真实解析结果不进自检(它是跟着机器/包版本走的现场读数，留证在 Panel.Data.cs
+                // 那段现量记录里；"现场实测留证 ≠ 门已绿"是同一条规矩)。
                 b.Chk("别名 blob 正形：第三枚非空字段＝真身路径(位次不是名字)", delegate
                 {
                     string target = @"C:\Program Files\WindowsApps\Microsoft.PowerShell_7.6.7.0_x64__8wekyb3d8bbwe\pwsh.exe";

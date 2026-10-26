@@ -5,7 +5,7 @@
 #   Get-GdMuMuState 的 JSON 解读段(verb：parse-mumu-state)、
 #   Connect-GdAdb 的 devices 判定段(parse-adb-devices)、Get-Gd1999Pid 的 pidof 剥数字段(parse-adb-pidof)。
 # 这里留下的只有起外部进程(Invoke-GdNative)与"目录没填"的现场检查 —— 启停编排本身归批次 5/6。
-# 改这些判定/文案 = 改 C# + 跑 tools\probe-process-golden.ps1 对拍，不要在这里加规则。
+# 改这些判定/文案 = 改 C# + 跑 panel-cs --proctest 对真值，不要在这里加规则。
 # ──────────────────────────────────────────────────────────────────────────────
 
 function Get-GdMuMu {

@@ -2,9 +2,9 @@
 // (ark 一路 decide-maa-run-tick + m9a 一路 decide-m9a-run-tick + 批次 9 的事件回灌三件)。
 // 口径全文见 docs\ps-migration-live-caliber.md(剧本注入回放 + 同 tick effect 迷你循环)。
 // 基线真身 = lib\maa.ps1 Invoke-MaaRun 行 296-433 的判据链(钉 commit c498da0)。
-// 文案必须与 PS 原话逐字符一致：tools\probe-live-golden.ps1 拿基线做全字面对拍，
+// 文案必须与 PS 原话逐字符一致：panel-cs --looptest 拿基线做全字面对拍(原 live 门 10-26 摘件)，
 // 有差异回修这里，禁止改期望、禁止放宽比对(docs\ps-migration-batch0.md §7)。
-// 改判据/话术改本文件并跑 tools\probe-live-golden.ps1，不要往 lib\maa.ps1 的壳里加规则。
+// 改判据/话术改本文件并跑 panel-cs --looptest，不要往 lib\maa.ps1 的壳里加规则。
 //
 // 一次 tick 的纯判据：读数快照(now/live/flags/cfg) + 四键小状态 → 动作 + 新状态。
 // C# 绝不碰挂钟/盘/进程/模型 —— elapsedSec/quietSec/grabAgoSec 由壳算好当数喂进来；
@@ -22,7 +22,7 @@
 // RecordTag 比调用 Tag 大 1 是旧代码的错位(调用取 Count+1、记账在 += 之后再取 Count+1，疑似笔误)：
 // 按纪律原样复刻不顺手修，要修另开一批。
 // Detail 是 tick 开头快照(旧代码 return 拼的是镜像段算好的 $detail 串，档内兜底新落的那条不进
-// 当 tick 结论句)：probe-live-golden 的 drain-first 场景钉着，实现见 Execute 的 tickDetail。
+// 当 tick 结论句)：旧 live 门的 drain-first 场景钉着(10-26 已搬进 --looptest)，实现见 Execute 的 tickDetail。
 //
 // PS 等值细节：hashtable 大小写不敏感 → completed/expectedChains 一律 OrdinalIgnoreCase；
 // [int]$x 是银行家舍入 → 一律 Gd.Int(Convert.ToInt32 同口径)；[int]($quiet/60) 同理走 ToEven。
@@ -63,7 +63,7 @@ namespace GdPanel
             List<string> notes;
             // Detail 快照：旧代码每 tick 开头(基线 298-305 镜像段)算好 $detail，档内兜底新落的
             // $rc.Detail **不重算** —— drain/quiet 首兜当 tick 早退的结论句里没有"视觉兜底试过 N 次"。
-            // 对拍门 tools\probe-live-golden.ps1 的 drain-first 场景抓出的口径：快照在此，逐档复用。
+            // 旧对拍门(10-26 摘件)的 drain-first 场景抓出的口径，已搬进 --looptest：快照在此，逐档复用。
             string tickDetail;
 
             // —— 本 tick 已执行 effect 的回执(旧→新追加) ——
@@ -485,7 +485,7 @@ namespace GdPanel
         // 基线真身 = lib\m9a.ps1 Invoke-M9ARun 行 350-388 的反应段(含 $askScreen 闭包 L325-337 的纯判定部分，
         // 钉 commit c498da0)。Resolve-M9AStatus 出结论的那一拍才调；while/sleep、读日志、adb 查进程、
         // 真 Invoke-GdVisionRescue + Add-GdRescueRecord 记账全留壳。口径与 ark 一路同一份剧本
-        // (docs\ps-migration-live-caliber.md)，对拍门 tools\probe-live-golden.ps1。
+        // (docs\ps-migration-live-caliber.md)，对拍门 = panel-cs --looptest(原 live 门 10-26 摘件)。
         // 与 ark 一路的三处话术差别(都是旧代码原样，不许"顺手统一")：
         //   * 记账 Tag 与调用 Tag **同数**(m9a 的记账取 += 之后的 Notes.Count，没有 ark 那个错位一格)；
         //   * 兜底日志是 "视觉兜底(停滞|判因)：<detail>"，不是 ark 的 "视觉兜底结果："；

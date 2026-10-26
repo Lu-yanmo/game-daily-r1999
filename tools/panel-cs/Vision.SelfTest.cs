@@ -97,6 +97,10 @@ namespace GdPanel
             string spS = Vision.BuildPrompt("你是模拟器里 1999 的画面。", false);
             b.Chk("给了 Scene 就原样替换 head(不裁不补)", () => spS.StartsWith("你是模拟器里 1999 的画面。\n只输出一个 JSON 对象"));
             b.Chk("Scene 分支共用五条规则段", () => spS.EndsWith("6. 不要输出坐标以外的多余字段。") && spS.Contains("**只会把弹窗关掉**的位置。3. 绝对不要给"));
+            // 12 刀从已退役的 vision 等值门(场景 prompt/scene-nl)抄来：Scene 原样用、只加一个分隔换行 ——
+            // 尾部自带换行时成品里就是两个空行(旧实现不裁；裁尾那一步在靶子定义处)。
+            b.Chk("Scene 尾部的换行原样保留(旧实现不裁 Scene)", () =>
+                Vision.BuildPrompt("两行场景第一行\n第二行\n", false).StartsWith("两行场景第一行\n第二行\n\n只输出一个 JSON 对象"));
 
             // ---------- 启动器场景(10-11)：head/body 整段换掉，输出协议不变 ----------
             string spL = Vision.BuildPrompt("ark-launcher", "", false);
@@ -163,6 +167,32 @@ namespace GdPanel
             Dictionary<string, object> vBad = D(Vision.Verdict(Inp("text", "{\"blocking\":true,\"what\":\"x\",\"clicks\":[{\"x\":null,\"y\":null}]}")));
             b.Chk("点位全坏 → Clicks 空数组、X 为 null", () =>
                 Gd.List(vBad["Clicks"]).Length == 0 && vBad["X"] == null);
+            // 12 刀从 v/prose 抄来：JSON 前后都夹人话(结尾那句也得忽略)。
+            b.Chk("JSON 前后都夹人话 → 仍只抠对象本身", () =>
+            {
+                Dictionary<string, object> vp = D(Vision.Verdict(Inp("text",
+                    "我看了一下。{\"blocking\":true,\"what\":\"活动弹窗\",\"clicks\":[{\"x\":812,\"y\":171,\"why\":\"右上角 X\"}]} 就这些。")));
+                return Bool(vp["Found"]) && IntOf(vp["X"]) == 812 && IntOf(vp["Y"]) == 171;
+            });
+            // 从 v/array 抄来：顶层是数组没有对象 → 不算回复(与"空白/空回复"同归 Found:false)。
+            b.Chk("整段是数组没有对象 → 不算回复", () => !Bool(D(Vision.Verdict(Inp("text", "[1,2,3]")))["Found"]));
+            // 从 v/cjk-why 抄来：0/0 是合法千分比(左上角)，"0 当没给"的坑只能踩在换算层，不能在抠取层丢。
+            b.Chk("坐标为 0/0 照收(0 不等于\"没给\")", () =>
+            {
+                Dictionary<string, object> vz = D(Vision.Verdict(Inp("text",
+                    "{\"blocking\":true,\"what\":\"协议页\",\"clicks\":[{\"x\":0,\"y\":0,\"why\":\"左上角\"}]}")));
+                object[] cs = Gd.List(vz["Clicks"]);
+                return Bool(vz["Found"]) && IntOf(vz["X"]) == 0 && IntOf(vz["Y"]) == 0
+                    && cs.Length == 1 && Gd.Str(Gd.Get(cs[0], "Why")) == "左上角";
+            });
+            // 从 v/badpoint 抄来：x=null、y=文字 这一对坏点位剔掉后，好点位必须留下(坏的不带走好的)。
+            b.Chk("点位 x 为空/y 是文字 → 只剔这一枚，后面的好点位照留", () =>
+            {
+                Dictionary<string, object> vb = D(Vision.Verdict(Inp("text",
+                    "{\"blocking\":true,\"what\":\"x\",\"clicks\":[{\"x\":null,\"y\":\"右上角\",\"why\":\"坏\"},{\"x\":500,\"y\":400,\"why\":\"好\"}]}")));
+                object[] cs = Gd.List(vb["Clicks"]);
+                return cs.Length == 1 && IntOf(Gd.Get(cs[0], "X")) == 500 && IntOf(Gd.Get(cs[0], "Y")) == 400;
+            });
         }
 
         // ---------- 千分比 → 点击点 ----------
@@ -186,6 +216,38 @@ namespace GdPanel
             Dictionary<string, object> pm = D(Vision.ClickPoint(Merge(dev, Inp("nx", 500, "ny", 500, "max", 1000, "why", "右上角 X"))));
             b.Chk("模拟器夹具(客户区=整屏)算出来就是设备像素", () =>
                 Bool(pm["Found"]) && IntOf(pm["ClientX"]) == 640 && IntOf(pm["ClientY"]) == 360 && Gd.Str(pm["Why"]) == "右上角 X");
+
+            // 12 刀从 pt/zero 抄来：nx=0 换算到位图是 0，减掉客户区原点(8,31)后为负 → 越界拒掉。
+            b.Chk("千分比给 0 → 减客户区原点后为负，拒掉", () =>
+                !Bool(D(Vision.ClickPoint(Merge(shot, Inp("nx", 0, "ny", 0, "max", 1000, "why", "左上"))))["Found"]));
+            // 从 pt/near-max 抄来：999/999 在整窗图上算出的 x/y 都越过客户区边(标题栏吃掉的那截) → 拒。
+            b.Chk("999,999 在含标题栏的整窗图上越界(不能只判 1000)", () =>
+                !Bool(D(Vision.ClickPoint(Merge(shot, Inp("nx", 999, "ny", 999, "max", 1000, "why", "边角"))))["Found"]));
+            // 从 pt/last-in 抄来：客户区里最后一段(995,962)合法，算出来 1902,1008。
+            b.Chk("客户区最后一段 995,962 → 1902,1008", () =>
+            {
+                Dictionary<string, object> p = D(Vision.ClickPoint(Merge(shot, Inp("nx", 995, "ny", 962, "max", 1000, "why", "客户区内最后一段"))));
+                return Bool(p["Found"]) && IntOf(p["ClientX"]) == 1902 && IntOf(p["ClientY"]) == 1008
+                    && IntOf(p["BitmapX"]) == 1910 && IntOf(p["BitmapY"]) == 1039;
+            });
+            // 从 pt/nonnum 抄来：文字坐标不是数 → 拒(不猜、不默认 0)。
+            b.Chk("文字坐标(\"abc\"/\"12\")不是数 → 拒掉", () =>
+                !Bool(D(Vision.ClickPoint(Merge(shot, Inp("nx", "abc", "ny", "12", "max", 1000, "why", "文字坐标"))))["Found"]));
+            // 从 pt/emu-br 抄来：模拟器整屏(2560x1440)上 999,999 合法 = 设备像素 2557,1439 ——
+            // 与整窗图那一格相反，正是"减不减原点"的分水岭。
+            b.Chk("模拟器整屏 999,999 → 2557,1439(与整窗图相反)", () =>
+            {
+                Dictionary<string, object> emu = Inp("imgW", 2560, "imgH", 1440, "clientLeft", 0, "clientTop", 0, "clientW", 2560, "clientH", 1440);
+                Dictionary<string, object> p = D(Vision.ClickPoint(Merge(emu, Inp("nx", 999, "ny", 999, "max", 1000, "why", "整屏右下"))));
+                return Bool(p["Found"]) && IntOf(p["ClientX"]) == 2557 && IntOf(p["ClientY"]) == 1439;
+            });
+            // 从 pt/max500 抄来：Max=500 时 250/500 与 500/1000 是同一个点(分母语义，不是裁剪)。
+            b.Chk("Max=500 时 250 与 500/1000 等价", () =>
+            {
+                Dictionary<string, object> p = D(Vision.ClickPoint(Merge(shot, Inp("nx", 250, "ny", 250, "max", 500, "why", "X"))));
+                return Bool(p["Found"]) && IntOf(p["ClientX"]) == 952 && IntOf(p["ClientY"]) == 509
+                    && IntOf(p["NormX"]) == 250 && IntOf(p["NormY"]) == 250;
+            });
         }
         static Dictionary<string, object> Merge(Dictionary<string, object> a, Dictionary<string, object> b2)
         {
@@ -203,6 +265,9 @@ namespace GdPanel
                 Url(Inp("base", "https://example.com/compatible-mode/v1/chat/completions")) == "https://example.com/compatible-mode/v1/chat/completions");
             b.Chk("地址留空回落到百炼公共端点", () =>
                 Url(Inp("base", "")) == "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions");
+            // 12 刀从 ep/blank 抄来：只有空白与全空同一条回落(旧实现先 Trim 再判空)。
+            b.Chk("只有空白也回落到百炼公共端点", () =>
+                Url(Inp("base", "   ")) == "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions");
             b.Chk("大小写不同的收尾也算写全(/CHAT/COMPLETIONS 不重复补)", () =>
                 Url(Inp("base", "https://example.com/x/CHAT/COMPLETIONS")) == "https://example.com/x/CHAT/COMPLETIONS");
         }
@@ -229,6 +294,20 @@ namespace GdPanel
             b.Chk("两次画面格数不同 → 说不清，别硬判", () =>
                 !Bool(c4["Known"]) && IntOf(c4["Cells"]) == -1
                 && (string)c4["Detail"] == "两次画面尺寸不同(144 格 vs 3 格)");
+            // 12 刀从 sc/two 抄来：恰好 2 格各变 4 档 = 刚好压线，>= minCells 必须算"变了"。
+            b.Chk("恰好 2 格变 4 档 → 判\"变了\"(等于阈值也算)", () =>
+            {
+                Dictionary<string, object> c = D(Vision.ShotChanged(Inp("beforeSig", sA, "afterSig", SigWith(new[] { 1, 2 }, 24), "minCells", 2, "minDelta", 3)));
+                return Bool(c["Known"]) && Bool(c["Changed"]) && IntOf(c["Cells"]) == 2;
+            });
+            // 从 sc/thresh 抄来：阈值是可调的(MinCells=1/MinDelta=2)，话术里的数字跟着参数走。
+            b.Chk("阈值可调(1 格 / 2 档)时 2 格各 3、2 档也算变了", () =>
+            {
+                Dictionary<string, object> c = D(Vision.ShotChanged(Inp("beforeSig", "10,50,20,20,20,20",
+                    "afterSig", "13,52,20,20,20,20", "minCells", 1, "minDelta", 2)));
+                return Bool(c["Known"]) && Bool(c["Changed"]) && IntOf(c["Cells"]) == 2
+                    && (string)c["Detail"] == "画面变了 2 格(判据：≥1 格、每格 ≥2 档)";
+            });
         }
 
         // ---------- ask.py stdout 回扫 ----------
@@ -242,6 +321,25 @@ namespace GdPanel
             Dictionary<string, object> r4 = D(Vision.Reply(Inp("out", "{bad\n{\"ok\":false}")));
             b.Chk("半行坏 JSON 被跳过、取后面能解析的那行", () =>
                 Bool(r4["Found"]) && !Bool(Gd.Get(r4["Parsed"], "ok")));
+            // 12 刀从 rp/fenced 抄来：```json 围栏各自成行时，围栏里那一行要能取到。
+            b.Chk("```json 围栏单独成行 → 取围栏里那一行", () =>
+            {
+                Dictionary<string, object> r = D(Vision.Reply(Inp("out", "```json\n{\"ok\":true,\"http_status\":200}\n```")));
+                return Bool(r["Found"]) && Bool(Gd.Get(r["Parsed"], "ok")) && IntOf(Gd.Get(r["Parsed"], "http_status")) == 200;
+            });
+            // 从 rp/two 抄来：两段都合法时取**第一个**(后面的不覆盖)。
+            b.Chk("两段合法 JSON → 取第一个", () =>
+            {
+                Dictionary<string, object> r = D(Vision.Reply(Inp("out", "{\"ok\":true,\"n\":1}\n{\"ok\":false,\"n\":2}")));
+                return Bool(r["Found"]) && IntOf(Gd.Get(r["Parsed"], "n")) == 1;
+            });
+            // 从 rp/small 抄来：字段不全(429 那形)也照解析，缺键不丢(字段补齐是调用方的事)。
+            b.Chk("字段不全(429 那形)也照解析", () =>
+            {
+                Dictionary<string, object> r = D(Vision.Reply(Inp("out", "{\"ok\":true,\"text\":\"\",\"http_status\":429,\"attempts\":3}")));
+                return Bool(r["Found"]) && IntOf(Gd.Get(r["Parsed"], "http_status")) == 429
+                    && IntOf(Gd.Get(r["Parsed"], "attempts")) == 3;
+            });
         }
 
         // ---------- 救火账本字段合成 ----------
@@ -285,6 +383,20 @@ namespace GdPanel
                 "fgProcess", "", "iconic", false, "visible", true, "rectText", "", "cursor", "")));
             b.Chk("前台进程叫不出 → \"未知窗口\"；窗口状态全正常时不硬凑\"端游窗口状态=\"前缀", () =>
                 (string)d4["Detail"] == "输入桌面=Default(未锁屏)；端游在前台=否(前台是 未知窗口)");
+            // 12 刀从 ds/fg-yes 抄来：前台是端游时的完整一句(矩形与光标都要在)。
+            b.Chk("前台是端游 + 矩形 + 光标", () =>
+            {
+                Dictionary<string, object> d = D(Vision.DesktopState(Inp("desk", "Default", "hwndFound", true, "onFg", true,
+                    "fgProcess", "Arknights", "iconic", false, "visible", true, "rectText", "0,0 1936x1056", "cursor", "500,600")));
+                return (string)d["Detail"] == "输入桌面=Default(未锁屏)；端游在前台=是；端游窗口状态=0,0 1936x1056；光标在 500,600";
+            });
+            // 从 ds/iconic-invis 抄来：最小化+不可见+矩形三样并排、中间用 '/' 连(顺序固定)。
+            b.Chk("最小化+不可见+矩形三样并排", () =>
+            {
+                Dictionary<string, object> d = D(Vision.DesktopState(Inp("desk", "default", "hwndFound", true, "onFg", false,
+                    "fgProcess", "explorer", "iconic", true, "visible", false, "rectText", "-32000,-32000 168x29", "cursor", "0,0")));
+                return (string)d["Detail"] == "输入桌面=Default(未锁屏)；端游在前台=否(前台是 explorer)；端游窗口状态=最小化/不可见/-32000,-32000 168x29；光标在 0,0";
+            });
         }
 
         // ---------- 小工具 ----------

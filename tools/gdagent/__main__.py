@@ -59,7 +59,7 @@ def build_parser():
     s.add_argument("--cases", required=True)
     s.add_argument("--out", required=True)
     s.add_argument("--fake-farm-spec", dest="fake_farm_spec", action="store_true",
-                   help="farmTargets 用假解析器(与 PS 探针同名件逐字一致；真规则归 probe-orch-golden)")
+                   help="farmTargets 用假解析器(与 PS 探针同名件逐字一致；真规则归 panel-cs --orchtest)")
     return p
 
 

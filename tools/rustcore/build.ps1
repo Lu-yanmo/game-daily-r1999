@@ -80,6 +80,52 @@ try {
 
 $expect = @(Get-GdRustContract)
 $wantContract = [string]$expect[0]
+
+# ---------- 契约号静态三面(不依赖编译，先比) ----------
+# 2026-10-26 甲档第十四刀：原 `tools\rustcore\probe-events-golden.ps1` 的 H3 半随该门退役搬到这里。
+# 产物自报那一面在下面 foreach 里比；其余三面只读文件：源码 const、`probe-connect.ps1` 的字面量
+# (要求恰好一种拼法)、`keyfacts.json` 顶层 contract 与 contract_note。任一面失配 = 不打包。
+# 搬进来的理由：那门是"改号同批动四处"唯一的静态把守，退役后若只剩产物自报，源码与清单可以带着旧号
+# 一直躺着、直到下一次有人真去跑连接探针或读清单。
+# ⚠ 本文件**随两仓导出**，而 `probe-connect.ps1`(开发态伴生件)与 `docs\r0-keyfacts.json`(设计文档)
+#   不进公开仓：缺件按"这面没量"跳过、不判红；判红只在"件在、字面量对不上"。源码在两侧都在场，
+#   缺了就是真失配。
+$staticBad = @()
+$staticSkip = @()
+$srcMainPath = Join-Path $here 'src\main.rs'
+$srcMainText = ''
+if (Test-Path -LiteralPath $srcMainPath) { $srcMainText = [System.IO.File]::ReadAllText($srcMainPath, [System.Text.Encoding]::UTF8) }
+$cmain = [regex]::Match($srcMainText, 'const\s+CONTRACT\s*:\s*&str\s*=\s*"([^"]+)"')
+if (-not $cmain.Success) { $staticBad += 'src\main.rs 里读不到 const CONTRACT' }
+elseif ($cmain.Groups[1].Value -ne $wantContract) { $staticBad += ('src\main.rs const=' + $cmain.Groups[1].Value + ' 壳=' + $wantContract) }
+
+$shellProbe = Join-Path $here 'probe-connect.ps1'
+if (-not (Test-Path -LiteralPath $shellProbe)) {
+    $staticSkip += 'probe-connect.ps1 不在场(导出树)'
+} else {
+    $shellText = [System.IO.File]::ReadAllText($shellProbe, [System.Text.Encoding]::UTF8)
+    $shellNums = @([regex]::Matches($shellText, 'RustCore-R\d+\.\d+') | ForEach-Object { $_.Value } | Sort-Object -Unique)
+    if (@($shellNums).Count -ne 1) { $staticBad += ('probe-connect.ps1 的字面量集合=' + ((@($shellNums)) -join ',') + '(要求恰好一种拼法)') }
+    elseif ($shellNums[0] -ne $wantContract) { $staticBad += ('probe-connect.ps1=' + $shellNums[0] + ' 壳=' + $wantContract) }
+}
+
+$kfPath = Join-Path $root 'docs\r0-keyfacts.json'
+if (-not (Test-Path -LiteralPath $kfPath)) {
+    $staticSkip += 'docs\r0-keyfacts.json 不在场(导出树)'
+} else {
+    $kfObj = $null
+    try { $kfObj = ConvertFrom-Json ([System.IO.File]::ReadAllText($kfPath, [System.Text.Encoding]::UTF8)) } catch { $kfObj = $null }
+    if ($null -eq $kfObj) { $staticBad += 'docs\r0-keyfacts.json 读不到或不是合法 JSON' }
+    else {
+        if ([string]$kfObj.contract -ne $wantContract) { $staticBad += ('keyfacts.contract=' + [string]$kfObj.contract + ' 壳=' + $wantContract) }
+        if (-not ($kfObj.PSObject.Properties.Name -contains 'contract_note')) { $staticBad += 'keyfacts 缺 contract_note(升号那一批要留一句为什么)' }
+    }
+}
+if (@($staticSkip).Count -and (-not $Quiet)) {
+    foreach ($s in $staticSkip) { Write-Host ('契约号静态面跳过：' + $s) }
+}
+if (@($staticBad).Count) { throw ('契约号静态面失配，不打包：' + (@($staticBad) -join ' ｜ ')) }
+
 $produced = @()
 $lines = @()
 foreach ($b in $bins) {

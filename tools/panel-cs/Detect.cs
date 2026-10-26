@@ -2,7 +2,7 @@
 //
 // 单一事实源纪律：自本批起 lib\detect.ps1 的 Resolve-GdCandidate、lib\ark-status.ps1 的 Show-GdArkQueueState、
 // lib\r1999-status.ps1 的 Show-GdR1999InstanceList 的**解析/探测本体**住这里，PS 侧只剩薄转发壳。
-// 文案(Value/Source/行式)必须与 PS 原话逐字符一致 —— tools\probe-status-detect-golden.ps1 对拍，禁止放宽。
+// 文案(Value/Source/行式)必须与 PS 原话逐字符一致 —— `--statetest` 逐字钉住(原对拍门甲档第十刀退役)，禁止放宽。
 //
 // 三个 verb 的输入形状(全是 --in JSON，值由 PS 壳组装)：
 //   detect-installs:   { processNames[], exeNames[], nameHints[], uninstallLike[], pickProp,
@@ -119,7 +119,10 @@ namespace GdPanel
 
         // ==================== 候选来源 2：卸载表(对齐 Get-GdUninstallHint + Get-GdUninstallHintDir) ====================
 
-        sealed class Hint { public string Name; public string Prop; public string Value; }
+        // 自检注入缝：null = 真读注册表(生产路径恒为 null)。--statetest 传合成 Hint 覆盖"卸载表命中"整段，
+        // 让只读自检不被机器现场(装没装 MuMu/方舟)带着走 —— 与 verb 的 roots 可注入同一个思路。
+        internal sealed class Hint { public string Name; public string Prop; public string Value; }
+        internal static Func<object[], List<Hint>> HintSource;
 
         static List<Hint> UninstallHints(object[] displayNameLike)
         {
@@ -202,7 +205,8 @@ namespace GdPanel
         static List<Cand> UninstallHintDirs(object[] displayNameLike, string[] exeNames)
         {
             List<Cand> found = new List<Cand>();
-            foreach (Hint h in UninstallHints(displayNameLike))
+            Func<object[], List<Hint>> hintSource = HintSource ?? UninstallHints;   // 注入缝见 HintSource 处注
+            foreach (Hint h in hintSource(displayNameLike))
             {
                 // $v -replace '^[^,;]*,','' → 去掉"XXX,"前缀(DisplayIcon 常是 "路径\exe.exe,0")；再去引号、Trim
                 string cand = Regex.Replace(h.Value, "^[^,;]*,", "").Replace("\"", "").Trim();

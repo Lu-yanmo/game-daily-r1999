@@ -113,7 +113,7 @@ namespace GdPanel
             "append-round-history",
             "update-ark-event-probe",
             // ---- 乙档刀①(2026-10-23)：panel.ps1 的 -DumpSummary 判定面转写进核(tool 侧只有一份真身) ----
-            //   消费方＝tools\probe-panel-summary-parity.ps1(与 PS 侧 -DumpSummary 逐行对拍)；生产链暂不接，接在刀③。
+            //   消费方＝面板自检(--selftest 那七格摘要机读面)；生产链暂不接，接在刀③。
             "emit-panel-summary"
         };
 

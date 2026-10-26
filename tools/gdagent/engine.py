@@ -1047,7 +1047,7 @@ FAKE_SPEC_BAD = '#bad'
 def fake_spec_parser(raw):
     """对拍专用的假 farmTargets 解析器，PS 探针(tools\\probe-agent-golden.ps1)里有它的逐字同名件。
     规则只够把 _check_farm_targets 的循环/消息钉死：空白→None(空条目)；含 #bad→Bad；Raw 回 trim 串。
-    真解析规则的家在 C#(Orchestration.FarmTargetSpec)，由 probe-orch-golden 把守，不在这里重拍。"""
+    真解析规则的家在 C#(Orchestration.FarmTargetSpec)，由 panel-cs --orchtest 把守，不在这里重拍。"""
     s = str(raw).strip()
     if not s:
         return None

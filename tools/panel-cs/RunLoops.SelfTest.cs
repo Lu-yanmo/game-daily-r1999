@@ -177,6 +177,18 @@ namespace GdPanel
                 return Stat(r) == "not-started"
                     && Det(r) == "7 分钟内端游没被拉起、也没有任何链路完成 → 大概率是权限/自动登录/客户端路径问题(MAA 连端游需要管理员)";
             });
+            b.Chk("unknown 排在 not-started 之前：markers=0 + seenGame=false 同时成立 → unknown-format(12 字符)", () =>
+            {
+                object r = Tick(Now(700, 10, null), Live(null),
+                    Flags(new object[] { "markers", 0, "seenGame", false, "logChars", 12 }), Cfg(null), null, null);
+                return Act(r) == "return" && Stat(r) == "unknown-format"
+                    && Det(r).StartsWith("MAA 日志在涨(新增 12 字符)但一条认识的标志都没有(可能 MAA 改了文案) →");
+            });
+            b.Chk("seen 过游戏 + markers>0 + 超起始时限 → 不落 unknown/not-started，安静 loop", () =>
+            {
+                object r = Tick(Now(700, 10, null), Live(null), Flags(new object[] { "markers", 1 }), Cfg(null), null, null);
+                return Act(r) == "loop" && Effs(r).Length == 0 && Lgs(r).Length == 0;
+            });
 
             // ---------- 档 4：stuck 抢前台 → 兜底 → 落穿续判 ----------
             Dictionary stuckF = Flags(new object[] { "stuckTask", "StartUp@GameStart", "stuckExec", 61, "chanClicks", 240 });
@@ -194,6 +206,22 @@ namespace GdPanel
                 return Lgs(r2).Length == 1 && LLv(r2, 0) == "WARN" && LTx(r2, 0) == StuckWarnFull
                     && EK(r2, 0) == "rescue" && ETag(r2, 0) == "stuck1" && ECtx(r2, 0) == WhyStuck
                     && RL(r2) == 1 && Ph(r2) == "stuck-rescue";
+            });
+            b.Chk("抢前台抛异常 → grabNote『抢前台抛异常：…』+ 同拍 WARN 挂 rescue，后续 stalled 整句也带这句", () =>
+            {
+                Dictionary f = Flags(new object[] { "stuckTask", "X@Y", "stuckExec", 61, "chanClicks", 10 });
+                object r1 = Tick(Now(120, 10, null), Live(null), f, Cfg(null), null, null);
+                if (EK(r1, 0) != "grab") return false;
+                object r2 = Tick(Now(120, 10, null), Live(null), f, Cfg(null),
+                    Inp("phase", "stuck-grab", "rescueLeft", 2, "rescueNotes", new object[0], "grabNote", ""),
+                    new object[] { GrabX("桌面被锁") });
+                if (!(GrabN(r2) == "抢前台抛异常：桌面被锁" && Lgs(r2).Length == 1 && LLv(r2, 0) == "WARN"
+                    && LTx(r2, 0) == "端游没把点击吃进去(X@Y 已重复 61 次、整轮 10 次点击)：抢前台抛异常：桌面被锁"
+                    && EK(r2, 0) == "rescue" && ETag(r2, 0) == "stuck1" && Ph(r2) == "stuck-rescue" && RL(r2) == 1)) return false;
+                object r3 = Tick(Now(120, 10, 61.0), Live(null), f, Cfg(null),
+                    Inp("phase", "", "rescueLeft", 1, "rescueNotes", new object[] { "没动" }, "grabNote", "抢前台抛异常：桌面被锁"), null);
+                return Stat(r3) == "stalled"
+                    && Det(r3).Contains("抢前台时看到的点击环境：抢前台抛异常：桌面被锁。");
             });
             b.Chk("没有抢前台函数时也照样记起点：grabNote 定稿话术 + 同 tick 直接挂 rescue", () =>
             {
@@ -245,6 +273,18 @@ namespace GdPanel
                 object r = Tick(Now(120, 10, 59.0), Live(null), stuckF, Cfg(null), s, null);
                 return Act(r) == "loop";
             });
+            b.Chk("抢前台还在 60 秒观察窗内 + 队列已跑空 → 不落 stalled，落穿 drain 兜一次就早退", () =>
+            {
+                Dictionary f = Flags(new object[] { "stuckTask", "X@Y", "stuckExec", 61, "chanClicks", 10, "drained", true });
+                object r1 = Tick(Now(100, 10, 30.0), Live(null), f, Cfg(null), null, null);
+                if (!(EK(r1, 0) == "rescue" && ETag(r1, 0) == "drain1" && Ph(r1) == "drain-rescue" && RL(r1) == 1)) return false;
+                object r2 = Tick(Now(100, 10, 30.0), Live(null), f, Cfg(null), St(r1),
+                    new object[] { RescRc(true, false, "R-default") });
+                object r3 = Tick(Now(100, 10, 30.0), Live(null), f, Cfg(null), St(r2),
+                    new object[] { RescRc(true, false, "R-default"), RecRc() });
+                return Act(r3) == "return" && Stat(r3) == "stalled"
+                    && Det(r3) == "MAA 队列已跑空但只完成 0/2 条链路，它不会再自己动 → 不等静默判定，当场兜底过一次就直接早退(外层会重试一次)。完成链路 0/2";
+            });
 
             // ---------- 档 5：drained 当场兜一次 → 无条件早退 ----------
             Dictionary drainedF = Flags(new object[] { "drained", true });
@@ -266,7 +306,7 @@ namespace GdPanel
                 return Act(r2) == "return" && Stat(r2) == "stalled"
                     && LTx(r2, 0) == "视觉兜底结果：点了 3 个候选点位，画面都没动" && LLv(r2, 0) == "WARN"
                     && Det(r2) == "MAA 队列已跑空但只完成 0/2 条链路，它不会再自己动 → 不等静默判定，当场兜底过一次就直接早退(外层会重试一次)。"
-                        + "完成链路 0/2";   // 基线口径：$detail 是 tick 开头快照，本 tick 刚落的这条兜底不进结论句(probe-live-golden drain-first 钉)
+                        + "完成链路 0/2";   // 基线口径：$detail 是 tick 开头快照，本 tick 刚落的这条兜底不进结论句(旧 live 门 drain-first 场景钉)
             });
             b.Chk("drained 但预算没了 → 不兜了也照样早退(detail 用历史账)", () =>
             {
@@ -324,7 +364,22 @@ namespace GdPanel
                 object r150 = Tick(Now(100, 150, null), Live(new object[] { "rescueAvailable", false }), quietF, Cfg(null), null, null);
                 object r210 = Tick(Now(100, 210, null), Live(new object[] { "rescueAvailable", false }), quietF, Cfg(null), null, null);
                 return Stat(r150) == "stalled" && Det(r150).StartsWith("MAA 日志 2 分钟无输出，判定卡住。")
-                    && Det(r210).StartsWith("MAA 日志 4 分钟无输出，判定卡住。");
+                    && Det(r210) == "MAA 日志 4 分钟无输出，判定卡住。完成链路 0/2";
+            });
+            b.Chk("兜底『截图失败』跳票形态(Tried=false) → 与兜败同分支：record 带 false，WARN 原句，Detail 走快照", () =>
+            {
+                object r1 = Tick(Now(100, 150, null), Live(null), quietF, Cfg(null), null, null);
+                if (ETag(r1, 0) != "stall1") return false;
+                object r2 = Tick(Now(100, 150, null), Live(null), quietF, Cfg(null), St(r1),
+                    new object[] { RescRc(false, false, "截图失败：PrintWindow 返回 0 字节") });
+                if (!(EK(r2, 0) == "record" && ETag(r2, 0) == "stall2"
+                    && !Gd.Truthy(Gd.Get(E(r2, 0), "Tried")) && !Gd.Truthy(Gd.Get(E(r2, 0), "Done"))
+                    && Gd.Str(Gd.Get(E(r2, 0), "Detail")) == "截图失败：PrintWindow 返回 0 字节")) return false;
+                object r3 = Tick(Now(100, 150, null), Live(null), quietF, Cfg(null), St(r2),
+                    new object[] { RescRc(false, false, "截图失败：PrintWindow 返回 0 字节"), RecRc() });
+                return Act(r3) == "return" && Stat(r3) == "stalled" && LLv(r3, 0) == "WARN"
+                    && LTx(r3, 0) == "视觉兜底结果：截图失败：PrintWindow 返回 0 字节"
+                    && Det(r3) == "MAA 日志 2 分钟无输出，判定卡住。完成链路 0/2";
             });
 
             // ---------- 档 9-10：进程没了 / 跑齐静默 ----------
@@ -446,6 +501,24 @@ namespace GdPanel
                 return Act(r) == "return" && Stat(r) == "unknown-format"
                     && Det(r) == "标志一条没认出来(游戏进程从未出现)" && Effs(r).Length == 0;
             });
+            b.Chk("m9a error 也不在问画面集合 → 拼后缀 return、预算不动(集合只认四档)", () =>
+            {
+                object r = MTick(30, true, true, "error", "进程提前退出", 0, null, null);
+                return Act(r) == "return" && Stat(r) == "error" && Det(r) == "进程提前退出(游戏进程出现过)"
+                    && Effs(r).Length == 0 && RL(r) == 2;
+            });
+            b.Chk("m9a empty-queue 在问画面集合里但**不拼后缀**：Why=判因、Context=原句、Tag m9a1", () =>
+            {
+                object r1 = MTick(30, true, true, "empty-queue", "空跑但值得问", 0, null, null);
+                if (!(EK(r1, 0) == "ask-screen" && ETag(r1, 0) == "m9a1" && EWhy(r1, 0) == "判因"
+                    && ECtx(r1, 0) == "空跑但值得问" && LLv(r1, 0) == "ERROR" && LTx(r1, 0) == "空跑但值得问")) return false;
+                object r2 = MTickR(30, true, "empty-queue", "空跑但值得问", 0, St(r1), new object[] { AskRc(true, false, "画面上是桌面") });
+                object r3 = MTickR(30, true, "empty-queue", "空跑但值得问", 0, St(r2),
+                    new object[] { AskRc(true, false, "画面上是桌面"), RecRc() });
+                return Stat(r3) == "empty-queue" && !Resc(r3) && LLv(r3, 0) == "WARN"
+                    && LTx(r3, 0) == "视觉兜底(判因)：画面上是桌面"
+                    && Det(r3) == "空跑但值得问；视觉兜底 1 次，最后一次：[判因] 画面上是桌面";
+            });
             b.Chk("m9a 预算初始化 0→2、[int] 银行家舍入 2.5→2", () =>
             {
                 return RL(MTickRescueMax(0)) == 2 && RL(MTickRescueMax(2.5)) == 2 && RL(MTickRescueMax(3.5)) == 4;
@@ -536,6 +609,46 @@ namespace GdPanel
                 return Act(r) == "return" && Det(r) == "链路跑完；视觉兜底 2 次，最后一次：[停滞已解除，继续等待]"
                     && LTx(r, 0) == "M9A 链路完成，共 8 个任务，用时 12.1 分钟";
             });
+            b.Chk("m9a 兜成续等后第二拍再问：Tag 排到 m9a3(两笔历史占号)、账 3 条拼进 Detail", () =>
+            {
+                object r1 = MTick(30, true, true, "stalled", "停在公招页", 0, null, null);
+                object r2 = MTickR(30, true, "stalled", "停在公招页", 0, St(r1), new object[] { AskRc(true, true, "活动页点掉了") });
+                object r3 = MTickR(30, true, "stalled", "停在公招页", 0, St(r2),
+                    new object[] { AskRc(true, true, "活动页点掉了"), RecRc() });
+                object r4 = MTickR(30, true, "stalled", "又停在同一页", 0, St(r3), null);
+                if (!(EK(r4, 0) == "ask-screen" && ETag(r4, 0) == "m9a3" && EWhy(r4, 0) == "停滞"
+                    && ECtx(r4, 0) == "又停在同一页(游戏进程出现过)" && RL(r4) == 0 && NotesN(r4) == 2)) return false;
+                object r5 = MTickR(30, true, "stalled", "又停在同一页", 0, St(r4), new object[] { AskRc(true, false, "第二救没成") });
+                object r6 = MTickR(30, true, "stalled", "又停在同一页", 0, St(r5),
+                    new object[] { AskRc(true, false, "第二救没成"), RecRc() });
+                return Act(r6) == "return" && Stat(r6) == "stalled" && !Resc(r6)
+                    && Det(r6) == "又停在同一页(游戏进程出现过)；视觉兜底 3 次，最后一次：[停滞] 第二救没成";
+            });
+            b.Chk("m9a 预算 1 兜败耗尽 → 下一拍不问、只拼旧账(状态名与 Detail 后缀照旧)", () =>
+            {
+                object r1 = MTickR2(30, true, true, "stalled", "第一拍", 0, null, null, 1);
+                object r2 = MTickR2(30, true, true, "stalled", "第一拍", 0, St(r1), new object[] { AskRc(true, false, "没兜动") }, 1);
+                object r3 = MTickR2(30, true, true, "stalled", "第一拍", 0, St(r2),
+                    new object[] { AskRc(true, false, "没兜动"), RecRc() }, 1);
+                object r4 = MTickR2(30, true, true, "stalled", "第二拍", 0, St(r3), null, 1);
+                return RL(r3) == 0 && Act(r3) == "return"
+                    && Det(r3) == "第一拍(游戏进程出现过)；视觉兜底 1 次，最后一次：[停滞] 没兜动"
+                    && Act(r4) == "return" && Effs(r4).Length == 0 && RL(r4) == 0
+                    && Det(r4) == "第二拍(游戏进程出现过)；视觉兜底 1 次，最后一次：[停滞] 没兜动";
+            });
+            b.Chk("m9a 兜底『截图失败』跳票形态(Tried=false) → 与兜败同分支、记账原样带 false", () =>
+            {
+                object r1 = MTick(30, true, true, "stalled", "停在公招页", 0, null, null);
+                object r2 = MTickR(30, true, "stalled", "停在公招页", 0, St(r1),
+                    new object[] { AskRc(false, false, "截图失败：PrintWindow 返回 0 字节") });
+                if (!(EK(r2, 0) == "record" && !Gd.Truthy(Gd.Get(E(r2, 0), "Tried"))
+                    && !Gd.Truthy(Gd.Get(E(r2, 0), "Done")))) return false;
+                object r3 = MTickR(30, true, "stalled", "停在公招页", 0, St(r2),
+                    new object[] { AskRc(false, false, "截图失败：PrintWindow 返回 0 字节"), RecRc() });
+                return Stat(r3) == "stalled" && !Resc(r3) && LLv(r3, 0) == "WARN"
+                    && LTx(r3, 0) == "视觉兜底(停滞)：截图失败：PrintWindow 返回 0 字节"
+                    && Det(r3) == "停在公招页(游戏进程出现过)；视觉兜底 1 次，最后一次：[停滞] 截图失败：PrintWindow 返回 0 字节";
+            });
 
             // ==================== 批次 9：apply-maa-gui-events(ark 一路回灌段) ====================
             // 期望串逐字抄自 lib\maa.ps1 Invoke-MaaRun 行 236-278 的回灌 switch(基线 c498da0)。
@@ -592,6 +705,18 @@ namespace GdPanel
                 }, GEState(null));
                 return Lgs(r).Length == 1 && LTx(r, 0) == "MAA 噪音(已按 benignMaaErrors 忽略)：a"
                     && Gd.List(Gd.Get(GState(r), "benignPatterns")).Length == 1;
+            });
+            b.Chk("stall 逐条覆盖(后一条换掉前一条)、drained 幂等但每条都打日志(跨批状态中继)", () =>
+            {
+                object r1 = MGE(new object[] {
+                    GEv(new object[] { "Kind", "drained" }), GEv(new object[] { "Kind", "drained" }),
+                }, GEState(null));
+                object r2 = MGE(new object[] { GEv(new object[] { "Kind", "stall", "Msg", "告警A" }) }, GState(r1));
+                object r3 = MGE(new object[] { GEv(new object[] { "Kind", "stall", "Msg", "告警B" }) }, GState(r2));
+                return Lgs(r1).Length == 2 && Gd.Truthy(Gd.Get(GState(r1), "drained"))
+                    && LLv(r1, 0) == "WARN" && LTx(r1, 0) == "MAA 宣布本轮已跑完但有错误(队列已空，它不会再自己动)"
+                    && Gd.Str(Gd.Get(GState(r2), "stallWarn")) == "告警A"
+                    && LTx(r3, 0) == "MAA 停滞告警：告警B" && Gd.Str(Gd.Get(GState(r3), "stallWarn")) == "告警B";
             });
             b.Chk("空事件批 → 状态原样带回、零日志", () =>
             {
@@ -710,6 +835,18 @@ namespace GdPanel
                 object r2 = M9E(new object[] { M9Ev("noise", ""), M9Ev("chain-done", "") }, GState(r1));
                 return Gd.Int(SV(r2, "eventCount"), -1) == 3
                     && Gd.List(SV(r2, "tasks")).Length == 1 && Gd.Truthy(SV(r2, "chainDone"));
+            });
+            b.Chk("m9a 空事件批 → 状态原样带回、零日志、不 touch lastLog", () =>
+            {
+                object r = M9E(new object[0], M9State(new object[] { "eventCount", 3, "chainStarted", true }));
+                return Lgs(r).Length == 0 && !Dir(r, "TouchLastLog")
+                    && Gd.Int(SV(r, "eventCount"), -1) == 3 && Gd.Truthy(SV(r, "chainStarted"));
+            });
+            b.Chk("queue-prepared 负数 → queueCount 照落 -2、不算开跑、日志吃原句", () =>
+            {
+                object r = M9E(new object[] { M9Ev("queue-prepared", "-2") }, M9State(null));
+                return LTx(r, 0) == "M9A 已提交任务队列：任务数量=-2" && Gd.Int(SV(r, "queueCount"), -9) == -2
+                    && !Gd.Truthy(SV(r, "chainStarted"));
             });
             b.Chk("未变化的可空键原样回填(failed/queueCount/resCurrent 没喂就是 null，不被并成空串)", () =>
             {

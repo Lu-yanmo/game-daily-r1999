@@ -57,7 +57,7 @@ function Invoke-Direct {
 # ── 冻结(2026-09-27，PS→C# 批次 5)：下面函数里"剥 -Games/-Tag + 按引号切词"的规则段
 # 已迁到 tools\panel-cs\Orchestration.cs(verb：split-task-args；契约见 docs\ps-migration-batch0.md)。
 # 壳里留的是活：Get-ScheduledTask 读任务、动作数守卫、Count<3 的"不像话"拒绝、追加 -Tag manual -Games、
-# 以及一切回落直跑的决断。改切词规则请改 C# 并跑 tools\probe-orch-golden.ps1 对拍，不要在这里加规则。
+# 以及一切回落直跑的决断。改切词规则请改 C# 并跑 tools\panel-cs\build.ps1 -Verify(orchtest)，不要在这里加规则。
 # ──────────────────────────────────────────────────────────────────────────────
 function Get-GdTaskArgsWithGames {
     param([Parameter(Mandatory)][string]$Task, [Parameter(Mandatory)][string]$WithGames)

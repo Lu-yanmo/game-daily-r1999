@@ -5,9 +5,9 @@
 # Skip/Junk 段过滤、卸载表值去引号剥前缀、nx_main 退回安装根、稳定排序、按目录去重、
 # "探测：候选 N 个…"文案 —— 全部迁到 tools\panel-cs\Detect.cs(verb：detect-installs；
 # 契约见 docs\ps-migration-batch0.md)。本文件留下的壳只转参、拆 {Found,Value,Source}。
-# 所以：改探测规则/文案请改 C# 那份并跑 tools\probe-status-detect-golden.ps1 对拍，不要在这里加规则。
+# 所以：改探测规则/文案请改 C# 那份并跑 `panel-cs --statetest` 对拍(原对拍门甲档第十刀退役)，不要在这里加规则。
 # 故意留在 PS 侧的一件事：
-#   Get-GdFixedRoot —— 壳把 roots 组装好递给 verb，golden 对拍靠"运行期覆盖这个函数"注入假树。
+#   Get-GdFixedRoot —— 壳把 roots 组装好递给 verb，本机固定盘口径只此一处(C# 自检直接注入 roots，不读这里)。
 # Get-GdMuMuVmList 批次 2 时说"要起外部进程、归批次 3"—— 批次 3 已落地：JSON→VM 列表的解读本体
 # 在 Processes.cs(verb：parse-mumu-vms)，这里只剩"文件在不在 + 起 MuMuManager"的外壳。
 # 原内部函数(Test-GdJunkPath/Format-GdCandidates/Test-GdSkipPath/Get-GdChildDir/Find-GdInstallDir/
@@ -61,7 +61,7 @@ function Get-GdMuMuVmList {
       转发壳(批次 3)：MuMuManager info --vmindex all → @{Index;Name} 列表的解析真身在
       tools\panel-cs\Processes.cs(verb：parse-mumu-vms)。这里只保留两件壳内的事：
       起外部进程(归编排层，本批不迁)和把 Vms 数组还原成旧调用方吃的 [pscustomobject] 列表。
-      改 JSON→列表的规则请改 C# 那份并跑 tools\probe-process-golden.ps1 对拍。
+      改 JSON→列表的规则请改 C# 那份并跑 panel-cs --proctest 对真值。
     #>
     param([Parameter(Mandatory)][string]$Manager)
     if (-not (Test-Path -LiteralPath $Manager)) { return @() }

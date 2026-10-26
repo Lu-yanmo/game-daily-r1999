@@ -490,6 +490,31 @@ namespace GdPanel
                 Dictionary<string, object> d = D(Processes.MumuState(Gd.Map(Gd.Out("code", 0, "out", "{不是json", "err", ""))));
                 return Gd.Str(Gd.Get(d, "Available")) == "False" && Gd.Str(Gd.Get(d, "Raw")) == "{不是json";
             });
+            // 12 刀从已退役的 process 等值门(场景 mumu/state-3空输出)抄来：退出码 0 但 stdout 空 = 管理器没答话，
+            // 与"退出码非零"同档(都别去 JSON 解析)；Raw 只拼 stdout+stderr(这里两者都空)。
+            b.Chk("mumu/state-空输出(码0但没答话)", delegate
+            {
+                Dictionary<string, object> d = D(Processes.MumuState(Gd.Map(Gd.Out("code", 0, "out", "", "err", ""))));
+                return Gd.Str(Gd.Get(d, "Available")) == "False" && Gd.Str(Gd.Get(d, "AndroidStarted")) == "False"
+                    && Gd.Str(Gd.Get(d, "ProcessStarted")) == "False" && Gd.Str(Gd.Get(d, "Name")) == ""
+                    && Gd.Str(Gd.Get(d, "Raw")) == "";
+            });
+            // 上格(门原样)与"坏 JSON"那格在 err 为空时同形 —— 这一格拿 stderr 当分水岭：
+            // 码 0 但 stdout 空必须走"没答话"那条(把 stderr 也拼进 Raw)，不是"解析失败"那条(只留 stdout)。
+            b.Chk("mumu/state-空输出但 stderr 有话说 → Raw 带上 stderr", delegate
+            {
+                Dictionary<string, object> d = D(Processes.MumuState(Gd.Map(Gd.Out("code", 0, "out", "", "err", "manager busy"))));
+                return Gd.Str(Gd.Get(d, "Available")) == "False" && Gd.Str(Gd.Get(d, "Raw")) == "manager busy";
+            });
+            // 从 mumu/state-4没开机 抄来：两个布尔各判各的 —— 开机位 false、进程位 true 必须原样分家，
+            // 不能用一个糊成一个(旧壳就是分别出 AndroidStarted/ProcessStarted 两格，调用方按需挑)。
+            b.Chk("mumu/state-没开机(两个布尔各判各的)", delegate
+            {
+                Dictionary<string, object> d = D(Processes.MumuState(Gd.Map(Gd.Out("code", 0,
+                    "out", @"{""is_android_started"":false,""is_process_started"":true,""name"":""other-vm""}", "err", ""))));
+                return Gd.Str(Gd.Get(d, "Available")) == "True" && Gd.Str(Gd.Get(d, "AndroidStarted")) == "False"
+                    && Gd.Str(Gd.Get(d, "ProcessStarted")) == "True" && Gd.Str(Gd.Get(d, "Name")) == "other-vm";
+            });
             b.Chk("mumu/vms-两项", delegate
             {
                 Dictionary<string, object> d = D(Processes.MumuVms(Gd.Map(Gd.Out("raw", @"{""0"":{""name"":""MuMu安卓设备"",""index"":0},""1"":{""name"":""第二台""}}"))));
@@ -535,6 +560,19 @@ namespace GdPanel
             {
                 Dictionary<string, object> d = D(Processes.AdbPidof(Gd.Map(Gd.Out("out", "no pid"))));
                 return Gd.Str(Gd.Get(d, "Found")) == "False";
+            });
+            // 12 刀从已退役的 process 等值门(场景 adb/pid-multi)抄来：pidof 偶尔吐多枚(空格分隔)，
+            // 旧实现先 \D 全剥再 [int]，拼起来就是 111222 —— 这条是"先剥再转"的口径，不是"取第一个"。
+            b.Chk("adb/pid-多枚连写(先剥非数字再转)", delegate
+            {
+                Dictionary<string, object> d = D(Processes.AdbPidof(Gd.Map(Gd.Out("out", "111 222"))));
+                return Gd.Str(Gd.Get(d, "Found")) == "True" && Gd.Str(Gd.Get(d, "Pid")) == "111222";
+            });
+            // 从 adb/pid-noise 抄来：输出里混着文字("pid noise 777x")也只留数字，777 就是 pid。
+            b.Chk("adb/pid-混文字(只留数字)", delegate
+            {
+                Dictionary<string, object> d = D(Processes.AdbPidof(Gd.Map(Gd.Out("out", "pid noise 777x"))));
+                return Gd.Str(Gd.Get(d, "Found")) == "True" && Gd.Str(Gd.Get(d, "Pid")) == "777";
             });
             b.Chk("adb/pid-超界不炸", delegate   // 旧实现在这里会 [int] 抛转换错；C# 侧明说 Found:false(注释在 Processes.cs)
             {

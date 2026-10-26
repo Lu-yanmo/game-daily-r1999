@@ -3,7 +3,8 @@
 // 单一事实源纪律：自本批起 PS 侧的 Get-GdVisionSystemPrompt / Get-GdVisionVerdictFromText /
 // Get-GdRescueClickPoint / Resolve-GdVisionEndpoint / Test-GdShotChanged / Add-GdRescueRecord 的字段合成段、
 // Get-GdArkDesktopState 的文案拼装段、Invoke-GdVisionRaw 的 stdout 回扫段 —— 规则只写 C# 这一份。
-// 文案必须与 PS 原话逐字符一致：tools\probe-vision-golden.ps1 拿基线 commit 的旧实现做全字面对拍，
+// 文案必须与 PS 原话逐字符一致：期望串逐字钉在 Vision.SelfTest.cs(--visiontest，12 刀起接替已退役的
+// tools\probe-vision-golden.ps1 等值门)，
 // 有差异回修这里，禁止改期望、禁止放宽比对(docs\ps-migration-batch0.md §7)。
 //
 // 切分口径(与批次 3 的"外部进程层"同一刀法，落到视觉层)：
@@ -113,7 +114,7 @@ namespace GdPanel
         // 那一类(它会推进状态) —— 拿默认提示词去问更新页，模型只会回 blocking=false，或干脆不给点位。
         // 输出协议一个字没改(还是 blocking/what/clicks)：parse-vision-verdict、tools\vision\ask.py、
         // 千分比换算全都不动，"这一路语义不同"只体现在话术与 verb 里的相位映射(Live.cs check-ark-launcher)。
-        // 默认路径逐字节不许漂移：probe-vision-golden 与 t13 对的是 BuildPrompt 的成品串。
+        // 默认路径逐字节不许漂移：--visiontest(prompt 组)与 t13 对的是 BuildPrompt 的成品串。
         const string LauncherHead =
             "你是明日方舟端游**启动器/更新器**自动化流程里的\"看屏幕的人\"。给你一张启动器窗口的截图，" +
             "请判断这一页现在能不能开始进游戏：是需要点一下某个按钮，还是正在下载资源，还是已经不用管了。";

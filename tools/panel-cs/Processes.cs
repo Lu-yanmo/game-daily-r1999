@@ -3,7 +3,8 @@
 // 单一事实源纪律：自本批起 PS 侧的 Get-MaaAsstStuckState / Get-MaaAsstStuckHint / Set-MaaDailyConfig 的规则段、
 // Get-M9ALaunchArgs(⚠ 10-26 甲档第五刀刀②：那枚 PS 壳已出仓，这一份就是唯一实现)／Read-GdM9ALine／Resolve-M9AStatus、Get-GdMuMuState 的 JSON 解读、Get-GdMuMuVmList 的
 // 属性表转换、Connect-GdAdb / Get-Gd1999Pid 的输出判定 —— 全部只剩薄转发壳，规则只写 C# 这一份。
-// 文案必须与 PS 原话逐字符一致：tools\probe-process-golden.ps1 拿 git HEAD 的旧实现做全字面对拍，
+// 文案必须与 PS 原话逐字符一致：期望串逐字钉在 Processes.SelfTest.cs(--proctest，12 刀起接替已退役的
+// tools\probe-process-golden.ps1 等值门)，
 // 有差异回修这里，禁止改期望、禁止放宽比对(docs\ps-migration-batch0.md §7)。
 //
 // 切分口径(与原"批次 3=外部进程层"的有意偏差，落地实录写进 docs)：

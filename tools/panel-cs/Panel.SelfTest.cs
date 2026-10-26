@@ -73,6 +73,7 @@ namespace GdPanel
             List<string> miss = HelpRowMisses();
             Console.WriteLine("帮助行里点名的文件都在: " + (miss.Count == 0 ? "True" : "False") +
                               (miss.Count == 0 ? "" : "  → " + string.Join(" , ", miss.ToArray())));
+            bad += SummaryEmitSelfTest();
             Location = new Point(-16000, -16000);
             ShowInTaskbar = false;
             Show();
@@ -123,6 +124,72 @@ namespace GdPanel
             // 死命令和布局问题一样计入退出码 —— 原 panel.ps1 的 -SelfTest 是 `if ($bad.Count -or $miss.Count) { exit 1 }`，
             // 只印不判就等于没有这一格：验收链那一步只认退出码。
             return (bad == 0 && miss.Count == 0) ? 0 : 1;
+        }
+
+        // ---------- 摘要机读面(原 tools\probe-panel-summary-parity.ps1，甲档第十一刀退役) ----------
+        // 门里七发"假帧枪"测的是门自己的比较器(Compare-Frames)，对面(PS -DumpSummary)随件删除后那套比较器
+        // 没有生产面可证，随门一起退；能搬的只有三格活口：verb 跑得通／信封自洽／同一棵树两拍同文。
+        // 这里另加一格"verb 只是 Build() 的无头外壳"，把"面板用的那份与机读面那份不是同一份"挡在编译面上。
+        // 用临时树跑，不依赖机器现场(只读自检的老规矩)。
+        static int SummaryEmitSelfTest()
+        {
+            int bad = 0;
+            string oldRoot = GdEnv.Root;
+            string tmp = Path.Combine(Path.GetTempPath(), "gd-summarieself-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            try
+            {
+                Directory.CreateDirectory(tmp);
+                File.WriteAllText(Path.Combine(tmp, "VERSION"), "0.0.0\n", new UTF8Encoding(false));
+                GdEnv.InitForTest(tmp);
+                Dictionary<string, object> e1 = (Dictionary<string, object>)GdPanelSummary.Emit(new Dictionary<string, object>());
+                List<string> l1 = Words(e1, "Lines");
+                Dictionary<string, object> e2 = (Dictionary<string, object>)GdPanelSummary.Emit(new Dictionary<string, object>());
+                List<string> l2 = Words(e2, "Lines");
+                List<string> built = GdPanelSummary.Build();
+
+                SumChk(ref bad, "摘要机读面：Proto=2(消费方 GdPanelProtoKnown 认同一个数)",
+                    Gd.Int(Gd.Get(e1, "Proto"), -1) == 2, "实际 " + Gd.Str(Gd.Get(e1, "Proto")));
+                SumChk(ref bad, "摘要机读面：Count 与 Lines 条数一致且非空",
+                    Gd.Int(Gd.Get(e1, "Count"), -1) == l1.Count && l1.Count > 0, Gd.Int(Gd.Get(e1, "Count"), -1) + "/" + l1.Count);
+                SumChk(ref bad, "摘要机读面：首行就是协议版本 PROTO|2",
+                    l1.Count > 0 && l1[0] == "PROTO|2", l1.Count > 0 ? l1[0] : "(空帧)");
+                string hdr = "";
+                foreach (string l in l1) if (l.StartsWith("HEADER|", StringComparison.Ordinal)) { hdr = l; break; }
+                string[] hf = hdr.Length > 0 ? hdr.Split('|') : new string[0];
+                SumChk(ref bad, "摘要机读面：HEADER 六列齐、第 6 列回指这棵临时树",
+                    hf.Length == 6 && hf[5] == tmp, hf.Length + " 列 " + (hf.Length == 6 ? "[" + hf[5] + "]" : ""));
+                bool flags = false;
+                foreach (string l in l1) if (l.StartsWith("FLAGS|", StringComparison.Ordinal)) { flags = true; break; }
+                SumChk(ref bad, "摘要机读面：FLAGS 行在场(空仓也要有那一行)", flags, "");
+                SumChk(ref bad, "摘要机读面：同一棵树连拍两帧逐字相同(现场差不算转写差)",
+                    string.Join("\n", l1.ToArray()) == string.Join("\n", l2.ToArray()), "");
+                SumChk(ref bad, "摘要机读面：verb 的 Lines 与面板直取 Build() 同文(verb 只是无头外壳)",
+                    string.Join("\n", built.ToArray()) == string.Join("\n", l1.ToArray()), "");
+            }
+            catch (Exception ex)
+            {
+                SumChk(ref bad, "摘要机读面：整段不该抛(" + ex.Message + ")", false, "");
+            }
+            finally
+            {
+                if (oldRoot != null) GdEnv.InitForTest(oldRoot);
+                try { Directory.Delete(tmp, true); } catch { }
+            }
+            return bad;
+        }
+
+        static List<string> Words(Dictionary<string, object> d, string key)
+        {
+            List<string> o = new List<string>();
+            foreach (object v in Gd.List(Gd.Get(d, key))) o.Add(Gd.Str(v));
+            return o;
+        }
+
+        static void SumChk(ref int bad, string name, bool ok, string extra)
+        {
+            if (!ok) bad++;
+            Console.WriteLine((ok ? "  PASS  " : "  FAIL  ") + name +
+                (extra.Length > 0 ? "　(" + extra + ")" : ""));
         }
 
         // 帮助行(「命令行怎么跑」那几行)里点名的 .ps1/.cmd 必须真在这棵树里。

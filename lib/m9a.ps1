@@ -7,12 +7,13 @@
 #   Read-M9ALogEvents  → verb parse-m9a-lines(整批文本一次转发，绝不逐行起进程)｜⚠ 10-26 第五刀刀②：这枚采集壳已从本文件出仓，整批取数的家只剩核内 m9a_read_log
 #   Resolve-M9AStatus  → verb resolve-m9a-status(所有结论文案/优先级在 C#；
 #                        本壳把 $State.lastLog 换算成 quietSeconds 递进去，Found:false 翻译回 $null)
-# 所以：改日志解析/结论话术请改 Processes.cs 并跑 tools\probe-process-golden.ps1 对拍，不要在这里加规则。
+# 所以：改日志解析/结论话术请改 Processes.cs 并跑 panel-cs --proctest 对真值，不要在这里加规则。
 # 故意留在 PS 侧的：Get-M9APaths/Get-GdM9ACliEnabled(读配置)、Set-M9AInstance(写 appsettings+回读)、
 # Get-M9AConnection(读实例 JSON)、Get-M9ADailyLog/Register-M9AEvent(状态累计+日志染色)、
 # Invoke-M9ARun(起进程与轮询，归批次 5 编排层)。
 #   ⚠ 10-25 甲档刀②：上面名单里只有这一枚不成立了——Invoke-M9ARun 整段出仓(原 319-528 共 210 行)，"故意留在 PS 侧"
-#   的名单自此只剩前两行那些壳。生产面唯一真做入口 = 核内 m9a_run；逐字副本钉 tools\rustcore\probe-m9arun-rust-golden.ps1。
+#   的名单自此只剩前两行那些壳。生产面唯一真做入口 = 核内 m9a_run；逐字副本原钉 probe-m9arun 门，
+#   ⚠ 10-26 甲档第十五刀：该门整件退役(等值面搬进 gdprobe --selftest 第 26 节，§11.151)，副本随门出仓。
 # ──────────────────────────────────────────────────────────────────────────────
 #
 # ── 追加冻结(2026-09-27，PS→C# 批次 8 —— 活段第二刀)────────────────────────────
@@ -20,7 +21,7 @@
 #     其余档拼进程后缀 → "五档问一次画面"门槛 → 兜底闭包(预算扣数、调用/记账 Tag 同数、
 #     兜-账-志次序) → 兜成分流(停滞撤回结论续等 / 判因立 Rescued 标记) → 收尾拼串)
 #     已迁到 tools\panel-cs\RunLoops.cs(verb：decide-m9a-run-tick)。口径见 docs\ps-migration-live-caliber.md，
-#     剧本对拍 = tools\probe-live-golden.ps1(基线钉 c498da0)。
+#     剧本对拍 = tools\panel-cs\build.ps1 -Verify 的 --looptest(基线钉 c498da0；原 live 门 10-26 摘件)。
 # 本壳留下的正是口径文档划给"活"的部分：while+sleep、tail 轮询、adb 探活、Resolve-M9AStatus 出结论(批 3)、
 #     真兜底/真记账、回执喂回+同 tick 重入的迷你循环、把结论回写 $res。
 # 旧的 $rescue/$askScreen 与反应段曾在下方逐行冻结 —— ⚠ 10-25 甲档刀② 点名推翻这句的后半：
@@ -43,11 +44,11 @@
 #     Directives.TouchLastLog 置 $State.lastLog = Get-Date。Invoke-M9ARun 轮询改用批量入口
 #     Register-M9AEvents(批 3 省钱点延伸：一轮一个进程，绝不每事件一个)。
 #     ⚠ 10-25 甲档刀②：那句里"Invoke-M9ARun 轮询"这个读者已随真身出仓。本枚批量入口现读只剩两处在调——
-#     本文件 :169 那发单事件壳转发(表账 ps-map 第六列 1:0 就是它；⚠ 10-26 第五刀刀② 现读：原写 :216 本就漂了两格，摘件后同段再 −49)＋门内逐字副本 probe-m9arun-rust-golden.ps1:1047(现读；原写 995 那枚先被上一轮族级说明自己加的四行推成 999，再被刀① 那 48 行推到 1047——§11.136 ⑥ 那条"本文件加行推漂自己"第二次复现)。
+#     本文件 :169 那发单事件壳转发(表账 ps-map 第六列 1:0 就是它；⚠ 10-26 第五刀刀② 现读：原写 :216 本就漂了两格，摘件后同段再 −49)。门内那枚逐字副本(probe-m9arun-rust-golden.ps1:1047 现读，原写 995 两度被推漂)已随 10-26 甲档第十五刀摘门出仓。
 # (批 3 头注里"故意留在 PS 侧的 Register-M9AEvent(状态累计+日志染色)"到本批作废：状态累计本体已走，
 #  壳只剩转发与染色。旧十三档逐行 # 仍冻在原位(那一段没随刀② 出仓)；⚠ 但原句"test-r1999 的 `$state.lastLog = Get-Date`、
 #  各档话术字面锚在冻结行里 substring 照命中，别删别改字"已于刀①-b(本仓 0ac6dcb)作废——正向锚九格改打 RunLoops.cs／main.rs
-#  两张活桌，本段不再是任何门的钉家(现读全仓读现树本文件的只剩 test-r1999:480 那枚否定式＋probe-m9arun 的 dot-source，都不比字面)。)
+#  两张活桌，本段不再是任何门的钉家(现读全仓读现树本文件的只剩 test-r1999:480 那枚否定式；probe-m9arun 的 dot-source 已随 10-26 甲档第十五刀摘门消失)。)
 # ──────────────────────────────────────────────────────────────────────────────
 
 function Get-M9APaths {
@@ -282,8 +283,8 @@ function Resolve-M9AStatus {
 #   生产面本来就没经过它——唯一的真做入口是核内 m9a_run(tools\rustcore\src\main.rs，走 --m9a-run／--daily-round)，
 #   反应段判据与话术的家在 tools\panel-cs\RunLoops.cs 的 decide-m9a-run-tick；当时那句"两枚转发壳在本文件上方原位保留、
 #   只转发不判据"已被 10-26 甲档第五刀刀② 推翻：Get-M9ALaunchArgs(原 72-91)与 Read-M9ALogEvents(原 156-182)生产面零调用，随真身同批出仓，逐字副本住进两扇 golden 门的 child。
-#   逐字副本钉在 tools\rustcore\probe-m9arun-rust-golden.ps1 的 child 里(a8ec6ed 帧)，H0-m9arun-copy-verbatim 逐字钉住、
-#   H0-m9arun-teeth 拿玻璃锚验那副眼镜有牙；test-r1999 [t18] 那九格文本锚已于刀①-b 搬去两张活桌，不再咬这里。
+#   逐字副本原钉在 probe-m9arun 门(两扇 golden 门都已退役：events 门甲档第十四刀、m9arun 门第十五刀 10-26 摘件，
+#   28 档等值面搬进 gdprobe --selftest 第 26 节，§11.151)；test-r1999 [t18] 那九格文本锚已于刀①-b 搬去两张活桌，不再咬这里。
 
 function Stop-M9A {
     param([Parameter(Mandatory)]$S)

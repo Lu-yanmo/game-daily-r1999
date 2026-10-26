@@ -79,7 +79,8 @@ namespace GdPanel
                 && (string)p1["Key"] == "D32钢" && IntOf(p1["Target"]) == 30
                 && Gd.List(p1["Stages"]).Length == 1 && Gd.Str(p1["Bad"]) == "");
             Dictionary<string, object> p2 = D(Gd.Get(Orchestration.FarmTargetSpec(Inp("raw", "30135=12@CE-5,CE-4")), "Spec"));
-            b.Chk("代号+多关(逗号/顿号分隔)拆得开", () => (string)p2["Key"] == "30135" && Gd.List(p2["Stages"]).Length == 2);
+            b.Chk("代号+多关(逗号/顿号分隔)拆得开", () => (string)p2["Key"] == "30135" && IntOf(p2["Target"]) == 12
+                && Gd.List(p2["Stages"]).Length == 2);
             Dictionary<string, object> p2b = D(Gd.Get(Orchestration.FarmTargetSpec(Inp("raw", "30135=12@CE-5、CE-4；LS-5")), "Spec"));
             b.Chk("顿号/分号/空白都是关卡分隔", () => Gd.List(p2b["Stages"]).Length == 3);
             Dictionary<string, object> p3 = D(Gd.Get(Orchestration.FarmTargetSpec(Inp("raw",
@@ -105,6 +106,10 @@ namespace GdPanel
             Dictionary<string, object> p7 = D(Gd.Get(Orchestration.FarmTargetSpec(Inp("raw", "D32钢＝30 @ CE-5")), "Spec"));
             b.Chk("全角等号与 @ 前后空格都认(旧正则 [=＝] 与 \\s*@\\s*)", () =>
                 IntOf(p7["Target"]) == 30 && Gd.List(p7["Stages"]).Length == 1);
+            // 甲档第九刀：probe-orch-golden 退役时搬来的 spec/nostage 档(值取门最后一次全绿的新侧)。
+            Dictionary<string, object> p8 = D(Gd.Get(Orchestration.FarmTargetSpec(Inp("raw", "D32钢=30")), "Spec"));
+            b.Chk("不写 @关卡 → Stages 空数组(旧正则无 @ 分支)", () =>
+                (string)p8["Key"] == "D32钢" && IntOf(p8["Target"]) == 30 && Gd.List(p8["Stages"]).Length == 0);
         }
 
         // ---------- 掉落文本解析(原 Parse-GdArkDropText) ----------
@@ -128,6 +133,12 @@ namespace GdPanel
             object[] b3 = Gd.List(Gd.Get(Orchestration.FarmDropText(Inp(
                 "text", "CE-4 掉落统计:\nD32钢 : 1 (+1)\n这是一句普通说明\n30135 : 9 (+9)")), "Blocks"));
             b.Chk("出现不像配额的行就算块结束(后面不再入账)", () => b3.Length == 1 && Gd.List(Gd.Get(b3[0], "Items")).Length == 1);
+            // 甲档第九刀：probe-orch-golden 退役时搬来的 drop/nohead|nostage 两档(值取门最后一次全绿的新侧)。
+            object[] b4 = Gd.List(Gd.Get(Orchestration.FarmDropText(Inp("text", "掉落统计:")), "Blocks"));
+            b.Chk("块头没有关卡名 → 整段不给块(旧正则要求名字+掉落统计)", () => b4.Length == 0);
+            object[] b5 = Gd.List(Gd.Get(Orchestration.FarmDropText(Inp("text", "CE5X 掉落统计:")), "Blocks"));
+            b.Chk("关卡名不要求连字符(CE5X 照收)；空块 Items 为空", () =>
+                b5.Length == 1 && (string)Gd.Get(b5[0], "Stage") == "CE5X" && Gd.List(Gd.Get(b5[0], "Items")).Length == 0);
         }
 
         // ---------- 补刷判表(原 Resolve-ArkFarmPlan) ----------
@@ -248,6 +259,14 @@ namespace GdPanel
             Dictionary<string, object> rz = D(Orchestration.FarmPlan(inpZero));
             b.Chk("MaxTimes<1 兜成 1(旧 [int] 兜底)，封顶句跟着说 1", () =>
                 IntOf(rz["Times"]) == 1 && Gd.Str(rz["Reason"]).Contains("单轮封顶 1"));
+
+            // 甲档第九刀：probe-orch-golden 退役时搬来的 plan/mixst 档(值取门最后一次全绿的新侧)。
+            Dictionary<string, object> inpMixSt = Obj("targets", new object[] { Spec("D32钢", 12, "CE-5", "CE-9") },
+                "nameToId", N2I, "idToName", I2N, "inventory", Obj("30135", 18),
+                "origin", Obj(), "dropTable", DT, "knownStages", Known, "maxTimes", 12);
+            Dictionary<string, object> rmixst = D(Orchestration.FarmPlan(inpMixSt));
+            b.Chk("已知关+未知关混填、现量已够 → 仍只判已够(不因未知关多话)", () =>
+                !Bool(rmixst["Active"]) && Gd.Str(rmixst["Reason"]).Contains("D32钢 已够(18/12)"));
         }
 
         // ---------- 方舟本轮意图(原 Resolve-GdArkDecision 构造段) ----------
@@ -306,6 +325,58 @@ namespace GdPanel
                 (string)fl["FarmMode"] == "" && Bool(fl["HasFarmFields"])
                 && Gd.Str(Gd.List(fl["Warnings"])[0]) == "-Farm 本轮没有可补的材料 → 按原方案跑"
                 && (string)D(fl["Ark"])["Mode"] == "idle");
+
+            // 甲档第九刀：probe-orch-golden 退役时搬来的 ark/plain|manual-farm|force-farm 三档。
+            // 后两档走壳里那套**两步序**(先 manual/force、再拿变换后的 ark 过 farm 档)，值取门最后一次全绿的新侧。
+            Dictionary<string, object> pl = D(ArkTwoStep(IdleArk, "", false, false, null));
+            b.Chk("两步序·两步都不触发 → 原 ark 原样、零 Warn、无 farm 字段", () =>
+                (string)D(pl["Ark"])["Mode"] == "idle" && (string)D(pl["Ark"])["Stage"] == "CE-5,LS-5"
+                && (string)D(pl["Ark"])["Reason"] == "长草" && Gd.List(pl["Warnings"]).Length == 0
+                && !Bool(pl["HasFarmFields"]));
+
+            Dictionary<string, object> mf = D(ArkTwoStep(IdleArk, "OF-1", false, false,
+                Obj("Stages", new object[] { "PR-D-2" }, "Reason", "补刷 D32钢×5 @CE-5")));
+            b.Chk("两步序·manual→append：farm 关排最前、StageHint 保 OF-1、Reason 用「；需求优先 」拼", () => {
+                Dictionary<string, object> da2 = D(mf["Ark"]);
+                return (string)da2["Mode"] == "manual" && (string)da2["Stage"] == "PR-D-2,OF-1"
+                    && (string)da2["StageHint"] == "OF-1" && Bool(da2["ClearSanity"])
+                    && (string)da2["Reason"] == "命令行指定刷 OF-1；需求优先 补刷 D32钢×5 @CE-5"
+                    && da2["EventKey"] == null && da2["EventTip"] == null && (string)da2["Source"] == "manual"
+                    && (string)mf["FarmMode"] == "append" && Bool(mf["HasFarmFields"])
+                    && Gd.List(mf["Warnings"]).Length == 0;
+            });
+
+            Dictionary<string, object> ff = D(ArkTwoStep(PendArk, "", true, false,
+                Obj("Stages", new object[] { "PR-D-2" }, "Reason", "补刷 D32钢×5 @CE-5")));
+            b.Chk("两步序·force→append：先越门(event/CT-1)再并 farm 关，WARN 只剩 -Force 那句", () => {
+                Dictionary<string, object> da3 = D(ff["Ark"]);
+                return (string)da3["Mode"] == "event" && (string)da3["Stage"] == "PR-D-2,CT-1"
+                    && (string)da3["StageHint"] == "CT-1" && Bool(da3["ClearSanity"])
+                    && (string)da3["Reason"] == "(-Force) 不管今天的自证结论(进得去与否)，强行刷 CT-1；需求优先 补刷 D32钢×5 @CE-5"
+                    && (string)da3["EventKey"] == "act1" && (string)da3["EventTip"] == "sidestory"
+                    && (string)da3["Source"] == "event" && (string)ff["FarmMode"] == "append"
+                    && Gd.List(ff["Warnings"]).Length == 1
+                    && Gd.Str(Gd.List(ff["Warnings"])[0]) == "-Force：本轮忽略活动图自证结论";
+            });
+        }
+
+        // 壳里 Resolve-GdArkDecision 的两步序(先 manual/force、再拿变换后的 ark 过 farm 档)：
+        // C# 的两个 verb 各管一步，这里按壳的顺序串起来，Warnings 两段依序合计。
+        static object ArkTwoStep(Dictionary<string, object> ark0, string stage, bool force, bool farm, object farmOpt)
+        {
+            Dictionary<string, object> r1 = D(Orchestration.ArkIntent(Inp("ark", ark0, "stage", stage, "force", force,
+                "farm", false, "farmOpt", null)));
+            Dictionary<string, object> r2 = D(Orchestration.ArkIntent(Inp("ark", r1["Ark"], "stage", "", "force", false,
+                "farm", farm, "farmOpt", farmOpt)));
+            List<object> warnings = new List<object>();
+            foreach (object w in Gd.List(r1["Warnings"])) warnings.Add(w);
+            foreach (object w in Gd.List(r2["Warnings"])) warnings.Add(w);
+            Dictionary<string, object> data = new Dictionary<string, object>();
+            data["Ark"] = r2["Ark"];
+            data["FarmMode"] = r2["FarmMode"];
+            data["HasFarmFields"] = r2["HasFarmFields"];
+            data["Warnings"] = warnings.ToArray();
+            return data;
         }
 
         // ---------- 1999 本轮意图(原 Resolve-GdR1999Decision 构造段) ----------
@@ -328,7 +399,10 @@ namespace GdPanel
             b.Chk("-Plan≠auto 无条件覆盖(连 Force 的结果也覆盖)：Version=manual/VersionName=命令行指定", () =>
                 (string)d2["Mode"] == "idle" && (string)d2["Instance"] == "idle" && (string)d2["Version"] == "manual"
                 && (string)d2["VersionName"] == "命令行指定" && (string)d2["Reason"] == "命令行指定 idle"
-                && d2["EventKey"] == null && d2["DataAge"] == null);
+                && d2["EventKey"] == null && d2["DataAge"] == null
+                // 甲档第九刀补：r19/both 档的 WARN 在覆盖之后仍原样留着(门最后全绿的新侧读数)。
+                && Gd.List(r2["Warnings"]).Length == 1
+                && Gd.Str(Gd.List(r2["Warnings"])[0]) == "-Force：1999 本轮忽略活动确认门");
 
             Dictionary<string, object> r3 = D(Orchestration.R1999Intent(Inp("decision", PendR, "plan", "auto", "force", false)));
             b.Chk("两样都不给 → decision 原样、零 Warn", () =>
@@ -373,6 +447,25 @@ namespace GdPanel
                 object[] e4 = Gd.List(r4["Events"]);
                 return e4.Length == 1 && (string)Gd.Get(e4[0], "Chain") == "Recruit";
             });
+
+            // 甲档第九刀：probe-orch-golden 退役时搬来的 gui/benign-dup|chain-twice 两档。
+            // 去重与计数本来在壳的 benignSeen/completed 账上，这里钉分类层**按行各发一条**。
+            Dictionary<string, object> rd = D(Orchestration.MaaGuiLines(Inp("text",
+                "<1> 连接失败 something\n<2> 连接失败 something", "benign", new object[] { @"连接失败 something$" })));
+            b.Chk("同一噪音行两次 → 两条 benign 事件(去重是壳的账，不是分类层)", () => {
+                object[] ed = Gd.List(rd["Events"]);
+                return ed.Length == 2 && (string)Gd.Get(ed[0], "Kind") == "benign"
+                    && (string)Gd.Get(ed[1], "Kind") == "benign"
+                    && (string)Gd.Get(ed[1], "Pattern") == @"连接失败 something$";
+            });
+            Dictionary<string, object> rt = D(Orchestration.MaaGuiLines(Inp("text",
+                "Completed Task Chain: Mainline\nCompleted Task Chain: Mainline\nCompleted Task Chain: Recruit5",
+                "benign", new object[0])));
+            b.Chk("同一链路两次 → 三条 chain 事件按行发", () => {
+                object[] et = Gd.List(rt["Events"]);
+                return et.Length == 3 && (string)Gd.Get(et[0], "Chain") == "Mainline"
+                    && (string)Gd.Get(et[1], "Chain") == "Mainline" && (string)Gd.Get(et[2], "Chain") == "Recruit";
+            });
         }
 
         // ---------- 任务参数切词(原 Get-GdTaskArgsWithGames) ----------
@@ -392,6 +485,12 @@ namespace GdPanel
                 Gd.List(r2["Pieces"]).Length == 3 && Gd.Str(Gd.List(r2["Pieces"])[2]) == "x.ps1");
             Dictionary<string, object> r3 = D(Orchestration.TaskArgs(Inp("text", "-File x")));
             b.Chk("没有可剥的就原样切(Count 守卫归壳管)", () => Gd.List(r3["Pieces"]).Length == 2);
+            // 甲档第九刀：probe-orch-golden 退役时搬来的 ta/bare 档(值取门最后一次全绿的新侧)。
+            Dictionary<string, object> r4 = D(Orchestration.TaskArgs(Inp("text", "pwsh -File daily-clear.ps1")));
+            b.Chk("裸命令行三段原样切(pwsh/-File/脚本名)", () => {
+                object[] q = Gd.List(r4["Pieces"]);
+                return q.Length == 3 && (string)q[0] == "pwsh" && (string)q[1] == "-File" && (string)q[2] == "daily-clear.ps1";
+            });
         }
 
         // ---------- 批次 8：decide-daily-retry(两路 daily 的重试分流) ----------
@@ -411,6 +510,11 @@ namespace GdPanel
             object n99Uf = Retry("r1999", "unknown-format", false, true);
             object n99Empty = Retry("r1999", "empty-queue", false, true);
             object n99Timeout = Retry("r1999", "timeout", false, true);
+            object arkErrorNoRetry = Retry("ark", "error", false, false);
+            object n99NsPlainTrue = Retry("r1999", "not-started", false, true);
+            object n99EmptyRescued = Retry("r1999", "empty-queue", true, true);
+            object n99TimeoutNoRetry = Retry("r1999", "timeout", false, false);
+            object n99BlockedRescuedNoRetry = Retry("r1999", "blocked", true, false);
 
             b.Chk("ark stalled+retryOnce → 重试一次(WARN『收尾后重试一次』)", () =>
                 Rry(arkStalled) && Rlg(arkStalled).Length == 1 && Rlv(arkStalled, 0) == "WARN"
@@ -429,9 +533,10 @@ namespace GdPanel
             b.Chk("r1999 blocked 没兜清 → 不重试但落 elseif blocked → ERROR『从头一个任务起就没进游戏』", () =>
                 !Rry(n99BlockedPlain) && Rlv(n99BlockedPlain, 0) == "ERROR"
                     && Rtx(n99BlockedPlain, 0) == "1999 从头一个任务起就没进游戏 → 是客户端/资源要更新或模拟器状态不对，重试没有意义，直接记入本轮告警");
-            b.Chk("r1999 not-started+Rescued 也翻案；不带 Rescued → WARN『队列没开始/空跑完成』(retryOnce=false 同落)", () =>
-                Rry(n99NsRescued) && !Rry(n99NsPlain)
-                    && Rtx(n99NsPlain, 0) == "1999 队列没开始/空跑完成 → 重试没有意义，直接记入本轮告警" && Rlv(n99NsPlain, 0) == "WARN");
+            b.Chk("r1999 not-started+Rescued 也翻案；不带 Rescued → WARN『队列没开始/空跑完成』(retryOnce 开/关同落)", () =>
+                Rry(n99NsRescued) && !Rry(n99NsPlain) && !Rry(n99NsPlainTrue)
+                    && Rtx(n99NsPlain, 0) == "1999 队列没开始/空跑完成 → 重试没有意义，直接记入本轮告警" && Rlv(n99NsPlain, 0) == "WARN"
+                    && Rtx(n99NsPlainTrue, 0) == Rtx(n99NsPlain, 0));
             b.Chk("r1999 unknown-format 永远不重试(Rescued 也不行——不在翻案清单)且 ERROR 整句", () =>
             {
                 object ufRescued = Retry("r1999", "unknown-format", true, true);
@@ -441,6 +546,16 @@ namespace GdPanel
             b.Chk("r1999 empty-queue 无 Rescued → 落 WARN 队列句；timeout 无 Rescued 也走重试", () =>
                 !Rry(n99Empty) && Rtx(n99Empty, 0) == "1999 队列没开始/空跑完成 → 重试没有意义，直接记入本轮告警"
                     && Rry(n99Timeout) && Rtx(n99Timeout, 0) == "1999 本轮未成功 → 关闭游戏后重试一次");
+            b.Chk("ark error + retryOnce=false → 不重试也不告警(elseif 只认 unknown-format)", () =>
+                !Rry(arkErrorNoRetry) && Rlg(arkErrorNoRetry).Length == 0);
+            b.Chk("r1999 empty-queue + Rescued → 翻案重试，话术换『兜清楚了』那句", () =>
+                Rry(n99EmptyRescued) && Rlv(n99EmptyRescued, 0) == "WARN"
+                    && Rtx(n99EmptyRescued, 0) == "1999 本轮未成功，但视觉兜底把挡路的界面点掉了 → 关闭 M9A 后重试一次");
+            b.Chk("r1999 timeout + retryOnce=false → 不重试且静默(timeout 不在 elseif 清单)", () =>
+                !Rry(n99TimeoutNoRetry) && Rlg(n99TimeoutNoRetry).Length == 0);
+            b.Chk("r1999 blocked+Rescued 但 retryOnce=false → 落 elseif blocked 的 ERROR(翻案条件被开关挡住)", () =>
+                !Rry(n99BlockedRescuedNoRetry) && Rlv(n99BlockedRescuedNoRetry, 0) == "ERROR"
+                    && Rtx(n99BlockedRescuedNoRetry, 0) == "1999 从头一个任务起就没进游戏 → 是客户端/资源要更新或模拟器状态不对，重试没有意义，直接记入本轮告警");
             b.Chk("game 不认识 → GdRuleException 原话(退出码 2 归壳，规则说不干)", () =>
             {
                 try { Retry("mumu", "stalled", false, true); return false; }

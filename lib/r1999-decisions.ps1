@@ -9,7 +9,7 @@
 #   * IgnoreShopDone 与 shopDoneStopsEvent 决定"给不给领空图" —— 门留在 PS，规则读值；
 #   * Resolve-R1999Instance 的两道前置检查(计划名没配 / M9A 目录不在)留在 PS，
 #     那两句人话是"这台机器没配好"，不是判定规则。
-# 改文案/改分支请改 C# 那份，判定面的取值断言在 tools\panel-cs\Decisions.SelfTest.cs(随 build.ps1 -Verify 的 --selftest 跑)，不要在这里加规则。⚠ 2026-10-26 甲档第六刀起 `tools\probe-decisions-golden.ps1` 只剩屏保一族 14 档——它 old 侧原本点的是本件在 HEAD 里的逐字副本(两侧同一份代码、没有对面)，取证与判据见 docs\rust-core-plan.md §11.141，别把那座门的"绿"读成"这里验过"。
+# 改文案/改分支请改 C# 那份，判定面的取值断言在 tools\panel-cs\Decisions.SelfTest.cs(随 build.ps1 -Verify 的 --dectest 跑)，不要在这里加规则。⚠ 10-26 甲档第六刀摘掉那 45 档没有对面的场景；第八刀把屏保 14 档逐字搬进该自检并整件退役 `tools\probe-decisions-golden.ps1`(取证见 docs\rust-core-plan.md §11.141／§11.144)——那座门自此不存在，判定面只认 `--dectest`。
 # ──────────────────────────────────────────────────────────────────────────────
 
 function Resolve-R1999Plan {

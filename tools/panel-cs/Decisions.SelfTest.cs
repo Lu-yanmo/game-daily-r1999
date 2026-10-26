@@ -3,6 +3,9 @@
 // 不读真配置、不碰 state\ 里的确认门(那套 Save/Restore 隔离是 PS 壳侧的事，C# 侧本来就无状态)。
 // 断言里的中文串是从 lib\ark-decisions.ps1 / lib\r1999-decisions.ps1 原话抄来的 ——
 // 这里红了就是 C# 移植走样，改 Decisions.cs，不改这里的期望串。
+// ⚠ 10-26 甲档第八刀：屏保那一族 14 档自 tools\probe-decisions-golden.ps1 退休前最后一次全绿读数逐字搬来这里
+//    (old 侧钉 e269d13 裁出的旧真身、new 侧走现树壳 → C# verb，两侧 14 档逐字符全等)；场景名与门里逐条同名。
+//    那 14 条同样是"改 C# 才动这里"，不要改期望去迁就实现。
 
 using System;
 using System.Collections.Generic;
@@ -91,6 +94,23 @@ namespace GdPanel
         static Dictionary<string, object> SideStory(object groups)
         {
             return Gd.Out("Official", Gd.Out("sideStory", groups));
+        }
+
+        // 屏保 14 档逐字投影的助手(10-26 甲档第八刀，原 probe-decisions-golden 的 saver 一族全量搬入)：
+        // SaverCfg 复刻门里 SaverCfg 的四个键序；SaverWho / SaverVerdict 复刻门里"直接取值"与 SaverStr 的固定序投影。
+        static object SaverCfg(string saver, object product, object active, object timeout)
+        {
+            return Gd.Out("Saver", saver, "Product", product, "Active", active, "TimeoutSec", timeout);
+        }
+        static string SaverWho(object cfg)
+        {
+            return Gd.Str(Gd.Get(Gd.Map(Decisions.ScreensaverWhoV(Gd.Out("cfg", cfg))), "Text"));
+        }
+        static string SaverVerdict(object cfg, int floorSec)
+        {
+            Dictionary<string, object> v = Gd.Map(Decisions.ScreensaverVerdict(Gd.Out("cfg", cfg, "floorSec", floorSec)));
+            return "K=" + Gd.Str(v["Kind"]) + "|R=" + (((bool)v["Risk"]) ? "True" : "False")
+                + "|T=" + Gd.Str(v["Text"]) + "|D=" + Gd.Str(v["Detail"]);
         }
 
         // ============================ --dectest ============================
@@ -463,6 +483,38 @@ namespace GdPanel
                         "floorSec", 300)));
                     return (string)c1["Text"] == "屏保：y/300秒 仍武装" && (string)c2["Text"] == "屏保：y/600秒 仍武装";
                 });
+
+                // ---------- 屏保 14 档逐字投影(10-26 甲档第八刀：tools\probe-decisions-golden.ps1 退休前的 saver 全量) ----------
+                // 期望串现取自那枚门最后一次全绿读数：old 侧钉 e269d13 真身裁出的两枚函数，new 侧走现树壳 → C# verb，14 档逐字符全等。
+                // 场景名与门里逐条同名 ⇒ 那枚退休时它的 14 格去处在表里可逐条对上；改 C# 而这句话不跟，这里就红(§7 同一条纪律)。
+                b.Chk("saver/who-WE代理", delegate
+                { return SaverWho(SaverCfg(@"C:\Windows\System32\wallpaper32_proxy.scr", "Wallpaper Engine Screensaver", "1", 600)) == "Wallpaper Engine"; });
+                b.Chk("saver/who-产品名直取", delegate
+                { return SaverWho(SaverCfg(@"C:\a\b.scr", "别的家", "1", 0)) == "别的家"; });
+                b.Chk("saver/who-回退文件名", delegate
+                { return SaverWho(SaverCfg(@"C:\Windows\System32\mystars.scr", "", "1", 600)) == "mystars"; });
+                b.Chk("saver/who-空Cfg", delegate
+                { return SaverWho(null) == ""; });
+                b.Chk("saver/who-只有Saver", delegate
+                { return SaverWho(Gd.Out("Saver", @"D:\x\y.scr")) == "y"; });
+                b.Chk("saver/verdict-unknown", delegate
+                { return SaverVerdict(null, 0) == @"K=unknown|R=False|T=屏保：注册表读不到，判断不了|D=屏保：读不到 HKCU\Control Panel\Desktop，判断不了武装没有(不代表没事)"; });
+                b.Chk("saver/verdict-none", delegate
+                { return SaverVerdict(SaverCfg("", "", "1", 0), 0) == @"K=none|R=False|T=屏保：没挂 .scr(不会接管会话)|D=屏保：系统里没有指定屏幕保护程序 → 到点不会有任何东西盖住端游窗口，06:00 那一路安全"; });
+                b.Chk("saver/verdict-armed", delegate
+                { return SaverVerdict(SaverCfg(@"C:\Windows\System32\wallpaper32_proxy.scr", "Wallpaper Engine Screensaver", "1", 600), 0) == @"K=armed|R=True|T=屏保：Wallpaper Engine/600秒 仍武装|D=屏保：Wallpaper Engine/600秒 仍武装 → 到点会接管输入桌面，方舟那一路起跑前置判定会直接早退 not-started；解法：tools\unarm-screensaver.ps1 -Apply(或 设置→个性化→锁屏界面→屏幕保护程序→选「(无)」)"; });
+                b.Chk("saver/verdict-off", delegate
+                { return SaverVerdict(SaverCfg(@"C:\Windows\System32\mystars.scr", "", "0", 600), 0) == @"K=off|R=False|T=屏保：mystars/600秒 已解除|D=屏保：mystars/600秒，武装位是 0 → 到点不触发(日常""只关不复""就停在这档)。注意它不是终态：mystars 的设置里仍勾着屏保时，改一次设置就可能被重新武装，体检看到这行变成""仍武装""就是这个原因"; });
+                b.Chk("saver/verdict-floor", delegate
+                { return SaverVerdict(SaverCfg(@"C:\x\y.scr", "", "1", 60), 300) == @"K=armed|R=True|T=屏保：y/300秒 仍武装|D=屏保：y/300秒 仍武装 → 到点会接管输入桌面，方舟那一路起跑前置判定会直接早退 not-started；解法：tools\unarm-screensaver.ps1 -Apply(或 设置→个性化→锁屏界面→屏幕保护程序→选「(无)」)"; });
+                b.Chk("saver/verdict-floor不钳", delegate
+                { return SaverVerdict(SaverCfg(@"C:\x\y.scr", "", "1", 600), 300) == @"K=armed|R=True|T=屏保：y/600秒 仍武装|D=屏保：y/600秒 仍武装 → 到点会接管输入桌面，方舟那一路起跑前置判定会直接早退 not-started；解法：tools\unarm-screensaver.ps1 -Apply(或 设置→个性化→锁屏界面→屏幕保护程序→选「(无)」)"; });
+                b.Chk("saver/verdict-字符串读数", delegate
+                { return SaverVerdict(SaverCfg(@"C:\x\y.scr", "", "1", "900"), 0) == @"K=armed|R=True|T=屏保：y/900秒 仍武装|D=屏保：y/900秒 仍武装 → 到点会接管输入桌面，方舟那一路起跑前置判定会直接早退 not-started；解法：tools\unarm-screensaver.ps1 -Apply(或 设置→个性化→锁屏界面→屏幕保护程序→选「(无)」)"; });
+                b.Chk("saver/verdict-缺键", delegate
+                { return SaverVerdict(Gd.Out("Saver", @"C:\x\y.scr", "Active", "1"), 0) == @"K=armed|R=True|T=屏保：y/0秒 仍武装|D=屏保：y/0秒 仍武装 → 到点会接管输入桌面，方舟那一路起跑前置判定会直接早退 not-started；解法：tools\unarm-screensaver.ps1 -Apply(或 设置→个性化→锁屏界面→屏幕保护程序→选「(无)」)"; });
+                b.Chk("saver/verdict-off无产品", delegate
+                { return SaverVerdict(SaverCfg(@"C:\x\y.scr", "", "0", "600"), 0) == @"K=off|R=False|T=屏保：y/600秒 已解除|D=屏保：y/600秒，武装位是 0 → 到点不触发(日常""只关不复""就停在这档)。注意它不是终态：y 的设置里仍勾着屏保时，改一次设置就可能被重新武装，体检看到这行变成""仍武装""就是这个原因"; });
 
                 // ---------- verb 接线(信封/退出码) ----------
                 b.Chk("verb decide-ark：--in/--out 回环，data 即判定对象(未探过 → event 探针档)", delegate

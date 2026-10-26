@@ -92,8 +92,8 @@ if (-not $Quiet) { Write-Host ('产物: ' + $exe + ' (' + (Get-Item -LiteralPath
 #   ⇒ 这一文件在此之前那十四段「& $exe --xxx / if ($LASTEXITCODE -ne 0) { throw }」从头到尾没咬到过任何东西：
 #     自检真身红成什么样这里都照样印 "OK"。docs\rust-core-plan.md §11.123 记的「coretest 3/24 红、
 #     build.ps1 -Verify 仍印 panel-cs --coretest OK」那件在册怪事，根因就是这一条(不是"那句印错了")。
-#   正解 = Start-Process -NoNewWindow -Wait -PassThru(tools\probe-panel-summary-parity.ps1 的 Get-CsFrame
-#   一直就是这么写的)，再拿"退出码读不出来当场 throw"兜住 Windows PowerShell 5.1(-PassThru 在 5.1 取不到
+#   正解 = Start-Process -NoNewWindow -Wait -PassThru(下面这枚助手就是这么写的；早先那道摘要等值门的取数件
+#   也是同一形)，再拿"退出码读不出来当场 throw"兜住 Windows PowerShell 5.1(-PassThru 在 5.1 取不到
 #   ExitCode)：在那台引擎上这一档判红，绝不容它蒙成 rc=0 的假绿。
 function Invoke-GdPanelCsExe {
     <# 起一枚自检动词、等到它退、把 stdout 读回来。返回 @{Rc;Text;Last}。

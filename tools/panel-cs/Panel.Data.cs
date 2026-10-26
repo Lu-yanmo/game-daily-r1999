@@ -73,8 +73,8 @@ namespace GdPanel
         }
 
         // 刀②(2026-10-23，与乙档刀③ 同批)：这一枚原来起一个 pwsh 子进程跑 `tools\panel.ps1 -DumpSummary`，
-        // 现在直取核内 GdPanelSummary.Build() —— 判定面已在刀① 逐字转写进 Panel.Summary.cs，等值门
-        // (tools/probe-panel-summary-parity.ps1)验过两侧同文，而下面 ParseSummary 要的就是那份协议原文，
+        // 现在直取核内 GdPanelSummary.Build() —— 判定面已在刀① 逐字转写进 Panel.Summary.cs(等值门验过两侧同文
+        // 后随件退役，现由 --selftest 那七格守着)，而下面 ParseSummary 要的就是那份协议原文，
         // 所以返回类型、解析器、两处调用点的 try/catch 语义一字不动，少的只是那枚子进程(冷启一到两秒)。
         // 更名 Run→Build：留着"Run"会指着一枚不再起的进程。
         // 顺带拆掉的隐患：老代码先 StandardOutput.ReadToEnd() 再 ReadToEnd()  stderr、最后才 WaitForExit(60000) ——

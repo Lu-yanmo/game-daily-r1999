@@ -55,7 +55,7 @@
 #   Test-GdShotChanged           → verb shot-changed(签名格数比对)
 #   Invoke-GdVisionRaw 的 stdout 回扫段 → verb parse-vision-reply(起子进程与请求组装仍在本壳，Context 截 200 也在)
 #   Add-GdRescueRecord 的字段合成段 → verb rescue-entry(读写盘、Test-Path 守卫与裁剪留本壳)
-# 所以：改规则/文案请改 Vision.cs 并跑 tools\probe-vision-golden.ps1 对拍，不要在这里加规则。
+# 所以：改规则/文案请改 Vision.cs 并跑 panel-cs --visiontest 对真值，不要在这里加规则。
 # 故意留在 PS 侧的：Get-GdVisionTarget(命名约定探路)、Invoke-GdVisionAsk、Invoke-GdVisionRescue(闸门顺序与
 # 多候选点击循环全靠靶子闭包，属编排层)、Get-GdShotStats(要 Bitmap)、Get-GdVisionApiKey(key 绝不进 JSON 信封)、
 # Clear-* 系(摸盘的)。vision-mumu 整份留壳：test-r1999 把两段正则钉在函数定义文本上，薄壳就红。
@@ -113,7 +113,7 @@ function Get-GdVisionTarget {
 
 function Get-GdVisionSystemPrompt {
     <# 转发壳(build-vision-prompt)：提示词全文(两条分支的规则 3、两处 here-string 粘连的"没换行")住在
-       tools\panel-cs\Vision.cs —— 改文案去那边改并跑 probe-vision-golden 对拍，在这里加规则会被对拍打回。
+       tools\panel-cs\Vision.cs —— 改文案去那边改并跑 panel-cs --visiontest 对真值，在这里加规则会被自检打回。
        安全边界(禁止点领取/前往参与/充值；领奖档要面板明写勾选)的由来与两次实测教训见 Vision.cs 头注。 #>
     param([string]$Scene = '', [bool]$AllowReward = $false)
     $d = Invoke-GdCli -Verb 'build-vision-prompt' -Body ([pscustomobject]@{ scene = [string]$Scene; allowReward = [bool]$AllowReward })

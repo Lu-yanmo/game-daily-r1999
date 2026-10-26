@@ -12,7 +12,7 @@
 # 已迁到 tools\panel-cs\Orchestration.cs(verb：apply-r1999-daily-intent；契约见 docs\ps-migration-batch0.md)。
 # 壳里留的是"活"：Get-R1999Event 取数、Resolve-R1999Instance 实例解析、"1999 方案：…"日志行与返回形状；
 # Set-Gd*Ack/ShopState 与 Start-GdR1999Daily 整函数留壳(起进程/切实例归后续批次)。
-# 改规则请改 C# 并跑 tools\probe-orch-golden.ps1 对拍，不要在这里加规则。
+# 改规则请改 C# 并跑 tools\panel-cs\build.ps1 -Verify(orchtest)，不要在这里加规则。
 # ──────────────────────────────────────────────────────────────────────────────
 #
 # ── 追加冻结(2026-09-27，PS→C# 批次 8)─────────────────────────────────────────
@@ -22,7 +22,7 @@
 #  日志回放。旧判据段曾在 PS 回退臂里逐行 # 前缀冻结(test-r1999 按那些字面钉锚)；10-24 兜底撤除批
 #  刀② 起那整段回退臂出仓(旧形逐字仍活在钉位 blob 里，见下面 B-2d④ 那节的记录)，test-r1999 的
 #  四格静态锚随之改口到判据真正的家：Orchestration.cs 的 r1999 支与 main.rs 的链体。
-#  改分流规则/话术请改 Orchestration.cs 并复拍 tools\probe-live-golden.ps1，不要在这里加 if。
+#  改分流规则/话术请改 Orchestration.cs 并复跑 panel-cs --orchtest，不要在这里加 if。
 # ──────────────────────────────────────────────────────────────────────────────
 #
 # ── 追加冻结(2026-10-12，换宿主 B-2d④「r1999 链体进核＋PS 侧 executor」)───────────

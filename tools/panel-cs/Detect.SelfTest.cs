@@ -5,7 +5,8 @@
 // 一个重要坑(写假树前必须知道)：探测的跳过段清单里有 temp/appdata —— 假树要是建在 %TEMP% 下，
 // BFS 会把整棵子树当系统目录跳没，测了个寂寞。所以本文件把假树建在用户目录下、用完即删。
 // 不碰真注册表结论、不起真进程(批次纪律：只读自检不许要求机器现场状态)：
-// 进程名/卸载表模式一律用不可能存在的串，roots 用注入的假树。
+// 进程名一律用不可能存在的串；卸载表那段走 Detect.HintSource 注入合成 Hint(与 roots 注入同思路，生产恒为 null)；
+// roots 用注入的假树。
 
 using System;
 using System.Collections.Generic;
@@ -178,6 +179,57 @@ namespace GdPanel
                     return Found(m) && Val(m) == r5 && Src(m) == "探测：候选 1 个，取「" + r5 + "」(前几个：" + r5 + ")";
                 });
 
+                // ---------- 卸载表源：合成 Hint 注入(不读真注册表；门的两枚"真注册表"场景搬成确定性两档) ----------
+                // MuMu 那条的实战链路：InstallLocation 指安装根 → 根下 nx_main\<relExe> 命中 ⇒ 候选就是安装根。
+                string u1 = Path.Combine(baseDir, "U1");
+                string mumuRoot = Path.Combine(u1, "MuMuPlayer-12.0");
+                Touch(Path.Combine(mumuRoot, "nx_main\\MuMuManager.exe"), T("2026-09-20 10:00:00"));
+                object[] u1Seen = null;
+                Dictionary<string, object> u1Body;
+                Detect.HintSource = delegate (object[] pats)
+                {
+                    u1Seen = pats;
+                    return new List<Detect.Hint> {
+                        new Detect.Hint { Name = "MuMu Player 12", Prop = "InstallLocation", Value = mumuRoot } };
+                };
+                try
+                {
+                    u1Body = InstallsBody(S("gd_no_such_proc_zzz"), S("MuMuManager.exe"), S("*NoSuchHint_zz*"),
+                        S("*MuMu*"), "Dir", Path.Combine("nx_main", "MuMuManager.exe"), "nx_main", true);
+                }
+                finally { Detect.HintSource = null; }
+                b.Chk("detect-installs：卸载表 InstallLocation 命中 → nx_main 里的 exe 算候选、Value=安装根", delegate
+                {
+                    return u1Seen != null && u1Seen.Length == 1 && Gd.Str(u1Seen[0]) == "*MuMu*"
+                        && Found(u1Body) && Val(u1Body) == mumuRoot
+                        && Src(u1Body) == "探测：候选 1 个，取「" + mumuRoot + "」(前几个：" + mumuRoot + ")";
+                });
+
+                // Ark 那条：DisplayIcon 的 ",0" 经 ^[^,;]*, 会被剥成尾段(旧实现就如此，不产候选)；
+                // InstallSource 去引号后命中、PickProp=Exe 取可执行全路径 ⇒ 恰好 1 个候选。
+                string u2 = Path.Combine(baseDir, "U2");
+                string arkDir = Path.Combine(u2, "ArkNights");
+                string arkExe = Path.Combine(arkDir, "Arknights.exe");
+                Touch(arkExe, T("2026-09-20 10:00:00"));
+                Dictionary<string, object> u2Body;
+                Detect.HintSource = delegate (object[] pats)
+                {
+                    return new List<Detect.Hint> {
+                        new Detect.Hint { Name = "明日方舟", Prop = "DisplayIcon", Value = arkExe + ",0" },
+                        new Detect.Hint { Name = "明日方舟", Prop = "InstallSource", Value = "\"" + arkDir + "\"" } };
+                };
+                try
+                {
+                    u2Body = InstallsBody(S("gd_no_such_proc_zzz"), S("Arknights.exe"), S("*NoSuchHint_zz*"),
+                        S("*Arknights*", "*明日方舟*"), "Exe", "", "", true);
+                }
+                finally { Detect.HintSource = null; }
+                b.Chk("detect-installs：卸载表 DisplayIcon 的 ',0' 剥成尾段不产候选；InstallSource 去引号后命中、PickProp=Exe", delegate
+                {
+                    return Found(u2Body) && Val(u2Body) == arkExe
+                        && Src(u2Body) == "探测：候选 1 个，取「" + arkExe + "」(前几个：" + arkExe + ")";
+                });
+
                 // ---------- maa-queue-lines ----------
                 string cfgPath = Path.Combine(baseDir, "configuration.json");
                 GdJson.Write(cfgPath, Gd.Out("Configurations", Gd.Out("Default", Gd.Out(
@@ -210,6 +262,42 @@ namespace GdPanel
                     return ls.Length == 3 && ls[0] == "  RunDirectly(启动即自动开始)= "
                         && ls[1] == "  StartGame(MAA 自己开游戏)  = " && ls[2] == "  连接方式 ConnectSettings.Config = ";
                 });
+                // 门 queue/A 的第四项(只有 TaskType 的行)与 queue/D(单对象队列)、queue/E(空数组)/B(顶层 {})
+                b.Chk("maa-queue-lines：只有 TaskType 的项也出一行，空 Name/IsEnable 照 PS 展开", delegate
+                {
+                    string p = Path.Combine(baseDir, "cfg-taskonly.json");
+                    GdJson.Write(p, Gd.Out("Configurations", Gd.Out("Default", Gd.Out(
+                        "TaskQueue", new object[] { Gd.Out("TaskType", "Invalidate") }))));
+                    var r = Gd.Map(Detect.MaaQueueLines(Gd.Out("cfgPath", p)));
+                    string[] ls = Strs(Gd.Get(r, "Lines"));
+                    return ls.Length == 4 && ls[0] == "  Invalidate              IsEnable="
+                        && ls[1] == "  RunDirectly(启动即自动开始)= "
+                        && ls[3] == "  连接方式 ConnectSettings.Config = ";
+                });
+                b.Chk("maa-queue-lines：TaskQueue 是单对象(不是数组)也当一项；StagePlan 缺省仍带 plan= 前缀", delegate
+                {
+                    string p = Path.Combine(baseDir, "cfg-single.json");
+                    GdJson.Write(p, Gd.Out("Configurations", Gd.Out("Default", Gd.Out(
+                        "TaskQueue", Gd.Out("TaskType", "Fight", "Name", "单对象", "IsEnable", null),
+                        "Gui", Gd.Out("StartUpSettings", Gd.Out("RunDirectly", "yes-manual"))))));
+                    var r = Gd.Map(Detect.MaaQueueLines(Gd.Out("cfgPath", p)));
+                    string[] ls = Strs(Gd.Get(r, "Lines"));
+                    return ls.Length == 4 && ls[0] == "  Fight      单对象          IsEnable= plan="
+                        && ls[1] == "  RunDirectly(启动即自动开始)= yes-manual"
+                        && ls[3] == "  连接方式 ConnectSettings.Config = ";
+                });
+                b.Chk("maa-queue-lines：顶层 {} 与空队列数组 → 都是三尾行空值、逐字相同", delegate
+                {
+                    string p1 = Path.Combine(baseDir, "cfg-brace.json");
+                    GdJson.Write(p1, Gd.Out());
+                    string p2 = Path.Combine(baseDir, "cfg-arr.json");
+                    GdJson.Write(p2, Gd.Out("Configurations", Gd.Out("Default", Gd.Out("TaskQueue", new object[] { }))));
+                    string[] l1 = Strs(Gd.Get(Gd.Map(Detect.MaaQueueLines(Gd.Out("cfgPath", p1))), "Lines"));
+                    string[] l2 = Strs(Gd.Get(Gd.Map(Detect.MaaQueueLines(Gd.Out("cfgPath", p2))), "Lines"));
+                    return l1.Length == 3 && l2.Length == 3
+                        && string.Join("|", l1) == string.Join("|", l2)
+                        && l1[0] == "  RunDirectly(启动即自动开始)= " && l1[2] == "  连接方式 ConnectSettings.Config = ";
+                });
 
                 // ---------- m9a-instance-lines ----------
                 string instDir = Path.Combine(baseDir, "config\\instances");
@@ -237,6 +325,29 @@ namespace GdPanel
                 {
                     var r = Gd.Map(Detect.M9aInstanceLines(Gd.Out("dir", Path.Combine(baseDir, "nope"), "appFile", appPath)));
                     return Strs(Gd.Get(r, "Lines")).Length == 0;
+                });
+                // 门 inst/A 的第四行(无 InstanceName 的实例)、inst/B(存在但空的目录)、inst/C(缺 app → THROW)
+                b.Chk("m9a-instance-lines：无 InstanceName 的实例 → 空名一行「(d4)」(门 inst/A 的第四行)", delegate
+                {
+                    string noNameDir = Path.Combine(baseDir, "inst-noname\\instances");
+                    Directory.CreateDirectory(noNameDir);
+                    File.WriteAllText(Path.Combine(noNameDir, "d4.json"), "{}");
+                    var r = Gd.Map(Detect.M9aInstanceLines(Gd.Out("dir", noNameDir, "appFile", appPath)));
+                    string[] ls = Strs(Gd.Get(r, "Lines"));
+                    return ls.Length == 1 && ls[0] == "  (d4) — ";
+                });
+                b.Chk("m9a-instance-lines：目录在但一个实例文件都没有 → 0 行(门 inst/B)", delegate
+                {
+                    string emptyInstDir = Path.Combine(baseDir, "inst-empty\\instances");
+                    Directory.CreateDirectory(emptyInstDir);
+                    var r = Gd.Map(Detect.M9aInstanceLines(Gd.Out("dir", emptyInstDir, "appFile", appPath)));
+                    return Strs(Gd.Get(r, "Lines")).Length == 0;
+                });
+                b.Chk("m9a-instance-lines：缺 app 文件 → 抛「找不到文件：」原话(展示层不吞，门 inst/C)", delegate
+                {
+                    string miss = Path.Combine(baseDir, "no-app.json");
+                    try { Detect.M9aInstanceLines(Gd.Out("dir", instDir, "appFile", miss)); return false; }
+                    catch (FileNotFoundException ex) { return ex.Message == "找不到文件：" + miss; }
                 });
 
                 // ---------- verb 信封接线(过 GdCli.Run，不绕过 catch 链) ----------

@@ -2,7 +2,7 @@
 //
 // 单一事实源纪律：自本批起 PS 侧的 Resolve-ArkPlan / Resolve-R1999Plan / Test-GdStages / Resolve-R1999Instance
 // 全部改成薄转发，规则只写 C# 这一份。文案必须与 PS 原话逐字符一致 ——
-// 判定面由本目录 Decisions.SelfTest.cs 逐项做**取值断言**(随 build.ps1 -Verify 的 --selftest 跑)，有差异回修这里，禁止放宽对拍。⚠ 2026-10-26 甲档第六刀起 tools\probe-decisions-golden.ps1 不再拿 git 里的旧实现做全字面对拍——它 old 侧点的是 HEAD 里那两份 PS 件的逐字副本(与现树同一份代码、没有对面)，那 45 档自本批起只留这一本自检，那座门只剩屏保一族 14 档(取证与判据见 docs\rust-core-plan.md §11.141)。
+// 判定面由本目录 Decisions.SelfTest.cs 逐项做**取值断言**(随 build.ps1 -Verify 的 --dectest 跑)，有差异回修这里，禁止放宽对拍。⚠ 10-26 甲档第六刀起 tools\probe-decisions-golden.ps1 不再拿 git 里的旧实现做全字面对拍——那 45 档点的是 HEAD 里两份 PS 件的逐字副本(与现树同一份代码、没有对面)；第八刀把最后留下的屏保 14 档逐字搬进本目录(场景与旧门同名)并整件退役，那座门自此不存在(取证见 docs\rust-core-plan.md §11.141／§11.144)。
 //
 // 输入形状(转发壳组装、--in 文件送来)：各判定所需的一切都是**值**，不含任何现场副作用 ——
 //   decide-ark:            { ark:{…settings块…}, dow, now, data, source, ack:{…}, shopDone:{…}, verbAck, verbShopReset }

@@ -34,7 +34,7 @@
 # 壳里留下的全是"活"：Collect(读文件指针/进程表)、Request(截图问模型)、Restart(重启进程)、
 # Write/Read(读写盘)、Start/Stop(起停子进程)、三个 Path 函数(拼现场目录)。
 # 函数名/参数名/返回形状原样保留(test-modules [sv] 块与 tools\supervise.ps1 都按老签名调用)；
-# 改规则或话术请改 C# 并跑 tools\rustcore\probe-sv-rust-golden.ps1 三侧对拍，不要在这里加规则。
+# 改规则或话术请改 C# 并跑 tools\panel-cs\build.ps1 -Verify(svtest)，不要在这里加规则。
 # ──────────────────────────────────────────────────────────────────────────────
 
 # ---------- 开关与取值(转发壳，批次 6)：语义和判定全在 C# eval-supervisor-settings ----------
@@ -277,7 +277,7 @@ function Read-GdSupervisorSummary {
 function Get-GdSupervisorDetailLines {
     <# 把 supervision.json 里**已经算好**的东西念成给人看的展开文本(面板那一行点开来就是它)。
        拼句规则、"读不到/没问/none"口径、"拍被挤掉不许吞介入记录"、行内不许含 '|' —— 全搬进了 Supervisor.cs，
-       话术逐字由 tools\rustcore\probe-sv-rust-golden.ps1 三侧对拍钉死。这里只剩两件现场活：把 $Sv 原样喂进去、
+       话术逐字由 Supervisor.SelfTest.cs 的 --svtest 钉死。这里只剩两件现场活：把 $Sv 原样喂进去、
        把 (Get-Date) 的日期戳以 date 参数注入(C# 侧不读时钟，golden 才可复现)。 #>
     param($Sv, [int]$MaxBeats = 6)
     $d = Invoke-GdCli -Verb 'compose-supervisor-detail' -Body ([pscustomobject]@{

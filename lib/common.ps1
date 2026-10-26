@@ -380,7 +380,7 @@ function Get-GdScreensaverConfig {
 function Get-GdScreensaverWho {
     <# 转发壳(批次 10)：归因规则(WE 代理名归一/产品名优先/回退 .scr 文件名)在 C# Decisions.cs，
        verb resolve-screensaver-who。注册表读数仍是活：$Cfg 由 Get-GdScreensaverConfig(或 test-lib 假读数)喂进来。
-       改规则请改 C# 并跑 tools\probe-decisions-golden.ps1 对拍，不要在这里加规则。 #>
+       改规则请改 C# 并跑 panel-cs --dectest 的屏保 14 档(期望串在 Decisions.SelfTest.cs)，不要在这里加规则。 #>
     param($Cfg)
     $d = Invoke-GdCli -Verb 'resolve-screensaver-who' -Body ([pscustomobject]@{ cfg = $Cfg })
     return [string]$d.Text
@@ -682,8 +682,8 @@ function Invoke-GdTakeover {
 }
 
 # Invoke-GdStep 已删(10-25 甲档摘件，docs\rust-core-plan.md §11.132)：生产面自 10-24 刀③ 起整词 0 命中；
-# 三座等值门那八发调用(probe-live-golden ⑥路 3／probe-arkskip 老侧 3／probe-m9adrive 旧侧 2，第三发在钉位
-# 那份 r1999-daily.ps1 里本就注释掉)自 10-25 补尺笔起改咬各门自带的逐字副本——三门父侧同拿钉位 97e2f6c 的
+# 三座等值门那八发调用(10-26 前：probe-live-golden ⑥路 3／probe-arkskip 老侧 3／probe-m9adrive 旧侧 2，第三发在钉位
+# 那份 r1999-daily.ps1 里本就注释掉)自 10-25 补尺笔起改咬各门自带的逐字副本——前两门已退役(第九/十三刀)，在场那门父侧同拿钉位 97e2f6c 的
 # blob 本体 -ceq 钉住不许漂；核内等价体在 tools/rustcore/src/main.rs::ark_daily_step ⇒ **现树**再无读者。
 # ⚠ 上一版这句写的是"全仓再无读者"，那是补尺笔只看见两门时的话术：m9adrive 的钉位 blob 经 child
 #   dot-source 现树拿真身，静态文本尺与 AST 尺都读不到那一形 ⇒ 由摘件帧 32 枚红当场纠回。
@@ -1169,7 +1169,12 @@ function Get-GdBinaryLeakSet {
     $usersRoot = ''
     if ($env:USERPROFILE) { $usersRoot = [string](Split-Path -Parent ([string]$env:USERPROFILE)) }
     if ($usersRoot) { $set += [pscustomobject]@{ Label = 'env.USERSROOT'; Value = $usersRoot; Kind = 'text'; Word = $false } }
-    $set += [pscustomobject]@{ Label = 'key-shape'; Value = 'sk-[A-Za-z0-9]{12}'; Kind = 'regex'; Word = $false }
+    # 10-26 推仓55 在案纠正：本形不加词边界时，会把 rodata 里**相邻字符串字面量的跨界拼接**误判成密钥——
+    #   K15_NAMES 那 28 枚槽名 rustc 无分隔合并后，"…task-failed"＋"m9as03-…" 拼出 sk-failedm9as03，
+    #   出货链第 0 步当场红(gdcore.exe ← key-shape)；源码面 0 命中(证据 ship-1026\raw\keyshape-fp-evidence.txt)。
+    #   处方与上面短串 Word 同族：前向词边界守卫(左侧邻字符是字母数字就不许成针)；三例真形仍咬、跨界拼形不咬
+    #   (证据 raw\keyshape-prescription.txt)。文本面没有这枚针(它只住在二进制门)，故唯一改口点在此。 #>
+    $set += [pscustomobject]@{ Label = 'key-shape'; Value = '(?<![A-Za-z0-9])sk-[A-Za-z0-9]{12}'; Kind = 'regex'; Word = $false }
     return @($set)
 }
 

@@ -7,9 +7,14 @@
 
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 . (Join-Path $root 'lib\common.ps1')
-# 名单要和两份模块清单声明的 Libs 对得上 —— tools\test-modules.ps1 的 [m3] 就是钉这件事的：
-# 清单里新增一个库而这里没跟着加，自检会红，而不是"函数不在、断言整个跳过"那种静默漏检。
-foreach ($lib in @('decisions', 'maa', 'm9a', 'vision-rescue', 'vision-ark', 'vision-mumu')) {
+# 名单 = 两份模块清单声明的 Libs 的并集(-common/decisions 是两边共用的底座，也一并点)。
+# 这件事以前只在注释里"由 [m3] 钉着"，实际 [m3] 只钉了反方向(清单不许引用别人的库)，于是 2026-09-26
+# 加了 ark-farm.ps1 之后：ark-daily 的掉落记账调用在自检里认不到函数、一路掉进 catch 打一句 WARN 就过了，
+# 全套件照样全绿 —— 那是假绿。现在名单由下面的 $GdTestDotLibs 交给 [m3] 逐条对账，漏一项当场变红。
+# 仍然带 Test-Path 守卫：单游戏导出仓里另一款的库不在，就少点一份、少一侧能力，不炸。
+$script:GdTestDotLibs = @('decisions', 'maa', 'm9a', 'mumu', 'vision-rescue', 'vision-ark', 'vision-mumu',
+                          'ark-farm', 'ark-daily', 'r1999-daily')
+foreach ($lib in $script:GdTestDotLibs) {
     $libPath = Join-Path $root "lib\$lib.ps1"
     if (Test-Path -LiteralPath $libPath) { . $libPath }
 }

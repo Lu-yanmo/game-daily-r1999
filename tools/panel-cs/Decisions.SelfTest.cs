@@ -314,6 +314,29 @@ namespace GdPanel
                     Dictionary<string, object> r = Gd.Map(Decisions.Ark(ArkIn(SideStory(grp), now, "假数据", Gd.Out("past", true, "future", true), null, 5)));
                     return (string)r["Mode"] == "idle";
                 });
+                b.Chk("ark 数据整个缺(data=null) → 长草计划，不炸", delegate
+                {
+                    Dictionary<string, object> r = Gd.Map(Decisions.Ark(ArkIn(null, now, "假数据", null, null, 5)));
+                    return (string)r["Mode"] == "idle" && (string)r["Stage"] == "CE-5,LS-5" && (bool)r["ClearSanity"]
+                        && (string)r["Reason"] == "无可刷活动关卡，按长草计划刷 CE-5,LS-5(数据源：假数据)"
+                        && r["EventKey"] == null && r["EventTip"] == null;
+                });
+                b.Chk("ark 起止时间是空串 → 当没填跳过(不按 0 算窗口内)", delegate
+                {
+                    Dictionary<string, object> grp = Gd.Out("e1", EventObj("空时间", "", "", Stage("AI-8", "10001")));
+                    Dictionary<string, object> r = Gd.Map(Decisions.Ark(ArkIn(SideStory(grp), now, "假数据", null, null, 5)));
+                    return (string)r["Mode"] == "idle" && r["EventKey"] == null
+                        && (string)r["Reason"] == "无可刷活动关卡，按长草计划刷 CE-5,LS-5(数据源：假数据)";
+                });
+                b.Chk("ark 起止时间是 1970 零值(ms=0) → 与没填同判跳过(原话 -not $start：0 也算没填)", delegate
+                {
+                    // 1970-01-01 08:00:00 按 UTC+8 折成 ms=0；起点/终点各喂一枚，两枚都该被 Truthy 判假跳过。
+                    Dictionary<string, object> grp = Gd.Out(
+                        "zero-start", EventObj("零值起点", "1970-01-01 08:00:00", "2026-09-26 18:00:00", Stage("AI-8", "10001")),
+                        "zero-end", EventObj("零值终点", "2026-09-20 04:00:00", "1970-01-01 08:00:00", Stage("LS-5", "10002")));
+                    Dictionary<string, object> r = Gd.Map(Decisions.Ark(ArkIn(SideStory(grp), now, "假数据", null, null, 5)));
+                    return (string)r["Mode"] == "idle" && r["EventKey"] == null;
+                });
                 b.Chk("ark 空 Stages 的活动不算可刷", delegate
                 {
                     Dictionary<string, object> grp = Gd.Out("e", EventObj("没关", "2026-09-20 04:00:00", "2026-09-26 18:00:00"));
@@ -383,6 +406,15 @@ namespace GdPanel
                     return (string)r["Mode"] == "idle" && (bool)r["ShopDone"] && (string)r["EventKey"] == "1.9-combat"
                         && (string)r["Reason"] == "版本 1.9[版本名]活动商店已标记领空 → 本轮跑长草方案(要恢复：daily-clear.ps1 -ShopResetR1999)";
                 });
+                b.Chk("r1999 verb 覆盖：pending 只带 verbAck、商店领空只带 verbShopReset(两值不串)", delegate
+                {
+                    Dictionary<string, object> p = Gd.Map(Decisions.R1999(rIn(dataMain, null, null, true, "--ack-测试", "--reset-测试")));
+                    Dictionary<string, object> s = Gd.Map(Decisions.R1999(rIn(dataMain, null, Gd.Out("1.9-combat", true), true, "--ack-测试", "--reset-测试")));
+                    return (string)p["Mode"] == "event-pending"
+                        && (string)p["Reason"] == "版本 1.9[版本名]主线活动进行中(至 09-26 18:00)，未确认手动通关 → 本轮跑长草方案；确认后运行 daily-clear.ps1 --ack-测试"
+                        && (string)s["Mode"] == "idle" && (bool)s["ShopDone"]
+                        && (string)s["Reason"] == "版本 1.9[版本名]活动商店已标记领空 → 本轮跑长草方案(要恢复：daily-clear.ps1 --reset-测试)";
+                });
                 b.Chk("r1999 复刻窗口 → rerun", delegate
                 {
                     Dictionary<string, object> d = Gd.Out("1.9", ver(vStart, vEnd, "版本名", Gd.Out(
@@ -423,6 +455,21 @@ namespace GdPanel
                         && (string)r2["Note"] == "拿不到 MAA 关卡表，未校验";
                 });
 
+                b.Chk("check-stages：单关也报「共 1 关」(计数原样，不按复数口径)", delegate
+                {
+                    Dictionary<string, object> r = Gd.Map(Decisions.CheckStages(Gd.Out("table", Gd.Out("CE-5", 6), "stageText", "CE-5")));
+                    return ((object[])r["Stages"]).Length == 1 && (int)r["Cost"] == 6
+                        && (string)r["Note"] == "共 1 关，单圈理智 6";
+                });
+                b.Chk("check-stages：空串/纯分隔符 → 0 关 0 理智(关卡表在场就不算「拿不到」)", delegate
+                {
+                    Dictionary<string, object> r = Gd.Map(Decisions.CheckStages(Gd.Out("table", Gd.Out("CE-5", 6), "stageText", "")));
+                    Dictionary<string, object> r2 = Gd.Map(Decisions.CheckStages(Gd.Out("table", Gd.Out("CE-5", 6), "stageText", " ,、； ")));
+                    return ((object[])r["Stages"]).Length == 0 && (int)r["Cost"] == 0
+                        && (string)r["Note"] == "共 0 关，单圈理智 0"
+                        && ((object[])r2["Stages"]).Length == 0 && (string)r2["Note"] == "共 0 关，单圈理智 0";
+                });
+
                 // ---------- r1999-instance ----------
                 b.Chk("r1999-instance：按实例名找文件、Tasks 取 <||> 末段、找不到抛原话", delegate
                 {
@@ -439,6 +486,29 @@ namespace GdPanel
                     try { Decisions.R1999Instance(Gd.Out("dir", dir, "want", "没有这个", "planKey", "idle")); }
                     catch (GdRuleException ex) { msg = ex.Message; }
                     return ok && msg == "M9A 中找不到名为[没有这个]的实例(计划 idle)";
+                });
+                b.Chk("r1999-instance/长草：planKey=idle 找到实例 → 计划键不参与取数，任务逐个取末段", delegate
+                {
+                    string dir = Path.Combine(tmp, "instances2");
+                    Directory.CreateDirectory(dir);
+                    GdJson.Write(Path.Combine(dir, "c3.json"), Gd.Out(
+                        "InstanceName", "双计划", "CurrentTasks", new object[] {
+                            "idle<||>每日<||>清体力", "event<||>活动", "event<||>活动<||>刷关" }));
+                    Dictionary<string, object> r = Gd.Map(Decisions.R1999Instance(Gd.Out("dir", dir, "want", "双计划", "planKey", "idle")));
+                    object[] tasks = (object[])r["Tasks"];
+                    return (string)r["Id"] == "c3" && (string)r["Name"] == "双计划"
+                        && tasks.Length == 3 && (string)tasks[0] == "清体力" && (string)tasks[1] == "活动" && (string)tasks[2] == "刷关";
+                });
+                b.Chk("r1999-instance/活动：planKey=event 同一文件同形(多计划任务混排也只取末段)", delegate
+                {
+                    string dir = Path.Combine(tmp, "instances3");
+                    Directory.CreateDirectory(dir);
+                    GdJson.Write(Path.Combine(dir, "d4.json"), Gd.Out(
+                        "InstanceName", "双计划", "CurrentTasks", new object[] {
+                            "idle<||>每日<||>清体力", "event<||>活动", "event<||>活动<||>刷关" }));
+                    Dictionary<string, object> r = Gd.Map(Decisions.R1999Instance(Gd.Out("dir", dir, "want", "双计划", "planKey", "event")));
+                    object[] tasks = (object[])r["Tasks"];
+                    return (string)r["Id"] == "d4" && tasks.Length == 3 && (string)tasks[2] == "刷关";
                 });
 
                 // ---------- 屏保两档(批次 10) ----------

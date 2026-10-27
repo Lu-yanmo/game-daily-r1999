@@ -1129,12 +1129,15 @@ function Get-GdLocalOnlyValues {
 function Test-GdExportLeaks {
     <# 对一个目录做一遍"本机数据"扫描；返回 "相对路径 <- 是哪一项" 的列表，空 = 干净。
        两处调用：publish-split 扫导出目录(发出去之前那道闸)，test-modules [m8] 扫工作副本的源码。
-       跳过运行时产物(logs/state/backups)、.git 和 settings.json 本身 —— 那些本来就该带着本机值。 #>
+       跳过运行时产物(logs/state/backups)、.git、构建产物目录(target，见 tools\rustcore\.gitignore「永远不进仓」)
+       和 settings.json 本身 —— 那些本来就该带着本机值。
+       ⚠ 10-27 第十八刀补 target：rust 构建的 .d/.pdb 里带编译期家目录绝对路径，扫工作副本时会被当成泄漏，
+       而 target 是仓内明设不进仓的构建产物(只读自检不许要求机器现场状态)。 #>
     param([string]$Dir, [object[]]$Values)
     if (-not $Values -or -not @($Values).Count) { return @() }
     $hits = @()
     foreach ($f in @(Get-ChildItem -LiteralPath $Dir -Recurse -File |
-            Where-Object { $_.FullName -notmatch '\\(logs|state|backups|\.git)\\' -and $_.FullName -notmatch '\\config\\settings\.json$' -and $_.Extension -notin '.png', '.ico', '.exe', '.dll', '.zip' })) {
+            Where-Object { $_.FullName -notmatch '\\(logs|state|backups|\.git|target)\\' -and $_.FullName -notmatch '\\config\\settings\.json$' -and $_.Extension -notin '.png', '.ico', '.exe', '.dll', '.zip' })) {
         $text = Get-Content -LiteralPath $f.FullName -Raw -Encoding utf8
         if (-not $text) { continue }
         $rel = $f.FullName.Substring($Dir.Length + 1)

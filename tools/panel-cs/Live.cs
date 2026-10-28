@@ -17,8 +17,8 @@
 // 路径编进同一份装配，这里不抄第二份签名(改那份 .cs 从此要跑两套装配：PS 现编门 t14 与 panel-cs 编译)。
 //
 // 单一事实源：话术逐字抄自 lib\vision-ark.ps1 与 lib\vision-rescue.ps1 的真身(那两个文件在生产接线 B-2c 之前
-// 仍是老编排的事实源)。改一句文案 = 老路新路各说各话，先跑 tools\probe-arkrun-rust-golden.ps1 与 tools\test-ark.ps1。
-// "截图失败：" 的**双前缀**是原样怪癖(Save-GdWindowShot 的 catch 已经带过一次，Invoke-GdVisionRescue 又包一次)：
+// 仍是老编排的事实源)。改一句文案 = 老路新路各说各话，先跑 gdcore --selftest(第 30 节钉这一路)与 tools\test-ark.ps1。
+// "截图失败：" 的**双前缀**是原样怪癖(Save-GdWindowShot 的 catch 已经带过一次，旧编排 Invoke-GdVisionRescue 又包一次；那枚壳随第二十刀刀③ 出仓)：
 // 本文件把包装做在 Skip 里，正是要让那两次叠加照旧发生 —— 别"顺手修好"。
 //
 // 安全边界(照 lib\vision-rescue.ps1 文件头执行，一条不松)：
@@ -388,7 +388,7 @@ namespace GdPanel
             return "截图几乎是全黑(平均亮度 " + lum + ")：桌面可能锁了或窗口没在渲染，问模型只会白花钱";
         }
 
-        // "视觉兜底：已拍…" 这句 ark 与 mumu 两路**逐字相同**(真身在通用层 vision-rescue.ps1:349，
+        // "视觉兜底：已拍…" 这句 ark 与 mumu 两路**逐字相同**(旧真身在通用层 vision-rescue.ps1:349，那枚壳随第二十刀刀③ 出仓，
         // 只把 $t.Name 与图尺寸按靶子代入)⇒ 抽成一枚共用，两路谁也别偷偷长出第二个版本。
         internal static string ShotLogLine(string name, long w, long h, long lum)
         {
@@ -777,10 +777,10 @@ namespace GdPanel
         }
 
         // ==================== verb: resolve-rescue-context(七道闸里那六道现场闸) ====================
-        // 闸门顺序不许调换(lib\vision-rescue.ps1 的 Invoke-GdVisionRescue 头注明写)：
+        // 闸门顺序不许调换(旧对面 lib\vision-rescue.ps1 的 Invoke-GdVisionRescue 头注明写，那枚壳已随第二十刀刀③ 出仓 ⇒ 这段顺序自此只住这里)：
         // 后端在场 → 开关 → 权限 → key → Python → 对象在场。第七道"截图"与黑屏闸在 ark-window-shot 里，
         // 因为那一道必须先拍到东西才判得了。这一枚一个像素都不拍、也不起 python 探测以外的子进程。
-        // skip 话术全部出自这里，编排侧一个字不改 —— 关开关那句必须带 settings 的键名，t13 按那几个字断言"关了确实一次都不试"。
+        // skip 话术全部出自这里，编排侧一个字不改 —— 关开关那句必须带 settings 的键名，--livetest 按那几个字断言"关了确实一次都不试"(旧的 t13 真跑两格随摘件改口到这里)。
 
         internal static object RescueContext(Dictionary<string, object> raw)
         {

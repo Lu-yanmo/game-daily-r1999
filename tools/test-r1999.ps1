@@ -445,8 +445,15 @@ $fnEp = Get-GdTestCodeOnly (Get-Command Get-GdMuMuAdbEndpoint).Definition
     $rescueLib = Get-GdTestCodeOnly (Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\lib\vision-rescue.ps1') -Raw -Encoding utf8)
     Check '兜底内核不认识 adb，也不认识端游窗口(截图/点击一律向靶子要)' (
         $rescueLib -notmatch 'adb |input tap|screencap|PrintWindow|Send-GdArkClick|arknightsExe')
-    Check '内核按 New-GdVisionTarget-<kind> 的命名约定找后端，找不到就说"这棵树上没有这一路"' (
-        $rescueLib -match 'New-GdVisionTarget-' -and $rescueLib -match '这棵树上没有')
+    # 2026-10-28 甲档第二十刀刀③：话术锚「这棵树上没有」的代码面唯一出处在被摘的旧 :325(Invoke-GdVisionRescue
+    # 的闸门段)——那一截编排进核后，内核侧只留"按命名约定找靶子、找不到回 $null"这一件事，说不说那句话归调用方。
+    # 活着的对面有两份：PS 薄壳 tools\vision-ask.ps1:55、核内 C# tools\panel-cs\Live.cs:809(由 --livetest 盯)。
+    # 命名约定那一半没搬家，本刀一个字没动它：这是它本来就有的分工，不是判据放宽。
+    Check '内核按 New-GdVisionTarget-<kind> 的命名约定拼函数名找后端，找不到就返回 $null' (
+        $rescueLib -match 'New-GdVisionTarget-' -and $rescueLib -match 'return \$null')
+    Check '"这棵树上没有这一路"那句话说在调用方(PS 薄壳与核内 C# 各一份，两路同口径)' (
+        ((Get-GdTestCodeOnly (Get-Content -LiteralPath (Join-Path $PSScriptRoot 'vision-ask.ps1') -Raw -Encoding utf8)) -match '这棵树上没有') -and
+        ((Get-Content -LiteralPath (Join-Path $PSScriptRoot 'panel-cs\Live.cs') -Raw -Encoding utf8) -match '这棵树上没有'))
     Check '模拟器截屏把客户区报成整块屏(通用的千分比换算因此直接给出设备像素)' (
         $fnCap -match 'ClientLeft = 0' -and $fnCap -match 'ClientW = \$w')
     $fnTap = (Get-Command Send-GdMuMuTap).Definition

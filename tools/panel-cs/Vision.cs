@@ -1,7 +1,8 @@
 // tools/panel-cs/Vision.cs —— 批次 4：视觉兜底层的"纯规则段"本体，从 lib\vision-rescue.ps1 / lib\vision-ark.ps1 搬来。
 //
 // 单一事实源纪律：自本批起 PS 侧的 Get-GdVisionSystemPrompt / Get-GdVisionVerdictFromText /
-// Get-GdRescueClickPoint / Resolve-GdVisionEndpoint / Test-GdShotChanged / Add-GdRescueRecord 的字段合成段、
+// Get-GdRescueClickPoint / Resolve-GdVisionEndpoint 的转发壳，与已随第二十刀刀③ 出仓的 Test-GdShotChanged／
+// Add-GdRescueRecord 两枚壳的字段合成段、
 // Get-GdArkDesktopState 的文案拼装段、Invoke-GdVisionRaw 的 stdout 回扫段 —— 规则只写 C# 这一份。
 // 文案必须与 PS 原话逐字符一致：期望串逐字钉在 Vision.SelfTest.cs(--visiontest，12 刀起接替已退役的
 // tools\probe-vision-golden.ps1 等值门)，
@@ -9,7 +10,8 @@
 //
 // 切分口径(与批次 3 的"外部进程层"同一刀法，落到视觉层)：
 //   * 起子进程(ask.py)、拍屏(PrintWindow/adb)、点窗口(抢前台/input tap)、靶子组装与兜底总编排
-//     Invoke-GdVisionRescue **全留 PS** —— 那是"活段"，归批次 5/6 编排层。
+//     Invoke-GdVisionRescue 当年按"活段，归批次 5/6 编排层"全留 PS；编排 10-23 起进核(B-2b)，
+//     那枚 PS 真身已于 2026-10-28 甲档第二十刀刀③ 出仓 —— 本文件那批纯规则段的对面只剩核与 C#。
 //   * vision-mumu 整体留壳不动：test-r1999 把 `d{1,3}` 正则与 `$ons.Count -eq 1` **钉在函数定义文本上**
 //     (384–405 行的肯定式断言)，抠成薄壳就红 —— 断言一字不改是批次纪律，所以那两段正则的归属等断言面挪走再谈。
 //   * Get-GdVisionApiKey 不迁：key 绝不允许经过 JSON 信封/命令行/日志(安全边界，见 vision-rescue 文件头)。

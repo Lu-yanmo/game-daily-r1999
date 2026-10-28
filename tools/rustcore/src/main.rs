@@ -1622,7 +1622,7 @@ fn gd_day_stamp() -> String {
     format!("{:04}{:02}{:02}", st.w_year, st.w_month, st.w_day)
 }
 
-/// `Get-Date -Format 'MMdd-HHmmss'` —— 兜底截图的文件名后缀用（真身 vision-rescue.ps1 里那枚 `$stamp`）。
+/// `Get-Date -Format 'MMdd-HHmmss'` —— 兜底截图的文件名后缀用（PS 侧活着的对面：lib\supervisor.ps1:199、tools\vision-ask.ps1:84；旧编排里那枚 `$stamp` 随第二十刀刀③ 出仓）。
 /// 注意月在前、横线后是时分秒，`H` 是 24 小时制且补零，跟通用的 `yyyy-MM-dd HH:mm:ss` 不是一套。
 /// 命名刻意不叫 stamp：connect_run 那枚形状门数的是全文里那个词根带左括号的出现次数
 /// （8 = 定义 1 + 出口 7），兜底这层借用同一个词会把那条计数顶成假红 —— 形状门只当辅助镜，
@@ -1636,8 +1636,8 @@ fn gd_shot_suffix() -> String {
 }
 
 /// `Get-Date -Format 'yyyy-MM-dd HH:mm:ss'` —— 救火账本里 `time`／`updated` 两格的形状。
-/// 真身在 `Add-GdRescueRecord` 里取两次（一次给事件、一次给账本头），所以同一轮里这两格
-/// 可以差一秒；这边照样各取各的，别"顺手"合并成一次。
+/// 旧真身 `Add-GdRescueRecord`（vision-rescue.ps1 旧 :413-466，已随第二十刀刀③ 出仓）里取两次
+/// （一次给事件、一次给账本头），所以同一轮里这两格可以差一秒；这边照样各取各的，别"顺手"合并成一次。
 fn gd_ledger_time() -> String {
     let st = gd_now();
     format!(
@@ -4756,7 +4756,7 @@ fn arkskip_run_case(
 // 这件事本身就该当场拒跑，不许静默继续。
 //
 // 退出码：0（ask/done）/ 2（缺旗标拒跑）/ 1（协议或内部错）。
-// role 有两枚（B-2d④ 起）：`--drive-ark-daily` 恒 "R3-drive-ark-daily"（历史字面，arkdrive 等价门钉着它），
+// role 有两枚（B-2d④ 起）：`--drive-ark-daily` 恒 "R3-drive-ark-daily"（历史字面，壳侧 role 校验＋test-ark 静态锚钉着它），
 // `--drive-m9a-daily` 恒 "B2d-drive-m9a-daily"。两路共用同一套记账与信封模板，差别只在 role/why 与名册。
 
 const DRIVE_WHY: &str = "驱动档是换头专用口：本进程只推链与记账，链体与已搬动作（mark/obsrec/admin）在本进程内跑，其余现场动作由 PS 侧照 ask 的 seq/action 执行后写 --res 回执再重入（缺 --i-drive 直接拒跑）";
@@ -5023,7 +5023,7 @@ struct DriveFx<'a> {
     /// B-2d④：m9a 那一路 run 真做的现场输入（ctx 的 `m9aRun` 那 15 枚，state_dir 由 `--state` 补上）。
     /// 与 `scen` 并列**不是冗余**：两路的 ctx 载荷键名交集为零（一边 maaDir/maaGuiLog，一边
     /// m9aDir/adb/serial），塞进同一枚 MaaScen 会让两本 ctx 各自多出一堆死格 —— 而 ark 侧那本
-    /// journal 的 init 行要与 old 代逐字节可比（arkdrive 门的 H0 面），多一格就红一格。
+    /// journal 的 init 行要与 old 代逐字节可比（原 arkdrive 门的 H0 面在钉它，门已随第十九刀退役），多一格就红一格。
     m9a_scen: M9aScen,
     /// m9a 那一路 run 真做的注入点。ark 那一路传一枚**永不触发**的桩（触发即内部错）：
     /// `ark_daily_chain` 只会调 `run(chains)`，`r1999_daily_chain` 只会调 `run()` —— 两枚 trait
@@ -5541,7 +5541,7 @@ fn drive_mark(state_dir: &str, stages: &[String], reason: &str) -> Result<String
 
 /// 已搬动作 obsrec（B-1a）：观测账本进程内写，返回账本条数（Found 假 → None，不落文件）。
 /// 语义逐句照 PS 真身 Update-GdArkStageObs（lib\ark-farm.ps1，10-25 甲档刀② 已出仓；旧形＝a9dea09 帧那份，
-/// 逐字副本钉在 tools\rustcore\probe-arkdrive-rust-golden.ps1 的 child 里）：
+/// 逐字副本原钉在 arkdrive 等值门（probe-arkdrive-rust-golden）的 child 里，门与副本已随 10-27 第十九刀整件出仓）：
 /// - 读账：文件不在/读不出/解析坏 → 空账；Records 缺/null → [null]（@($null) 单元素占位，实测语义：
 ///   探针 json3 把 @($null) 序列化成 [null]）；空数组摊平为空；标量按单个元素。
 /// - Dow：日期解不出 → Err（照真身 Get-Date 抛）；周日 0 → 7。
@@ -5620,12 +5620,12 @@ fn drive_done_result(d: &JVal) -> JVal {
 }
 
 /// B-2c② 起日志改走 --log-sink 侧信道，信封 `logs` **留键不删键**：键还在、恒空数组。
-/// 判据是「换通道不换形状」——`probe-arkdrive` 等价门的 `C-logs` 面照旧逐字节比，
+/// 判据是「换通道不换形状」——当年 `probe-arkdrive` 等价门的 `C-logs` 面逐字节比过它(门已随第十九刀退役)，
 /// 而壳侧不再等收尾才拿到日志（链上一有日志就落盘、边跑边排空）。
 ///
 /// 两路驱动档各自的信封身份（B-2d④）：role 与 why **成对**，一条链体一套话术。
-/// ark 那一路沿用历史字面 `R3-drive-ark-daily`（arkdrive 等价门的 role 校验、老壳侧那两枚
-/// 校验都钉着它，改一个字就是形状变）；m9a 那一路是新立 role，**不复用**旧名 —— 两路的
+/// ark 那一路沿用历史字面 `R3-drive-ark-daily`（壳侧 `Invoke-GdArkDailyRust` 的 role 校验与 test-ark 的
+/// 静态锚都钉着它，改一个字就是形状变；原 arkdrive 门那枚 role 校验随门于第十九刀退役）；m9a 那一路是新立 role，**不复用**旧名 —— 两路的
 /// ctx/journal 名册不同源，名字共用会让"这一本账是谁的"当场问不出来。
 #[derive(Clone, Copy)]
 struct DriveRole {
@@ -8277,11 +8277,10 @@ fn run_drive_round_daily(
     rc
 }
 
-/// B-1a 自检配套（仅供 --selftest）：迷你驱动器 —— 照生产壳 Invoke-GdArkDailyRust 的口径起轮：
-/// 一轮一进程 → 读信封 → ask 就替它办（responder 出回执）并写 res → 再起一轮，直到 done/fail。
-/// B-2c② 起日志不再从信封取，改从 --log-sink 侧信道取（会话开始前先截空，跑完读全量）——
-/// 壳侧是边跑边排空，这里没有并发的壳，末次读一次即可，行序与产生序天然一致。
-/// 返回（ask 动作序, 新面日志 "级别|文本", 终 kind, done 的 result（无则 Null）, 错一句话）。
+/// 第十九刀刀①：分流替身改**注入**。原来这一枚把 `decide` 焊死成"恒不重试"，于是重试段
+/// （stop→sleep 25→带 launch 的第二轮）在这张桌子上永远走不到 —— 而 `input.launch` 是不是
+/// 真透传进了第二轮 `ark_daily_step`，正是被退役的 `probe-arkdrive` 门 `C-retry-relaunch`
+/// 那格的 ctx 缝（门注释里那条 NEG 实测记着：拨灭两代同漏）。会话本体见 `_dec`。
 fn drive_selftest_session(
     journal: &str,
     ctx: &str,
@@ -8291,18 +8290,38 @@ fn drive_selftest_session(
     responder: &mut dyn FnMut(&str, &JVal) -> Result<Option<JVal>, String>,
     run_maa: &mut dyn FnMut(&MaaScen, &[String]) -> Result<ArkRunOut, String>,
 ) -> (Vec<String>, Vec<String>, String, JVal, Option<String>) {
+    // 分流替身（自检默认档）：不重试、不带日志 —— §17/§18 那几组要的就是"第一次打完就收尾"。
+    let mut dec =
+        |_st: &str, _ro: bool| -> Result<(bool, Vec<(String, String)>), String> { Ok((false, Vec::new())) };
+    drive_selftest_session_dec(journal, ctx, res, state, log_sink, responder, run_maa, &mut dec)
+}
+
+/// B-1a 自检配套（仅供 --selftest）：迷你驱动器 —— 照生产壳 Invoke-GdArkDailyRust 的口径起轮：
+/// 一轮一进程 → 读信封 → ask 就替它办（responder 出回执）并写 res → 再起一轮，直到 done/fail。
+/// B-2c② 起日志不再从信封取，改从 --log-sink 侧信道取（会话开始前先截空，跑完读全量）——
+/// 壳侧是边跑边排空，这里没有并发的壳，末次读一次即可，行序与产生序天然一致。
+/// 返回（ask 动作序, 新面日志 "级别|文本", 终 kind, done 的 result（无则 Null）, 错一句话）。
+/// `decide` 由调用方注入：重试分流住 panel-cs（生产侧），自检侧要按档位给替身 ——
+/// 恒不重试是 §17/§18 的既有形状，恒重试/条件重试是第 29 节 `C-retry-relaunch` 的射程。
+fn drive_selftest_session_dec(
+    journal: &str,
+    ctx: &str,
+    res: &str,
+    state: &str,
+    log_sink: &str,
+    responder: &mut dyn FnMut(&str, &JVal) -> Result<Option<JVal>, String>,
+    run_maa: &mut dyn FnMut(&MaaScen, &[String]) -> Result<ArkRunOut, String>,
+    decide: &mut dyn FnMut(&str, bool) -> Result<(bool, Vec<(String, String)>), String>,
+) -> (Vec<String>, Vec<String>, String, JVal, Option<String>) {
     let mut asked: Vec<String> = Vec::new();
     let mut logs: Vec<String> = Vec::new();
     let mut kind = String::new();
     let mut result = JVal::Null;
     let mut err: Option<String> = None;
     let _ = std::fs::write(log_sink, "");
-    // 分流替身：自检不真跑 panel-cs（重试分流本身不在本组射程 —— 十连往返那组已钉"坏 exe 当场断"）。
-    let mut dec =
-        |_st: &str, _ro: bool| -> Result<(bool, Vec<(String, String)>), String> { Ok((false, Vec::new())) };
     for _ in 0..64 {
         let (rc, env) =
-            drive_ark_daily_envelope(true, journal, ctx, res, "unused-panel-cs", state, log_sink, &mut dec, &mut *run_maa);
+            drive_ark_daily_envelope(true, journal, ctx, res, "unused-panel-cs", state, log_sink, decide, &mut *run_maa);
         let ev = match jv_parse(&env) {
             Ok(v) => v,
             Err(e) => {
@@ -8596,8 +8615,9 @@ fn run_arkskip(panel_cs: &str, out: &Option<String>) -> i32 {
 // 这一层一条判据都不写：十档梯子、话术整句、兜底预算扣数、RecordTag 错位一格全都住在
 // tools\panel-cs\RunLoops.cs(verb：decide-maa-run-tick)，本层只做「采集 → 喂 verb → 回灌状态 →
 // 落地 Directives」，与 lib\maa.ps1:220-620（批次 7/9 冻结的现壳真身）逐行对照。
-// 对拍门 tools\rustcore\probe-arkrun-rust-golden.ps1 比的是**可见行为序列**（日志/睡眠/起进程/
-// 读文件/verb 调用序/返回值），不是内部变量 —— 两侧真跑同一枚 panel-cs，判据本身不在射程里。
+// 老对拍门 tools\rustcore\probe-arkrun-rust-golden.ps1（1,671 行／13 格，甲档第二十刀刀② 整件退役）比的是
+// **可见行为序列**（日志/睡眠/起进程/读文件/verb 调用序/返回值），不是内部变量 —— 两侧真跑同一枚 panel-cs，
+// 判据本身不在射程里；那套判据现在的家是上面 --selftest 第 30 节。
 //
 // B-2a 刻意不落的两块（都不是"漏"，是登记过的批次切分，见 plan §11.32）：
 //   1) 点击环境探测（maa.ps1:251-261）：两朵探测函数在两侧的世界里都不在场（old 侧桩浴不加载
@@ -8646,8 +8666,8 @@ trait MaaHost {
     fn day_stamp(&mut self) -> String;
     /// Invoke-GdCli：唯一转发通道，verb 的 data 原样交回（本层不解释其内容）。
     fn verb(&mut self, name: &str, body: &JVal) -> Result<JVal, String>;
-    /// `Get-Command Invoke-GdVisionRescue`。B-2a 恒 false；B-2b③ 起转真，但**真身那句问不出**
-    /// —— 树上有没有这枚函数属装载期事实，不属判据：剧本侧由 `rescueAvailable` 喂（门里由夹具说，
+    /// 旧真身 `Get-Command Invoke-GdVisionRescue`（那枚 PS 函数已随第二十刀刀③ 出仓）。B-2a 恒 false；B-2b③ 起转真，
+    /// 但**那句问不出**——树上有没有这枚函数属装载期事实，不属判据：剧本侧由 `rescueAvailable` 喂（夹具说，
     /// 不许核自己猜），生产侧按 game 给常量（ark/m9a 都带 vision-rescue.ps1 ⇒ 恒 true）。
     fn rescue_available(&self) -> bool;
     /// `Get-Command Invoke-GdArkForegroundGrab`。同上，但**按场景分**：抢前台那枚住 vision-ark.ps1，
@@ -8691,7 +8711,8 @@ struct MaaScen {
     procs: Vec<(String, bool)>,
     events: Vec<MaaEv>,
     // ===== B-2b：兜底编排要吃的六格 =====
-    // game/target 是 `Add-GdRescueRecord -Game/-Target` 与靶子名（真身 maa.ps1 五处调用点写死 'ark'）；
+    // game/target 是旧 `Add-GdRescueRecord -Game/-Target` 与靶子名（那枚函数随刀③ 出仓；maa.ps1 五处写死 'ark' 的
+    // 调用点更早在甲档第四刀出仓，账见 §11.158）；
     // 两枚 *_available 取代 B-2a 的恒 false —— 剧本给什么就用什么，`Get-Command` 那两问的真身在
     // lib\ark-module.ps1 / lib\r1999-module.ps1 的 Libs 清单里（ark 两枚都在场；r1999 只有 rescue 在场，
     // 抢前台那枚住 lib\vision-ark.ps1，只有 ark 一路点它）。
@@ -9011,7 +9032,8 @@ fn replay_logs<H: MaaHost>(h: &mut H, logs: &JVal) {
     }
 }
 
-// ==================== B-2b：兜底编排进核（lib\vision-rescue.ps1 的 Invoke-GdVisionRescue）====================
+// ==================== B-2b：兜底编排进核（对面原在 lib\vision-rescue.ps1 的 Invoke-GdVisionRescue，
+//                      那枚真身已于 2026-10-28 甲档第二十刀刀③ 出仓，编排自此只住这层）====================
 // 分工照 plan §11.34 ②：Rust 这层只搬"七道闸的消费顺序 + 候选循环 + 三种结论话术 + 两本账的落盘"，
 // 凡要动这台机器的（拍窗口、点客户区、抢前台、起 Python 问模型、读 key/管理员/解释器）一律经 verb 外调。
 // key 因此进不了核：它只在 panel-cs 侧进子进程环境变量（Live.cs 的 RunChild），核里一个字节都摸不到，
@@ -9107,17 +9129,17 @@ impl RescueEnv {
     }
 }
 
-/// `Get-GdRescueShotDir`(vision-rescue.ps1:64) = `<GD.State>\rescue`。
+/// `Get-GdRescueShotDir`(vision-rescue.ps1:74) = `<GD.State>\rescue`。
 fn rescue_shot_dir(env: &RescueEnv) -> String {
     gd_join_path(&env.state_dir, &["rescue"])
 }
 
-/// `Get-GdRescueLedgerPath`(:411) = `<GD.State>\rescue.json`。
+/// 旧真身 `Get-GdRescueLedgerPath`(vision-rescue.ps1 旧 :411，随刀③ 出仓) = `<GD.State>\rescue.json`。
 fn rescue_ledger_path(env: &RescueEnv) -> String {
     gd_join_path(&env.state_dir, &["rescue.json"])
 }
 
-/// `Clear-GdVisionFiles`(:399-407) 的"留哪几枚"那半，抽成纯函数：mtime 在自检里造不出可信次序，
+/// `Clear-GdVisionFiles`(vision-rescue.ps1:293-301) 的"留哪几枚"那半，抽成纯函数：mtime 在自检里造不出可信次序，
 /// 判据只能单独钉。同刻并列按输入先后（Rust sort_by 稳定；PS 的 Sort-Object 对同键不保证次序，
 /// 这一格两侧都不作判据 —— 门④的账本/截图比对口径因此不碰文件名顺序）。
 fn pick_stale(items: Vec<(String, u64)>, keep: usize) -> Vec<String> {
@@ -9170,14 +9192,14 @@ fn ledger_push(events: Vec<JVal>, entry: JVal, keep: i64) -> Vec<JVal> {
     }
 }
 
-/// `Invoke-GdVisionRescue` 的返回形状（真身：`@{Tried;Done;Detail}`）。
+/// 旧真身 `Invoke-GdVisionRescue`（随刀③ 出仓）的返回形状：`@{Tried;Done;Detail}`。
 struct VisionRc {
     tried: bool,
     done: bool,
     detail: String,
 }
 
-/// `New-GdRescueSkip`(:66-70)："这次没救成，原因是……"的统一出口 = 一次点击都没发出去。
+/// 旧真身 `New-GdRescueSkip`(vision-rescue.ps1 旧 :66-70，随刀③ 出仓)："这次没救成，原因是……"的统一出口 = 一次点击都没发出去。
 fn rescue_skip<D: Into<String>>(why: D) -> VisionRc {
     VisionRc {
         tried: false,
@@ -9186,7 +9208,8 @@ fn rescue_skip<D: Into<String>>(why: D) -> VisionRc {
     }
 }
 
-/// 兜底总入口的复刻（vision-rescue.ps1:305-397）。七道闸的顺序不许调换（真身头注原话），
+/// 兜底总入口的复刻（旧真身 vision-rescue.ps1 :305-397，随刀③ 出仓 ⇒ 对面自此只剩这层）。七道闸的顺序不许调换
+/// （闸序的原文现在只有 panel-cs\Live.cs 的 resolve-rescue-context 头注一份，改一侧必改另一侧），
 /// 前六道合成一次 `resolve-rescue-context` 外调（闸序在那边逐条落着），第七道"截图"与黑屏闸在
 /// `ark-window-shot`／`mumu-screen-shot`（B-2d③ 起两路同形状十五格，核侧消费点一字不区分）。
 /// **Err = 真身没罩 try 的那些调用**（截图/点位换算/点击/比签名），
@@ -9296,7 +9319,7 @@ fn vision_rescue<H: MaaHost>(
     for c in jv_list(&jv_get(&v, "Clicks")) {
         let nx = jv_get(c, "X");
         let ny = jv_get(c, "Y");
-        // 转发壳的壳内早退（vision-rescue.ps1:149）：两个坐标有一个没给就不必外调。
+        // 转发壳的壳内早退（vision-rescue.ps1:153）：两个坐标有一个没给就不必外调。
         if matches!(&nx, JVal::Null) || matches!(&ny, JVal::Null) {
             continue;
         }
@@ -9335,7 +9358,7 @@ fn vision_rescue<H: MaaHost>(
     for pt in points.iter() {
         let cx = jv_str(&jv_get(pt, "ClientX"));
         let cy = jv_str(&jv_get(pt, "ClientY"));
-        // 预告句：真身打在点击**之前**（vision-rescue.ps1:373），而 verb 回的那个 LogLine 是在点击之后算的
+        // 预告句：旧真身打在点击**之前**（vision-rescue.ps1 旧 :373，随刀③ 出仓），而 verb 回的那个 LogLine 是在点击之后算的
         // ⇒ 想保住"W| 排在 V| 前"的投影次序，这句只能在核里本地拼（与 Live.cs 那份字面逐字相同，
         //   H2 的逐字符等值就是这句双源的事实守卫）。B-2b 的第四处偏差，登记 plan §11.35。
         h.log(
@@ -9517,7 +9540,7 @@ fn do_record<H: MaaHost>(
     Ok(())
 }
 
-/// `Add-GdRescueRecord`(vision-rescue.ps1:413-466) 的复刻：读-改-写 `state\rescue.json`，
+/// `Add-GdRescueRecord`(vision-rescue.ps1 旧 :413-466，随刀③ 出仓) 的复刻：读-改-写 `state\rescue.json`，
 /// 七键一条、Keep 60 滑窗、UTF-8 无 BOM 的 ConvertTo-Json 形状（复用 B-1a 那枚 ps_to_json_pretty）。
 /// 两处"写坏了别弄挂日常"的 WARN 整句照抄；时间戳走 GetLocalTime 自由函数（不经 MaaHost，
 /// 因此剧本世界里它是真钟而不是虚拟钟 —— 门④比这本账按语义比，不比文件名/时间戳字面）。
@@ -14829,7 +14852,7 @@ fn selftest() -> i32 {
         ]
         .iter()
         .all(|e| e.contains("\"logs\":[]")),
-        "九轮信封里有 logs 没留空：B-2c② 定的「留键不删键」没落到某一轮（arkdrive 门的 C-logs 面会把它判成分歧）",
+        "九轮信封里有 logs 没留空：B-2c② 定的「留键不删键」没落到某一轮（原 arkdrive 门的 C-logs 面就是这么判分歧的）",
         &mut fails,
         &mut total,
     );
@@ -15066,7 +15089,8 @@ fn selftest() -> i32 {
     );
 
     // 19. B-2a 运行面宿主（--maa-run 那一档的地基）：这一组只钉"采集件 + 骨架 + 投影"自己 ——
-    //     六枚判定 verb 真跑 panel-cs 是 probe-arkrun-rust-golden 的活，这里一律把判定 exe 指到
+    //     六枚判定 verb 真跑 panel-cs 曾是 probe-arkrun-rust-golden 的活（该门已于甲档第二十刀退役，
+    //     同一判据面现在住第 30 节的补桩回放），这里一律把判定 exe 指到
     //     不存在的桩路径；正因为挑的两档走到头都不该碰判定，"投影里没有 V| 事件"本身就是断言。
     //     不加载 DLL、不碰现场：文件只写 %TEMP% 下自己的目录，收尾连目录一起删。
     let d19 = std::env::temp_dir().join(format!("gd-b2a-selftest-{}", std::process::id()));
@@ -15621,6 +15645,30 @@ fn selftest() -> i32 {
         &mut fails,
         &mut total,
     );
+    // 第二十刀刀③ 补尺①：救火账本由调用方点，内核自己不记（真身那句是 PS 侧 test-ark 的一枚反向钉
+    // `$fnRescue -notmatch 'Add-GdRescueRecord'`，随 Invoke-GdVisionRescue 摘件失去对面；这里钉的是同一条
+    // 边界在核内的形状——链跑完 rescue.json 一枚字节都不许有）。归属只有调用方知道：ark 那一路写 'ark'，
+    // m9a 那一路写 'r1999'，核里记就是两路共用一笔假账。
+    chk(
+        std::fs::metadata(rescue_ledger_path(&RescueEnv::of_maa(&b19sc_ok))).is_err(),
+        "兜底链自己写了救火账（rescue.json 该由 record 那枚执行块写、不该由 vision_rescue 写）：game/target 归属是调用方的事，核记一次就与壳那笔重复",
+        &mut fails,
+        &mut total,
+    );
+    // 第二十刀刀③ 补尺②：-Context 从入口原样递到问价层（PS 侧那枚文本钉 `-match 'Invoke-GdVisionAsk.*\$Context'`
+    // 随摘件失去对面）。同一张画面，带不带"卡在哪个任务、重复点了多少次"模型挑出的挡路货不一样，而兜底一轮
+    // 就那么几次机会——所以这一格钉的是**值本身**到了，不是"有个这键"。截 200 字的规矩住 C#（--livetest 那格钉过）。
+    let b19ask_body = b19h_ok
+        .body_of("vision-ask-model")
+        .cloned()
+        .unwrap_or(JVal::Null);
+    chk(
+        jvo_has(&b19ask_body, "context")
+            && jv_str(&jv_get(&b19ask_body, "context")) == "MAA 日志 12 分钟无输出",
+        "处境那句没原样递到问价层（没喂／键名漂／被核改写）：问得准比问得省重要，兜底一轮只有那几次机会",
+        &mut fails,
+        &mut total,
+    );
     let b19sc_off = MaaScen {
         name: "rescue-off".to_string(),
         live: vec![(
@@ -15732,7 +15780,7 @@ fn selftest() -> i32 {
         b19rc_no.as_ref().map_or(false, |r| {
             r.tried && !r.done && r.detail == "按模型说的把活动页点了一下(点位 1520,54(真实点击)→画面看不出变化)，但画面看不出变化 → 不算救活"
         }) && b19h_no.proj.len() == 10,
-        "三种结论里「点了但画面没变」那一支的话术走样（真身 vision-rescue.ps1:386 那句里 $chg.Detail 出现两次：一次并进 tries 尾段、一次跟在「但」后面 —— 原样，不许顺手去重）：会把它说成救活了",
+        "三种结论里「点了但画面没变」那一支的话术走样（旧真身 vision-rescue.ps1 :386 那句里 $chg.Detail 出现两次：一次并进 tries 尾段、一次跟在「但」后面 —— 原样，不许顺手去重；那枚真身已随刀③ 出仓，这形自此只有核内一份）：会把它说成救活了",
         &mut fails,
         &mut total,
     );
@@ -20748,7 +20796,9 @@ asst-failed|ev|2|asst|10000|TaskChainError|TaskChainError|task_chain|Error|local
             &mut total,
         );
 
-        let d28 = std::env::temp_dir().join("gd-selftest-s28-round");
+        // 临时目录带 pid：本节曾是全仓唯一用固定名的一节，两趟 --selftest 并发时后起的那趟
+        // remove_dir_all 会把前一趟正在写的目录端走，17 枚 §28 格当场红（第二十刀实测）。
+        let d28 = std::env::temp_dir().join(format!("gd-selftest-s28-round-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d28);
         let mut outer_seen28: Vec<String> = Vec::new();
         let mut obs_total28 = 0usize;
@@ -21447,6 +21497,831 @@ asst-failed|ev|2|asst|10000|TaskChainError|TaskChainError|task_chain|Error|local
         );
     }
 
+    // ==================== 第 29 节：arkdrive 门退役四组真空档补尺（probe-arkdrive-rust-golden.ps1 1,014 行／39 格退役前置；§11.161 刀①） ====================
+    // 门的「对面」＝两代 Rust 核（old＝a9dea09 连壳带核现取现编／new＝现树），不是 PS 活臂 ⇒
+    //   H0 脚手架 12 枚与等值面 21 枚（C-journal×8／C-state×8／C-logs／C-results／C-results-shape／
+    //   C-asks-filtered／C-asks-removed）随门死，本节不复立。
+    // 已另有钉、本节不重立的四组半边：C-asks-new-no-internal（§18 asked 向量全等）、
+    //   C-init-ctx-shape 读侧（§20）、C-mark-content 单元素（§18 那枚 133 字节）、
+    //   C-obs-nowrite 写入半边（§18 那枚 252 字节）。
+    // 本节只落剩下的四组真空档 —— 判语「链体已钉≠协议缝已钉」：
+    //   ⑴ C-retry-relaunch 的 ctx 缝：自检侧的 decide 替身恒不重试 ⇒ 重试段（stop→sleep 25→
+    //      带 launch 的第二轮 ark_daily_step）整段走不到，`input.launch` 有没有真透传到第二轮
+    //      无从判（门头注那条 NEG 实测：拨灭 relaunch 两代同漏、七本等值册全绿）。
+    //      这里把 decide 做成注入替身，三会话只差替身/ctx 一处：重试（launch 问两次）、
+    //      反拨（ctx 拨灭 ⇒ launch 问零次）、正对照（恒不重试 ⇒ 没有 sleep 那一问）。
+    //   ⑵ C-desk-empty-vs-early 整格：链体早退支与继续支的对子从没成过 —— 共用夹具与驱动桩的
+    //      desk 回执恒 'Default'，「读到的桌面名是空串」这一支（读不到桌面名不许当屏保早退）没牙。
+    //   ⑶ C-mark-content 的双元素半边（Stage 逗号串真拆两枚进 Stages 数组）
+    //      ＋ C-obs-nowrite 的 Found=false 半边（观测回执说"没读数"⇒ 账本一个字节都不许动、
+    //      journal 的 obsrec 行 data 记 null；§18 只钉了写入那半边）。
+    //   ⑷ 判据一律从链体真身原话抄（早退支/直接认栽支/Found 假即 None），不引门文件、不引行号。
+    {
+        let d29 = std::env::temp_dir().join(format!("gd-arkdrive-selftest-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d29);
+        let _ = std::fs::create_dir_all(&d29);
+        let f29 = |name: &str| -> String { d29.join(name).to_str().unwrap().to_string() };
+        // 会话件四件套（journal/ctx/res/state）＋日志侧信道，各会话独立目录文件——
+        // 同一本 journal 连开两会话＝第二会话按第一会话的账重放，那测的是重放不是新档。
+        struct S29Files {
+            j: String,
+            c: String,
+            r: String,
+            st: String,
+            k: String,
+        }
+        let mk29 = |tag: &str, ctx: &str| -> S29Files {
+            let st = f29(&format!("{}-state", tag));
+            let _ = std::fs::create_dir_all(&st);
+            let fs = S29Files {
+                j: f29(&format!("{}-journal.ndjson", tag)),
+                c: f29(&format!("{}-ctx.json", tag)),
+                r: f29(&format!("{}-res.json", tag)),
+                st: st.clone(),
+                k: f29(&format!("{}-log-sink.ndjson", tag)),
+            };
+            let _ = std::fs::write(&fs.c, ctx);
+            fs
+        };
+        // ctx 两枚布尔的真身口径：launch=端游起不起、retry_once=允许不允许重试；
+        // decision 供 Mode/Stage/Farm.Stages（认栽支读 Farm.Stages 判"有没有可剔的补刷关"）。
+        let CTX29_LT_RT = "{\"launch\":true,\"retry_once\":true,\"decision\":{\"Mode\":\"plain\",\"Stage\":\"CE-5\"}}";
+        let CTX29_LF_RT = "{\"launch\":false,\"retry_once\":true,\"decision\":{\"Mode\":\"plain\",\"Stage\":\"CE-5\"}}";
+        let CTX29_LT_RF = "{\"launch\":true,\"retry_once\":false,\"decision\":{\"Mode\":\"plain\",\"Stage\":\"CE-5\"}}";
+        let CTX29_TWOSTAGE =
+            "{\"launch\":true,\"retry_once\":false,\"decision\":{\"Mode\":\"plain\",\"Stage\":\"CE-5,CE-6\",\"Farm\":{\"Stages\":[]}}}";
+
+        // —— 组 1：重试段的 ctx 缝（三会话只差一枚替身/ctx，其余同形）——
+        // decide 替身：记下发数与"这一发收到的 (status, retryOnce)"，恒定放行重试并带一句分流日志。
+        // 三个 run 闭包各自计数（Cell 是局部值，闭包按借用读它 —— 照 §18 逐会话现写）。
+        let g1a_n = std::cell::Cell::new(0usize);
+        let mut run_g1a = |_sc: &MaaScen, _ch: &[String]| -> Result<ArkRunOut, String> {
+            g1a_n.set(g1a_n.get() + 1);
+            Ok(ArkRunOut { status: "stalled".to_string(), detail: "卡住了".to_string(), duration: None })
+        };
+        let g1a_dec_n = std::cell::Cell::new(0usize);
+        let g1a_dec_bad = std::cell::Cell::new(0usize);
+        let mut dec_g1a = |st: &str, ro: bool| -> Result<(bool, Vec<(String, String)>), String> {
+            g1a_dec_n.set(g1a_dec_n.get() + 1);
+            if st != "stalled" || !ro {
+                g1a_dec_bad.set(g1a_dec_bad.get() + 1);
+            }
+            Ok((true, vec![("WARN".to_string(), "分流判定：这一轮可以重试一次".to_string())]))
+        };
+        let g1a_sleep_n = std::cell::Cell::new(0usize);
+        let g1a_sleep_bad = std::cell::Cell::new(0usize);
+        let mut resp_g1a = |act: &str, prm: &JVal| -> Result<Option<JVal>, String> {
+            match act {
+                // sleep 在这一路是 ask（不真睡）：秒数由链体给 25，替身只答"办完了"。
+                "sleep" => {
+                    g1a_sleep_n.set(g1a_sleep_n.get() + 1);
+                    if jv_int(prm, 0) != 25 {
+                        g1a_sleep_bad.set(g1a_sleep_bad.get() + 1);
+                    }
+                    Ok(None)
+                }
+                other => drive_selftest_respond(other, prm),
+            }
+        };
+        let f1a = mk29("g1a", CTX29_LT_RT);
+        let (g1a_asked, g1a_logs, g1a_kind, g1a_result, g1a_err) = drive_selftest_session_dec(
+            &f1a.j, &f1a.c, &f1a.r, &f1a.st, &f1a.k, &mut resp_g1a, &mut run_g1a, &mut dec_g1a,
+        );
+        let g1a_asked_want =
+            vec!["desk", "takeover", "cfg", "launch", "stop", "sleep", "launch", "stop", "ledger", "obs"];
+        let g1a_launch = g1a_asked.iter().filter(|a| *a == "launch").count();
+        let g1a_jt = std::fs::read_to_string(&f1a.j).unwrap_or_default();
+        let (_, g1a_rows, _) = match drive_load_journal(&g1a_jt) {
+            Ok(t) => t,
+            Err(m) => {
+                chk(false, &format!("§29 组 1a 的 journal 读不过去：{}", m), &mut fails, &mut total);
+                (JVal::Null, Vec::new(), None)
+            }
+        };
+        let g1a_run_rows = g1a_rows.iter().filter(|r| jv_str(&jv_get(r, "action")) == "run").count();
+        chk(
+            g1a_err.is_none()
+                && g1a_kind == "done"
+                && g1a_asked == g1a_asked_want
+                && g1a_launch == 2
+                && g1a_run_rows == 2,
+            &format!(
+                "§29 C-retry-relaunch(1a)：重试段的 ask 序不对：kind={} asked={:?} launch问了几次={} run账行={} err={:?}（硬期望＝重试真的再走一轮 ark_daily_step：再问一次 launch、run 真做两次；第二轮没问 launch＝ctx 那枚又丢了）",
+                g1a_kind, g1a_asked, g1a_launch, g1a_run_rows, g1a_err
+            ),
+            &mut fails,
+            &mut total,
+        );
+        chk(
+            g1a_dec_n.get() >= 2 && g1a_dec_bad.get() == 0,
+            &format!(
+                "§29 C-retry-relaunch 的 ctx 缝(1a)：decide 替身收到的 (status, retryOnce) 不对——发数={} 坏={}（retryOnce 必须真从 ctx 透传过来；status 必须是上一轮的真终态；一发都没收到＝分流段压根没跑）",
+                g1a_dec_n.get(), g1a_dec_bad.get()
+            ),
+            &mut fails,
+            &mut total,
+        );
+        chk(
+            g1a_sleep_n.get() == 1 && g1a_sleep_bad.get() == 0,
+            &format!(
+                "§29 C-retry-relaunch 的 sleep 一问不对：问了几次={} 秒数不对={}（重试前该 ask 一枚 sleep(25)；一次都不问＝收尾直冲第二轮，秒数漂了＝重试间隔的话术改了没人管）",
+                g1a_sleep_n.get(), g1a_sleep_bad.get()
+            ),
+            &mut fails,
+            &mut total,
+        );
+        // 分流替身给的那句日志必须落在第一次结束状态之后、第二次之前（顺序错＝重试段的日志排到了收尾外）。
+        let g1a_i_dec = g1a_logs.iter().position(|l| l.contains("分流判定：这一轮可以重试一次"));
+        let g1a_i_end1 = g1a_logs.iter().position(|l| l.contains("结束状态：stalled"));
+        let g1a_end_n = g1a_logs.iter().filter(|l| l.contains("结束状态：stalled")).count();
+        let g1a_i_end2 = g1a_logs.iter().rposition(|l| l.contains("结束状态：stalled"));
+        chk(
+            g1a_end_n == 2
+                && g1a_i_dec.is_some()
+                && g1a_i_end1.is_some()
+                && g1a_i_end2.is_some()
+                && g1a_i_dec.unwrap() > g1a_i_end1.unwrap()
+                && g1a_i_dec.unwrap() < g1a_i_end2.unwrap(),
+            &format!(
+                "§29 C-retry-relaunch 的侧信道序不对：结束状态句出现={} 次、分流句下标={:?}、首/末次结束状态下标={:?}/{:?}（分流那句必须夹在两轮之间；只有一句＝第二轮没打日志）",
+                g1a_end_n, g1a_i_dec, g1a_i_end1, g1a_i_end2
+            ),
+            &mut fails,
+            &mut total,
+        );
+        chk(
+            jv_str(&jv_get_ci(&g1a_result, "status")) == "stalled"
+                && jv_str(&jv_get_ci(&g1a_result, "detail")) == "卡住了"
+                && g1a_rows.iter().all(|r| jv_str(&jv_get(r, "action")) != "mark"),
+            &format!(
+                "§29 C-retry-relaunch 的终态/认栽面不对：result=[{}|{}]、journal 里 mark 行在不在={}（重试后仍不 ok ⇒ skip 支整段不进：既不该记认栽标记、也不该拼尾注）",
+                jv_str(&jv_get_ci(&g1a_result, "status")),
+                jv_str(&jv_get_ci(&g1a_result, "detail")),
+                g1a_rows.iter().any(|r| jv_str(&jv_get(r, "action")) == "mark")
+            ),
+            &mut fails,
+            &mut total,
+        );
+        // 1b＝反拨：ctx 把 launch 拨灭，其余与 1a 同形 ⇒ 两轮都不许问 launch，重试段照跑。
+        let g1b_n = std::cell::Cell::new(0usize);
+        let mut run_g1b = |_sc: &MaaScen, _ch: &[String]| -> Result<ArkRunOut, String> {
+            g1b_n.set(g1b_n.get() + 1);
+            Ok(ArkRunOut { status: "stalled".to_string(), detail: "卡住了".to_string(), duration: None })
+        };
+        let g1b_dec_n = std::cell::Cell::new(0usize);
+        let g1b_dec_bad = std::cell::Cell::new(0usize);
+        let mut dec_g1b = |st: &str, ro: bool| -> Result<(bool, Vec<(String, String)>), String> {
+            g1b_dec_n.set(g1b_dec_n.get() + 1);
+            if st != "stalled" || !ro {
+                g1b_dec_bad.set(g1b_dec_bad.get() + 1);
+            }
+            Ok((true, vec![("WARN".to_string(), "分流判定：这一轮可以重试一次".to_string())]))
+        };
+        let g1b_sleep_n = std::cell::Cell::new(0usize);
+        let mut resp_g1b = |act: &str, prm: &JVal| -> Result<Option<JVal>, String> {
+            match act {
+                "sleep" => {
+                    g1b_sleep_n.set(g1b_sleep_n.get() + 1);
+                    Ok(None)
+                }
+                other => drive_selftest_respond(other, prm),
+            }
+        };
+        let f1b = mk29("g1b", CTX29_LF_RT);
+        let (g1b_asked, _g1b_logs, g1b_kind, _g1b_result, g1b_err) = drive_selftest_session_dec(
+            &f1b.j, &f1b.c, &f1b.r, &f1b.st, &f1b.k, &mut resp_g1b, &mut run_g1b, &mut dec_g1b,
+        );
+        let g1b_asked_want = vec!["desk", "takeover", "cfg", "stop", "sleep", "stop", "ledger", "obs"];
+        chk(
+            g1b_err.is_none()
+                && g1b_kind == "done"
+                && g1b_asked == g1b_asked_want
+                && g1b_n.get() == 2
+                && g1b_sleep_n.get() == 1
+                && g1b_dec_bad.get() == 0,
+            &format!(
+                "§29 C-retry-relaunch(1b 反拨)：ctx 拨灭 launch 后 ask 序不对：kind={} asked={:?} run调用次数={} sleep问了几次={} 分流坏={}（这一档才是那枚 NEG 的正解：拨灭之后两轮都不起端游；第二轮偷偷起端游=门当年漏判的形状）",
+                g1b_kind, g1b_asked, g1b_n.get(), g1b_sleep_n.get(), g1b_dec_bad.get()
+            ),
+            &mut fails,
+            &mut total,
+        );
+        // 1c＝正对照：ctx 与 1a 只差 retry_once=false ⇒ 分流替身收到 false、恒不重试 ⇒ 没有第二次 launch/sleep。
+        let g1c_n = std::cell::Cell::new(0usize);
+        let mut run_g1c = |_sc: &MaaScen, _ch: &[String]| -> Result<ArkRunOut, String> {
+            g1c_n.set(g1c_n.get() + 1);
+            Ok(ArkRunOut { status: "stalled".to_string(), detail: "卡住了".to_string(), duration: None })
+        };
+        let g1c_dec_n = std::cell::Cell::new(0usize);
+        let g1c_dec_ro_true = std::cell::Cell::new(0usize);
+        let mut dec_g1c = |_st: &str, ro: bool| -> Result<(bool, Vec<(String, String)>), String> {
+            g1c_dec_n.set(g1c_dec_n.get() + 1);
+            if ro {
+                g1c_dec_ro_true.set(g1c_dec_ro_true.get() + 1);
+            }
+            Ok((false, Vec::new()))
+        };
+        let g1c_sleep_n = std::cell::Cell::new(0usize);
+        let mut resp_g1c = |act: &str, prm: &JVal| -> Result<Option<JVal>, String> {
+            match act {
+                "sleep" => {
+                    g1c_sleep_n.set(g1c_sleep_n.get() + 1);
+                    Ok(None)
+                }
+                other => drive_selftest_respond(other, prm),
+            }
+        };
+        let f1c = mk29("g1c", CTX29_LT_RF);
+        let (g1c_asked, _g1c_logs, g1c_kind, _g1c_result, g1c_err) = drive_selftest_session_dec(
+            &f1c.j, &f1c.c, &f1c.r, &f1c.st, &f1c.k, &mut resp_g1c, &mut run_g1c, &mut dec_g1c,
+        );
+        let g1c_asked_want = vec!["desk", "takeover", "cfg", "launch", "stop", "ledger", "obs"];
+        chk(
+            g1c_err.is_none()
+                && g1c_kind == "done"
+                && g1c_asked == g1c_asked_want
+                && g1c_n.get() == 1
+                && g1c_sleep_n.get() == 0
+                && g1c_dec_n.get() >= 1
+                && g1c_dec_ro_true.get() == 0,
+            &format!(
+                "§29 C-retry-relaunch(1c 正对照)：不重试那档的 ask 序不对：kind={} asked={:?} run调用次数={} sleep问了几次={} 分流发数={} 分流收到retryOnce=true的发数={}（1a 与 1c 只差 decide 替身与 ctx 的 retry_once：这一档绿说明 1a 的差别真来自重试支，不是夹具自己多问了一次）",
+                g1c_kind, g1c_asked, g1c_n.get(), g1c_sleep_n.get(), g1c_dec_n.get(), g1c_dec_ro_true.get()
+            ),
+            &mut fails,
+            &mut total,
+        );
+
+        // —— 组 2：desk 空回执 vs 屏保早退（两条形成对，共用桩的 'Default' 两边都不算）——
+        let g2a_n = std::cell::Cell::new(0usize);
+        let mut run_g2a = |_sc: &MaaScen, _ch: &[String]| -> Result<ArkRunOut, String> {
+            g2a_n.set(g2a_n.get() + 1);
+            Ok(ArkRunOut { status: "ok".to_string(), detail: "一切正常".to_string(), duration: None })
+        };
+        let mut resp_g2a = |act: &str, prm: &JVal| -> Result<Option<JVal>, String> {
+            match act {
+                "desk" => Ok(Some(jv_s("Screen-saver"))),
+                "svdetail" => Ok(Some(jv_s("夹具屏保读数"))),
+                other => drive_selftest_respond(other, prm),
+            }
+        };
+        let f2a = mk29("g2a", CTX29_LT_RF);
+        let (g2a_asked, g2a_logs, g2a_kind, g2a_result, g2a_err) =
+            drive_selftest_session(&f2a.j, &f2a.c, &f2a.r, &f2a.st, &f2a.k, &mut resp_g2a, &mut run_g2a);
+        let g2a_detail = jv_str(&jv_get_ci(&g2a_result, "detail"));
+        chk(
+            g2a_err.is_none()
+                && g2a_kind == "done"
+                && g2a_asked == vec!["desk", "svdetail"]
+                && g2a_n.get() == 0
+                && jv_str(&jv_get_ci(&g2a_result, "status")) == "not-started"
+                && g2a_detail.starts_with("起跑时会话在 Screen-saver 桌面(屏保/锁屏)，直接跳过")
+                && g2a_detail.ends_with("。夹具屏保读数")
+                && !matches!(jv_get_ci(&g2a_result, "duration"), JVal::Null),
+            &format!(
+                "§29 C-desk-empty-vs-early(2a 早退支)：桌面名不是 Default 时该就地早退：kind={} asked={:?} run调用次数={} result=[{}|{}] duration在不在={} err={:?}",
+                g2a_kind,
+                g2a_asked,
+                g2a_n.get(),
+                jv_str(&jv_get_ci(&g2a_result, "status")),
+                g2a_detail,
+                !matches!(jv_get_ci(&g2a_result, "duration"), JVal::Null),
+                g2a_err
+            ),
+            &mut fails,
+            &mut total,
+        );
+        chk(
+            g2a_logs.first().map_or(false, |l| l.starts_with("STEP|") && l.contains("--- 方舟(端游 + MAA)---"))
+                && g2a_logs.iter().any(|l| l.contains("跳过本轮：输入桌面=Screen-saver("))
+                && g2a_logs.iter().any(|l| l.contains("  屏保读数：夹具屏保读数"))
+                && g2a_logs.iter().all(|l| !l.contains("已记今日认栽标记"))
+                && g2a_logs.iter().all(|l| !l.contains("关卡开放观测已记账")),
+            &format!(
+                "§29 C-desk-empty-vs-early(2a) 的侧信道不对：首行={:?} 行数={}（早退支该只带 STEP+跳过本轮+屏保读数三句，收尾两族的句子一句都不许出现——出现=早退 return 没接住）",
+                g2a_logs.first(),
+                g2a_logs.len()
+            ),
+            &mut fails,
+            &mut total,
+        );
+        // 2b＝对子另一头：desk 回执为空串 ⇒ 「读不到桌面名」不许当屏保早退，链体照常往下走。
+        let g2b_n = std::cell::Cell::new(0usize);
+        let mut run_g2b = |_sc: &MaaScen, _ch: &[String]| -> Result<ArkRunOut, String> {
+            g2b_n.set(g2b_n.get() + 1);
+            Ok(ArkRunOut { status: "ok".to_string(), detail: "一切正常".to_string(), duration: None })
+        };
+        let mut resp_g2b = |act: &str, prm: &JVal| -> Result<Option<JVal>, String> {
+            match act {
+                "desk" => Ok(Some(jv_s(""))),
+                other => drive_selftest_respond(other, prm),
+            }
+        };
+        let f2b = mk29("g2b", CTX29_LT_RF);
+        let (g2b_asked, g2b_logs, g2b_kind, g2b_result, g2b_err) =
+            drive_selftest_session(&f2b.j, &f2b.c, &f2b.r, &f2b.st, &f2b.k, &mut resp_g2b, &mut run_g2b);
+        let g2b_asked_want =
+            vec!["desk", "takeover", "cfg", "launch", "skip", "stop", "ledger", "obs"];
+        chk(
+            g2b_err.is_none()
+                && g2b_kind == "done"
+                && g2b_asked == g2b_asked_want
+                && g2b_n.get() == 1
+                && g2b_asked.iter().all(|a| *a != "svdetail")
+                && jv_str(&jv_get_ci(&g2b_result, "status")) == "ok",
+            &format!(
+                "§29 C-desk-empty-vs-early(2b 空回执)：desk 读成空串时链体该照常走完而不是早退：kind={} asked={:?} run调用次数={} result.status={} err={:?}（空桌面名≠屏保接管：走了早退支就没有 skip/收尾那一串；还问了 svdetail＝把空串也当异常读）",
+                g2b_kind, g2b_asked, g2b_n.get(), jv_str(&jv_get_ci(&g2b_result, "status")), g2b_err
+            ),
+            &mut fails,
+            &mut total,
+        );
+        chk(
+            g2b_logs.iter().all(|l| !l.contains("跳过本轮：输入桌面=")),
+            &format!(
+                "§29 C-desk-empty-vs-early(2b)：空桌面名却打出了跳过句（侧信道 {} 行）——早退判据的合取少了一半没人发现",
+                g2b_logs.len()
+            ),
+            &mut fails,
+            &mut total,
+        );
+
+        // —— 组 3：认栽标记的双元素形 ＋ 观测 Found=false 的不改写半边（同一会话成对）——
+        let g3_ob_pre = "PRE-SEED-OLD-BYTES 不该被改写";
+        let g3_n = std::cell::Cell::new(0usize);
+        let mut run_g3 = |_sc: &MaaScen, _ch: &[String]| -> Result<ArkRunOut, String> {
+            g3_n.set(g3_n.get() + 1);
+            Ok(ArkRunOut { status: "ok".to_string(), detail: "一切正常".to_string(), duration: None })
+        };
+        let mut resp_g3 = |act: &str, prm: &JVal| -> Result<Option<JVal>, String> {
+            match act {
+                // 观测回执只说"这一轮没读数"：账本一个字节都不许动（drive_obsrec 的 Found 假即 None）。
+                "obs" => Ok(Some(jv_o(vec![("Found", JVal::B(false))]))),
+                other => drive_selftest_respond(other, prm),
+            }
+        };
+        let f3 = mk29("g3", CTX29_TWOSTAGE);
+        let g3_ob_path = std::path::Path::new(&f3.st).join("ark-stage-weekday-obs.json");
+        let _ = std::fs::write(&g3_ob_path, g3_ob_pre);
+        let (g3_asked, g3_logs, g3_kind, g3_result, g3_err) =
+            drive_selftest_session(&f3.j, &f3.c, &f3.r, &f3.st, &f3.k, &mut resp_g3, &mut run_g3);
+        let g3_asked_want =
+            vec!["desk", "takeover", "cfg", "launch", "skip", "stop", "ledger", "obs"];
+        chk(
+            g3_err.is_none() && g3_kind == "done" && g3_asked == g3_asked_want && g3_n.get() == 1,
+            &format!(
+                "§29 组 3 的 ask 序不对：kind={} asked={:?} run调用次数={} err={:?}（Farm.Stages 为空 ⇒ 剔无可剔、直接认栽；ask 名册仍是八枚）",
+                g3_kind, g3_asked, g3_n.get(), g3_err
+            ),
+            &mut fails,
+            &mut total,
+        );
+        let g3_jt = std::fs::read_to_string(&f3.j).unwrap_or_default();
+        let (_, g3_rows, _) = match drive_load_journal(&g3_jt) {
+            Ok(t) => t,
+            Err(m) => {
+                chk(false, &format!("§29 组 3 的 journal 读不过去：{}", m), &mut fails, &mut total);
+                (JVal::Null, Vec::new(), None)
+            }
+        };
+        let g3_row = |name: &str| g3_rows.iter().find(|r| jv_str(&jv_get(r, "action")) == name);
+        chk(
+            g3_logs.iter().any(|l| l.contains("本轮没有可剔的补刷关(或剔完计划就空了) → 直接认今日全关"))
+                && g3_logs.iter().any(|l| l.contains("已记今日认栽标记("))
+                && g3_logs.iter().all(|l| !l.contains("关卡开放观测已记账"))
+                && g3_logs.iter().all(|l| !l.contains("关卡开放观测没做起来"))
+                && jv_str(&jv_get_ci(&g3_result, "detail"))
+                    == "一切正常；Fight 被 MAA 判全关(认栽，已记当日标记)",
+            &format!(
+                "§29 组 3 的话术/尾注不对：侧信道 {} 行、result.detail=[{}]（空 Farm.Stages 走的是直接认栽支；观测 Found=false 时既不许报记账条数、也不许报「没做起来」——静默跳过才算对）",
+                g3_logs.len(),
+                jv_str(&jv_get_ci(&g3_result, "detail"))
+            ),
+            &mut fails,
+            &mut total,
+        );
+        chk(
+            g3_row("mark").map_or(false, |r| jv_get(r, "data") == jv_s(&gd_local_date()))
+                && g3_row("obsrec").map_or(false, |r| jv_has(r, "data") && matches!(jv_get(r, "data"), JVal::Null)),
+            &format!(
+                "§29 C-obs-nowrite 的半边不对：mark 行 data={:?}、obsrec 行 data 是不是「键在值为 null」={:?}（账行照写、但观测那一条记的是 None ⇒ 重放时才知道这一发没落账；obsrec 行整个没了＝Found 假那支把动作也吞了）",
+                g3_row("mark").map(|r| jv_get(r, "data").clone()),
+                g3_row("obsrec").map(|r| jv_has(r, "data") && matches!(jv_get(r, "data"), JVal::Null))
+            ),
+            &mut fails,
+            &mut total,
+        );
+        let g3_ob_after = std::fs::read_to_string(&g3_ob_path).unwrap_or_default();
+        chk(
+            g3_ob_after == g3_ob_pre,
+            &format!(
+                "§29 C-obs-nowrite：观测回执 Found=false 却动了账本（预置 {} 字节 vs 现读 {} 字节）——Found 假即 None 的半边改口就是这里改",
+                g3_ob_pre.len(),
+                g3_ob_after.len()
+            ),
+            &mut fails,
+            &mut total,
+        );
+        // 认栽标记的双元素形：Stage 逗号串"CE-5,CE-6"必须拆成两枚，而不是整串塞一格（§18 只钉了单元素）。
+        let g3_mk_path = std::path::Path::new(&f3.st).join("ark-fight-skip-mark.json");
+        let g3_mk_got = std::fs::read_to_string(&g3_mk_path).unwrap_or_default();
+        let g3_mk_want = format!(
+            "{{\r\n  \"Date\": \"{}\",\r\n  \"Stages\": [\r\n    \"CE-5\",\r\n    \"CE-6\"\r\n  ],\r\n  \"Reason\": \"MAA 判「关卡计划内没有当日开放的关卡」\"\r\n}}",
+            gd_local_date()
+        );
+        let g3_mk_stages: Vec<String> = match jv_parse(&g3_mk_got) {
+            Ok(v) => jv_list(&jv_get_ci(&v, "Stages")).into_iter().map(jv_str).collect(),
+            Err(_) => Vec::new(),
+        };
+        chk(
+            g3_mk_got == g3_mk_want,
+            &format!(
+                "§29 C-mark-content 双元素形：落盘字节与两元素模板不符（现 {} 字节）——\\r\\n/两空格缩进/尾无换行/键序 Date→Stages→Reason 都要逐字节对",
+                g3_mk_got.len()
+            ),
+            &mut fails,
+            &mut total,
+        );
+        chk(
+            g3_mk_stages.len() == 2 && g3_mk_stages[0] == "CE-5" && g3_mk_stages[1] == "CE-6",
+            &format!(
+                "§29 C-mark-content 拆枚不对：Stages 现读={:?}（逗号串必须拆两枚；整串塞一格＝arksk_split_commas 那把尺丢了）",
+                g3_mk_stages
+            ),
+            &mut fails,
+            &mut total,
+        );
+        // 独立第二把尺：单元素那格是门里钉死的 133 字节，双元素只多「,\r\n    "CE-6"」这 13 字节。
+        chk(
+            g3_mk_got.len() == 133 + 13,
+            &format!(
+                "§29 C-mark-content 字节账不对：现 {} 字节（单元素模板 133 ＋ 第二枚的 `,\\r\\n    \"CE-6\"` 13）",
+                g3_mk_got.len()
+            ),
+            &mut fails,
+            &mut total,
+        );
+        let _ = std::fs::remove_dir_all(&d29);
+        chk(
+            !d29.exists(),
+            "§29 arkdrive 门退役格的临时目录没收干净：自检会在 %TEMP% 里留垃圾",
+            &mut fails,
+            &mut total,
+        );
+    }
+
+    // ---- 30. arkrun 27 档金样回放（第二十刀：probe-arkrun-rust-golden.ps1 的 H1/H2/H3/H5/H6 搬进核；门本体已随刀② 摘件）----
+    // 形制照第 26 节（第十五刀）：剧本＝门最后一次全绿帧（13 格／27 档 1218 步）落盘的 script.json，
+    // 金样＝同一帧的 rust 侧投影；判定与纯规则九枚真跑 panel-cs 的应答，用一次性取证件
+    // （GD_LIVE_DUMP，捕获完即从码面剥除，本批落码时已剥）
+    // 在同一帧里按调用序 dump 下来，冻成 K20_EXTRA 补到 live 队尾 ⇒ 回放不碰 panel-cs，
+    // 而宿主传 "gd-no-such-panel" 让任何没冻住的 verb 当场 Err（不是静默真跑）。
+    // K20_SHAPE/K20_NAMES/K20_VERBS 三份事实源从门表 $scenShape/$shapeKey 转写，**不从金样反推**
+    // ——拿金样自己数出来的形状当尺是恒真尺（第十五刀的教训原样搬）。
+    // 分档改口（现读推翻取证账的「H5/H6 已有家」）：第 19 节是合成剧本（一枚档、target 端游），
+    // 第 26 节账本只吃 m9a 28 档 ⇒ ark 这 27 档的账本金样在仓里无家，本节连 H5/H6 一起冻。
+    // H3e（记账次数==resolve 次数）与 H6a（落盘事件数==记账次数）不是同一句：前者比两枚 verb 的
+    // 外调次数，后者比账本条数与外调次数，各配一格。
+    // "含不含 V|decide" 不另立格：H3b 把每档 decide 次数钉成门表设计值（legacy 与兜底档 ≥1、
+    // dryrun/never-up 恒 0），次数对则含不含必对。
+    // 边界（照登）：H4（old↔new 两份 PS 真身逐字符）随门消失，maa.ps1/vision-rescue.ps1 对基线
+    // 251bd3c 的无漂移从此无人再证；夹具 live 只覆盖五枚现场 verb（ark-grab-foreground／
+    // ark-window-click／ark-window-shot／resolve-rescue-context／vision-ask-model），那五枚的形状
+    // 由剧本夹具钉；账本 time/updated 走真钟，金样只钉六格语义（与第 26 节同口径）。
+    const K20_SCRIPT: &str = r#"[{"name":"maas01-ok-finished-tail","dryRun":false,"expectedChains":["Fight"],"paths":{"maaConfig":"configuration.json","arknightsExe":"Arknights.exe","maaGuiLog":"debug\\gui.log","maaAsstLog":"","maaExe":"MAA.exe","maaDir":"{{TMP}}\\sandbox"},"runtime":{"benignMaaErrors":[],"abortOnMaaStallWarning":false,"arkTimeoutMinutes":6,"stallTimeoutMinutes":2,"idleConfirmSeconds":30,"visionMaxRescue":0,"arkStartTimeoutMinutes":1},"game":"ark","target":"ark","rescueAvailable":false,"grabAvailable":false,"stateDir":"{{TMP}}\\state-rust\\maas01-ok-finished-tail","procs":[{"up":true,"name":"MAA"},{"up":true,"name":"Arknights"}],"live":[],"events":[{"at":5,"kind":"append","target":"gui","text":"Completed Task Chain: Fight"},{"at":15,"kind":"append","target":"gui","text":"任务已全部完成\n全部任务用时 12.3 分钟"}]},{"name":"maas02-alldone-idle-tail","dryRun":false,"expectedChains":["Fight","Shop"],"paths":{"maaConfig":"configuration.json","arknightsExe":"Arknights.exe","maaGuiLog":"debug\\gui.log","maaAsstLog":"","maaExe":"MAA.exe","maaDir":"{{TMP}}\\sandbox"},"runtime":{"benignMaaErrors":[],"abortOnMaaStallWarning":false,"arkTimeoutMinutes":6,"stallTimeoutMinutes":2,"idleConfirmSeconds":30,"visionMaxRescue":0,"arkStartTimeoutMinutes":1},"game":"ark","target":"ark","rescueAvailable":false,"grabAvailable":false,"stateDir":"{{TMP}}\\state-rust\\maas02-alldone-idle-tail","procs":[{"up":true,"name":"MAA"},{"up":true,"name":"Arknights"}],"live":[],"events":[{"at":5,"kind":"append","target":"gui","text":"Completed Task Chain: Fight"},{"at":5,"kind":"append","target":"gui","text":"Completed Task Chain: Shop"}]},{"name":"maas03-unknown-format-growing","dryRun":false,"expectedChains":["Fight"],"paths":{"maaConfig":"configuration.json","arknightsExe":"Arknights.exe","maaGuiLog":"debug\\gui.log","maaAsstLog":"","maaExe":"MAA.exe","maaDir":"{{TMP}}\\sandbox"},"runtime":{"benignMaaErrors":[],"abortOnMaaStallWarning":false,"arkTimeoutMinutes":6,"stallTimeoutMinutes":2,"idleConfirmSeconds":30,"visionMaxRescue":0,"arkStartTimeoutMinutes":1},"game":"ark","target":"ark","rescueAvailable":false,"grabAvailable":false,"stateDir":"{{TMP}}\\state-rust\\maas03-unknown-format-growing","procs":[{"up":true,"name":"MAA"},{"up":true,"name":"Arknights"}],"live":[],"events":[{"at":5,"kind":"append","target":"gui","text":"这一行 MAA 从没写过，判定认不出来"}]},{"name":"maas04-unknown-format-zero","dryRun":false,"expectedChains":["Fight"],"paths":{"maaConfig":"configuration.json","arknightsExe":"Arknights.exe","maaGuiLog":"debug\\gui.log","maaAsstLog":"","maaExe":"MAA.exe","maaDir":"{{TMP}}\\sandbox"},"runtime":{"benignMaaErrors":[],"abortOnMaaStallWarning":false,"arkTimeoutMinutes":6,"stallTimeoutMinutes":2,"idleConfirmSeconds":30,"visionMaxRescue":0,"arkStartTimeoutMinutes":1},"game":"ark","target":"ark","rescueAvailable":false,"grabAvailable":false,"stateDir":"{{TMP}}\\state-rust\\maas04-unknown-format-zero","procs":[{"up":true,"name":"MAA"},{"up":true,"name":"Arknights"}],"live":[],"events":[]},{"name":"maas05-not-started","dryRun":false,"expectedChains":["Fight"],"paths":{"maaConfig":"configuration.json","arknightsExe":"Arknights.exe","maaGuiLog":"debug\\gui.log","maaAsstLog":"","maaExe":"MAA.exe","maaDir":"{{TMP}}\\sandbox"},"runtime":{"benignMaaErrors":[],"abortOnMaaStallWarning":false,"arkTimeoutMinutes":6,"stallTimeoutMinutes":2,"idleConfirmSeconds":30,"visionMaxRescue":0,"arkStartTimeoutMinutes":1},"game":"ark","target":"ark","rescueAvailable":false,"grabAvailable":false,"stateDir":"{{TMP}}\\state-rust\\maas05-not-started","procs":[{"up":true,"name":"MAA"}],"live":[],"events":[{"at":5,"kind":"append","target":"gui","text":"[ERR] err-nostart"}]},{"name":"maas06-stuck-grab-then-stalled","dryRun":false,"expectedChains":["Fight"],"paths":{"maaConfig":"configuration.json","arknightsExe":"Arknights.exe","maaGuiLog":"debug\\gui.log","maaAsstLog":"","maaExe":"MAA.exe","maaDir":"{{TMP}}\\sandbox"},"runtime":{"benignMaaErrors":[],"abortOnMaaStallWarning":false,"arkTimeoutMinutes":6,"stallTimeoutMinutes":2,"idleConfirmSeconds":30,"visionMaxRescue":0,"arkStartTimeoutMinutes":1},"game":"ark","target":"ark","rescueAvailable":false,"grabAvailable":false,"stateDir":"{{TMP}}\\state-rust\\maas06-stuck-grab-then-stalled","procs":[{"up":true,"name":"MAA"},{"up":true,"name":"Arknights"}],"live":[],"events":[{"at":5,"kind":"append","target":"gui","text":"[ERR] err-stuck"},{"at":5,"kind":"append","target":"asst","text":"\"cur_task\":\"StartUp\",\"exec_times\":61\nWin32Controller click:  ( 123 , 456 )\nWin32Controller click:  ( 45 , 67 )"}]},{"name":"maas07-drain-stalled-early","dryRun":false,"expectedChains":["Fight","Shop"],"paths":{"maaConfig":"configuration.json","arknightsExe":"Arknights.exe","maaGuiLog":"debug\\gui.log","maaAsstLog":"","maaExe":"MAA.exe","maaDir":"{{TMP}}\\sandbox"},"runtime":{"benignMaaErrors":[],"abortOnMaaStallWarning":false,"arkTimeoutMinutes":6,"stallTimeoutMinutes":2,"idleConfirmSeconds":30,"visionMaxRescue":0,"arkStartTimeoutMinutes":1},"game":"ark","target":"ark","rescueAvailable":false,"grabAvailable":false,"stateDir":"{{TMP}}\\state-rust\\maas07-drain-stalled-early","procs":[{"up":true,"name":"MAA"},{"up":true,"name":"Arknights"}],"live":[],"events":[{"at":5,"kind":"append","target":"gui","text":"任务已完成，但出现错误"}]},{"name":"maas08-stallwarn-abort","dryRun":false,"expectedChains":["Fight"],"paths":{"maaConfig":"configuration.json","arknightsExe":"Arknights.exe","maaGuiLog":"debug\\gui.log","maaAsstLog":"","maaExe":"MAA.exe","maaDir":"{{TMP}}\\sandbox"},"runtime":{"benignMaaErrors":[],"abortOnMaaStallWarning":false,"arkTimeoutMinutes":6,"stallTimeoutMinutes":2,"idleConfirmSeconds":30,"visionMaxRescue":0,"arkStartTimeoutMinutes":1},"game":"ark","target":"ark","rescueAvailable":false,"grabAvailable":false,"stateDir":"{{TMP}}\\state-rust\\maas08-stallwarn-abort","procs":[{"up":true,"name":"MAA"},{"up":true,"name":"Arknights"}],"live":[],"events":[{"at":5,"kind":"append","target":"gui","text":"[00:00:00] MAA<7> 无更新"}]},{"name":"maas09-timeout","dryRun":false,"expectedChains":["Fight","Recycle"],"paths":{"maaConfig":"configuration.json","arknightsExe":"Arknights.exe","maaGuiLog":"debug\\gui.log","maaAsstLog":"","maaExe":"MAA.exe","maaDir":"{{TMP}}\\sandbox"},"runtime":{"benignMaaErrors":[],"abortOnMaaStallWarning":false,"arkTimeoutMinutes":6,"stallTimeoutMinutes":2,"idleConfirmSeconds":30,"visionMaxRescue":0,"arkStartTimeoutMinutes":1},"game":"ark","target":"ark","rescueAvailable":false,"grabAvailable":false,"stateDir":"{{TMP}}\\state-rust\\maas09-timeout","procs":[{"up":true,"name":"MAA"},{"up":true,"name":"Arknights"}],"live":[],"events":[{"at":5,"kind":"append","target":"gui","text":"Completed Task Chain: Fight"}]},{"name":"maas10-quiet-stalled","dryRun":false,"expectedChains":["Fight","Recycle"],"paths":{"maaConfig":"configuration.json","arknightsExe":"Arknights.exe","maaGuiLog":"debug\\gui.log","maaAsstLog":"","maaExe":"MAA.exe","maaDir":"{{TMP}}\\sandbox"},"runtime":{"benignMaaErrors":[],"abortOnMaaStallWarning":false,"arkTimeoutMinutes":6,"stallTimeoutMinutes":2,"idleConfirmSeconds":30,"visionMaxRescue":0,"arkStartTimeoutMinutes":1},"game":"ark","target":"ark","rescueAvailable":false,"grabAvailable":false,"stateDir":"{{TMP}}\\state-rust\\maas10-quiet-stalled","procs":[{"up":true,"name":"MAA"},{"up":true,"name":"Arknights"}],"live":[],"events":[{"at":5,"kind":"append","target":"gui","text":"Completed Task Chain: Fight"}]},{"name":"maas11-maa-exited-early","dryRun":false,"expectedChains":["Fight","Recycle"],"paths":{"maaConfig":"configuration.json","arknightsExe":"Arknights.exe","maaGuiLog":"debug\\gui.log","maaAsstLog":"","maaExe":"MAA.exe","maaDir":"{{TMP}}\\sandbox"},"runtime":{"benignMaaErrors":[],"abortOnMaaStallWarning":false,"arkTimeoutMinutes":6,"stallTimeoutMinutes":2,"idleConfirmSeconds":30,"visionMaxRescue":0,"arkStartTimeoutMinutes":1},"game":"ark","target":"ark","rescueAvailable":false,"grabAvailable":false,"stateDir":"{{TMP}}\\state-rust\\maas11-maa-exited-early","procs":[{"up":true,"name":"MAA"},{"up":true,"name":"Arknights"}],"live":[],"events":[{"at":5,"kind":"append","target":"gui","text":"Completed Task Chain: Fight"},{"at":15,"kind":"down","proc":"MAA"}]},{"name":"maas12-maa-exited-tail","dryRun":false,"expectedChains":["Fight"],"paths":{"maaConfig":"configuration.json","arknightsExe":"Arknights.exe","maaGuiLog":"debug\\gui.log","maaAsstLog":"","maaExe":"MAA.exe","maaDir":"{{TMP}}\\sandbox"},"runtime":{"benignMaaErrors":[],"abortOnMaaStallWarning":false,"arkTimeoutMinutes":6,"stallTimeoutMinutes":2,"idleConfirmSeconds":30,"visionMaxRescue":0,"arkStartTimeoutMinutes":1},"game":"ark","target":"ark","rescueAvailable":false,"grabAvailable":false,"stateDir":"{{TMP}}\\state-rust\\maas12-maa-exited-tail","procs":[{"up":true,"name":"MAA"},{"up":true,"name":"Arknights"}],"live":[],"events":[{"at":5,"kind":"append","target":"gui","text":"Completed Task Chain: Fight"},{"at":15,"kind":"down","proc":"MAA"}]},{"name":"maas13-asst-4mb-gate","dryRun":false,"expectedChains":["Fight"],"paths":{"maaConfig":"configuration.json","arknightsExe":"Arknights.exe","maaGuiLog":"debug\\gui.log","maaAsstLog":"","maaExe":"MAA.exe","maaDir":"{{TMP}}\\sandbox"},"runtime":{"benignMaaErrors":[],"abortOnMaaStallWarning":false,"arkTimeoutMinutes":6,"stallTimeoutMinutes":2,"idleConfirmSeconds":30,"visionMaxRescue":0,"arkStartTimeoutMinutes":1},"game":"ark","target":"ark","rescueAvailable":false,"grabAvailable":false,"stateDir":"{{TMP}}\\state-rust\\maas13-asst-4mb-gate","procs":[{"up":true,"name":"MAA"},{"up":true,"name":"Arknights"}],"live":[],"events":[{"at":5,"kind":"append","target":"asst","text":"AsstResources: loaded base"},{"at":5,"kind":"append","target":"gui","text":"Completed Task Chain: Fight"},{"at":25,"kind":"grow","target":"asst","bytes":4200000},{"at":35,"kind":"append","target":"asst","text":"\"cur_task\":\"LoadStage\",\"exec_times\":2\nWin32Controller click:  ( 7 , 8 )"},{"at":45,"kind":"append","target":"gui","text":"任务已全部完成"}]},{"name":"maas14-gui-truncate-rotate","dryRun":false,"expectedChains":["Fight"],"paths":{"maaConfig":"configuration.json","arknightsExe":"Arknights.exe","maaGuiLog":"debug\\gui.log","maaAsstLog":"","maaExe":"MAA.exe","maaDir":"{{TMP}}\\sandbox"},"runtime":{"benignMaaErrors":[],"abortOnMaaStallWarning":false,"arkTimeoutMinutes":6,"stallTimeoutMinutes":2,"idleConfirmSeconds":30,"visionMaxRescue":0,"arkStartTimeoutMinutes":1},"game":"ark","target":"ark","rescueAvailable":false,"grabAvailable":false,"stateDir":"{{TMP}}\\state-rust\\maas14-gui-truncate-rotate","seedGui":"seed5","procs":[{"up":true,"name":"MAA"},{"up":true,"name":"Arknights"}],"live":[],"events":[{"at":5,"kind":"append","target":"gui","text":"Completed Task Chain: Fight"},{"at":15,"kind":"truncate","target":"gui"},{"at":25,"kind":"append","target":"gui","text":"Completed Task Chain: Shop"},{"at":35,"kind":"append","target":"gui","text":"任务已全部完成"}]},{"name":"maas15-dryrun","dryRun":true,"expectedChains":["Fight","Shop"],"paths":{"maaConfig":"configuration.json","arknightsExe":"Arknights.exe","maaGuiLog":"debug\\gui.log","maaAsstLog":"","maaExe":"MAA.exe","maaDir":"{{TMP}}\\sandbox"},"runtime":{"benignMaaErrors":[],"abortOnMaaStallWarning":false,"arkTimeoutMinutes":6,"stallTimeoutMinutes":2,"idleConfirmSeconds":30,"visionMaxRescue":0,"arkStartTimeoutMinutes":1},"game":"ark","target":"ark","rescueAvailable":false,"grabAvailable":false,"stateDir":"{{TMP}}\\state-rust\\maas15-dryrun","procs":[{"up":true,"name":"MAA"},{"up":true,"name":"Arknights"}],"live":[],"events":[]},{"name":"maas16-ark-appears-midway","dryRun":false,"expectedChains":["Fight"],"paths":{"maaConfig":"configuration.json","arknightsExe":"Arknights.exe","maaGuiLog":"debug\\gui.log","maaAsstLog":"","maaExe":"MAA.exe","maaDir":"{{TMP}}\\sandbox"},"runtime":{"benignMaaErrors":[],"abortOnMaaStallWarning":false,"arkTimeoutMinutes":6,"stallTimeoutMinutes":2,"idleConfirmSeconds":30,"visionMaxRescue":0,"arkStartTimeoutMinutes":1},"game":"ark","target":"ark","rescueAvailable":false,"grabAvailable":false,"stateDir":"{{TMP}}\\state-rust\\maas16-ark-appears-midway","procs":[{"up":true,"name":"MAA"},{"up":false,"name":"Arknights"}],"live":[],"events":[{"at":5,"kind":"append","target":"gui","text":"Completed Task Chain: Fight"},{"at":15,"kind":"up","proc":"Arknights"},{"at":25,"kind":"append","target":"gui","text":"任务已全部完成"}]},{"name":"maas17-benign-dedup-across-ticks","dryRun":false,"expectedChains":["Fight"],"paths":{"maaConfig":"configuration.json","arknightsExe":"Arknights.exe","maaGuiLog":"debug\\gui.log","maaAsstLog":"","maaExe":"MAA.exe","maaDir":"{{TMP}}\\sandbox"},"runtime":{"benignMaaErrors":[],"abortOnMaaStallWarning":false,"arkTimeoutMinutes":6,"stallTimeoutMinutes":2,"idleConfirmSeconds":30,"visionMaxRescue":0,"arkStartTimeoutMinutes":1},"game":"ark","target":"ark","rescueAvailable":false,"grabAvailable":false,"stateDir":"{{TMP}}\\state-rust\\maas17-benign-dedup-across-ticks","procs":[{"up":true,"name":"MAA"},{"up":true,"name":"Arknights"}],"live":[],"events":[{"at":5,"kind":"append","target":"gui","text":"[ERR] AutoStart noise-17"},{"at":15,"kind":"append","target":"gui","text":"[ERR] AutoStart noise-17"},{"at":25,"kind":"append","target":"gui","text":"任务已全部完成"}]},{"name":"maas18-errors-cap-40","dryRun":false,"expectedChains":["Fight"],"paths":{"maaConfig":"configuration.json","arknightsExe":"Arknights.exe","maaGuiLog":"debug\\gui.log","maaAsstLog":"","maaExe":"MAA.exe","maaDir":"{{TMP}}\\sandbox"},"runtime":{"benignMaaErrors":[],"abortOnMaaStallWarning":false,"arkTimeoutMinutes":6,"stallTimeoutMinutes":2,"idleConfirmSeconds":30,"visionMaxRescue":0,"arkStartTimeoutMinutes":1},"game":"ark","target":"ark","rescueAvailable":false,"grabAvailable":false,"stateDir":"{{TMP}}\\state-rust\\maas18-errors-cap-40","procs":[{"up":true,"name":"MAA"},{"up":true,"name":"Arknights"}],"live":[],"events":[{"at":5,"kind":"append","target":"gui","text":"[ERR] err-01\n[ERR] err-02\n[ERR] err-03\n[ERR] err-04\n[ERR] err-05\n[ERR] err-06\n[ERR] err-07\n[ERR] err-08\n[ERR] err-09\n[ERR] err-10\n[ERR] err-11\n[ERR] err-12\n[ERR] err-13\n[ERR] err-14\n[ERR] err-15\n[ERR] err-16\n[ERR] err-17\n[ERR] err-18\n[ERR] err-19\n[ERR] err-20\n[ERR] err-21\n[ERR] err-22\n[ERR] err-23\n[ERR] err-24\n[ERR] err-25\n[ERR] err-26\n[ERR] err-27\n[ERR] err-28\n[ERR] err-29\n[ERR] err-30\n[ERR] err-31\n[ERR] err-32\n[ERR] err-33\n[ERR] err-34\n[ERR] err-35\n[ERR] err-36\n[ERR] err-37\n[ERR] err-38\n[ERR] err-39\n[ERR] err-40\n[ERR] err-41\n[ERR] err-42\n[ERR] err-43\n[ERR] err-44\n[ERR] err-45"}]},{"name":"maas19-asst-hint-in-detail","dryRun":false,"expectedChains":["Fight"],"paths":{"maaConfig":"configuration.json","arknightsExe":"Arknights.exe","maaGuiLog":"debug\\gui.log","maaAsstLog":"","maaExe":"MAA.exe","maaDir":"{{TMP}}\\sandbox"},"runtime":{"benignMaaErrors":[],"abortOnMaaStallWarning":false,"arkTimeoutMinutes":6,"stallTimeoutMinutes":2,"idleConfirmSeconds":30,"visionMaxRescue":0,"arkStartTimeoutMinutes":1},"game":"ark","target":"ark","rescueAvailable":false,"grabAvailable":false,"stateDir":"{{TMP}}\\state-rust\\maas19-asst-hint-in-detail","procs":[{"up":true,"name":"MAA"},{"up":true,"name":"Arknights"}],"live":[],"events":[{"at":5,"kind":"append","target":"gui","text":"[ERR] err-hint"},{"at":5,"kind":"append","target":"asst","text":"\"cur_task\":\"LoadStage\",\"exec_times\":2\nWin32Controller click:  ( 7 , 8 )"}]},{"name":"maas20-maa-never-up","dryRun":false,"expectedChains":["Fight"],"paths":{"maaConfig":"configuration.json","arknightsExe":"Arknights.exe","maaGuiLog":"debug\\gui.log","maaAsstLog":"","maaExe":"MAA.exe","maaDir":"{{TMP}}\\sandbox"},"runtime":{"benignMaaErrors":[],"abortOnMaaStallWarning":false,"arkTimeoutMinutes":6,"stallTimeoutMinutes":2,"idleConfirmSeconds":30,"visionMaxRescue":0,"arkStartTimeoutMinutes":1},"game":"ark","target":"ark","rescueAvailable":false,"grabAvailable":false,"stateDir":"{{TMP}}\\state-rust\\maas20-maa-never-up","procs":[{"up":true,"name":"Arknights"}],"live":[],"events":[]},{"name":"maas21-stuck-rescue-two-points-done","dryRun":false,"expectedChains":["Fight"],"paths":{"maaConfig":"configuration.json","arknightsExe":"Arknights.exe","maaGuiLog":"debug\\gui.log","maaAsstLog":"","maaExe":"MAA.exe","maaDir":"{{TMP}}\\sandbox"},"runtime":{"benignMaaErrors":[],"abortOnMaaStallWarning":false,"arkTimeoutMinutes":6,"stallTimeoutMinutes":2,"idleConfirmSeconds":30,"visionMaxRescue":0,"arkStartTimeoutMinutes":1},"game":"ark","target":"ark","rescueAvailable":true,"grabAvailable":true,"stateDir":"{{TMP}}\\state-rust\\maas21-stuck-rescue-two-points-done","procs":[{"up":true,"name":"MAA"},{"up":true,"name":"Arknights"}],"live":[{"verb":"ark-grab-foreground","data":{"Ok":true,"Handle":131072,"Detail":"已把端游窗口抢到前台(Arknights) —— 夹具现场状态"}},{"verb":"resolve-rescue-context","data":{"CanAsk":true,"Skip":"","Target":"ark","Kind":"ark","Name":"端游窗口","Enabled":true,"Why":"","NeedsAdmin":true,"AdminWhy":"端游是 requireAdministrator，这个权限下点它不会有任何反应","Scene":"","UserText":"","IsAdmin":true,"HasKey":true,"PythonExe":"fixture-python","HasPython":true,"Alive":true}},{"verb":"ark-window-shot","data":{"Ok":true,"Why":"","Skip":"","Path":"fixture-shot.png","ImgW":1920,"ImgH":1080,"ClientLeft":8,"ClientTop":31,"ClientW":1904,"ClientH":1041,"AvgLum":42,"Sig":"5,5,5,5","Hash":"","CanContinue":true,"LogLine":"视觉兜底：已拍端游窗口(1920x1080，亮度 42)，交给模型判断"}},{"verb":"vision-ask-model","data":{"Ok":true,"Error":"","Verdict":{"Found":true,"Blocking":true,"What":"活动弹窗","X":500,"Y":500,"Why":"挡路窗口的关闭按钮","Clicks":[{"X":500,"Y":500,"Why":"挡路窗口的关闭按钮"},{"X":250,"Y":750,"Why":"暂不查看"}]}}},{"verb":"ark-window-click","data":{"Mode":"真实点击","Sent":true}},{"verb":"ark-window-shot","data":{"Ok":true,"Why":"","Skip":"","Path":"fixture-shot.png","ImgW":1920,"ImgH":1080,"ClientLeft":8,"ClientTop":31,"ClientW":1904,"ClientH":1041,"AvgLum":42,"Sig":"5,5,5,5","Hash":"","CanContinue":true,"LogLine":"视觉兜底：已拍端游窗口(1920x1080，亮度 42)，交给模型判断"}},{"verb":"ark-window-click","data":{"Mode":"真实点击","Sent":true}},{"verb":"ark-window-shot","data":{"Ok":true,"Why":"","Skip":"","Path":"fixture-shot.png","ImgW":1920,"ImgH":1080,"ClientLeft":8,"ClientTop":31,"ClientW":1904,"ClientH":1041,"AvgLum":42,"Sig":"9,9,5,5","Hash":"","CanContinue":true,"LogLine":"视觉兜底：已拍端游窗口(1920x1080，亮度 42)，交给模型判断"}}],"events":[{"at":5,"kind":"append","target":"gui","text":"[ERR] err-stuck"},{"at":5,"kind":"append","target":"asst","text":"\"cur_task\":\"StartUp\",\"exec_times\":61\nWin32Controller click:  ( 123 , 456 )\nWin32Controller click:  ( 45 , 67 )"}]},{"name":"maas22-stuck-rescue-admin-gate-skip","dryRun":false,"expectedChains":["Fight"],"paths":{"maaConfig":"configuration.json","arknightsExe":"Arknights.exe","maaGuiLog":"debug\\gui.log","maaAsstLog":"","maaExe":"MAA.exe","maaDir":"{{TMP}}\\sandbox"},"runtime":{"benignMaaErrors":[],"abortOnMaaStallWarning":false,"arkTimeoutMinutes":6,"stallTimeoutMinutes":2,"idleConfirmSeconds":30,"visionMaxRescue":0,"arkStartTimeoutMinutes":1},"game":"ark","target":"ark","rescueAvailable":true,"grabAvailable":true,"stateDir":"{{TMP}}\\state-rust\\maas22-stuck-rescue-admin-gate-skip","procs":[{"up":true,"name":"MAA"},{"up":true,"name":"Arknights"}],"live":[{"verb":"ark-grab-foreground","data":{"Ok":true,"Handle":131072,"Detail":"已把端游窗口抢到前台(Arknights) —— 夹具现场状态"}},{"verb":"resolve-rescue-context","data":{"CanAsk":false,"Skip":"当前不是管理员权限：端游是 requireAdministrator，这个权限下点它不会有任何反应，跳过兜底","Target":"ark","Kind":"ark","Name":"端游窗口","Enabled":true,"Why":"","NeedsAdmin":true,"AdminWhy":"端游是 requireAdministrator，这个权限下点它不会有任何反应","Scene":"","UserText":"","IsAdmin":false,"HasKey":true,"PythonExe":"fixture-python","HasPython":true,"Alive":true}}],"events":[{"at":5,"kind":"append","target":"gui","text":"[ERR] err-stuck"},{"at":5,"kind":"append","target":"asst","text":"\"cur_task\":\"StartUp\",\"exec_times\":61\nWin32Controller click:  ( 123 , 456 )\nWin32Controller click:  ( 45 , 67 )"}]},{"name":"maas23-quiet-rescue-black-screen","dryRun":false,"expectedChains":["Fight","Recycle"],"paths":{"maaConfig":"configuration.json","arknightsExe":"Arknights.exe","maaGuiLog":"debug\\gui.log","maaAsstLog":"","maaExe":"MAA.exe","maaDir":"{{TMP}}\\sandbox"},"runtime":{"benignMaaErrors":[],"abortOnMaaStallWarning":false,"arkTimeoutMinutes":6,"stallTimeoutMinutes":2,"idleConfirmSeconds":30,"visionMaxRescue":0,"arkStartTimeoutMinutes":1},"game":"ark","target":"ark","rescueAvailable":true,"grabAvailable":false,"stateDir":"{{TMP}}\\state-rust\\maas23-quiet-rescue-black-screen","procs":[{"up":true,"name":"MAA"},{"up":true,"name":"Arknights"}],"live":[{"verb":"resolve-rescue-context","data":{"CanAsk":true,"Skip":"","Target":"ark","Kind":"ark","Name":"端游窗口","Enabled":true,"Why":"","NeedsAdmin":true,"AdminWhy":"端游是 requireAdministrator，这个权限下点它不会有任何反应","Scene":"","UserText":"","IsAdmin":true,"HasKey":true,"PythonExe":"fixture-python","HasPython":true,"Alive":true}},{"verb":"ark-window-shot","data":{"Ok":true,"Why":"","Skip":"截图几乎是全黑(平均亮度 7)：桌面可能锁了或窗口没在渲染，问模型只会白花钱","Path":"fixture-shot.png","ImgW":1920,"ImgH":1080,"ClientLeft":8,"ClientTop":31,"ClientW":1904,"ClientH":1041,"AvgLum":7,"Sig":"","Hash":"","CanContinue":false,"LogLine":""}}],"events":[{"at":5,"kind":"append","target":"gui","text":"Completed Task Chain: Fight"}]},{"name":"maas24-drain-rescue-size-diff","dryRun":false,"expectedChains":["Fight","Recycle"],"paths":{"maaConfig":"configuration.json","arknightsExe":"Arknights.exe","maaGuiLog":"debug\\gui.log","maaAsstLog":"","maaExe":"MAA.exe","maaDir":"{{TMP}}\\sandbox"},"runtime":{"benignMaaErrors":[],"abortOnMaaStallWarning":false,"arkTimeoutMinutes":6,"stallTimeoutMinutes":2,"idleConfirmSeconds":30,"visionMaxRescue":0,"arkStartTimeoutMinutes":1},"game":"ark","target":"ark","rescueAvailable":true,"grabAvailable":false,"stateDir":"{{TMP}}\\state-rust\\maas24-drain-rescue-size-diff","procs":[{"up":true,"name":"MAA"},{"up":true,"name":"Arknights"}],"live":[{"verb":"resolve-rescue-context","data":{"CanAsk":true,"Skip":"","Target":"ark","Kind":"ark","Name":"端游窗口","Enabled":true,"Why":"","NeedsAdmin":true,"AdminWhy":"端游是 requireAdministrator，这个权限下点它不会有任何反应","Scene":"","UserText":"","IsAdmin":true,"HasKey":true,"PythonExe":"fixture-python","HasPython":true,"Alive":true}},{"verb":"ark-window-shot","data":{"Ok":true,"Why":"","Skip":"","Path":"fixture-shot.png","ImgW":1920,"ImgH":1080,"ClientLeft":8,"ClientTop":31,"ClientW":1904,"ClientH":1041,"AvgLum":42,"Sig":"5,5,5,5,5","Hash":"","CanContinue":true,"LogLine":"视觉兜底：已拍端游窗口(1920x1080，亮度 42)，交给模型判断"}},{"verb":"vision-ask-model","data":{"Ok":true,"Error":"","Verdict":{"Found":true,"Blocking":true,"What":"活动弹窗","X":500,"Y":500,"Why":"挡路窗口的关闭按钮","Clicks":[{"X":500,"Y":500,"Why":"挡路窗口的关闭按钮"}]}}},{"verb":"ark-window-click","data":{"Mode":"PostMessage(没抢到前台，很可能点不动)","Sent":true}},{"verb":"ark-window-shot","data":{"Ok":true,"Why":"","Skip":"","Path":"fixture-shot.png","ImgW":1920,"ImgH":1080,"ClientLeft":8,"ClientTop":31,"ClientW":1904,"ClientH":1041,"AvgLum":42,"Sig":"5,5,5,5","Hash":"","CanContinue":true,"LogLine":"视觉兜底：已拍端游窗口(1920x1080，亮度 42)，交给模型判断"}}],"events":[{"at":5,"kind":"append","target":"gui","text":"任务已完成，但出现错误"}]},{"name":"maas25-stuck-rescue-ask-fails","dryRun":false,"expectedChains":["Fight"],"paths":{"maaConfig":"configuration.json","arknightsExe":"Arknights.exe","maaGuiLog":"debug\\gui.log","maaAsstLog":"","maaExe":"MAA.exe","maaDir":"{{TMP}}\\sandbox"},"runtime":{"benignMaaErrors":[],"abortOnMaaStallWarning":false,"arkTimeoutMinutes":6,"stallTimeoutMinutes":2,"idleConfirmSeconds":30,"visionMaxRescue":0,"arkStartTimeoutMinutes":1},"game":"ark","target":"ark","rescueAvailable":true,"grabAvailable":true,"stateDir":"{{TMP}}\\state-rust\\maas25-stuck-rescue-ask-fails","procs":[{"up":true,"name":"MAA"},{"up":true,"name":"Arknights"}],"live":[{"verb":"ark-grab-foreground","data":{"Ok":true,"Handle":131072,"Detail":"已把端游窗口抢到前台(Arknights) —— 夹具现场状态"}},{"verb":"resolve-rescue-context","data":{"CanAsk":true,"Skip":"","Target":"ark","Kind":"ark","Name":"端游窗口","Enabled":true,"Why":"","NeedsAdmin":true,"AdminWhy":"端游是 requireAdministrator，这个权限下点它不会有任何反应","Scene":"","UserText":"","IsAdmin":true,"HasKey":true,"PythonExe":"fixture-python","HasPython":true,"Alive":true}},{"verb":"ark-window-shot","data":{"Ok":true,"Why":"","Skip":"","Path":"fixture-shot.png","ImgW":1920,"ImgH":1080,"ClientLeft":8,"ClientTop":31,"ClientW":1904,"ClientH":1041,"AvgLum":42,"Sig":"5,5,5,5","Hash":"","CanContinue":true,"LogLine":"视觉兜底：已拍端游窗口(1920x1080，亮度 42)，交给模型判断"}},{"verb":"vision-ask-model","data":{"Ok":false,"Error":"HTTP 401：视觉模型的 key 不对","Verdict":null}}],"events":[{"at":5,"kind":"append","target":"gui","text":"[ERR] err-stuck"},{"at":5,"kind":"append","target":"asst","text":"\"cur_task\":\"StartUp\",\"exec_times\":61\nWin32Controller click:  ( 123 , 456 )\nWin32Controller click:  ( 45 , 67 )"}]},{"name":"maas26-stuck-rescue-point-out-of-bounds","dryRun":false,"expectedChains":["Fight"],"paths":{"maaConfig":"configuration.json","arknightsExe":"Arknights.exe","maaGuiLog":"debug\\gui.log","maaAsstLog":"","maaExe":"MAA.exe","maaDir":"{{TMP}}\\sandbox"},"runtime":{"benignMaaErrors":[],"abortOnMaaStallWarning":false,"arkTimeoutMinutes":6,"stallTimeoutMinutes":2,"idleConfirmSeconds":30,"visionMaxRescue":0,"arkStartTimeoutMinutes":1},"game":"ark","target":"ark","rescueAvailable":true,"grabAvailable":true,"stateDir":"{{TMP}}\\state-rust\\maas26-stuck-rescue-point-out-of-bounds","procs":[{"up":true,"name":"MAA"},{"up":true,"name":"Arknights"}],"live":[{"verb":"ark-grab-foreground","data":{"Ok":true,"Handle":131072,"Detail":"已把端游窗口抢到前台(Arknights) —— 夹具现场状态"}},{"verb":"resolve-rescue-context","data":{"CanAsk":true,"Skip":"","Target":"ark","Kind":"ark","Name":"端游窗口","Enabled":true,"Why":"","NeedsAdmin":true,"AdminWhy":"端游是 requireAdministrator，这个权限下点它不会有任何反应","Scene":"","UserText":"","IsAdmin":true,"HasKey":true,"PythonExe":"fixture-python","HasPython":true,"Alive":true}},{"verb":"ark-window-shot","data":{"Ok":true,"Why":"","Skip":"","Path":"fixture-shot.png","ImgW":1920,"ImgH":1080,"ClientLeft":8,"ClientTop":31,"ClientW":1904,"ClientH":1041,"AvgLum":42,"Sig":"5,5,5,5","Hash":"","CanContinue":true,"LogLine":"视觉兜底：已拍端游窗口(1920x1080，亮度 42)，交给模型判断"}},{"verb":"vision-ask-model","data":{"Ok":true,"Error":"","Verdict":{"Found":true,"Blocking":true,"What":"活动弹窗","X":1500,"Y":-20,"Why":"挡路窗口的关闭按钮","Clicks":[{"X":1500,"Y":-20,"Why":"越界的假坐标"}]}}}],"events":[{"at":5,"kind":"append","target":"gui","text":"[ERR] err-stuck"},{"at":5,"kind":"append","target":"asst","text":"\"cur_task\":\"StartUp\",\"exec_times\":61\nWin32Controller click:  ( 123 , 456 )\nWin32Controller click:  ( 45 , 67 )"}]},{"name":"maas27-stuck-budget-one-then-quiet","dryRun":false,"expectedChains":["Fight"],"paths":{"maaConfig":"configuration.json","arknightsExe":"Arknights.exe","maaGuiLog":"debug\\gui.log","maaAsstLog":"","maaExe":"MAA.exe","maaDir":"{{TMP}}\\sandbox"},"runtime":{"benignMaaErrors":[],"abortOnMaaStallWarning":false,"arkTimeoutMinutes":6,"stallTimeoutMinutes":2,"idleConfirmSeconds":30,"visionMaxRescue":0,"arkStartTimeoutMinutes":1},"game":"ark","target":"ark","rescueAvailable":true,"grabAvailable":true,"stateDir":"{{TMP}}\\state-rust\\maas27-stuck-budget-one-then-quiet","procs":[{"up":true,"name":"MAA"},{"up":true,"name":"Arknights"}],"live":[{"verb":"ark-grab-foreground","data":{"Ok":true,"Handle":131072,"Detail":"已把端游窗口抢到前台(Arknights) —— 夹具现场状态"}},{"verb":"resolve-rescue-context","data":{"CanAsk":true,"Skip":"","Target":"ark","Kind":"ark","Name":"端游窗口","Enabled":true,"Why":"","NeedsAdmin":true,"AdminWhy":"端游是 requireAdministrator，这个权限下点它不会有任何反应","Scene":"","UserText":"","IsAdmin":true,"HasKey":true,"PythonExe":"fixture-python","HasPython":true,"Alive":true}},{"verb":"ark-window-shot","data":{"Ok":true,"Why":"","Skip":"","Path":"fixture-shot.png","ImgW":1920,"ImgH":1080,"ClientLeft":8,"ClientTop":31,"ClientW":1904,"ClientH":1041,"AvgLum":42,"Sig":"5,5,5,5","Hash":"","CanContinue":true,"LogLine":"视觉兜底：已拍端游窗口(1920x1080，亮度 42)，交给模型判断"}},{"verb":"vision-ask-model","data":{"Ok":true,"Error":"","Verdict":{"Found":true,"Blocking":false,"What":"主界面，没有挡路的东西","X":0,"Y":0,"Why":"挡路窗口的关闭按钮","Clicks":[]}}},{"verb":"resolve-rescue-context","data":{"CanAsk":true,"Skip":"","Target":"ark","Kind":"ark","Name":"端游窗口","Enabled":true,"Why":"","NeedsAdmin":true,"AdminWhy":"端游是 requireAdministrator，这个权限下点它不会有任何反应","Scene":"","UserText":"","IsAdmin":true,"HasKey":true,"PythonExe":"fixture-python","HasPython":true,"Alive":true}},{"verb":"ark-window-shot","data":{"Ok":true,"Why":"","Skip":"","Path":"fixture-shot.png","ImgW":1920,"ImgH":1080,"ClientLeft":8,"ClientTop":31,"ClientW":1904,"ClientH":1041,"AvgLum":42,"Sig":"5,5,5,5","Hash":"","CanContinue":true,"LogLine":"视觉兜底：已拍端游窗口(1920x1080，亮度 42)，交给模型判断"}},{"verb":"vision-ask-model","data":{"Ok":true,"Error":"","Verdict":{"Found":true,"Blocking":false,"What":"主界面，没有挡路的东西","X":0,"Y":0,"Why":"挡路窗口的关闭按钮","Clicks":[]}}}],"events":[{"at":5,"kind":"append","target":"gui","text":"[ERR] err-stuck"},{"at":5,"kind":"append","target":"asst","text":"\"cur_task\":\"StartUp\",\"exec_times\":61\nWin32Controller click:  ( 123 , 456 )\nWin32Controller click:  ( 45 , 67 )"}]}]"#;
+    const K20_EXTRA: &str = r#"{"maas01-ok-finished-tail":[["parse-maa-gui-lines","{\"LogChars\":27,\"Markers\":1,\"Events\":[{\"Kind\":\"chain\",\"Chain\":\"Fight\"}]}"],["apply-maa-gui-events","{\"State\":{\"completed\":{\"Fight\":1},\"errors\":[],\"benignPatterns\":[],\"finished\":false,\"drained\":false,\"stallWarn\":\"\"},\"Logs\":[{\"Level\":\"INFO\",\"Text\":\"MAA 完成链路：Fight\"}]}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/1：Fight\"}}"],["parse-maa-gui-lines","{\"LogChars\":21,\"Markers\":1,\"Events\":[{\"Kind\":\"finished\",\"Used\":\"12.3 分钟\"}]}"],["apply-maa-gui-events","{\"State\":{\"completed\":{\"Fight\":1},\"errors\":[],\"benignPatterns\":[],\"finished\":true,\"drained\":false,\"stallWarn\":\"\"},\"Logs\":[{\"Level\":\"OK\",\"Text\":\"MAA 宣布任务全部完成(内部计时 12.3 分钟)\"}]}"],["finish-maa-run","{\"Logs\":[{\"Level\":\"OK\",\"Text\":\"MAA 日常链路完成，用时 0.3 分钟\"}],\"Status\":\"ok\",\"Detail\":\"完成链路：Fight\",\"Duration\":20}"]],"maas02-alldone-idle-tail":[["parse-maa-gui-lines","{\"LogChars\":53,\"Markers\":1,\"Events\":[{\"Kind\":\"chain\",\"Chain\":\"FightCompleted\"}]}"],["apply-maa-gui-events","{\"State\":{\"completed\":{\"FightCompleted\":1},\"errors\":[],\"benignPatterns\":[],\"finished\":false,\"drained\":false,\"stallWarn\":\"\"},\"Logs\":[{\"Level\":\"INFO\",\"Text\":\"MAA 完成链路：FightCompleted\"}]}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/2：FightCompleted\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/2：FightCompleted\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/2：FightCompleted\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/2：FightCompleted\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/2：FightCompleted\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/2：FightCompleted\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/2：FightCompleted\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/2：FightCompleted\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/2：FightCompleted\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/2：FightCompleted\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/2：FightCompleted\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/2：FightCompleted\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/2：FightCompleted\"}}"],["decide-maa-run-tick","{\"Action\":\"return\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/2：FightCompleted\"},\"Status\":\"stalled\",\"Detail\":\"MAA 日志 2 分钟无输出，判定卡住。完成链路 0/2：FightCompleted\",\"Errors\":[]}"]],"maas03-unknown-format-growing":[["parse-maa-gui-lines","{\"LogChars\":19,\"Markers\":0,\"Events\":[]}"],["apply-maa-gui-events","{\"State\":{\"completed\":{},\"errors\":[],\"benignPatterns\":[],\"finished\":false,\"drained\":false,\"stallWarn\":\"\"},\"Logs\":[]}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1\"}}"],["decide-maa-run-tick","{\"Action\":\"return\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1\"},\"Status\":\"unknown-format\",\"Detail\":\"MAA 日志在涨(新增 19 字符)但一条认识的标志都没有(可能 MAA 改了文案) → 这轮结果不可信，不要按它判定理智是否清完。先看 status.ps1 的 MAA 段，再对着 {{TMP}}\\\\sandbox\\\\debug\\\\gui.log 更新 lib\\\\maa.ps1 的判定正则\",\"Errors\":[]}"]],"maas04-unknown-format-zero":[["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1\"}}"],["decide-maa-run-tick","{\"Action\":\"return\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1\"},\"Status\":\"unknown-format\",\"Detail\":\"MAA 本轮没有读到任何新增日志内容(可能 MAA 换了日志路径或文件名) → 这轮结果不可信，不要按它判定理智是否清完。先看 status.ps1 的 MAA 段，再对着 {{TMP}}\\\\sandbox\\\\debug\\\\gui.log 更新 lib\\\\maa.ps1 的判定正则\",\"Errors\":[]}"]],"maas05-not-started":[["parse-maa-gui-lines","{\"LogChars\":17,\"Markers\":1,\"Events\":[{\"Kind\":\"error\",\"Msg\":\"err-nostart\"}]}"],["apply-maa-gui-events","{\"State\":{\"completed\":{},\"errors\":[\"err-nostart\"],\"benignPatterns\":[],\"finished\":false,\"drained\":false,\"stallWarn\":\"\"},\"Logs\":[{\"Level\":\"WARN\",\"Text\":\"MAA 异常线索：err-nostart\"}]}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1\"}}"],["decide-maa-run-tick","{\"Action\":\"return\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1\"},\"Status\":\"not-started\",\"Detail\":\"1 分钟内端游没被拉起、也没有任何链路完成 → 大概率是权限/自动登录/客户端路径问题(MAA 连端游需要管理员)\",\"Errors\":[\"err-nostart\"]}"]],"maas06-stuck-grab-then-stalled":[["parse-maa-gui-lines","{\"LogChars\":15,\"Markers\":1,\"Events\":[{\"Kind\":\"error\",\"Msg\":\"err-stuck\"}]}"],["apply-maa-gui-events","{\"State\":{\"completed\":{},\"errors\":[\"err-stuck\"],\"benignPatterns\":[],\"finished\":false,\"drained\":false,\"stallWarn\":\"\"},\"Logs\":[{\"Level\":\"WARN\",\"Text\":\"MAA 异常线索：err-stuck\"}]}"],["parse-asst-state","{\"Task\":\"StartUp\",\"Exec\":61,\"Clicks\":2,\"Inject\":0}"],["parse-asst-hint","{\"Hint\":\"MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":true,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[{\"Level\":\"WARN\",\"Text\":\"端游没把点击吃进去(StartUp 已重复 61 次、整轮 2 次点击)：这棵树上没有抢前台的函数，只能等停滞判定\"}],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"这棵树上没有抢前台的函数，只能等停滞判定\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}}"],["decide-maa-run-tick","{\"Action\":\"return\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"},\"Status\":\"stalled\",\"Detail\":\"点击没被端游吃进去：StartUp 已重复 61 次(整轮 2 次点击)且一条链路都没完成，抢前台后 60 秒仍在原地。抢前台时看到的点击环境：。完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\",\"Errors\":[\"err-stuck\"]}"]],"maas07-drain-stalled-early":[["parse-maa-gui-lines","{\"LogChars\":11,\"Markers\":1,\"Events\":[{\"Kind\":\"drained\"}]}"],["apply-maa-gui-events","{\"State\":{\"completed\":{},\"errors\":[],\"benignPatterns\":[],\"finished\":false,\"drained\":true,\"stallWarn\":\"\"},\"Logs\":[{\"Level\":\"WARN\",\"Text\":\"MAA 宣布本轮已跑完但有错误(队列已空，它不会再自己动)\"}]}"],["decide-maa-run-tick","{\"Action\":\"return\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/2\"},\"Status\":\"stalled\",\"Detail\":\"MAA 队列已跑空但只完成 0/2 条链路，它不会再自己动 → 不等静默判定，当场兜底过一次就直接早退(外层会重试一次)。完成链路 0/2\",\"Errors\":[]}"]],"maas08-stallwarn-abort":[["parse-maa-gui-lines","{\"LogChars\":21,\"Markers\":1,\"Events\":[{\"Kind\":\"stall\",\"Msg\":\"无更新\"}]}"],["apply-maa-gui-events","{\"State\":{\"completed\":{},\"errors\":[],\"benignPatterns\":[],\"finished\":false,\"drained\":false,\"stallWarn\":\"无更新\"},\"Logs\":[{\"Level\":\"WARN\",\"Text\":\"MAA 停滞告警：无更新\"}]}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1\"}}"],["decide-maa-run-tick","{\"Action\":\"return\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1\"},\"Status\":\"stalled\",\"Detail\":\"MAA 日志 2 分钟无输出，判定卡住。完成链路 0/1\",\"Errors\":[]}"]],"maas09-timeout":[["parse-maa-gui-lines","{\"LogChars\":27,\"Markers\":1,\"Events\":[{\"Kind\":\"chain\",\"Chain\":\"Fight\"}]}"],["apply-maa-gui-events","{\"State\":{\"completed\":{\"Fight\":1},\"errors\":[],\"benignPatterns\":[],\"finished\":false,\"drained\":false,\"stallWarn\":\"\"},\"Logs\":[{\"Level\":\"INFO\",\"Text\":\"MAA 完成链路：Fight\"}]}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/2：Fight\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/2：Fight\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/2：Fight\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/2：Fight\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/2：Fight\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/2：Fight\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/2：Fight\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/2：Fight\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/2：Fight\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/2：Fight\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/2：Fight\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/2：Fight\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/2：Fight\"}}"],["decide-maa-run-tick","{\"Action\":\"return\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/2：Fight\"},\"Status\":\"stalled\",\"Detail\":\"MAA 日志 2 分钟无输出，判定卡住。完成链路 1/2：Fight\",\"Errors\":[]}"]],"maas10-quiet-stalled":[["parse-maa-gui-lines","{\"LogChars\":27,\"Markers\":1,\"Events\":[{\"Kind\":\"chain\",\"Chain\":\"Fight\"}]}"],["apply-maa-gui-events","{\"State\":{\"completed\":{\"Fight\":1},\"errors\":[],\"benignPatterns\":[],\"finished\":false,\"drained\":false,\"stallWarn\":\"\"},\"Logs\":[{\"Level\":\"INFO\",\"Text\":\"MAA 完成链路：Fight\"}]}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/2：Fight\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/2：Fight\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/2：Fight\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/2：Fight\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/2：Fight\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/2：Fight\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/2：Fight\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/2：Fight\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/2：Fight\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/2：Fight\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/2：Fight\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/2：Fight\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/2：Fight\"}}"],["decide-maa-run-tick","{\"Action\":\"return\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/2：Fight\"},\"Status\":\"stalled\",\"Detail\":\"MAA 日志 2 分钟无输出，判定卡住。完成链路 1/2：Fight\",\"Errors\":[]}"]],"maas11-maa-exited-early":[["parse-maa-gui-lines","{\"LogChars\":27,\"Markers\":1,\"Events\":[{\"Kind\":\"chain\",\"Chain\":\"Fight\"}]}"],["apply-maa-gui-events","{\"State\":{\"completed\":{\"Fight\":1},\"errors\":[],\"benignPatterns\":[],\"finished\":false,\"drained\":false,\"stallWarn\":\"\"},\"Logs\":[{\"Level\":\"INFO\",\"Text\":\"MAA 完成链路：Fight\"}]}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/2：Fight\"}}"],["decide-maa-run-tick","{\"Action\":\"return\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/2：Fight\"},\"Status\":\"error\",\"Detail\":\"MAA 进程提前退出。完成链路 1/2：Fight\",\"Errors\":[]}"]],"maas12-maa-exited-tail":[["parse-maa-gui-lines","{\"LogChars\":27,\"Markers\":1,\"Events\":[{\"Kind\":\"chain\",\"Chain\":\"Fight\"}]}"],["apply-maa-gui-events","{\"State\":{\"completed\":{\"Fight\":1},\"errors\":[],\"benignPatterns\":[],\"finished\":false,\"drained\":false,\"stallWarn\":\"\"},\"Logs\":[{\"Level\":\"INFO\",\"Text\":\"MAA 完成链路：Fight\"}]}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/1：Fight\"}}"],["decide-maa-run-tick","{\"Action\":\"tail\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/1：Fight\"}}"],["finish-maa-run","{\"Logs\":[{\"Level\":\"OK\",\"Text\":\"MAA 日常链路完成，用时 0.3 分钟\"}],\"Status\":\"ok\",\"Detail\":\"完成链路：Fight\",\"Duration\":20}"]],"maas13-asst-4mb-gate":[["parse-maa-gui-lines","{\"LogChars\":27,\"Markers\":1,\"Events\":[{\"Kind\":\"chain\",\"Chain\":\"Fight\"}]}"],["apply-maa-gui-events","{\"State\":{\"completed\":{\"Fight\":1},\"errors\":[],\"benignPatterns\":[],\"finished\":false,\"drained\":false,\"stallWarn\":\"\"},\"Logs\":[{\"Level\":\"INFO\",\"Text\":\"MAA 完成链路：Fight\"}]}"],["parse-asst-state","{\"Task\":\"\",\"Exec\":0,\"Clicks\":0,\"Inject\":0}"],["parse-asst-hint","{\"Hint\":\"\"}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/1：Fight\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/1：Fight\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/1：Fight\"}}"],["parse-asst-state","{\"Task\":\"LoadStage\",\"Exec\":2,\"Clicks\":1,\"Inject\":0}"],["parse-asst-hint","{\"Hint\":\"MAA 内核其实还在跑，最后停在子任务 LoadStage\"}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/1：Fight；MAA 内核其实还在跑，最后停在子任务 LoadStage\"}}"],["parse-maa-gui-lines","{\"LogChars\":7,\"Markers\":1,\"Events\":[{\"Kind\":\"finished\",\"Used\":\"\"}]}"],["apply-maa-gui-events","{\"State\":{\"completed\":{\"Fight\":1},\"errors\":[],\"benignPatterns\":[],\"finished\":true,\"drained\":false,\"stallWarn\":\"\"},\"Logs\":[{\"Level\":\"OK\",\"Text\":\"MAA 宣布任务全部完成\"}]}"],["finish-maa-run","{\"Logs\":[{\"Level\":\"OK\",\"Text\":\"MAA 日常链路完成，用时 0.8 分钟\"}],\"Status\":\"ok\",\"Detail\":\"完成链路：Fight\",\"Duration\":50}"]],"maas14-gui-truncate-rotate":[["parse-maa-gui-lines","{\"LogChars\":27,\"Markers\":1,\"Events\":[{\"Kind\":\"chain\",\"Chain\":\"Fight\"}]}"],["apply-maa-gui-events","{\"State\":{\"completed\":{\"Fight\":1},\"errors\":[],\"benignPatterns\":[],\"finished\":false,\"drained\":false,\"stallWarn\":\"\"},\"Logs\":[{\"Level\":\"INFO\",\"Text\":\"MAA 完成链路：Fight\"}]}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/1：Fight\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/1：Fight\"}}"],["parse-maa-gui-lines","{\"LogChars\":26,\"Markers\":1,\"Events\":[{\"Kind\":\"chain\",\"Chain\":\"Shop\"}]}"],["apply-maa-gui-events","{\"State\":{\"completed\":{\"Fight\":1,\"Shop\":1},\"errors\":[],\"benignPatterns\":[],\"finished\":false,\"drained\":false,\"stallWarn\":\"\"},\"Logs\":[{\"Level\":\"INFO\",\"Text\":\"MAA 完成链路：Shop\"}]}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/1：Fight, Shop\"}}"],["parse-maa-gui-lines","{\"LogChars\":7,\"Markers\":1,\"Events\":[{\"Kind\":\"finished\",\"Used\":\"\"}]}"],["apply-maa-gui-events","{\"State\":{\"completed\":{\"Fight\":1,\"Shop\":1},\"errors\":[],\"benignPatterns\":[],\"finished\":true,\"drained\":false,\"stallWarn\":\"\"},\"Logs\":[{\"Level\":\"OK\",\"Text\":\"MAA 宣布任务全部完成\"}]}"],["finish-maa-run","{\"Logs\":[{\"Level\":\"OK\",\"Text\":\"MAA 日常链路完成，用时 0.7 分钟\"}],\"Status\":\"ok\",\"Detail\":\"完成链路：Fight, Shop\",\"Duration\":40}"]],"maas16-ark-appears-midway":[["parse-maa-gui-lines","{\"LogChars\":27,\"Markers\":1,\"Events\":[{\"Kind\":\"chain\",\"Chain\":\"Fight\"}]}"],["apply-maa-gui-events","{\"State\":{\"completed\":{\"Fight\":1},\"errors\":[],\"benignPatterns\":[],\"finished\":false,\"drained\":false,\"stallWarn\":\"\"},\"Logs\":[{\"Level\":\"INFO\",\"Text\":\"MAA 完成链路：Fight\"}]}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/1：Fight\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/1：Fight\"}}"],["parse-maa-gui-lines","{\"LogChars\":7,\"Markers\":1,\"Events\":[{\"Kind\":\"finished\",\"Used\":\"\"}]}"],["apply-maa-gui-events","{\"State\":{\"completed\":{\"Fight\":1},\"errors\":[],\"benignPatterns\":[],\"finished\":true,\"drained\":false,\"stallWarn\":\"\"},\"Logs\":[{\"Level\":\"OK\",\"Text\":\"MAA 宣布任务全部完成\"}]}"],["finish-maa-run","{\"Logs\":[{\"Level\":\"OK\",\"Text\":\"MAA 日常链路完成，用时 0.5 分钟\"}],\"Status\":\"ok\",\"Detail\":\"完成链路：Fight\",\"Duration\":30}"]],"maas17-benign-dedup-across-ticks":[["parse-maa-gui-lines","{\"LogChars\":24,\"Markers\":1,\"Events\":[{\"Kind\":\"error\",\"Msg\":\"AutoStart noise-17\"}]}"],["apply-maa-gui-events","{\"State\":{\"completed\":{},\"errors\":[\"AutoStart noise-17\"],\"benignPatterns\":[],\"finished\":false,\"drained\":false,\"stallWarn\":\"\"},\"Logs\":[{\"Level\":\"WARN\",\"Text\":\"MAA 异常线索：AutoStart noise-17\"}]}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1\"}}"],["parse-maa-gui-lines","{\"LogChars\":24,\"Markers\":1,\"Events\":[{\"Kind\":\"error\",\"Msg\":\"AutoStart noise-17\"}]}"],["apply-maa-gui-events","{\"State\":{\"completed\":{},\"errors\":[\"AutoStart noise-17\",\"AutoStart noise-17\"],\"benignPatterns\":[],\"finished\":false,\"drained\":false,\"stallWarn\":\"\"},\"Logs\":[{\"Level\":\"WARN\",\"Text\":\"MAA 异常线索：AutoStart noise-17\"}]}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1\"}}"],["parse-maa-gui-lines","{\"LogChars\":7,\"Markers\":1,\"Events\":[{\"Kind\":\"finished\",\"Used\":\"\"}]}"],["apply-maa-gui-events","{\"State\":{\"completed\":{},\"errors\":[\"AutoStart noise-17\",\"AutoStart noise-17\"],\"benignPatterns\":[],\"finished\":true,\"drained\":false,\"stallWarn\":\"\"},\"Logs\":[{\"Level\":\"OK\",\"Text\":\"MAA 宣布任务全部完成\"}]}"],["finish-maa-run","{\"Logs\":[{\"Level\":\"OK\",\"Text\":\"MAA 日常链路完成，用时 0.5 分钟\"}],\"Status\":\"ok\",\"Detail\":\"完成链路：\",\"Duration\":30}"]],"maas18-errors-cap-40":[["parse-maa-gui-lines","{\"LogChars\":540,\"Markers\":45,\"Events\":[{\"Kind\":\"error\",\"Msg\":\"err-01\"},{\"Kind\":\"error\",\"Msg\":\"err-02\"},{\"Kind\":\"error\",\"Msg\":\"err-03\"},{\"Kind\":\"error\",\"Msg\":\"err-04\"},{\"Kind\":\"error\",\"Msg\":\"err-05\"},{\"Kind\":\"error\",\"Msg\":\"err-06\"},{\"Kind\":\"error\",\"Msg\":\"err-07\"},{\"Kind\":\"error\",\"Msg\":\"err-08\"},{\"Kind\":\"error\",\"Msg\":\"err-09\"},{\"Kind\":\"error\",\"Msg\":\"err-10\"},{\"Kind\":\"error\",\"Msg\":\"err-11\"},{\"Kind\":\"error\",\"Msg\":\"err-12\"},{\"Kind\":\"error\",\"Msg\":\"err-13\"},{\"Kind\":\"error\",\"Msg\":\"err-14\"},{\"Kind\":\"error\",\"Msg\":\"err-15\"},{\"Kind\":\"error\",\"Msg\":\"err-16\"},{\"Kind\":\"error\",\"Msg\":\"err-17\"},{\"Kind\":\"error\",\"Msg\":\"err-18\"},{\"Kind\":\"error\",\"Msg\":\"err-19\"},{\"Kind\":\"error\",\"Msg\":\"err-20\"},{\"Kind\":\"error\",\"Msg\":\"err-21\"},{\"Kind\":\"error\",\"Msg\":\"err-22\"},{\"Kind\":\"error\",\"Msg\":\"err-23\"},{\"Kind\":\"error\",\"Msg\":\"err-24\"},{\"Kind\":\"error\",\"Msg\":\"err-25\"},{\"Kind\":\"error\",\"Msg\":\"err-26\"},{\"Kind\":\"error\",\"Msg\":\"err-27\"},{\"Kind\":\"error\",\"Msg\":\"err-28\"},{\"Kind\":\"error\",\"Msg\":\"err-29\"},{\"Kind\":\"error\",\"Msg\":\"err-30\"},{\"Kind\":\"error\",\"Msg\":\"err-31\"},{\"Kind\":\"error\",\"Msg\":\"err-32\"},{\"Kind\":\"error\",\"Msg\":\"err-33\"},{\"Kind\":\"error\",\"Msg\":\"err-34\"},{\"Kind\":\"error\",\"Msg\":\"err-35\"},{\"Kind\":\"error\",\"Msg\":\"err-36\"},{\"Kind\":\"error\",\"Msg\":\"err-37\"},{\"Kind\":\"error\",\"Msg\":\"err-38\"},{\"Kind\":\"error\",\"Msg\":\"err-39\"},{\"Kind\":\"error\",\"Msg\":\"err-40\"},{\"Kind\":\"error\",\"Msg\":\"err-41\"},{\"Kind\":\"error\",\"Msg\":\"err-42\"},{\"Kind\":\"error\",\"Msg\":\"err-43\"},{\"Kind\":\"error\",\"Msg\":\"err-44\"},{\"Kind\":\"error\",\"Msg\":\"err-45\"}]}"],["apply-maa-gui-events","{\"State\":{\"completed\":{},\"errors\":[\"err-01\",\"err-02\",\"err-03\",\"err-04\",\"err-05\",\"err-06\",\"err-07\",\"err-08\",\"err-09\",\"err-10\",\"err-11\",\"err-12\",\"err-13\",\"err-14\",\"err-15\",\"err-16\",\"err-17\",\"err-18\",\"err-19\",\"err-20\",\"err-21\",\"err-22\",\"err-23\",\"err-24\",\"err-25\",\"err-26\",\"err-27\",\"err-28\",\"err-29\",\"err-30\",\"err-31\",\"err-32\",\"err-33\",\"err-34\",\"err-35\",\"err-36\",\"err-37\",\"err-38\",\"err-39\",\"err-40\"],\"benignPatterns\":[],\"finished\":false,\"drained\":false,\"stallWarn\":\"\"},\"Logs\":[{\"Level\":\"WARN\",\"Text\":\"MAA 异常线索：err-01\"},{\"Level\":\"WARN\",\"Text\":\"MAA 异常线索：err-02\"},{\"Level\":\"WARN\",\"Text\":\"MAA 异常线索：err-03\"},{\"Level\":\"WARN\",\"Text\":\"MAA 异常线索：err-04\"},{\"Level\":\"WARN\",\"Text\":\"MAA 异常线索：err-05\"},{\"Level\":\"WARN\",\"Text\":\"MAA 异常线索：err-06\"},{\"Level\":\"WARN\",\"Text\":\"MAA 异常线索：err-07\"},{\"Level\":\"WARN\",\"Text\":\"MAA 异常线索：err-08\"},{\"Level\":\"WARN\",\"Text\":\"MAA 异常线索：err-09\"},{\"Level\":\"WARN\",\"Text\":\"MAA 异常线索：err-10\"},{\"Level\":\"WARN\",\"Text\":\"MAA 异常线索：err-11\"},{\"Level\":\"WARN\",\"Text\":\"MAA 异常线索：err-12\"},{\"Level\":\"WARN\",\"Text\":\"MAA 异常线索：err-13\"},{\"Level\":\"WARN\",\"Text\":\"MAA 异常线索：err-14\"},{\"Level\":\"WARN\",\"Text\":\"MAA 异常线索：err-15\"},{\"Level\":\"WARN\",\"Text\":\"MAA 异常线索：err-16\"},{\"Level\":\"WARN\",\"Text\":\"MAA 异常线索：err-17\"},{\"Level\":\"WARN\",\"Text\":\"MAA 异常线索：err-18\"},{\"Level\":\"WARN\",\"Text\":\"MAA 异常线索：err-19\"},{\"Level\":\"WARN\",\"Text\":\"MAA 异常线索：err-20\"},{\"Level\":\"WARN\",\"Text\":\"MAA 异常线索：err-21\"},{\"Level\":\"WARN\",\"Text\":\"MAA 异常线索：err-22\"},{\"Level\":\"WARN\",\"Text\":\"MAA 异常线索：err-23\"},{\"Level\":\"WARN\",\"Text\":\"MAA 异常线索：err-24\"},{\"Level\":\"WARN\",\"Text\":\"MAA 异常线索：err-25\"},{\"Level\":\"WARN\",\"Text\":\"MAA 异常线索：err-26\"},{\"Level\":\"WARN\",\"Text\":\"MAA 异常线索：err-27\"},{\"Level\":\"WARN\",\"Text\":\"MAA 异常线索：err-28\"},{\"Level\":\"WARN\",\"Text\":\"MAA 异常线索：err-29\"},{\"Level\":\"WARN\",\"Text\":\"MAA 异常线索：err-30\"},{\"Level\":\"WARN\",\"Text\":\"MAA 异常线索：err-31\"},{\"Level\":\"WARN\",\"Text\":\"MAA 异常线索：err-32\"},{\"Level\":\"WARN\",\"Text\":\"MAA 异常线索：err-33\"},{\"Level\":\"WARN\",\"Text\":\"MAA 异常线索：err-34\"},{\"Level\":\"WARN\",\"Text\":\"MAA 异常线索：err-35\"},{\"Level\":\"WARN\",\"Text\":\"MAA 异常线索：err-36\"},{\"Level\":\"WARN\",\"Text\":\"MAA 异常线索：err-37\"},{\"Level\":\"WARN\",\"Text\":\"MAA 异常线索：err-38\"},{\"Level\":\"WARN\",\"Text\":\"MAA 异常线索：err-39\"},{\"Level\":\"WARN\",\"Text\":\"MAA 异常线索：err-40\"}]}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1\"}}"],["decide-maa-run-tick","{\"Action\":\"return\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1\"},\"Status\":\"stalled\",\"Detail\":\"MAA 日志 2 分钟无输出，判定卡住。完成链路 0/1\",\"Errors\":[\"err-01\",\"err-02\",\"err-03\",\"err-04\",\"err-05\",\"err-06\",\"err-07\",\"err-08\",\"err-09\",\"err-10\",\"err-11\",\"err-12\",\"err-13\",\"err-14\",\"err-15\",\"err-16\",\"err-17\",\"err-18\",\"err-19\",\"err-20\",\"err-21\",\"err-22\",\"err-23\",\"err-24\",\"err-25\",\"err-26\",\"err-27\",\"err-28\",\"err-29\",\"err-30\",\"err-31\",\"err-32\",\"err-33\",\"err-34\",\"err-35\",\"err-36\",\"err-37\",\"err-38\",\"err-39\",\"err-40\"]}"]],"maas19-asst-hint-in-detail":[["parse-maa-gui-lines","{\"LogChars\":14,\"Markers\":1,\"Events\":[{\"Kind\":\"error\",\"Msg\":\"err-hint\"}]}"],["apply-maa-gui-events","{\"State\":{\"completed\":{},\"errors\":[\"err-hint\"],\"benignPatterns\":[],\"finished\":false,\"drained\":false,\"stallWarn\":\"\"},\"Logs\":[{\"Level\":\"WARN\",\"Text\":\"MAA 异常线索：err-hint\"}]}"],["parse-asst-state","{\"Task\":\"LoadStage\",\"Exec\":2,\"Clicks\":1,\"Inject\":0}"],["parse-asst-hint","{\"Hint\":\"MAA 内核其实还在跑，最后停在子任务 LoadStage\"}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，最后停在子任务 LoadStage\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，最后停在子任务 LoadStage\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，最后停在子任务 LoadStage\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，最后停在子任务 LoadStage\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，最后停在子任务 LoadStage\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，最后停在子任务 LoadStage\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，最后停在子任务 LoadStage\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，最后停在子任务 LoadStage\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，最后停在子任务 LoadStage\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，最后停在子任务 LoadStage\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，最后停在子任务 LoadStage\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，最后停在子任务 LoadStage\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，最后停在子任务 LoadStage\"}}"],["decide-maa-run-tick","{\"Action\":\"return\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，最后停在子任务 LoadStage\"},\"Status\":\"stalled\",\"Detail\":\"MAA 日志 2 分钟无输出，判定卡住。完成链路 0/1；MAA 内核其实还在跑，最后停在子任务 LoadStage\",\"Errors\":[\"err-hint\"]}"]],"maas21-stuck-rescue-two-points-done":[["parse-maa-gui-lines","{\"LogChars\":15,\"Markers\":1,\"Events\":[{\"Kind\":\"error\",\"Msg\":\"err-stuck\"}]}"],["apply-maa-gui-events","{\"State\":{\"completed\":{},\"errors\":[\"err-stuck\"],\"benignPatterns\":[],\"finished\":false,\"drained\":false,\"stallWarn\":\"\"},\"Logs\":[{\"Level\":\"WARN\",\"Text\":\"MAA 异常线索：err-stuck\"}]}"],["parse-asst-state","{\"Task\":\"StartUp\",\"Exec\":61,\"Clicks\":2,\"Inject\":0}"],["parse-asst-hint","{\"Hint\":\"MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[{\"Kind\":\"grab\",\"Tag\":\"\",\"Context\":\"\"}],\"Directives\":{\"GrabNow\":true,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"stuck-grab\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[{\"Kind\":\"rescue\",\"Tag\":\"stuck1\",\"Context\":\"自动化在同一个子任务[StartUp]上重复点了 61 次，一条链路都没完成\"}],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[{\"Level\":\"WARN\",\"Text\":\"端游没把点击吃进去(StartUp 已重复 61 次、整轮 2 次点击)：已把端游窗口抢到前台(Arknights) —— 夹具现场状态\"}],\"State\":{\"phase\":\"stuck-rescue\",\"rescueLeft\":1,\"rescueNotes\":[],\"grabNote\":\"已把端游窗口抢到前台(Arknights) —— 夹具现场状态\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}}"],["vision-click-point","{\"Found\":true,\"ClientX\":952,\"ClientY\":509,\"BitmapX\":960,\"BitmapY\":540,\"NormX\":500,\"NormY\":500,\"Why\":\"挡路窗口的关闭按钮\"}"],["vision-click-point","{\"Found\":true,\"ClientX\":472,\"ClientY\":779,\"BitmapX\":480,\"BitmapY\":810,\"NormX\":250,\"NormY\":750,\"Why\":\"暂不查看\"}"],["shot-changed","{\"Known\":true,\"Changed\":false,\"Cells\":0,\"Detail\":\"画面变了 0 格(判据：≥2 格、每格 ≥3 档)\"}"],["shot-changed","{\"Known\":true,\"Changed\":true,\"Cells\":2,\"Detail\":\"画面变了 2 格(判据：≥2 格、每格 ≥3 档)\"}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[{\"Kind\":\"record\",\"Tag\":\"stuck2\",\"Tried\":true,\"Done\":true,\"Detail\":\"已按模型判断关掉活动弹窗：试了 2 个点位，点位 472,779(真实点击)→画面变了 2 格(判据：≥2 格、每格 ≥3 档)\",\"Context\":\"\"}],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"stuck-record\",\"rescueLeft\":1,\"rescueNotes\":[\"已按模型判断关掉活动弹窗：试了 2 个点位，点位 472,779(真实点击)→画面变了 2 格(判据：≥2 格、每格 ≥3 档)\"],\"grabNote\":\"已把端游窗口抢到前台(Arknights) —— 夹具现场状态\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}}"],["rescue-entry","{\"Time\":\"2026-10-27 22:02:38\",\"Game\":\"ark\",\"Target\":\"ark\",\"Tag\":\"stuck2\",\"Tried\":true,\"Done\":true,\"Detail\":\"已按模型判断关掉活动弹窗：试了 2 个点位，点位 472,779(真实点击)→画面变了 2 格(判据：≥2 格、每格 ≥3 档)\"}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[{\"Level\":\"OK\",\"Text\":\"视觉兜底结果：已按模型判断关掉活动弹窗：试了 2 个点位，点位 472,779(真实点击)→画面变了 2 格(判据：≥2 格、每格 ≥3 档)\"}],\"State\":{\"phase\":\"\",\"rescueLeft\":1,\"rescueNotes\":[\"已按模型判断关掉活动弹窗：试了 2 个点位，点位 472,779(真实点击)→画面变了 2 格(判据：≥2 格、每格 ≥3 档)\"],\"grabNote\":\"已把端游窗口抢到前台(Arknights) —— 夹具现场状态\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":1,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":1,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":1,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":1,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}}"],["decide-maa-run-tick","{\"Action\":\"return\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":1,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"},\"Status\":\"stalled\",\"Detail\":\"点击没被端游吃进去：StartUp 已重复 61 次(整轮 2 次点击)且一条链路都没完成，抢前台后 60 秒仍在原地。抢前台时看到的点击环境：。完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\",\"Errors\":[\"err-stuck\"]}"]],"maas22-stuck-rescue-admin-gate-skip":[["parse-maa-gui-lines","{\"LogChars\":15,\"Markers\":1,\"Events\":[{\"Kind\":\"error\",\"Msg\":\"err-stuck\"}]}"],["apply-maa-gui-events","{\"State\":{\"completed\":{},\"errors\":[\"err-stuck\"],\"benignPatterns\":[],\"finished\":false,\"drained\":false,\"stallWarn\":\"\"},\"Logs\":[{\"Level\":\"WARN\",\"Text\":\"MAA 异常线索：err-stuck\"}]}"],["parse-asst-state","{\"Task\":\"StartUp\",\"Exec\":61,\"Clicks\":2,\"Inject\":0}"],["parse-asst-hint","{\"Hint\":\"MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[{\"Kind\":\"grab\",\"Tag\":\"\",\"Context\":\"\"}],\"Directives\":{\"GrabNow\":true,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"stuck-grab\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[{\"Kind\":\"rescue\",\"Tag\":\"stuck1\",\"Context\":\"自动化在同一个子任务[StartUp]上重复点了 61 次，一条链路都没完成\"}],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[{\"Level\":\"WARN\",\"Text\":\"端游没把点击吃进去(StartUp 已重复 61 次、整轮 2 次点击)：已把端游窗口抢到前台(Arknights) —— 夹具现场状态\"}],\"State\":{\"phase\":\"stuck-rescue\",\"rescueLeft\":1,\"rescueNotes\":[],\"grabNote\":\"已把端游窗口抢到前台(Arknights) —— 夹具现场状态\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[{\"Kind\":\"record\",\"Tag\":\"stuck2\",\"Tried\":false,\"Done\":false,\"Detail\":\"当前不是管理员权限：端游是 requireAdministrator，这个权限下点它不会有任何反应，跳过兜底\",\"Context\":\"\"}],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"stuck-record\",\"rescueLeft\":1,\"rescueNotes\":[\"当前不是管理员权限：端游是 requireAdministrator，这个权限下点它不会有任何反应，跳过兜底\"],\"grabNote\":\"已把端游窗口抢到前台(Arknights) —— 夹具现场状态\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}}"],["rescue-entry","{\"Time\":\"2026-10-27 22:02:39\",\"Game\":\"ark\",\"Target\":\"ark\",\"Tag\":\"stuck2\",\"Tried\":false,\"Done\":false,\"Detail\":\"当前不是管理员权限：端游是 requireAdministrator，这个权限下点它不会有任何反应，跳过兜底\"}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[{\"Level\":\"WARN\",\"Text\":\"视觉兜底结果：当前不是管理员权限：端游是 requireAdministrator，这个权限下点它不会有任何反应，跳过兜底\"}],\"State\":{\"phase\":\"\",\"rescueLeft\":1,\"rescueNotes\":[\"当前不是管理员权限：端游是 requireAdministrator，这个权限下点它不会有任何反应，跳过兜底\"],\"grabNote\":\"已把端游窗口抢到前台(Arknights) —— 夹具现场状态\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":1,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":1,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":1,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":1,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":1,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":1,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}}"],["decide-maa-run-tick","{\"Action\":\"return\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":1,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"},\"Status\":\"stalled\",\"Detail\":\"点击没被端游吃进去：StartUp 已重复 61 次(整轮 2 次点击)且一条链路都没完成，抢前台后 60 秒仍在原地。抢前台时看到的点击环境：。完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\",\"Errors\":[\"err-stuck\"]}"]],"maas23-quiet-rescue-black-screen":[["parse-maa-gui-lines","{\"LogChars\":27,\"Markers\":1,\"Events\":[{\"Kind\":\"chain\",\"Chain\":\"Fight\"}]}"],["apply-maa-gui-events","{\"State\":{\"completed\":{\"Fight\":1},\"errors\":[],\"benignPatterns\":[],\"finished\":false,\"drained\":false,\"stallWarn\":\"\"},\"Logs\":[{\"Level\":\"INFO\",\"Text\":\"MAA 完成链路：Fight\"}]}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/2：Fight\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/2：Fight\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/2：Fight\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/2：Fight\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/2：Fight\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/2：Fight\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/2：Fight\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/2：Fight\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/2：Fight\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/2：Fight\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/2：Fight\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/2：Fight\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/2：Fight\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[{\"Kind\":\"rescue\",\"Tag\":\"stall1\",\"Context\":\"\"}],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"quiet-rescue\",\"rescueLeft\":1,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/2：Fight\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[{\"Kind\":\"record\",\"Tag\":\"stall2\",\"Tried\":false,\"Done\":false,\"Detail\":\"截图几乎是全黑(平均亮度 7)：桌面可能锁了或窗口没在渲染，问模型只会白花钱\",\"Context\":\"\"}],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"quiet-record\",\"rescueLeft\":1,\"rescueNotes\":[\"截图几乎是全黑(平均亮度 7)：桌面可能锁了或窗口没在渲染，问模型只会白花钱\"],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/2：Fight\"}}"],["rescue-entry","{\"Time\":\"2026-10-27 22:02:43\",\"Game\":\"ark\",\"Target\":\"ark\",\"Tag\":\"stall2\",\"Tried\":false,\"Done\":false,\"Detail\":\"截图几乎是全黑(平均亮度 7)：桌面可能锁了或窗口没在渲染，问模型只会白花钱\"}"],["decide-maa-run-tick","{\"Action\":\"return\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[{\"Level\":\"WARN\",\"Text\":\"视觉兜底结果：截图几乎是全黑(平均亮度 7)：桌面可能锁了或窗口没在渲染，问模型只会白花钱\"}],\"State\":{\"phase\":\"\",\"rescueLeft\":1,\"rescueNotes\":[\"截图几乎是全黑(平均亮度 7)：桌面可能锁了或窗口没在渲染，问模型只会白花钱\"],\"grabNote\":\"\",\"tickDetail\":\"完成链路 1/2：Fight\"},\"Status\":\"stalled\",\"Detail\":\"MAA 日志 2 分钟无输出，判定卡住。完成链路 1/2：Fight\",\"Errors\":[]}"]],"maas24-drain-rescue-size-diff":[["parse-maa-gui-lines","{\"LogChars\":11,\"Markers\":1,\"Events\":[{\"Kind\":\"drained\"}]}"],["apply-maa-gui-events","{\"State\":{\"completed\":{},\"errors\":[],\"benignPatterns\":[],\"finished\":false,\"drained\":true,\"stallWarn\":\"\"},\"Logs\":[{\"Level\":\"WARN\",\"Text\":\"MAA 宣布本轮已跑完但有错误(队列已空，它不会再自己动)\"}]}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[{\"Kind\":\"rescue\",\"Tag\":\"drain1\",\"Context\":\"MAA 自己说这一轮跑完了但报错，只完成 0/2 条链路，它不会再自己动\"}],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"drain-rescue\",\"rescueLeft\":1,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/2\"}}"],["vision-click-point","{\"Found\":true,\"ClientX\":952,\"ClientY\":509,\"BitmapX\":960,\"BitmapY\":540,\"NormX\":500,\"NormY\":500,\"Why\":\"挡路窗口的关闭按钮\"}"],["shot-changed","{\"Known\":false,\"Changed\":false,\"Cells\":-1,\"Detail\":\"两次画面尺寸不同(5 格 vs 4 格)\"}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[{\"Kind\":\"record\",\"Tag\":\"drain2\",\"Tried\":true,\"Done\":false,\"Detail\":\"按模型说的把活动弹窗点了一下(点位 952,509(PostMessage(没抢到前台，很可能点不动))→两次画面尺寸不同(5 格 vs 4 格))，但两次画面尺寸不同(5 格 vs 4 格) → 不算救活\",\"Context\":\"\"}],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"drain-record\",\"rescueLeft\":1,\"rescueNotes\":[\"按模型说的把活动弹窗点了一下(点位 952,509(PostMessage(没抢到前台，很可能点不动))→两次画面尺寸不同(5 格 vs 4 格))，但两次画面尺寸不同(5 格 vs 4 格) → 不算救活\"],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/2\"}}"],["rescue-entry","{\"Time\":\"2026-10-27 22:02:44\",\"Game\":\"ark\",\"Target\":\"ark\",\"Tag\":\"drain2\",\"Tried\":true,\"Done\":false,\"Detail\":\"按模型说的把活动弹窗点了一下(点位 952,509(PostMessage(没抢到前台，很可能点不动))→两次画面尺寸不同(5 格 vs 4 格))，但两次画面尺寸不同(5 格 vs 4 格) → 不算救活\"}"],["decide-maa-run-tick","{\"Action\":\"return\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[{\"Level\":\"WARN\",\"Text\":\"视觉兜底结果：按模型说的把活动弹窗点了一下(点位 952,509(PostMessage(没抢到前台，很可能点不动))→两次画面尺寸不同(5 格 vs 4 格))，但两次画面尺寸不同(5 格 vs 4 格) → 不算救活\"}],\"State\":{\"phase\":\"\",\"rescueLeft\":1,\"rescueNotes\":[\"按模型说的把活动弹窗点了一下(点位 952,509(PostMessage(没抢到前台，很可能点不动))→两次画面尺寸不同(5 格 vs 4 格))，但两次画面尺寸不同(5 格 vs 4 格) → 不算救活\"],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/2\"},\"Status\":\"stalled\",\"Detail\":\"MAA 队列已跑空但只完成 0/2 条链路，它不会再自己动 → 不等静默判定，当场兜底过一次就直接早退(外层会重试一次)。完成链路 0/2\",\"Errors\":[]}"]],"maas25-stuck-rescue-ask-fails":[["parse-maa-gui-lines","{\"LogChars\":15,\"Markers\":1,\"Events\":[{\"Kind\":\"error\",\"Msg\":\"err-stuck\"}]}"],["apply-maa-gui-events","{\"State\":{\"completed\":{},\"errors\":[\"err-stuck\"],\"benignPatterns\":[],\"finished\":false,\"drained\":false,\"stallWarn\":\"\"},\"Logs\":[{\"Level\":\"WARN\",\"Text\":\"MAA 异常线索：err-stuck\"}]}"],["parse-asst-state","{\"Task\":\"StartUp\",\"Exec\":61,\"Clicks\":2,\"Inject\":0}"],["parse-asst-hint","{\"Hint\":\"MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[{\"Kind\":\"grab\",\"Tag\":\"\",\"Context\":\"\"}],\"Directives\":{\"GrabNow\":true,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"stuck-grab\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[{\"Kind\":\"rescue\",\"Tag\":\"stuck1\",\"Context\":\"自动化在同一个子任务[StartUp]上重复点了 61 次，一条链路都没完成\"}],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[{\"Level\":\"WARN\",\"Text\":\"端游没把点击吃进去(StartUp 已重复 61 次、整轮 2 次点击)：已把端游窗口抢到前台(Arknights) —— 夹具现场状态\"}],\"State\":{\"phase\":\"stuck-rescue\",\"rescueLeft\":1,\"rescueNotes\":[],\"grabNote\":\"已把端游窗口抢到前台(Arknights) —— 夹具现场状态\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[{\"Kind\":\"record\",\"Tag\":\"stuck2\",\"Tried\":false,\"Done\":false,\"Detail\":\"模型调用失败：HTTP 401：视觉模型的 key 不对\",\"Context\":\"\"}],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"stuck-record\",\"rescueLeft\":1,\"rescueNotes\":[\"模型调用失败：HTTP 401：视觉模型的 key 不对\"],\"grabNote\":\"已把端游窗口抢到前台(Arknights) —— 夹具现场状态\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}}"],["rescue-entry","{\"Time\":\"2026-10-27 22:02:45\",\"Game\":\"ark\",\"Target\":\"ark\",\"Tag\":\"stuck2\",\"Tried\":false,\"Done\":false,\"Detail\":\"模型调用失败：HTTP 401：视觉模型的 key 不对\"}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[{\"Level\":\"WARN\",\"Text\":\"视觉兜底结果：模型调用失败：HTTP 401：视觉模型的 key 不对\"}],\"State\":{\"phase\":\"\",\"rescueLeft\":1,\"rescueNotes\":[\"模型调用失败：HTTP 401：视觉模型的 key 不对\"],\"grabNote\":\"已把端游窗口抢到前台(Arknights) —— 夹具现场状态\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":1,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":1,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":1,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":1,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":1,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":1,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}}"],["decide-maa-run-tick","{\"Action\":\"return\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":1,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"},\"Status\":\"stalled\",\"Detail\":\"点击没被端游吃进去：StartUp 已重复 61 次(整轮 2 次点击)且一条链路都没完成，抢前台后 60 秒仍在原地。抢前台时看到的点击环境：。完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\",\"Errors\":[\"err-stuck\"]}"]],"maas26-stuck-rescue-point-out-of-bounds":[["parse-maa-gui-lines","{\"LogChars\":15,\"Markers\":1,\"Events\":[{\"Kind\":\"error\",\"Msg\":\"err-stuck\"}]}"],["apply-maa-gui-events","{\"State\":{\"completed\":{},\"errors\":[\"err-stuck\"],\"benignPatterns\":[],\"finished\":false,\"drained\":false,\"stallWarn\":\"\"},\"Logs\":[{\"Level\":\"WARN\",\"Text\":\"MAA 异常线索：err-stuck\"}]}"],["parse-asst-state","{\"Task\":\"StartUp\",\"Exec\":61,\"Clicks\":2,\"Inject\":0}"],["parse-asst-hint","{\"Hint\":\"MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[{\"Kind\":\"grab\",\"Tag\":\"\",\"Context\":\"\"}],\"Directives\":{\"GrabNow\":true,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"stuck-grab\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[{\"Kind\":\"rescue\",\"Tag\":\"stuck1\",\"Context\":\"自动化在同一个子任务[StartUp]上重复点了 61 次，一条链路都没完成\"}],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[{\"Level\":\"WARN\",\"Text\":\"端游没把点击吃进去(StartUp 已重复 61 次、整轮 2 次点击)：已把端游窗口抢到前台(Arknights) —— 夹具现场状态\"}],\"State\":{\"phase\":\"stuck-rescue\",\"rescueLeft\":1,\"rescueNotes\":[],\"grabNote\":\"已把端游窗口抢到前台(Arknights) —— 夹具现场状态\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}}"],["vision-click-point","{\"Found\":false}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[{\"Kind\":\"record\",\"Tag\":\"stuck2\",\"Tried\":false,\"Done\":false,\"Detail\":\"模型说挡路的是活动弹窗，但它给的坐标(1500,-20)落不到画面里 → 不点\",\"Context\":\"\"}],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"stuck-record\",\"rescueLeft\":1,\"rescueNotes\":[\"模型说挡路的是活动弹窗，但它给的坐标(1500,-20)落不到画面里 → 不点\"],\"grabNote\":\"已把端游窗口抢到前台(Arknights) —— 夹具现场状态\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}}"],["rescue-entry","{\"Time\":\"2026-10-27 22:02:48\",\"Game\":\"ark\",\"Target\":\"ark\",\"Tag\":\"stuck2\",\"Tried\":false,\"Done\":false,\"Detail\":\"模型说挡路的是活动弹窗，但它给的坐标(1500,-20)落不到画面里 → 不点\"}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[{\"Level\":\"WARN\",\"Text\":\"视觉兜底结果：模型说挡路的是活动弹窗，但它给的坐标(1500,-20)落不到画面里 → 不点\"}],\"State\":{\"phase\":\"\",\"rescueLeft\":1,\"rescueNotes\":[\"模型说挡路的是活动弹窗，但它给的坐标(1500,-20)落不到画面里 → 不点\"],\"grabNote\":\"已把端游窗口抢到前台(Arknights) —— 夹具现场状态\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":1,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":1,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":1,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":1,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":1,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":1,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}}"],["decide-maa-run-tick","{\"Action\":\"return\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":1,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"},\"Status\":\"stalled\",\"Detail\":\"点击没被端游吃进去：StartUp 已重复 61 次(整轮 2 次点击)且一条链路都没完成，抢前台后 60 秒仍在原地。抢前台时看到的点击环境：。完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\",\"Errors\":[\"err-stuck\"]}"]],"maas27-stuck-budget-one-then-quiet":[["parse-maa-gui-lines","{\"LogChars\":15,\"Markers\":1,\"Events\":[{\"Kind\":\"error\",\"Msg\":\"err-stuck\"}]}"],["apply-maa-gui-events","{\"State\":{\"completed\":{},\"errors\":[\"err-stuck\"],\"benignPatterns\":[],\"finished\":false,\"drained\":false,\"stallWarn\":\"\"},\"Logs\":[{\"Level\":\"WARN\",\"Text\":\"MAA 异常线索：err-stuck\"}]}"],["parse-asst-state","{\"Task\":\"StartUp\",\"Exec\":61,\"Clicks\":2,\"Inject\":0}"],["parse-asst-hint","{\"Hint\":\"MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[{\"Kind\":\"grab\",\"Tag\":\"\",\"Context\":\"\"}],\"Directives\":{\"GrabNow\":true,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"stuck-grab\",\"rescueLeft\":2,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[{\"Kind\":\"rescue\",\"Tag\":\"stuck1\",\"Context\":\"自动化在同一个子任务[StartUp]上重复点了 61 次，一条链路都没完成\"}],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[{\"Level\":\"WARN\",\"Text\":\"端游没把点击吃进去(StartUp 已重复 61 次、整轮 2 次点击)：已把端游窗口抢到前台(Arknights) —— 夹具现场状态\"}],\"State\":{\"phase\":\"stuck-rescue\",\"rescueLeft\":1,\"rescueNotes\":[],\"grabNote\":\"已把端游窗口抢到前台(Arknights) —— 夹具现场状态\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[{\"Kind\":\"record\",\"Tag\":\"stuck2\",\"Tried\":false,\"Done\":false,\"Detail\":\"模型认为没有弹窗挡路(主界面，没有挡路的东西)\",\"Context\":\"\"}],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"stuck-record\",\"rescueLeft\":1,\"rescueNotes\":[\"模型认为没有弹窗挡路(主界面，没有挡路的东西)\"],\"grabNote\":\"已把端游窗口抢到前台(Arknights) —— 夹具现场状态\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}}"],["rescue-entry","{\"Time\":\"2026-10-27 22:02:50\",\"Game\":\"ark\",\"Target\":\"ark\",\"Tag\":\"stuck2\",\"Tried\":false,\"Done\":false,\"Detail\":\"模型认为没有弹窗挡路(主界面，没有挡路的东西)\"}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[{\"Level\":\"WARN\",\"Text\":\"视觉兜底结果：模型认为没有弹窗挡路(主界面，没有挡路的东西)\"}],\"State\":{\"phase\":\"\",\"rescueLeft\":1,\"rescueNotes\":[\"模型认为没有弹窗挡路(主界面，没有挡路的东西)\"],\"grabNote\":\"已把端游窗口抢到前台(Arknights) —— 夹具现场状态\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":1,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":1,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":1,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":1,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":1,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}}"],["decide-maa-run-tick","{\"Action\":\"loop\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":1,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"}}"],["decide-maa-run-tick","{\"Action\":\"return\",\"Effects\":[],\"Directives\":{\"GrabNow\":false,\"ResetLastGrowth\":false,\"ClearStallWarn\":false},\"Logs\":[],\"State\":{\"phase\":\"\",\"rescueLeft\":1,\"rescueNotes\":[],\"grabNote\":\"\",\"tickDetail\":\"完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\"},\"Status\":\"stalled\",\"Detail\":\"点击没被端游吃进去：StartUp 已重复 61 次(整轮 2 次点击)且一条链路都没完成，抢前台后 60 秒仍在原地。抢前台时看到的点击环境：。完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)\",\"Errors\":[\"err-stuck\"]}"]]}"#;
+    const K20_GOLDEN: &str = r#"{"maas01-ok-finished-tail":"W|STEP|启动 MAA：{{TMP}}\\sandbox\\MAA.exe\u001fR|{{TMP}}\\sandbox\\MAA.exe|{{TMP}}\\sandbox\u001fP|MAA|1\u001fP|Arknights|1\u001fS|10\u001fT|gui.log|0|27|27\u001fV|parse-maa-gui-lines\u001fV|apply-maa-gui-events\u001fW|INFO|MAA 完成链路：Fight\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|79|22\u001fV|parse-maa-gui-lines\u001fV|apply-maa-gui-events\u001fW|OK|MAA 宣布任务全部完成(内部计时 12.3 分钟)\u001fV|finish-maa-run\u001fW|OK|MAA 日常链路完成，用时 0.3 分钟\u001fZ|ok|完成链路：Fight|20|","maas02-alldone-idle-tail":"W|STEP|启动 MAA：{{TMP}}\\sandbox\\MAA.exe\u001fR|{{TMP}}\\sandbox\\MAA.exe|{{TMP}}\\sandbox\u001fP|MAA|1\u001fP|Arknights|1\u001fS|10\u001fT|gui.log|0|53|53\u001fV|parse-maa-gui-lines\u001fV|apply-maa-gui-events\u001fW|INFO|MAA 完成链路：FightCompleted\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|53|53|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|53|53|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|53|53|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|53|53|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|53|53|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|53|53|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|53|53|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|53|53|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|53|53|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|53|53|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|53|53|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|53|53|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|53|53|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fZ|stalled|MAA 日志 2 分钟无输出，判定卡住。完成链路 0/2：FightCompleted|-|","maas03-unknown-format-growing":"W|STEP|启动 MAA：{{TMP}}\\sandbox\\MAA.exe\u001fR|{{TMP}}\\sandbox\\MAA.exe|{{TMP}}\\sandbox\u001fP|MAA|1\u001fP|Arknights|1\u001fS|10\u001fT|gui.log|0|47|19\u001fV|parse-maa-gui-lines\u001fV|apply-maa-gui-events\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|47|47|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|47|47|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|47|47|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|47|47|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|47|47|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|47|47|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fZ|unknown-format|MAA 日志在涨(新增 19 字符)但一条认识的标志都没有(可能 MAA 改了文案) → 这轮结果不可信，不要按它判定理智是否清完。先看 status.ps1 的 MAA 段，再对着 {{TMP}}\\sandbox\\debug\\gui.log 更新 lib\\maa.ps1 的判定正则|-|","maas04-unknown-format-zero":"W|STEP|启动 MAA：{{TMP}}\\sandbox\\MAA.exe\u001fR|{{TMP}}\\sandbox\\MAA.exe|{{TMP}}\\sandbox\u001fP|MAA|1\u001fP|Arknights|1\u001fS|10\u001fT|gui.log|0|0|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|0|0|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|0|0|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|0|0|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|0|0|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|0|0|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|0|0|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fZ|unknown-format|MAA 本轮没有读到任何新增日志内容(可能 MAA 换了日志路径或文件名) → 这轮结果不可信，不要按它判定理智是否清完。先看 status.ps1 的 MAA 段，再对着 {{TMP}}\\sandbox\\debug\\gui.log 更新 lib\\maa.ps1 的判定正则|-|","maas05-not-started":"W|STEP|启动 MAA：{{TMP}}\\sandbox\\MAA.exe\u001fR|{{TMP}}\\sandbox\\MAA.exe|{{TMP}}\\sandbox\u001fP|MAA|1\u001fP|Arknights|0\u001fS|10\u001fP|Arknights|0\u001fT|gui.log|0|17|17\u001fV|parse-maa-gui-lines\u001fV|apply-maa-gui-events\u001fW|WARN|MAA 异常线索：err-nostart\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fP|Arknights|0\u001fT|gui.log|17|17|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fP|Arknights|0\u001fT|gui.log|17|17|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fP|Arknights|0\u001fT|gui.log|17|17|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fP|Arknights|0\u001fT|gui.log|17|17|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fP|Arknights|0\u001fT|gui.log|17|17|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fP|Arknights|0\u001fT|gui.log|17|17|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fZ|not-started|1 分钟内端游没被拉起、也没有任何链路完成 → 大概率是权限/自动登录/客户端路径问题(MAA 连端游需要管理员)|-|err-nostart","maas06-stuck-grab-then-stalled":"W|STEP|启动 MAA：{{TMP}}\\sandbox\\MAA.exe\u001fR|{{TMP}}\\sandbox\\MAA.exe|{{TMP}}\\sandbox\u001fP|MAA|1\u001fP|Arknights|1\u001fS|10\u001fT|gui.log|0|15|15\u001fV|parse-maa-gui-lines\u001fV|apply-maa-gui-events\u001fW|WARN|MAA 异常线索：err-stuck\u001fT|asst.log|0|110|110\u001fV|parse-asst-state\u001fV|parse-asst-hint\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fW|WARN|端游没把点击吃进去(StartUp 已重复 61 次、整轮 2 次点击)：这棵树上没有抢前台的函数，只能等停滞判定\u001fS|10\u001fT|gui.log|15|15|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|15|15|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|15|15|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|15|15|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|15|15|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|15|15|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|15|15|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fZ|stalled|点击没被端游吃进去：StartUp 已重复 61 次(整轮 2 次点击)且一条链路都没完成，抢前台后 60 秒仍在原地。抢前台时看到的点击环境：。完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)|-|err-stuck","maas07-drain-stalled-early":"W|STEP|启动 MAA：{{TMP}}\\sandbox\\MAA.exe\u001fR|{{TMP}}\\sandbox\\MAA.exe|{{TMP}}\\sandbox\u001fP|MAA|1\u001fP|Arknights|1\u001fS|10\u001fT|gui.log|0|33|11\u001fV|parse-maa-gui-lines\u001fV|apply-maa-gui-events\u001fW|WARN|MAA 宣布本轮已跑完但有错误(队列已空，它不会再自己动)\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fZ|stalled|MAA 队列已跑空但只完成 0/2 条链路，它不会再自己动 → 不等静默判定，当场兜底过一次就直接早退(外层会重试一次)。完成链路 0/2|-|","maas08-stallwarn-abort":"W|STEP|启动 MAA：{{TMP}}\\sandbox\\MAA.exe\u001fR|{{TMP}}\\sandbox\\MAA.exe|{{TMP}}\\sandbox\u001fP|MAA|1\u001fP|Arknights|1\u001fS|10\u001fT|gui.log|0|27|21\u001fV|parse-maa-gui-lines\u001fV|apply-maa-gui-events\u001fW|WARN|MAA 停滞告警：无更新\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|27|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|27|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|27|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|27|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|27|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|27|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|27|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|27|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|27|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|27|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|27|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|27|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|27|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fZ|stalled|MAA 日志 2 分钟无输出，判定卡住。完成链路 0/1|-|","maas09-timeout":"W|STEP|启动 MAA：{{TMP}}\\sandbox\\MAA.exe\u001fR|{{TMP}}\\sandbox\\MAA.exe|{{TMP}}\\sandbox\u001fP|MAA|1\u001fP|Arknights|1\u001fS|10\u001fT|gui.log|0|27|27\u001fV|parse-maa-gui-lines\u001fV|apply-maa-gui-events\u001fW|INFO|MAA 完成链路：Fight\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|27|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|27|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|27|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|27|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|27|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|27|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|27|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|27|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|27|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|27|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|27|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|27|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|27|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fZ|stalled|MAA 日志 2 分钟无输出，判定卡住。完成链路 1/2：Fight|-|","maas10-quiet-stalled":"W|STEP|启动 MAA：{{TMP}}\\sandbox\\MAA.exe\u001fR|{{TMP}}\\sandbox\\MAA.exe|{{TMP}}\\sandbox\u001fP|MAA|1\u001fP|Arknights|1\u001fS|10\u001fT|gui.log|0|27|27\u001fV|parse-maa-gui-lines\u001fV|apply-maa-gui-events\u001fW|INFO|MAA 完成链路：Fight\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|27|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|27|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|27|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|27|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|27|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|27|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|27|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|27|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|27|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|27|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|27|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|27|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|27|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fZ|stalled|MAA 日志 2 分钟无输出，判定卡住。完成链路 1/2：Fight|-|","maas11-maa-exited-early":"W|STEP|启动 MAA：{{TMP}}\\sandbox\\MAA.exe\u001fR|{{TMP}}\\sandbox\\MAA.exe|{{TMP}}\\sandbox\u001fP|MAA|1\u001fP|Arknights|1\u001fS|10\u001fT|gui.log|0|27|27\u001fV|parse-maa-gui-lines\u001fV|apply-maa-gui-events\u001fW|INFO|MAA 完成链路：Fight\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|27|0\u001fP|MAA|0\u001fV|decide-maa-run-tick\u001fZ|error|MAA 进程提前退出。完成链路 1/2：Fight|-|","maas12-maa-exited-tail":"W|STEP|启动 MAA：{{TMP}}\\sandbox\\MAA.exe\u001fR|{{TMP}}\\sandbox\\MAA.exe|{{TMP}}\\sandbox\u001fP|MAA|1\u001fP|Arknights|1\u001fS|10\u001fT|gui.log|0|27|27\u001fV|parse-maa-gui-lines\u001fV|apply-maa-gui-events\u001fW|INFO|MAA 完成链路：Fight\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|27|0\u001fP|MAA|0\u001fV|decide-maa-run-tick\u001fV|finish-maa-run\u001fW|OK|MAA 日常链路完成，用时 0.3 分钟\u001fZ|ok|完成链路：Fight|20|","maas13-asst-4mb-gate":"W|STEP|启动 MAA：{{TMP}}\\sandbox\\MAA.exe\u001fR|{{TMP}}\\sandbox\\MAA.exe|{{TMP}}\\sandbox\u001fP|MAA|1\u001fP|Arknights|1\u001fS|10\u001fT|gui.log|0|27|27\u001fV|parse-maa-gui-lines\u001fV|apply-maa-gui-events\u001fW|INFO|MAA 完成链路：Fight\u001fT|asst.log|0|26|26\u001fV|parse-asst-state\u001fV|parse-asst-hint\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|27|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|27|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|27|0\u001fT|asst.log|4200000|4200071|71\u001fV|parse-asst-state\u001fV|parse-asst-hint\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|48|7\u001fV|parse-maa-gui-lines\u001fV|apply-maa-gui-events\u001fW|OK|MAA 宣布任务全部完成\u001fV|finish-maa-run\u001fW|OK|MAA 日常链路完成，用时 0.8 分钟\u001fZ|ok|完成链路：Fight|50|","maas14-gui-truncate-rotate":"W|STEP|启动 MAA：{{TMP}}\\sandbox\\MAA.exe\u001fR|{{TMP}}\\sandbox\\MAA.exe|{{TMP}}\\sandbox\u001fP|MAA|1\u001fP|Arknights|1\u001fS|10\u001fT|gui.log|5|32|27\u001fV|parse-maa-gui-lines\u001fV|apply-maa-gui-events\u001fW|INFO|MAA 完成链路：Fight\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|32|0|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|0|26|26\u001fV|parse-maa-gui-lines\u001fV|apply-maa-gui-events\u001fW|INFO|MAA 完成链路：Shop\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|26|47|7\u001fV|parse-maa-gui-lines\u001fV|apply-maa-gui-events\u001fW|OK|MAA 宣布任务全部完成\u001fV|finish-maa-run\u001fW|OK|MAA 日常链路完成，用时 0.7 分钟\u001fZ|ok|完成链路：Fight, Shop|40|","maas15-dryrun":"W|STEP|[dry-run] 将启动 @{Dir={{TMP}}\\sandbox; Exe={{TMP}}\\sandbox\\MAA.exe; Config={{TMP}}\\sandbox\\configuration.json; GuiLog={{TMP}}\\sandbox\\debug\\gui.log; AsstLog={{TMP}}\\sandbox\\debug\\asst.log; Name=MAA}.Exe(自动开始队列：Fight, Shop)\u001fZ|dryrun||-|-","maas16-ark-appears-midway":"W|STEP|启动 MAA：{{TMP}}\\sandbox\\MAA.exe\u001fR|{{TMP}}\\sandbox\\MAA.exe|{{TMP}}\\sandbox\u001fP|MAA|1\u001fP|Arknights|0\u001fS|10\u001fP|Arknights|0\u001fT|gui.log|0|27|27\u001fV|parse-maa-gui-lines\u001fV|apply-maa-gui-events\u001fW|INFO|MAA 完成链路：Fight\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fP|Arknights|1\u001fW|INFO|端游客户端已被拉起来(Arknights)\u001fT|gui.log|27|27|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|48|7\u001fV|parse-maa-gui-lines\u001fV|apply-maa-gui-events\u001fW|OK|MAA 宣布任务全部完成\u001fV|finish-maa-run\u001fW|OK|MAA 日常链路完成，用时 0.5 分钟\u001fZ|ok|完成链路：Fight|30|","maas17-benign-dedup-across-ticks":"W|STEP|启动 MAA：{{TMP}}\\sandbox\\MAA.exe\u001fR|{{TMP}}\\sandbox\\MAA.exe|{{TMP}}\\sandbox\u001fP|MAA|1\u001fP|Arknights|1\u001fS|10\u001fT|gui.log|0|24|24\u001fV|parse-maa-gui-lines\u001fV|apply-maa-gui-events\u001fW|WARN|MAA 异常线索：AutoStart noise-17\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|24|48|24\u001fV|parse-maa-gui-lines\u001fV|apply-maa-gui-events\u001fW|WARN|MAA 异常线索：AutoStart noise-17\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|48|69|7\u001fV|parse-maa-gui-lines\u001fV|apply-maa-gui-events\u001fW|OK|MAA 宣布任务全部完成\u001fV|finish-maa-run\u001fW|OK|MAA 日常链路完成，用时 0.5 分钟\u001fZ|ok|完成链路：|30|AutoStart noise-17\u001eAutoStart noise-17","maas18-errors-cap-40":"W|STEP|启动 MAA：{{TMP}}\\sandbox\\MAA.exe\u001fR|{{TMP}}\\sandbox\\MAA.exe|{{TMP}}\\sandbox\u001fP|MAA|1\u001fP|Arknights|1\u001fS|10\u001fT|gui.log|0|584|584\u001fV|parse-maa-gui-lines\u001fV|apply-maa-gui-events\u001fW|WARN|MAA 异常线索：err-01\u001fW|WARN|MAA 异常线索：err-02\u001fW|WARN|MAA 异常线索：err-03\u001fW|WARN|MAA 异常线索：err-04\u001fW|WARN|MAA 异常线索：err-05\u001fW|WARN|MAA 异常线索：err-06\u001fW|WARN|MAA 异常线索：err-07\u001fW|WARN|MAA 异常线索：err-08\u001fW|WARN|MAA 异常线索：err-09\u001fW|WARN|MAA 异常线索：err-10\u001fW|WARN|MAA 异常线索：err-11\u001fW|WARN|MAA 异常线索：err-12\u001fW|WARN|MAA 异常线索：err-13\u001fW|WARN|MAA 异常线索：err-14\u001fW|WARN|MAA 异常线索：err-15\u001fW|WARN|MAA 异常线索：err-16\u001fW|WARN|MAA 异常线索：err-17\u001fW|WARN|MAA 异常线索：err-18\u001fW|WARN|MAA 异常线索：err-19\u001fW|WARN|MAA 异常线索：err-20\u001fW|WARN|MAA 异常线索：err-21\u001fW|WARN|MAA 异常线索：err-22\u001fW|WARN|MAA 异常线索：err-23\u001fW|WARN|MAA 异常线索：err-24\u001fW|WARN|MAA 异常线索：err-25\u001fW|WARN|MAA 异常线索：err-26\u001fW|WARN|MAA 异常线索：err-27\u001fW|WARN|MAA 异常线索：err-28\u001fW|WARN|MAA 异常线索：err-29\u001fW|WARN|MAA 异常线索：err-30\u001fW|WARN|MAA 异常线索：err-31\u001fW|WARN|MAA 异常线索：err-32\u001fW|WARN|MAA 异常线索：err-33\u001fW|WARN|MAA 异常线索：err-34\u001fW|WARN|MAA 异常线索：err-35\u001fW|WARN|MAA 异常线索：err-36\u001fW|WARN|MAA 异常线索：err-37\u001fW|WARN|MAA 异常线索：err-38\u001fW|WARN|MAA 异常线索：err-39\u001fW|WARN|MAA 异常线索：err-40\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|584|584|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|584|584|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|584|584|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|584|584|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|584|584|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|584|584|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|584|584|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|584|584|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|584|584|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|584|584|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|584|584|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|584|584|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|584|584|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fZ|stalled|MAA 日志 2 分钟无输出，判定卡住。完成链路 0/1|-|err-01\u001eerr-02\u001eerr-03\u001eerr-04\u001eerr-05\u001eerr-06\u001eerr-07\u001eerr-08\u001eerr-09\u001eerr-10\u001eerr-11\u001eerr-12\u001eerr-13\u001eerr-14\u001eerr-15\u001eerr-16\u001eerr-17\u001eerr-18\u001eerr-19\u001eerr-20\u001eerr-21\u001eerr-22\u001eerr-23\u001eerr-24\u001eerr-25\u001eerr-26\u001eerr-27\u001eerr-28\u001eerr-29\u001eerr-30\u001eerr-31\u001eerr-32\u001eerr-33\u001eerr-34\u001eerr-35\u001eerr-36\u001eerr-37\u001eerr-38\u001eerr-39\u001eerr-40","maas19-asst-hint-in-detail":"W|STEP|启动 MAA：{{TMP}}\\sandbox\\MAA.exe\u001fR|{{TMP}}\\sandbox\\MAA.exe|{{TMP}}\\sandbox\u001fP|MAA|1\u001fP|Arknights|1\u001fS|10\u001fT|gui.log|0|14|14\u001fV|parse-maa-gui-lines\u001fV|apply-maa-gui-events\u001fW|WARN|MAA 异常线索：err-hint\u001fT|asst.log|0|71|71\u001fV|parse-asst-state\u001fV|parse-asst-hint\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|14|14|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|14|14|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|14|14|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|14|14|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|14|14|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|14|14|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|14|14|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|14|14|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|14|14|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|14|14|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|14|14|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|14|14|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|14|14|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fZ|stalled|MAA 日志 2 分钟无输出，判定卡住。完成链路 0/1；MAA 内核其实还在跑，最后停在子任务 LoadStage|-|err-hint","maas20-maa-never-up":"W|STEP|启动 MAA：{{TMP}}\\sandbox\\MAA.exe\u001fR|{{TMP}}\\sandbox\\MAA.exe|{{TMP}}\\sandbox\u001fP|MAA|0\u001fS|3\u001fP|MAA|0\u001fS|3\u001fP|MAA|0\u001fS|3\u001fP|MAA|0\u001fS|3\u001fP|MAA|0\u001fS|3\u001fP|MAA|0\u001fS|3\u001fP|MAA|0\u001fS|3\u001fP|MAA|0\u001fS|3\u001fP|MAA|0\u001fS|3\u001fP|MAA|0\u001fS|3\u001fP|MAA|0\u001fS|3\u001fP|MAA|0\u001fS|3\u001fP|MAA|0\u001fS|3\u001fP|MAA|0\u001fS|3\u001fP|MAA|0\u001fS|3\u001fP|MAA|0\u001fS|3\u001fP|MAA|0\u001fS|3\u001fP|MAA|0\u001fS|3\u001fP|MAA|0\u001fS|3\u001fP|MAA|0\u001fS|3\u001fP|MAA|0\u001fS|3\u001fP|MAA|0\u001fS|3\u001fP|MAA|0\u001fS|3\u001fP|MAA|0\u001fS|3\u001fP|MAA|0\u001fS|3\u001fP|MAA|0\u001fS|3\u001fP|MAA|0\u001fS|3\u001fP|MAA|0\u001fS|3\u001fP|MAA|0\u001fS|3\u001fP|MAA|0\u001fS|3\u001fW|WARN|等待超时(90s)：MAA 进程启动\u001fZ|error|MAA 未能启动(进程未出现)|-|-","maas21-stuck-rescue-two-points-done":"W|STEP|启动 MAA：{{TMP}}\\sandbox\\MAA.exe\u001fR|{{TMP}}\\sandbox\\MAA.exe|{{TMP}}\\sandbox\u001fP|MAA|1\u001fP|Arknights|1\u001fS|10\u001fT|gui.log|0|15|15\u001fV|parse-maa-gui-lines\u001fV|apply-maa-gui-events\u001fW|WARN|MAA 异常线索：err-stuck\u001fT|asst.log|0|110|110\u001fV|parse-asst-state\u001fV|parse-asst-hint\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fV|ark-grab-foreground\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fW|WARN|端游没把点击吃进去(StartUp 已重复 61 次、整轮 2 次点击)：已把端游窗口抢到前台(Arknights) —— 夹具现场状态\u001fV|resolve-rescue-context\u001fV|ark-window-shot\u001fW|WARN|视觉兜底：已拍端游窗口(1920x1080，亮度 42)，交给模型判断\u001fV|vision-ask-model\u001fV|vision-click-point\u001fV|vision-click-point\u001fW|WARN|视觉兜底：活动弹窗 → 点端游窗口 952,509(挡路窗口的关闭按钮)\u001fV|ark-window-click\u001fS|6\u001fV|ark-window-shot\u001fV|shot-changed\u001fW|WARN|视觉兜底：活动弹窗 → 点端游窗口 472,779(暂不查看)\u001fV|ark-window-click\u001fS|6\u001fV|ark-window-shot\u001fV|shot-changed\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fV|rescue-entry\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fW|OK|视觉兜底结果：已按模型判断关掉活动弹窗：试了 2 个点位，点位 472,779(真实点击)→画面变了 2 格(判据：≥2 格、每格 ≥3 档)\u001fS|10\u001fT|gui.log|15|15|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|15|15|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|15|15|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|15|15|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|15|15|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fZ|stalled|点击没被端游吃进去：StartUp 已重复 61 次(整轮 2 次点击)且一条链路都没完成，抢前台后 60 秒仍在原地。抢前台时看到的点击环境：。完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)|-|err-stuck","maas22-stuck-rescue-admin-gate-skip":"W|STEP|启动 MAA：{{TMP}}\\sandbox\\MAA.exe\u001fR|{{TMP}}\\sandbox\\MAA.exe|{{TMP}}\\sandbox\u001fP|MAA|1\u001fP|Arknights|1\u001fS|10\u001fT|gui.log|0|15|15\u001fV|parse-maa-gui-lines\u001fV|apply-maa-gui-events\u001fW|WARN|MAA 异常线索：err-stuck\u001fT|asst.log|0|110|110\u001fV|parse-asst-state\u001fV|parse-asst-hint\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fV|ark-grab-foreground\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fW|WARN|端游没把点击吃进去(StartUp 已重复 61 次、整轮 2 次点击)：已把端游窗口抢到前台(Arknights) —— 夹具现场状态\u001fV|resolve-rescue-context\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fV|rescue-entry\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fW|WARN|视觉兜底结果：当前不是管理员权限：端游是 requireAdministrator，这个权限下点它不会有任何反应，跳过兜底\u001fS|10\u001fT|gui.log|15|15|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|15|15|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|15|15|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|15|15|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|15|15|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|15|15|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|15|15|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fZ|stalled|点击没被端游吃进去：StartUp 已重复 61 次(整轮 2 次点击)且一条链路都没完成，抢前台后 60 秒仍在原地。抢前台时看到的点击环境：。完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)|-|err-stuck","maas23-quiet-rescue-black-screen":"W|STEP|启动 MAA：{{TMP}}\\sandbox\\MAA.exe\u001fR|{{TMP}}\\sandbox\\MAA.exe|{{TMP}}\\sandbox\u001fP|MAA|1\u001fP|Arknights|1\u001fS|10\u001fT|gui.log|0|27|27\u001fV|parse-maa-gui-lines\u001fV|apply-maa-gui-events\u001fW|INFO|MAA 完成链路：Fight\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|27|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|27|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|27|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|27|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|27|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|27|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|27|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|27|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|27|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|27|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|27|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|27|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|27|27|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fV|resolve-rescue-context\u001fV|ark-window-shot\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fV|rescue-entry\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fW|WARN|视觉兜底结果：截图几乎是全黑(平均亮度 7)：桌面可能锁了或窗口没在渲染，问模型只会白花钱\u001fZ|stalled|MAA 日志 2 分钟无输出，判定卡住。完成链路 1/2：Fight|-|","maas24-drain-rescue-size-diff":"W|STEP|启动 MAA：{{TMP}}\\sandbox\\MAA.exe\u001fR|{{TMP}}\\sandbox\\MAA.exe|{{TMP}}\\sandbox\u001fP|MAA|1\u001fP|Arknights|1\u001fS|10\u001fT|gui.log|0|33|11\u001fV|parse-maa-gui-lines\u001fV|apply-maa-gui-events\u001fW|WARN|MAA 宣布本轮已跑完但有错误(队列已空，它不会再自己动)\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fV|resolve-rescue-context\u001fV|ark-window-shot\u001fW|WARN|视觉兜底：已拍端游窗口(1920x1080，亮度 42)，交给模型判断\u001fV|vision-ask-model\u001fV|vision-click-point\u001fW|WARN|视觉兜底：活动弹窗 → 点端游窗口 952,509(挡路窗口的关闭按钮)\u001fV|ark-window-click\u001fS|6\u001fV|ark-window-shot\u001fV|shot-changed\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fV|rescue-entry\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fW|WARN|视觉兜底结果：按模型说的把活动弹窗点了一下(点位 952,509(PostMessage(没抢到前台，很可能点不动))→两次画面尺寸不同(5 格 vs 4 格))，但两次画面尺寸不同(5 格 vs 4 格) → 不算救活\u001fZ|stalled|MAA 队列已跑空但只完成 0/2 条链路，它不会再自己动 → 不等静默判定，当场兜底过一次就直接早退(外层会重试一次)。完成链路 0/2|-|","maas25-stuck-rescue-ask-fails":"W|STEP|启动 MAA：{{TMP}}\\sandbox\\MAA.exe\u001fR|{{TMP}}\\sandbox\\MAA.exe|{{TMP}}\\sandbox\u001fP|MAA|1\u001fP|Arknights|1\u001fS|10\u001fT|gui.log|0|15|15\u001fV|parse-maa-gui-lines\u001fV|apply-maa-gui-events\u001fW|WARN|MAA 异常线索：err-stuck\u001fT|asst.log|0|110|110\u001fV|parse-asst-state\u001fV|parse-asst-hint\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fV|ark-grab-foreground\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fW|WARN|端游没把点击吃进去(StartUp 已重复 61 次、整轮 2 次点击)：已把端游窗口抢到前台(Arknights) —— 夹具现场状态\u001fV|resolve-rescue-context\u001fV|ark-window-shot\u001fW|WARN|视觉兜底：已拍端游窗口(1920x1080，亮度 42)，交给模型判断\u001fV|vision-ask-model\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fV|rescue-entry\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fW|WARN|视觉兜底结果：模型调用失败：HTTP 401：视觉模型的 key 不对\u001fS|10\u001fT|gui.log|15|15|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|15|15|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|15|15|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|15|15|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|15|15|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|15|15|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|15|15|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fZ|stalled|点击没被端游吃进去：StartUp 已重复 61 次(整轮 2 次点击)且一条链路都没完成，抢前台后 60 秒仍在原地。抢前台时看到的点击环境：。完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)|-|err-stuck","maas26-stuck-rescue-point-out-of-bounds":"W|STEP|启动 MAA：{{TMP}}\\sandbox\\MAA.exe\u001fR|{{TMP}}\\sandbox\\MAA.exe|{{TMP}}\\sandbox\u001fP|MAA|1\u001fP|Arknights|1\u001fS|10\u001fT|gui.log|0|15|15\u001fV|parse-maa-gui-lines\u001fV|apply-maa-gui-events\u001fW|WARN|MAA 异常线索：err-stuck\u001fT|asst.log|0|110|110\u001fV|parse-asst-state\u001fV|parse-asst-hint\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fV|ark-grab-foreground\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fW|WARN|端游没把点击吃进去(StartUp 已重复 61 次、整轮 2 次点击)：已把端游窗口抢到前台(Arknights) —— 夹具现场状态\u001fV|resolve-rescue-context\u001fV|ark-window-shot\u001fW|WARN|视觉兜底：已拍端游窗口(1920x1080，亮度 42)，交给模型判断\u001fV|vision-ask-model\u001fV|vision-click-point\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fV|rescue-entry\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fW|WARN|视觉兜底结果：模型说挡路的是活动弹窗，但它给的坐标(1500,-20)落不到画面里 → 不点\u001fS|10\u001fT|gui.log|15|15|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|15|15|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|15|15|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|15|15|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|15|15|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|15|15|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|15|15|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fZ|stalled|点击没被端游吃进去：StartUp 已重复 61 次(整轮 2 次点击)且一条链路都没完成，抢前台后 60 秒仍在原地。抢前台时看到的点击环境：。完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)|-|err-stuck","maas27-stuck-budget-one-then-quiet":"W|STEP|启动 MAA：{{TMP}}\\sandbox\\MAA.exe\u001fR|{{TMP}}\\sandbox\\MAA.exe|{{TMP}}\\sandbox\u001fP|MAA|1\u001fP|Arknights|1\u001fS|10\u001fT|gui.log|0|15|15\u001fV|parse-maa-gui-lines\u001fV|apply-maa-gui-events\u001fW|WARN|MAA 异常线索：err-stuck\u001fT|asst.log|0|110|110\u001fV|parse-asst-state\u001fV|parse-asst-hint\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fV|ark-grab-foreground\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fW|WARN|端游没把点击吃进去(StartUp 已重复 61 次、整轮 2 次点击)：已把端游窗口抢到前台(Arknights) —— 夹具现场状态\u001fV|resolve-rescue-context\u001fV|ark-window-shot\u001fW|WARN|视觉兜底：已拍端游窗口(1920x1080，亮度 42)，交给模型判断\u001fV|vision-ask-model\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fV|rescue-entry\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fW|WARN|视觉兜底结果：模型认为没有弹窗挡路(主界面，没有挡路的东西)\u001fS|10\u001fT|gui.log|15|15|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|15|15|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|15|15|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|15|15|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|15|15|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|15|15|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fS|10\u001fT|gui.log|15|15|0\u001fP|MAA|1\u001fV|decide-maa-run-tick\u001fZ|stalled|点击没被端游吃进去：StartUp 已重复 61 次(整轮 2 次点击)且一条链路都没完成，抢前台后 60 秒仍在原地。抢前台时看到的点击环境：。完成链路 0/1；MAA 内核其实还在跑，卡在子任务 StartUp，已重复 61 次(最后点到 45,67)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)|-|err-stuck"}"#;
+    const K20_H5: &str = r#"{"maas21-stuck-rescue-two-points-done":[{"time":"2026-10-27 22:02:38","game":"ark","target":"ark","tag":"stuck2","tried":true,"done":true,"detail":"已按模型判断关掉活动弹窗：试了 2 个点位，点位 472,779(真实点击)→画面变了 2 格(判据：≥2 格、每格 ≥3 档)"}],"maas22-stuck-rescue-admin-gate-skip":[{"time":"2026-10-27 22:02:39","game":"ark","target":"ark","tag":"stuck2","tried":false,"done":false,"detail":"当前不是管理员权限：端游是 requireAdministrator，这个权限下点它不会有任何反应，跳过兜底"}],"maas23-quiet-rescue-black-screen":[{"time":"2026-10-27 22:02:43","game":"ark","target":"ark","tag":"stall2","tried":false,"done":false,"detail":"截图几乎是全黑(平均亮度 7)：桌面可能锁了或窗口没在渲染，问模型只会白花钱"}],"maas24-drain-rescue-size-diff":[{"time":"2026-10-27 22:02:44","game":"ark","target":"ark","tag":"drain2","tried":true,"done":false,"detail":"按模型说的把活动弹窗点了一下(点位 952,509(PostMessage(没抢到前台，很可能点不动))→两次画面尺寸不同(5 格 vs 4 格))，但两次画面尺寸不同(5 格 vs 4 格) → 不算救活"}],"maas25-stuck-rescue-ask-fails":[{"time":"2026-10-27 22:02:45","game":"ark","target":"ark","tag":"stuck2","tried":false,"done":false,"detail":"模型调用失败：HTTP 401：视觉模型的 key 不对"}],"maas26-stuck-rescue-point-out-of-bounds":[{"time":"2026-10-27 22:02:48","game":"ark","target":"ark","tag":"stuck2","tried":false,"done":false,"detail":"模型说挡路的是活动弹窗，但它给的坐标(1500,-20)落不到画面里 → 不点"}],"maas27-stuck-budget-one-then-quiet":[{"time":"2026-10-27 22:02:50","game":"ark","target":"ark","tag":"stuck2","tried":false,"done":false,"detail":"模型认为没有弹窗挡路(主界面，没有挡路的东西)"}]}"#;
+    const K20_SHAPE: &str = r#"{"maas01-ok-finished-tail":{"decide-maa-run-tick":1,"parse-maa-gui-lines":2,"apply-maa-gui-events":2,"parse-asst-state":0,"parse-asst-hint":0,"finish-maa-run":1},"maas02-alldone-idle-tail":{"decide-maa-run-tick":14,"parse-maa-gui-lines":1,"apply-maa-gui-events":1,"parse-asst-state":0,"parse-asst-hint":0},"maas03-unknown-format-growing":{"decide-maa-run-tick":7,"parse-maa-gui-lines":1,"apply-maa-gui-events":1,"parse-asst-state":0,"parse-asst-hint":0},"maas04-unknown-format-zero":{"decide-maa-run-tick":7,"parse-maa-gui-lines":0,"apply-maa-gui-events":0,"parse-asst-state":0,"parse-asst-hint":0},"maas05-not-started":{"decide-maa-run-tick":7,"parse-maa-gui-lines":1,"apply-maa-gui-events":1,"parse-asst-state":0,"parse-asst-hint":0},"maas06-stuck-grab-then-stalled":{"decide-maa-run-tick":8,"parse-maa-gui-lines":1,"apply-maa-gui-events":1,"parse-asst-state":1,"parse-asst-hint":1},"maas07-drain-stalled-early":{"decide-maa-run-tick":1,"parse-maa-gui-lines":1,"apply-maa-gui-events":1,"parse-asst-state":0,"parse-asst-hint":0},"maas08-stallwarn-abort":{"decide-maa-run-tick":14,"parse-maa-gui-lines":1,"apply-maa-gui-events":1,"parse-asst-state":0,"parse-asst-hint":0},"maas09-timeout":{"decide-maa-run-tick":14,"parse-maa-gui-lines":1,"apply-maa-gui-events":1,"parse-asst-state":0,"parse-asst-hint":0},"maas10-quiet-stalled":{"decide-maa-run-tick":14,"parse-maa-gui-lines":1,"apply-maa-gui-events":1,"parse-asst-state":0,"parse-asst-hint":0},"maas11-maa-exited-early":{"decide-maa-run-tick":2,"parse-maa-gui-lines":1,"apply-maa-gui-events":1,"parse-asst-state":0,"parse-asst-hint":0},"maas12-maa-exited-tail":{"decide-maa-run-tick":2,"parse-maa-gui-lines":1,"apply-maa-gui-events":1,"parse-asst-state":0,"parse-asst-hint":0,"finish-maa-run":1},"maas13-asst-4mb-gate":{"decide-maa-run-tick":4,"parse-maa-gui-lines":2,"apply-maa-gui-events":2,"parse-asst-state":2,"parse-asst-hint":2,"finish-maa-run":1},"maas14-gui-truncate-rotate":{"decide-maa-run-tick":3,"parse-maa-gui-lines":3,"apply-maa-gui-events":3,"parse-asst-state":0,"parse-asst-hint":0,"finish-maa-run":1},"maas15-dryrun":{"decide-maa-run-tick":0,"parse-maa-gui-lines":0,"apply-maa-gui-events":0,"parse-asst-state":0,"parse-asst-hint":0},"maas16-ark-appears-midway":{"decide-maa-run-tick":2,"parse-maa-gui-lines":2,"apply-maa-gui-events":2,"parse-asst-state":0,"parse-asst-hint":0,"finish-maa-run":1},"maas17-benign-dedup-across-ticks":{"decide-maa-run-tick":2,"parse-maa-gui-lines":3,"apply-maa-gui-events":3,"parse-asst-state":0,"parse-asst-hint":0,"finish-maa-run":1},"maas18-errors-cap-40":{"decide-maa-run-tick":14,"parse-maa-gui-lines":1,"apply-maa-gui-events":1,"parse-asst-state":0,"parse-asst-hint":0},"maas19-asst-hint-in-detail":{"decide-maa-run-tick":14,"parse-maa-gui-lines":1,"apply-maa-gui-events":1,"parse-asst-state":1,"parse-asst-hint":1},"maas20-maa-never-up":{"decide-maa-run-tick":0,"parse-maa-gui-lines":0,"apply-maa-gui-events":0,"parse-asst-state":0,"parse-asst-hint":0},"maas21-stuck-rescue-two-points-done":{"decide-maa-run-tick":9,"parse-maa-gui-lines":1,"apply-maa-gui-events":1,"parse-asst-state":1,"parse-asst-hint":1,"ark-grab-foreground":1,"resolve-rescue-context":1,"ark-window-shot":3,"vision-ask-model":1,"ark-window-click":2,"vision-click-point":2,"shot-changed":2,"rescue-entry":1},"maas22-stuck-rescue-admin-gate-skip":{"decide-maa-run-tick":11,"parse-maa-gui-lines":1,"apply-maa-gui-events":1,"parse-asst-state":1,"parse-asst-hint":1,"ark-grab-foreground":1,"resolve-rescue-context":1,"rescue-entry":1},"maas23-quiet-rescue-black-screen":{"decide-maa-run-tick":16,"parse-maa-gui-lines":1,"apply-maa-gui-events":1,"parse-asst-state":0,"parse-asst-hint":0,"resolve-rescue-context":1,"ark-window-shot":1,"rescue-entry":1},"maas24-drain-rescue-size-diff":{"decide-maa-run-tick":3,"parse-maa-gui-lines":1,"apply-maa-gui-events":1,"parse-asst-state":0,"parse-asst-hint":0,"resolve-rescue-context":1,"ark-window-shot":2,"vision-ask-model":1,"ark-window-click":1,"vision-click-point":1,"shot-changed":1,"rescue-entry":1},"maas25-stuck-rescue-ask-fails":{"decide-maa-run-tick":11,"parse-maa-gui-lines":1,"apply-maa-gui-events":1,"parse-asst-state":1,"parse-asst-hint":1,"ark-grab-foreground":1,"resolve-rescue-context":1,"ark-window-shot":1,"vision-ask-model":1,"rescue-entry":1},"maas26-stuck-rescue-point-out-of-bounds":{"decide-maa-run-tick":11,"parse-maa-gui-lines":1,"apply-maa-gui-events":1,"parse-asst-state":1,"parse-asst-hint":1,"ark-grab-foreground":1,"resolve-rescue-context":1,"ark-window-shot":1,"vision-ask-model":1,"vision-click-point":1,"rescue-entry":1},"maas27-stuck-budget-one-then-quiet":{"decide-maa-run-tick":11,"parse-maa-gui-lines":1,"apply-maa-gui-events":1,"parse-asst-state":1,"parse-asst-hint":1,"ark-grab-foreground":1,"resolve-rescue-context":1,"ark-window-shot":1,"vision-ask-model":1,"rescue-entry":1}}"#;
+    const K20_NAMES: [&str; 27] = [
+        "maas01-ok-finished-tail",
+        "maas02-alldone-idle-tail",
+        "maas03-unknown-format-growing",
+        "maas04-unknown-format-zero",
+        "maas05-not-started",
+        "maas06-stuck-grab-then-stalled",
+        "maas07-drain-stalled-early",
+        "maas08-stallwarn-abort",
+        "maas09-timeout",
+        "maas10-quiet-stalled",
+        "maas11-maa-exited-early",
+        "maas12-maa-exited-tail",
+        "maas13-asst-4mb-gate",
+        "maas14-gui-truncate-rotate",
+        "maas15-dryrun",
+        "maas16-ark-appears-midway",
+        "maas17-benign-dedup-across-ticks",
+        "maas18-errors-cap-40",
+        "maas19-asst-hint-in-detail",
+        "maas20-maa-never-up",
+        "maas21-stuck-rescue-two-points-done",
+        "maas22-stuck-rescue-admin-gate-skip",
+        "maas23-quiet-rescue-black-screen",
+        "maas24-drain-rescue-size-diff",
+        "maas25-stuck-rescue-ask-fails",
+        "maas26-stuck-rescue-point-out-of-bounds",
+        "maas27-stuck-budget-one-then-quiet"
+    ];
+    const K20_RESCUE: [&str; 7] = [
+        "maas21-stuck-rescue-two-points-done",
+        "maas22-stuck-rescue-admin-gate-skip",
+        "maas23-quiet-rescue-black-screen",
+        "maas24-drain-rescue-size-diff",
+        "maas25-stuck-rescue-ask-fails",
+        "maas26-stuck-rescue-point-out-of-bounds",
+        "maas27-stuck-budget-one-then-quiet"
+    ];
+    const K20_VERBS: [&str; 14] = [
+        "decide-maa-run-tick",
+        "parse-maa-gui-lines",
+        "apply-maa-gui-events",
+        "parse-asst-state",
+        "parse-asst-hint",
+        "finish-maa-run",
+        "ark-grab-foreground",
+        "resolve-rescue-context",
+        "ark-window-shot",
+        "vision-ask-model",
+        "ark-window-click",
+        "vision-click-point",
+        "shot-changed",
+        "rescue-entry"
+    ];
+    let d30 = std::env::temp_dir().join(format!("gd-arkrun-selftest-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&d30);
+    let _ = std::fs::create_dir_all(&d30);
+    let r30 = d30.to_str().unwrap_or("").to_string();
+    // 三枚代换三个落点：剧本在 JSON 源文本上（值里的路径是转义形＝双反斜杠），补桩在解析出的
+    // 内层文本上（也是转义形），金样在取值后的投影串上（原形＝单反斜杠）。
+    let e30 = r30.replace('\\', "\\\\");
+    // 六格语义串（game/target/tag/tried/done/detail）：两侧同构提取，绕开键序与真钟 time 不守恒。
+    let six30 = |ev: &JVal| -> String {
+        format!(
+            "{}\u{1}{}\u{1}{}\u{1}{}\u{1}{}\u{1}{}",
+            jv_str(&jv_get(ev, "game")),
+            jv_str(&jv_get(ev, "target")),
+            jv_str(&jv_get(ev, "tag")),
+            jv_truthy(&jv_get(ev, "tried")),
+            jv_truthy(&jv_get(ev, "done")),
+            jv_str(&jv_get(ev, "detail"))
+        )
+    };
+    match (
+        jv_parse(&K20_SCRIPT.replace("{{TMP}}", &e30)),
+        jv_parse(K20_EXTRA),
+        jv_parse(K20_GOLDEN),
+        jv_parse(K20_H5),
+        jv_parse(K20_SHAPE),
+    ) {
+        (Ok(sv30), Ok(xv30), Ok(gv30), Ok(hv30), Ok(kv30)) => {
+            for item in jv_list(&sv30) {
+                let name = jv_str(&jv_get(item, "name"));
+                let want_raw = jv_str(&jv_get(&gv30, &name)).replace("{{TMP}}", &r30);
+                let mut sc = match maarun_parse(item) {
+                    Ok(s) => s,
+                    Err(why30) => {
+                        chk(false, &format!("30-{} 剧本解析失败：{}", name, why30), &mut fails, &mut total);
+                        continue;
+                    }
+                };
+                // 补桩：同一门帧里 dump 到的 panel-cs 真应答按调用序追加到 live 队尾
+                // （同名 FIFO，夹具先用、补桩后用，与门帧的取数顺序同构）。
+                for lv in jv_list(&jv_get(&xv30, &name)) {
+                    let pair = jv_list(&lv);
+                    if pair.len() != 2 {
+                        chk(false, &format!("30-{} 补桩条目不是两元组", name), &mut fails, &mut total);
+                        continue;
+                    }
+                    let vn = jv_str(pair[0]);
+                    // 补桩的路径代换落在**解析后的内层文本**上，不在外层源文本上：外层字符串值里
+                    // 的 `{{TMP}}` 是六个普通字符，先注入反斜杠会被外层解掉一层，内层再解就撞上
+                    // 「反斜杠后是不认识的转义」（本批首跑 4 枚红的真凶）。
+                    let inner30 = jv_str(pair[1]).replace("{{TMP}}", &e30);
+                    match jv_parse(&inner30) {
+                        Ok(v) => sc.live.push((vn, v)),
+                        Err(why30) => chk(
+                            false,
+                            &format!("30-{} 补桩应答解析失败({})：{}", name, vn, why30),
+                            &mut fails,
+                            &mut total,
+                        ),
+                    }
+                }
+                let _ = std::fs::create_dir_all(&sc.state_dir);
+                if let Err(why30) = maarun_seed(&sc) {
+                    chk(false, &format!("30-{} 日志起点摆不回：{}", name, why30), &mut fails, &mut total);
+                    continue;
+                }
+                let mut h30 = ScriptHost::new("gd-no-such-panel", &sc);
+                let proj30: Vec<String> = match maa_run(&mut h30, &sc) {
+                    Ok(r) => {
+                        let mut p = h30.proj.clone();
+                        p.push(r.proj_line());
+                        p
+                    }
+                    Err(why30) => {
+                        chk(false, &format!("30-{} 回放没跑完：{}", name, why30), &mut fails, &mut total);
+                        continue;
+                    }
+                };
+                let got30 = proj30.join("\u{1f}");
+                let last30 = proj30.last().map(|s| s.as_str()).unwrap_or("");
+                let is_rescue = K20_RESCUE.iter().any(|x| *x == name.as_str());
+                // H2：逐字符金样（27 档各一格，门的主判据原样搬）。
+                chk(
+                    got30 == want_raw,
+                    &format!(
+                        "H2-{} 投影与门最后一次全绿帧不一致：实={}… 期={}…",
+                        name,
+                        got30.chars().take(160).collect::<String>(),
+                        want_raw.chars().take(160).collect::<String>()
+                    ),
+                    &mut fails,
+                    &mut total,
+                );
+                // H3a：末步落在 Z| 行；兜底七档另钉设计出口 stalled（防"两侧一起走到别的档"）。
+                chk(
+                    if is_rescue {
+                        last30.starts_with("Z|stalled|")
+                    } else {
+                        last30.starts_with("Z|")
+                    },
+                    &format!(
+                        "H3a-{} 末步形状漂了：实得 {}（兜底档的设计出口是 stalled，其余档只认 Z| 前缀）",
+                        name, last30
+                    ),
+                    &mut fails,
+                    &mut total,
+                );
+                // H3b：逐档 14 枚 verb 次数 == 门表设计值（缺键按 0，与门里 Get-ShapeCounts 的口径同）。
+                let mut cnt30: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
+                for st in &proj30 {
+                    if let Some(v) = st.strip_prefix("V|") {
+                        *cnt30.entry(v.to_string()).or_insert(0) += 1;
+                    }
+                }
+                let shape30 = jv_get(&kv30, &name);
+                let mut bad30: Vec<String> = Vec::new();
+                if matches!(shape30, JVal::Null) {
+                    bad30.push("门表里没有这一档的行".to_string());
+                }
+                for vk in K20_VERBS.iter() {
+                    let w = if jv_has(&shape30, *vk) { jv_int(&jv_get(&shape30, *vk), 0) } else { 0 };
+                    let g = *cnt30.get(*vk).unwrap_or(&0);
+                    if g != w {
+                        bad30.push(format!("verb {} 次数={}，门表钉的是 {}", vk, g, w));
+                    }
+                }
+                chk(
+                    bad30.is_empty(),
+                    &format!("H3b-{} 形状漂了：{}", name, bad30.join(" | ")),
+                    &mut fails,
+                    &mut total,
+                );
+                // H3c：dryrun 档的三条设计事实（步数、末步字面、不起 decide）。
+                if name == "maas15-dryrun" {
+                    chk(
+                        proj30.len() == 2,
+                        &format!("H3c-dryrun 步数漂了：{} 步（门表钉两步：W|STEP 加 Z|dryrun）", proj30.len()),
+                        &mut fails,
+                        &mut total,
+                    );
+                    chk(
+                        last30 == "Z|dryrun||-|-",
+                        &format!("H3c-dryrun 末步字面漂了：{}（空 detail 与两枚 '-' 是真身原样怪癖）", last30),
+                        &mut fails,
+                        &mut total,
+                    );
+                    chk(
+                        !proj30.iter().any(|s| s.as_str() == "V|decide-maa-run-tick"),
+                        "H3c-dryrun 不该起 decide：dry-run 只把命令行渲染出来就收，判据梯一格都不许走",
+                        &mut fails,
+                        &mut total,
+                    );
+                }
+                // H3d：进程起不来那档的两条设计事实（不进迷你循环、等待期探 30 次）。
+                if name == "maas20-maa-never-up" {
+                    chk(
+                        !proj30.iter().any(|s| s.as_str() == "V|decide-maa-run-tick"),
+                        "H3d-never-up 进程起不来却进了迷你循环起 decide：那 14 轮 tick 只属于进程在场那一支",
+                        &mut fails,
+                        &mut total,
+                    );
+                    let probes30 = proj30.iter().filter(|s| s.as_str() == "P|MAA|0").count();
+                    chk(
+                        probes30 == 30,
+                        &format!("H3d-never-up 等待期探了 {} 次（90s/3s 该是 30 次，门表现值不是推算）", probes30),
+                        &mut fails,
+                        &mut total,
+                    );
+                }
+                // H3e：兜底七档的"每一次兜底都该有一笔记账"（两枚 verb 的外调次数互证）。
+                if is_rescue {
+                    let ent30 = proj30.iter().filter(|s| s.as_str() == "V|rescue-entry").count();
+                    let res30 = proj30.iter().filter(|s| s.as_str() == "V|resolve-rescue-context").count();
+                    chk(
+                        ent30 > 0 && ent30 == res30,
+                        &format!("H3e-{} 兜底 {} 次、记账 {} 笔（每一次兜底都该落一笔账）", name, res30, ent30),
+                        &mut fails,
+                        &mut total,
+                    );
+                }
+                // H5/H6：兜底七档现读落盘账本；其余 20 档钉「零账本 + 零记账」。
+                let vcnt30 = proj30.iter().filter(|s| s.as_str() == "V|rescue-entry").count();
+                let lp30 = gd_join_path(&sc.state_dir, &["rescue.json"]);
+                let want_h5 = jv_get(&hv30, &name);
+                if matches!(want_h5, JVal::Null) {
+                    chk(
+                        !std::path::Path::new(&lp30).exists(),
+                        &format!("30-{} 不该落账本却落了（{}）—— legacy 档的两枚可用性由剧本写死 false", name, lp30),
+                        &mut fails,
+                        &mut total,
+                    );
+                    chk(
+                        vcnt30 == 0,
+                        &format!("30-{} 无兜底档却有 {} 次 rescue-entry", name, vcnt30),
+                        &mut fails,
+                        &mut total,
+                    );
+                } else {
+                    let txt30 = std::fs::read_to_string(&lp30).unwrap_or_default();
+                    let parsed30 = jv_parse(&txt30);
+                    let mut ver30 = -1i64;
+                    let mut got_ev: Vec<String> = Vec::new();
+                    let mut shape_ok30 = true;
+                    if let Ok(l) = &parsed30 {
+                        ver30 = jv_int(&jv_get(l, "version"), -1);
+                        let arr30 = jv_get(l, "events");
+                        for ev in jv_list(&arr30) {
+                            got_ev.push(six30(ev));
+                            let t30 = jv_str(&jv_get(ev, "tag"));
+                            if jv_str(&jv_get(ev, "game")) != "ark"
+                                || jv_str(&jv_get(ev, "target")) != "ark"
+                                || !(t30.starts_with("stuck") || t30.starts_with("drain") || t30.starts_with("stall"))
+                                || jv_str(&jv_get(ev, "detail")).is_empty()
+                            {
+                                shape_ok30 = false;
+                            }
+                        }
+                    }
+                    let want_ev: Vec<String> = jv_list(&want_h5).iter().map(|ev| six30(ev)).collect();
+                    chk(
+                        got_ev == want_ev && !got_ev.is_empty(),
+                        &format!("H5-{} 账本六格与门帧金样不一致：实={:?} 期={:?}", name, got_ev, want_ev),
+                        &mut fails,
+                        &mut total,
+                    );
+                    chk(
+                        got_ev.len() == vcnt30,
+                        &format!("H6a-{} 账本 {} 条 ≠ rescue-entry {} 次（事件数==外调次数是账本自洽的底）", name, got_ev.len(), vcnt30),
+                        &mut fails,
+                        &mut total,
+                    );
+                    chk(
+                        ver30 == 1 && shape_ok30 && !got_ev.is_empty(),
+                        &format!("H6b-{} 账本形状越界（version 应为 1／game 与 target 恒 ark／tag 带 stuck|drain|stall 前缀／detail 非空），实得 version={}", name, ver30),
+                        &mut fails,
+                        &mut total,
+                    );
+                }
+            }
+            // H1 名册：27 档按门帧顺序一枚不少（事实源是门表转写的 K20_NAMES，不是金样）。
+            let names30: Vec<String> = jv_list(&sv30).iter().map(|it| jv_str(&jv_get(it, "name"))).collect();
+            let mut ok30 = names30.len() == K20_NAMES.len();
+            for (i, n) in K20_NAMES.iter().enumerate() {
+                if names30.get(i).map(String::as_str) != Some(*n) {
+                    ok30 = false;
+                }
+            }
+            chk(
+                ok30,
+                &format!("H1-27 档名册与门帧顺序不一致：实={:?}", names30),
+                &mut fails,
+                &mut total,
+            );
+            let _ = std::fs::remove_dir_all(&d30);
+            chk(
+                !d30.exists(),
+                "§30 arkrun 门退役格的临时目录没收干净：自检会在 %TEMP% 里留垃圾",
+                &mut fails,
+                &mut total,
+            );
+        }
+        (a, b, c, d, e) => {
+            for (tag, r) in [("剧本", &a), ("补桩", &b), ("金样", &c), ("H5", &d), ("形状表", &e)] {
+                if let Err(why30) = r {
+                    chk(
+                        false,
+                        &format!("第 30 节 {} 嵌入 JSON 解析失败：{}", tag, why30),
+                        &mut fails,
+                        &mut total,
+                    );
+                }
+            }
+            let _ = std::fs::remove_dir_all(&d30);
+        }
+    }
+
     if fails.is_empty() {
 
         println!("RESULT SELFTEST-PASS checks={} contract={}", total, CONTRACT);
@@ -21621,7 +22496,7 @@ fn usage() -> ! {
          \t  现场动作（睡眠 / 起进程 / 探活 / 读文件尾 / 写日志）全部落成投影事件，不真执行；剧本一档一项（JSON 数组）。\n\
          \t  判据一条都不在这里 —— 六枚 verb 每 tick 真跑 --panel-cs 那枚判定 exe（与 arkskip 档共用同一条 --in/--out 协议），\n\
          \t  所以缺它这一档直接拒跑；两枚兜底可用性本批恒按**不可用**喂，识别到的 effect 一律走真身那句作废话术。\n\
-         \t  出口 = 每档一行投影串（动作序列 + 末行状态），供 probe-arkrun-rust-golden 与 PS 真身侧逐字比对。\n\
+         \t  出口 = 每档一行投影串（动作序列 + 末行状态），供 `--selftest` 第 30 节的金样回放逐字比对。\n\
          \n\
          m9a 运行面回放档（B-2d②，只给对拍门用）：gdcore --m9a-run --script <剧本文件> --panel-cs <判定 exe 路径> [--out <文件>]\n\
          \t  与上面那档同形同规矩（只吃夹具、不加载 DLL、不碰现场，也不需要 --kind / --dir），跑的是 Invoke-M9ARun 的循环骨架：\n\

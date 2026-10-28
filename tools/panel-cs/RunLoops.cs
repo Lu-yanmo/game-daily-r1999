@@ -484,7 +484,7 @@ namespace GdPanel
         // ==================== verb: decide-m9a-run-tick(批次 8，m9a 一路) ====================
         // 基线真身 = lib\m9a.ps1 Invoke-M9ARun 行 350-388 的反应段(含 $askScreen 闭包 L325-337 的纯判定部分，
         // 钉 commit c498da0)。Resolve-M9AStatus 出结论的那一拍才调；while/sleep、读日志、adb 查进程、
-        // 真 Invoke-GdVisionRescue + Add-GdRescueRecord 记账全留壳。口径与 ark 一路同一份剧本
+        // 真兜底链与记账全在核(尺住在 Rust 第 19/30 节；PS 壳那两枚 Invoke-GdVisionRescue/Add-GdRescueRecord 已于第二十刀刀③ 出仓)。口径与 ark 一路同一份剧本
         // (docs\ps-migration-live-caliber.md)，对拍门 = panel-cs --looptest(原 live 门 10-26 摘件)。
         // 与 ark 一路的三处话术差别(都是旧代码原样，不许"顺手统一")：
         //   * 记账 Tag 与调用 Tag **同数**(m9a 的记账取 += 之后的 Notes.Count，没有 ark 那个错位一格)；

@@ -6,7 +6,10 @@
 # 人眼一看就知道「先把弹窗关掉」，模板匹配永远看不到这一步 → 这一步交给视觉模型。
 # 2026-09-26 起 1999 那一路(MuMu + M9A)也接上了：卡在更新界面/弹窗上同样是"人眼一看就知道"。
 #
-# 分工：本文件只管"问模型 → 抠 JSON → 换算点位 → 点一下 → 确认画面真的变了"。
+# 分工：本文件只管"问模型 → 抠 JSON → 换算点位"这几枚零件。"点一下 → 确认画面真的变了"那截编排
+# 已在 2026-10-28 甲档第二十刀刀③ 出仓：判据住 Rust 核(tools\rustcore\src\main.rs 的 vision_rescue，
+# --selftest 第 19 节六档＋第 30 节 ark 27 档金样)，开关话术住 C#(tools\panel-cs\Live.cs 的
+# resolve-rescue-context，--livetest 两格盯"关了确实一次都不试"且那句带 settings 的键名)。
 # 它不认识端游，也不认识模拟器 —— 截图和点击都向一个"靶子"(target)要，靶子由那一路的后端文件给：
 #   lib\vision-ark.ps1   → New-GdVisionTarget-ark    (PrintWindow 拍窗口 + 抢前台真实点击)
 #   lib\vision-mumu.ps1  → New-GdVisionTarget-mumu   (adb screencap/pull 拍屏 + adb input tap)
@@ -21,12 +24,14 @@
 # key 只经环境变量给子进程：不进命令行、不进请求文件、不进日志、不进诊断包。
 #
 # 后端怎么找：Get-GdVisionTarget 按 `New-GdVisionTarget-<kind>` 这个命名约定 Get-Command 探路，
-# 找不到就返回 $null → 调用方拿到一句"这棵树上没有这一路的兜底后端"。
-# 和 lib\maa.ps1 里 `Get-Command Invoke-GdVisionRescue` 同一套纪律：**不靠导出时改写源码**。
+# 找不到就返回 $null，由调用方自己给一句原因(现在活着的调用方是 lib\supervisor.ps1 的"人眼看一眼"那一路)。
+# 同一条纪律的原话是拿 `lib\maa.ps1 里 Get-Command Invoke-GdVisionRescue` 作比 —— 那枚比较对象与它比的
+# 东西如今都不在现树了(maa.ps1 现读零枚 Get-Command)，但纪律本身不许变：**不靠导出时改写源码**。
 #
 # 靶子必须提供什么(契约写在这里，后端文件照着实现)：
 #   Kind / Name            后端名 + 日志里"已拍 X"的那个 X
-#   Enabled / Why          这一路自己的开关；关掉时那句原因必须带 settings 里的键名(t13 按它断言)
+#   Enabled / Why          这一路自己的开关；关掉时那句原因必须带 settings 里的键名(C# 的
+#                          resolve-rescue-context 出这句，--livetest 两格按键名断言)
 #   NeedsAdmin / AdminWhy  点这一路要不要提权(端游要，模拟器不要)
 #   Scene / UserText       提示词开头"这是什么画面"的文案 —— 判定与点位算法对此完全无感
 #   Alive                  scriptblock：对象现在还在不在(窗口关了 / 虚拟机没起来)
@@ -52,22 +57,21 @@
 #   Get-GdVisionVerdictFromText  → verb parse-vision-verdict(抠 JSON/坏点位过滤/X-Y-Why 兼容字段)
 #   Get-GdRescueClickPoint       → verb vision-click-point(千分比→客户区换算与越界拒绝)
 #   Resolve-GdVisionEndpoint     → verb resolve-vision-endpoint
-#   Test-GdShotChanged           → verb shot-changed(签名格数比对)
+#   Test-GdShotChanged           → verb shot-changed(签名格数比对；那枚转发壳已随甲档第二十刀刀③ 出仓，
+#                                  判据由 Vision.SelfTest.cs 的四形与 Rust 第 19 节的"点了但画面没变"格接守)
 #   Invoke-GdVisionRaw 的 stdout 回扫段 → verb parse-vision-reply(起子进程与请求组装仍在本壳，Context 截 200 也在)
-#   Add-GdRescueRecord 的字段合成段 → verb rescue-entry(读写盘、Test-Path 守卫与裁剪留本壳)
+#   Add-GdRescueRecord 的字段合成段 → verb rescue-entry(读写盘、Test-Path 守卫与裁剪留本壳；
+#                                  那枚壳整件随第二十刀刀③ 出仓，落盘面由 Rust 第 19 节读-改-写格＋第 30 节 H5/H6 接守)
 # 所以：改规则/文案请改 Vision.cs 并跑 panel-cs --visiontest 对真值，不要在这里加规则。
-# 故意留在 PS 侧的：Get-GdVisionTarget(命名约定探路)、Invoke-GdVisionAsk、Invoke-GdVisionRescue(闸门顺序与
-# 多候选点击循环全靠靶子闭包，属编排层)、Get-GdShotStats(要 Bitmap)、Get-GdVisionApiKey(key 绝不进 JSON 信封)、
-# Clear-* 系(摸盘的)。vision-mumu 整份留壳：test-r1999 把两段正则钉在函数定义文本上，薄壳就红。
+# 现在留在 PS 侧的：Get-GdVisionTarget(命名约定探路)、Invoke-GdVisionAsk、Get-GdShotStats(要 Bitmap)、
+# Get-GdVisionApiKey(key 绝不进 JSON 信封)、Clear-* 系(摸盘的)——都是监督心跳与"只问不点"诊断入口还要用的零件。
+# 曾经按"编排层"理由留壳的 Invoke-GdVisionRescue / New-GdRescueSkip / Clear-GdRescueShotDir /
+# Get-GdRescueLedgerPath / Test-GdShotChanged / Add-GdRescueRecord 六枚已于 2026-10-28 甲档第二十刀刀③ 出仓：
+# 它的对面不再是 PS 活臂，而是两代 Rust 核＋金样，靶子闭包那套形状在核里由 resolve-rescue-context 一份 verb 回执复现。
+# vision-mumu 整份留壳：test-r1999 把两段正则钉在函数定义文本上，薄壳就红。
 # ──────────────────────────────────────────────────────────────────────────────
 
 function Get-GdRescueShotDir { Join-Path $global:GD.State 'rescue' }
-
-function New-GdRescueSkip {
-    <# "这次没救成，原因是……"的统一出口：Tried=$false 表示连一次点击都没发出去 #>
-    param([string]$Why)
-    return [pscustomobject]@{ Tried = $false; Done = $false; Detail = $Why }
-}
 
 function Get-GdShotStats {
     <# 从一张位图算两样东西：平均亮度(整屏黑的时候模型会一本正经地胡说八道，白花一次钱，所以在这里就拦掉)
@@ -286,116 +290,6 @@ function Invoke-GdVisionAsk {
     return (Get-GdVisionVerdictFromText -Text $raw.Text)
 }
 
-function Test-GdShotChanged {
-    <# 转发壳(shot-changed)：格数比对与三种结论话术(没签名/格数不同/变了 N 格)住在 Vision.cs，
-       阈值为什么是"≥2 格、每格 ≥3 档"(端游噪点实测)的来由也记在那边。#>
-    param(
-        [Parameter(Mandatory)]$Before,
-        [Parameter(Mandatory)]$After,
-        [int]$MinCells = 2,
-        [int]$MinDelta = 3
-    )
-    $d = Invoke-GdCli -Verb 'shot-changed' -Body ([pscustomobject]@{
-        beforeSig = [string]$Before.Sig; afterSig = [string]$After.Sig
-        minCells = [int]$MinCells; minDelta = [int]$MinDelta
-    })
-    return [pscustomobject]@{ Known = [bool]$d.Known; Changed = [bool]$d.Changed; Cells = [int]$d.Cells; Detail = [string]$d.Detail }
-}
-
-function Invoke-GdVisionRescue {
-    <# 兜底总入口：拿靶子 → 截图 → 问模型 → 点一下 → 再截图确认画面真的变了。
-       返回 @{Tried;Done;Detail}。Tried=是否真的动过手；Done=是否点完并且画面确实变了。
-       一切前置条件不满足都返回 Tried=$false + 一句人话，调用方只管把 Detail 拼进结论里。
-       -Target 不给就是 'ark'：lib\maa.ps1 那几个调用点一个字都不用改。
-       -Context 是"为什么要问这一句"(卡在哪个任务/重复点了多少次)，会拼进给模型的那句话。
-       为什么值得带：同一张主界面，"MAA 说它在找活动公告的 ×"和什么都不说，模型挑哪个是挡路货不一样；
-       而兜底一次就一轮里那几次机会，问得准比问得省重要。上下文只有一句话的长度，不塞日志原文。
-       闸门顺序不许调换：后端在不在 → 开关 → 权限 → key → Python → 对象还在不在 → 截图。
-       (前几道都排在"截图"之前，自检才能在不碰窗口、不联网的前提下把这几条各演一遍；
-        开关那句的原因必须带 settings 里的键名，t13 就按那几个字断言"关了确实一次都不试"。) #>
-    param(
-        [Parameter(Mandatory)]$S,
-        [string]$Tag = 'stall',
-        [string]$Target = 'ark',
-        [string]$Context = '',
-        $Conn = $null
-    )
-    $t = Get-GdVisionTarget -S $S -Kind $Target -Conn $Conn
-    if (-not $t) {
-        return (New-GdRescueSkip "这棵树上没有 $Target 这一路的视觉兜底后端(没有 New-GdVisionTarget-$Target 这个函数)")
-    }
-    if (-not $t.Enabled) { return (New-GdRescueSkip [string]$t.Why) }
-    if ($t.NeedsAdmin -and -not (Test-GdAdmin)) {
-        $why = if ($t.AdminWhy) { [string]$t.AdminWhy } else { '这一路的对象要管理员权限，这个权限下点它不会有任何反应' }
-        return (New-GdRescueSkip "当前不是管理员权限：$why，跳过兜底")
-    }
-    if (-not (Get-GdVisionApiKey -S $S)) {
-        return (New-GdRescueSkip '没配视觉模型 key(见 settings 里的 runtime.visionApiKey)，本轮不尝试兜底')
-    }
-    # Python 这条闸门排在截图之前，和 key 同一个道理：不问模型也能先把"这棵树上问不成模型"说清楚，
-    # 而且省掉一次白拍 —— 更要紧的是自检能在不碰窗口、不起子进程的前提下演到这一条。
-    if (-not (Get-GdPythonExe -S $S)) {
-        return (New-GdRescueSkip '这台机器上没有可用的 Python 3(问模型那一层用它跑)：跑 setup.ps1 -WithPython 装一份到 state\python\，或把 runtime.pythonExe 指到已有的那份')
-    }
-    if (-not (& $t.Alive)) { return (New-GdRescueSkip "$($t.Name)已经不在了，兜底没有对象") }
-
-    $dir = Get-GdRescueShotDir
-    $stamp = Get-Date -Format 'MMdd-HHmmss'
-    $before = & $t.Shot (Join-Path $dir "$($t.Kind)-$Tag-$stamp-before.png")
-    if (-not $before.Ok) { return (New-GdRescueSkip "截图失败：$($before.Why)") }
-    if ([int]$before.AvgLum -lt 8) {
-        return (New-GdRescueSkip "截图几乎是全黑(平均亮度 $($before.AvgLum))：桌面可能锁了或窗口没在渲染，问模型只会白花钱")
-    }
-    Write-GdLog "视觉兜底：已拍$($t.Name)($($before.ImgW)x$($before.ImgH)，亮度 $($before.AvgLum))，交给模型判断" -Level WARN
-    $v = $null
-    try { $v = Invoke-GdVisionAsk -S $S -ImagePath $before.Path -Scene ([string]$t.Scene) -UserText ([string]$t.UserText) -Context $Context }
-    catch { return (New-GdRescueSkip "模型调用失败：$($_.Exception.Message)") }
-    if (-not $v) { return (New-GdRescueSkip '模型没按格式回 JSON，不拿它的话当依据') }
-    if (-not $v.Blocking) { return (New-GdRescueSkip "模型认为没有弹窗挡路($($v.What))") }
-    # 换算 + 裁边界都在 Get-GdRescueClickPoint 里做，这里先把落不到画面里的那几个剔掉：
-    # 宁可"一个可用点位都没有"直接放弃，也不要在真点击时才发现第 2 个点位在标题栏上。
-    $points = @(foreach ($c in @($v.Clicks)) {
-        $one = Get-GdRescueClickPoint -Shot $before -Verdict $c
-        if ($one) { $one }
-    })
-    if (-not $points.Count) {
-        return (New-GdRescueSkip "模型说挡路的是$($v.What)，但它给的坐标($($v.X),$($v.Y))落不到画面里 → 不点")
-    }
-    <#
-      按把握从高到低逐个试，谁点完画面真变了就算救活。三次机会都来自同一次问价，所以：
-      不额外花钱、不额外等模型、也不会出现"换了个答案把上一个还回去"。
-      每次点击之后都要补拍一张再比签名 —— 这是唯一能证明"点动了"的证据(2026-09-24 那次
-      哈希不同但弹窗还在，就是缺这一步)。最后一轮的 after 就是这一轮的结论图，中间那几张随 Clear 掉。
-    #>
-    $tries = @()
-    $after = $null
-    foreach ($pt in $points) {
-        Write-GdLog "视觉兜底：$($v.What) → 点$($t.Name) $($pt.ClientX),$($pt.ClientY)($($pt.Why))" -Level WARN
-        $click = & $t.Click ([int]$pt.ClientX) ([int]$pt.ClientY)
-        Start-Sleep -Seconds 6
-        $after = & $t.Shot (Join-Path $dir "$($t.Kind)-$Tag-$stamp-after$($tries.Count + 1).png")
-        if (-not $after.Ok) {
-            Clear-GdRescueShotDir
-            return (New-GdRescueSkip "点完补拍失败：$($after.Why)($($click.Mode))，无法确认是否生效")
-        }
-        $chg = Test-GdShotChanged -Before $before -After $after
-        $tries += "点位 $($pt.ClientX),$($pt.ClientY)($($click.Mode))→$($chg.Detail)"
-        if (-not $chg.Known) {
-            Clear-GdRescueShotDir
-            return [pscustomobject]@{ Tried = $true; Done = $false;
-                Detail = "按模型说的把$([string]$v.What)点了一下($($tries[-1]))，但$($chg.Detail) → 不算救活" }
-        }
-        if ($chg.Changed) {
-            Clear-GdRescueShotDir
-            return [pscustomobject]@{ Tried = $true; Done = $true;
-                Detail = "已按模型判断关掉$([string]$v.What)：$(if ($tries.Count -gt 1) { "试了 $($tries.Count) 个点位，" } else { '' })$($tries[-1])" }
-        }
-    }
-    Clear-GdRescueShotDir
-    return [pscustomobject]@{ Tried = $true; Done = $false;
-        Detail = "按模型说的把$([string]$v.What)点了 $($tries.Count) 个候选点位($($tries -join '；'))，画面都没动 → 这一路走不通" }
-}
-
 function Clear-GdVisionFiles {
     <# 兜底的临时东西都是取证用的，别把 state 堆成几百个文件：按时间留最近 Keep 个。
        两路共用同一个目录，截图文件名开头是靶子的 kind(ark-/mumu-)，翻图时一眼分得清是谁的画面。 #>
@@ -404,65 +298,6 @@ function Clear-GdVisionFiles {
     $stale = @(Get-ChildItem -LiteralPath $Dir -Filter $Pattern -ErrorAction SilentlyContinue |
                Sort-Object LastWriteTime -Descending | Select-Object -Skip $Keep)
     foreach ($f in $stale) { Remove-Item -LiteralPath $f.FullName -Force -ErrorAction SilentlyContinue }
-}
-
-function Clear-GdRescueShotDir { Clear-GdVisionFiles -Dir (Get-GdRescueShotDir) -Pattern '*.png' -Keep 24 }
-
-function Get-GdRescueLedgerPath { Join-Path $global:GD.State 'rescue.json' }
-
-function Add-GdRescueRecord {
-    <# 救火记账：这一轮兜了几次、每次救活没有。写在 state\rescue.json，和 tools\vision\ask.py 的
-       state\vision\calls.jsonl **分开放**，因为两本账回答的问题不一样：
-         calls.jsonl = "这一次请求发出去了吗、HTTP 什么状态、花了多少毫秒"(接口层，一行一次请求)
-         rescue.json = "哪一路、哪个环节、兜完画面到底变没变"(判定层，玩家和面板看的是这本)
-       为什么由调用方(maa.ps1 / m9a.ps1)点它、内核自己不点：内核不知道自己是给哪一路兜的
-       (-Target 只是后端名，"这一轮算 ark 还是 r1999"是调用方的事)，而记账恰恰要这个归属。
-       只留最近 Keep 条：这是一本"回看上几轮"的账，不是日志归档。 #>
-    param(
-        [Parameter(Mandatory)]$S,
-        [Parameter(Mandatory)][string]$Game,
-        [Parameter(Mandatory)]$Result,
-        [string]$Tag = '',
-        [string]$Target = '',
-        [int]$Keep = 60
-    )
-    $path = Get-GdRescueLedgerPath
-    $ledger = [ordered]@{ version = 1; updated = ''; events = @() }
-    # Read-GdJson 在文件不存在时是 throw，而"第一次救火"恰恰就是文件不存在那次 ——
-    # 入口的 $ErrorActionPreference='Stop' 会让这句 throw 一路冒到调用方，把"记一笔账"升级成"整轮失败"。
-    if (Test-Path -LiteralPath $path) {
-        $old = $null
-        try { $old = Read-GdJson -Path $path } catch { Write-GdLog "救火账本旧内容读不动(按空账继续)：$($_.Exception.Message)" -Level WARN }
-        if ($old -and $old.events) { $ledger.events = @($old.events) }
-    }
-    # 七个字段的合成规矩(target 空回退、detail 换行压平成 ' | '、tried/done 归真)住在 Vision.cs(rescue-entry)。
-    # 时间戳仍由本壳现取：对拍要逐字符比，而时钟不是规则 —— 把它留在壳里，golden 两侧喂同一个值才比得出规矩。
-    $e = Invoke-GdCli -Verb 'rescue-entry' -Body ([pscustomobject]@{
-        time           = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
-        game           = $Game
-        target         = [string]$Target
-        fallbackTarget = [string]$Result.Target
-        tag            = $Tag
-        tried          = [bool]$Result.Tried
-        done           = [bool]$Result.Done
-        detail         = [string]$Result.Detail
-    })
-    $ledger.events = @($ledger.events) + @{
-        time   = [string]$e.Time
-        game   = [string]$e.Game
-        target = [string]$e.Target
-        tag    = [string]$e.Tag
-        tried  = [bool]$e.Tried
-        done   = [bool]$e.Done
-        detail = [string]$e.Detail
-    }
-    if ($ledger.events.Count -gt $Keep) {
-        $ledger.events = @($ledger.events | Select-Object -Last $Keep)
-    }
-    $ledger.updated = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
-    # 账本写坏不能弄挂日常：兜底本身已经在异常路径上了，再抛一次等于把"卡住"升级成"整轮失败"。
-    try { Write-GdJson -Path $path -Object ([pscustomobject]$ledger) } catch { Write-GdLog "救火账本没写进去：$($_.Exception.Message)" -Level WARN }
-    return $true
 }
 
 function Clear-GdVisionAskDir {

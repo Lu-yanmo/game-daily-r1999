@@ -341,10 +341,11 @@ $gateDef = ''
 if (Get-Command Get-GdPythonExe -ErrorAction SilentlyContinue) { $gateDef = (Get-Command Get-GdPythonExe).Definition }
 Check '找 Python 会跳过 WindowsApps 那个商店占位程序' ($gateDef -match 'WindowsApps')
 Check '找到的解释器要真 import 得动 ask.py 要用的那几个库' ($gateDef -match 'Test-GdPythonUsable')
-Check '兜底闸门里 Python 这一条排在截图之前(问不成就别白拍一张)' $(
-    $r = (Get-Command Invoke-GdVisionRescue).Definition
-    $i = $r.IndexOf('Get-GdPythonExe'); $j = $r.IndexOf('$t.Shot')
-    $i -ge 0 -and $j -ge 0 -and $i -lt $j)
+# 2026-10-28 甲档第二十刀刀③：这一格原来现读 Invoke-GdVisionRescue 的定义文本比两个 IndexOf，那枚壳
+# 随兜底编排六枚一起出仓了(它不带 -ErrorAction SilentlyContinue，留着就是整脚本当场崩而不是单条红)。
+# "问不成就别白拍一张"这条闸序判据没丢，它现在住在两处：核内 --selftest 第 19 节 rescue-ok 的投影序
+# (resolve-rescue-context 必须排在 ark-window-shot 之前，第 30 节 ark 27 档金样同尺)，
+# 以及 C# 出 skip 话术那侧的 --livetest。"搬过去的尺还在不在"那三枚无条件静态锚落 tools\test-ark.ps1 的 t11。
 # 真跑一遍 ask.py 的离线自检。这台机器上没 Python 就如实报"没跑"，不算红 ——
 # 缺不缺解释器是机器现场状态，不该把只读自检弄红(见项目记忆那条"只读自检不许要求机器现场状态")。
 $pyExe = ''

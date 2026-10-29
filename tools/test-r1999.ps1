@@ -15,6 +15,22 @@ Show-GdCommonEmptyPathChecks
 Show-GdCommonRunLockChecks
 Show-GdCommonScreensaverChecks
 
+# ---- B-3②-d 刀①(10-29)静态锚：Get-R1999Event 的取数半段"两臂都在"，钉在 m9aDir 那道现场门之前 ----
+# 为什么放这里：这一格钉的是源码形状，M9A 目录在不在都该有证词(只读自检不许要求机器现场状态)；
+# 放在下面 [t4] 那道 return 之后，没装 M9A 的机器上它就静默不跑，等于把锚做成哑尺。
+# 剥注释照上面 $fnEp 那两形(-replace 逐字复用)：本文件里 read-r1999-activity 这个词头注也写了，
+# 不剥注释的"正向锚"会在真身被摘掉后照样绿——那是本仓登记过的"锚不是调用"形。
+$fnEv = [string](Get-Command Get-R1999Event -ErrorAction SilentlyContinue).Definition
+$fnEv = ($fnEv -replace '(?s)<\#.*?\#>', ' ') -replace '(?m)^\s*#.*$', ' '
+Check '②-d 刀①核臂在：取数半段打 read-r1999-activity，且只喂 paths 直答(不喂第二份 settings)' (
+    $fnEv -match "Invoke-GdCli -Verb 'read-r1999-activity'" -and $fnEv -match 'paths = ' -and ($fnEv -notmatch 'settings = ')) $(
+    if ($fnEv.Length -eq 0) { 'Get-R1999Event 不在场(尺没接到电)' } else { "len=$($fnEv.Length)" })
+Check '②-d 刀①回落臂在：核不可用时仍由壳自己判 ready→读 json→算 DataAge(逐字＝改指前原样)' (
+    $fnEv -match 'Test-GdPathReady' -and $fnEv -match 'Read-GdJson -Path \$path' -and $fnEv -match 'New-TimeSpan')
+Check '九键 idle 信封全函数只构造一次(两臂汇流到 $idle；抄第二份就是双源，§11.52 ⑤)' (
+    ([regex]::Matches($fnEv, "Mode = 'idle'")).Count -eq 1) $(
+    'count=' + ([regex]::Matches($fnEv, "Mode = 'idle'")).Count)
+
 # [t4] 往后的每一组都要读 M9A 自己的文件(config\instances\*.json、日志)。paths.m9aDir 还没填时
 # 先说人话，别让人对着"参数 'Path' 是空字符串"这种内部报错猜(和 test-ark.ps1 同一处理)。
 if (-not (Test-GdPathReady $S.paths.m9aDir)) {

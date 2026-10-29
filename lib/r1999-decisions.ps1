@@ -5,6 +5,8 @@
 # Resolve-R1999Plan / Resolve-R1999Instance(扫描部分)的**规则本体**已迁到
 # tools\panel-cs\Decisions.cs(verb：decide-r1999 / r1999-instance；契约见 docs\ps-migration-batch0.md)。
 # 本文件留下的是：取数层 Get-R1999Event(读 M9A 活动数据、算 DataAge、追后缀) + 两个转发壳。
+#   ⚠ 10-29 B-3②-d 刀① 改口：那句"读 M9A 活动数据、算 DataAge"的**取数半段**自此改指核(verb read-r1999-activity，
+#   真身 tools\panel-cs\Round.Data.cs:412)，PS 这一段降为**回落臂**；"追后缀"那句(§11.52 ⑤ 定的"活动数据 N 天前")仍留这里。
 # 壳里保留的两件事是协议的一部分：
 #   * IgnoreShopDone 与 shopDoneStopsEvent 决定"给不给领空图" —— 门留在 PS，规则读值；
 #   * Resolve-R1999Instance 的两道前置检查(计划名没配 / M9A 目录不在)留在 PS，
@@ -41,17 +43,42 @@ function Get-R1999Event {
     param([Parameter(Mandatory)]$S, [switch]$IgnoreShopDone)
 
     $now = Get-GdNowMs
-    $path = Join-GdPath $S.paths.m9aDir @($S.paths.m9aActivityData)
-    # Test-GdPathReady 而不是 Test-Path：没跑 setup 时 $path 是空串，"缺少 ，按长草处理"那种半截话玩家看不懂
-    if (-not (Test-GdPathReady $path)) {
-        $why = if ($path) { "缺少 $path" } else { 'M9A 目录还没填(先跑 setup.ps1)' }
-        return [pscustomobject]@{
-            Mode = 'idle'; Version = $null; VersionName = $null; EventKey = $null; EventTip = $null
-            Reason = "$why，按长草处理"; Instance = 'idle'; DataAge = $null; ShopDone = $false
+    # ── B-3②-d 刀①(2026-10-29)：下面这段"拼路径→判 ready→读活动 json→算 DataAge(天)"改指核 ──
+    # 核臂＝verb read-r1999-activity(真身 tools\panel-cs\Round.Data.cs:412，自检靶 Round.SelfTest.cs:983-1017)。
+    # `paths` 走**直答**：壳手里已经有 $S.paths，喂给核就不让核去现读第二份 settings(双源)。
+    # 回落臂＝else 那一整块，逐字是改指前的原样。这一格只能长在调用侧：唯一转发通道 Invoke-GdCli 非 0 一律 throw、
+    # 通道内既没有"CLI 不可用就走 PS"也没有软着陆(lib\common.ps1:143-175 头注)，所以"不喂这个键怎么回落"由这里自己答。
+    # 九键 idle 信封仍只在这里造(判定结论，§11.52 ⑤)，两臂各自只交出那句"…，按长草处理"：$idle 汇流，全函数只构造一次。
+    $idle = $null
+    $core = $null
+    try {
+        $core = Invoke-GdCli -Verb 'read-r1999-activity' -Body ([pscustomobject]@{
+            paths = [pscustomobject]@{ m9aDir = $S.paths.m9aDir; m9aActivityData = $S.paths.m9aActivityData }
+        })
+    } catch { $core = $null }
+    if ($null -ne $core -and $null -ne $core.PSObject.Properties['Ready']) {
+        if (-not [bool]$core.Ready) { $idle = [string]$core.Reason }
+        else {
+            $data = $core.Data
+            $age = [double]$core.DataAgeDays
+        }
+    } else {
+        $path = Join-GdPath $S.paths.m9aDir @($S.paths.m9aActivityData)
+        # Test-GdPathReady 而不是 Test-Path：没跑 setup 时 $path 是空串，"缺少 ，按长草处理"那种半截话玩家看不懂
+        if (-not (Test-GdPathReady $path)) {
+            $why = if ($path) { "缺少 $path" } else { 'M9A 目录还没填(先跑 setup.ps1)' }
+            $idle = "$why，按长草处理"
+        } else {
+            $data = Read-GdJson -Path $path
+            $age = [math]::Round((New-TimeSpan -Start (Get-Item -LiteralPath $path).LastWriteTime).TotalDays, 1)
         }
     }
-    $data = Read-GdJson -Path $path
-    $age = [math]::Round((New-TimeSpan -Start (Get-Item -LiteralPath $path).LastWriteTime).TotalDays, 1)
+    if ($null -ne $idle) {
+        return [pscustomobject]@{
+            Mode = 'idle'; Version = $null; VersionName = $null; EventKey = $null; EventTip = $null
+            Reason = $idle; Instance = 'idle'; DataAge = $null; ShopDone = $false
+        }
+    }
 
     $a = @{ S = $S; Data = $data; Now = $now }
     if ($IgnoreShopDone) { $a['IgnoreShopDone'] = $true }

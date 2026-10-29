@@ -63,8 +63,8 @@
 #   Add-GdRescueRecord 的字段合成段 → verb rescue-entry(读写盘、Test-Path 守卫与裁剪留本壳；
 #                                  那枚壳整件随第二十刀刀③ 出仓，落盘面由 Rust 第 19 节读-改-写格＋第 30 节 H5/H6 接守)
 # 所以：改规则/文案请改 Vision.cs 并跑 panel-cs --visiontest 对真值，不要在这里加规则。
-# 现在留在 PS 侧的：Get-GdVisionTarget(命名约定探路)、Invoke-GdVisionAsk、Get-GdShotStats(要 Bitmap)、
-# Get-GdVisionApiKey(key 绝不进 JSON 信封)、Clear-* 系(摸盘的)——都是监督心跳与"只问不点"诊断入口还要用的零件。
+# 现在留在 PS 侧的：Get-GdVisionTarget(命名约定探路)、Get-GdShotStats(要 Bitmap)、
+# Get-GdVisionApiKey(key 绝不进 JSON 信封)、Clear-* 系(摸盘的)——都是监督心跳与"只问不点"诊断入口还要用的零件(Invoke-GdVisionAsk 一枚已于 2026-10-28 甲档第二十二刀出仓：它自第二十刀刀③ 起生产面 0 命中，问价那一路的对面现在是 C# 的 Live.VisionAsk 与 Rust 第 19 节的 vision-ask-model)。
 # 曾经按"编排层"理由留壳的 Invoke-GdVisionRescue / New-GdRescueSkip / Clear-GdRescueShotDir /
 # Get-GdRescueLedgerPath / Test-GdShotChanged / Add-GdRescueRecord 六枚已于 2026-10-28 甲档第二十刀刀③ 出仓：
 # 它的对面不再是 PS 活臂，而是两代 Rust 核＋金样，靶子闭包那套形状在核里由 resolve-rescue-context 一份 verb 回执复现。
@@ -272,22 +272,6 @@ function Invoke-GdVisionRaw {
         Error       = [string]$parsed.error
         RequestPath = $reqPath
     }
-}
-
-function Invoke-GdVisionAsk {
-    <# 问完直接给解析好的 verdict(兜底只要这一个结果)。任何一步不对都 throw，由调用方统一降级成"这轮不救"。
-       单独成函数就是为了给自检一个可以整体替换的假实现(自检绝不联网、也不起子进程)。
-       -Scene/-UserText 由靶子传进来：同一个模型，问端游窗口和问模拟器屏幕的话不一样。 #>
-    param(
-        [Parameter(Mandatory)]$S,
-        [Parameter(Mandatory)][string]$ImagePath,
-        [string]$Scene = '',
-        [string]$UserText = '',
-        [string]$Context = ''
-    )
-    $raw = Invoke-GdVisionRaw -S $S -ImagePath $ImagePath -Scene $Scene -UserText $UserText -Context $Context
-    if (-not $raw.Ok) { throw ([string]$raw.Error) }
-    return (Get-GdVisionVerdictFromText -Text $raw.Text)
 }
 
 function Clear-GdVisionFiles {

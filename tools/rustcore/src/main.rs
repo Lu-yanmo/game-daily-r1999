@@ -9139,7 +9139,7 @@ fn rescue_ledger_path(env: &RescueEnv) -> String {
     gd_join_path(&env.state_dir, &["rescue.json"])
 }
 
-/// `Clear-GdVisionFiles`(vision-rescue.ps1:293-301) 的"留哪几枚"那半，抽成纯函数：mtime 在自检里造不出可信次序，
+/// `Clear-GdVisionFiles`(vision-rescue.ps1:277-285) 的"留哪几枚"那半，抽成纯函数：mtime 在自检里造不出可信次序，
 /// 判据只能单独钉。同刻并列按输入先后（Rust sort_by 稳定；PS 的 Sort-Object 对同键不保证次序，
 /// 这一格两侧都不作判据 —— 门④的账本/截图比对口径因此不碰文件名顺序）。
 fn pick_stale(items: Vec<(String, u64)>, keep: usize) -> Vec<String> {
@@ -9296,7 +9296,7 @@ fn vision_rescue<H: MaaHost>(
         Ok(d) => d,
         Err(e) => return Ok(rescue_skip(format!("模型调用失败：{}", e))),
     };
-    // 真身的 Invoke-GdVisionAsk 对 raw.Ok=false 是 throw（消息就是 Error），罩它的 catch 拼成下面这句。
+    // 旧真身 Invoke-GdVisionAsk（那枚壳于甲档第二十二刀出仓）对 raw.Ok=false 是 throw（消息就是 Error），罩它的 catch 拼成下面这句。
     if !jv_truthy(&jv_get(&ask, "Ok")) {
         return Ok(rescue_skip(format!(
             "模型调用失败：{}",
@@ -15655,8 +15655,8 @@ fn selftest() -> i32 {
         &mut fails,
         &mut total,
     );
-    // 第二十刀刀③ 补尺②：-Context 从入口原样递到问价层（PS 侧那枚文本钉 `-match 'Invoke-GdVisionAsk.*\$Context'`
-    // 随摘件失去对面）。同一张画面，带不带"卡在哪个任务、重复点了多少次"模型挑出的挡路货不一样，而兜底一轮
+    // 第二十刀刀③ 补尺②：-Context 从入口原样递到问价层（PS 侧那枚文本钉钉的是转发壳 `-match 'Invoke-GdVisionRaw.*\$Context'`，
+    // 它随甲档第二十二刀 Ask 壳出仓一并退役，自此这条判据只有核内这一处）。同一张画面，带不带"卡在哪个任务、重复点了多少次"模型挑出的挡路货不一样，而兜底一轮
     // 就那么几次机会——所以这一格钉的是**值本身**到了，不是"有个这键"。截 200 字的规矩住 C#（--livetest 那格钉过）。
     let b19ask_body = b19h_ok
         .body_of("vision-ask-model")

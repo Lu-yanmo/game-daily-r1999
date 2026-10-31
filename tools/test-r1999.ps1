@@ -114,12 +114,12 @@ try {
         })
     $x1 = Resolve-R1999Plan -S $S -Data $rData -Now $nowMs
     Check '1999 主线未确认 → 长草+pending' ($x1.Mode -eq 'event-pending' -and $x1.Instance -eq 'idle') $x1.Reason
-    # 提示语是给用户照抄的：单游戏入口只有 -Ack / -ShopReset，写死 -Ack1999 会让人敲一个不存在的参数
-    Check '未确认的提示语用短参数名 -Ack(不是 -Ack1999)' (($x1.Reason -match 'daily-clear\.ps1 -Ack(?!1999)') -and ($x1.Reason -notmatch 'Ack1999')) $x1.Reason
+    # 10-30 B-3②-d 刀①：body 摘掉 verbAck／verbShopReset 两枚键 ⇒ 判定层不再往提示语里拼开关名；旧那句"照抄就能跑"的分工自此归入口自己的帮助面。
+    Check '未确认的提示语不再带 verb 名(反向钉：出现 daily-clear 即红)' (($x1.Reason -notmatch 'daily-clear') -and ($x1.Reason -match '本轮跑长草方案')) $x1.Reason
     Set-GdEntryVerb -Game r1999 -Verb Ack -Name '-Ack1999'
     try {
         $x1b = Resolve-R1999Plan -S $S -Data $rData -Now $nowMs
-        Check '入口覆盖参数名后提示语跟着改(合体工程就是这么跑的)' ($x1b.Reason -match 'daily-clear\.ps1 -Ack1999') $x1b.Reason
+        Check '现场覆盖 verb 名不再渗进提示语(摘 body 键后覆盖只归 [t1c] 钉真身)' (($x1b.Reason -notmatch 'Ack1999') -and ($x1b.Reason -match '本轮跑长草方案')) $x1b.Reason
     } finally { Set-GdEntryVerb -Game r1999 -Verb Ack -Name '-Ack' }
     Set-GdAckKey -Game 'r1999' -Key '9.9-combat'
     $x2 = Resolve-R1999Plan -S $S -Data $rData -Now $nowMs
@@ -127,7 +127,7 @@ try {
     Set-GdShopDoneKey -Game 'r1999' -Key '9.9-combat'
     $x3 = Resolve-R1999Plan -S $S -Data $rData -Now $nowMs
     Check '1999 商店领空 → 长草实例' ($x3.Mode -eq 'idle' -and $x3.Instance -eq 'idle' -and $x3.ShopDone) $x3.Reason
-    Check '领空回落的提示语用短参数名 -ShopReset' (($x3.Reason -match 'daily-clear\.ps1 -ShopReset(?!\w)') -and ($x3.Reason -notmatch 'RShop')) $x3.Reason
+    Check '领空回落的提示语不再带 verb 名(10-30 B-3②-d 刀① 摘掉 body 两枚键，反向钉：出现即红)' (($x3.Reason -notmatch 'daily-clear') -and ($x3.Reason -match '本轮跑长草方案')) $x3.Reason
     Check '1999 领空后仍可撤销' ((Resolve-R1999Plan -S $S -Data $rData -Now $nowMs -IgnoreShopDone).Mode -eq 'event')
     Check '1999 撤销标记生效' ((Remove-GdShopDoneKey -Game 'r1999' -Key '9.9-combat') -and (Resolve-R1999Plan -S $S -Data $rData -Now $nowMs).Mode -eq 'event')
     Check '1999 重复撤销返回 false' ((Remove-GdShopDoneKey -Game 'r1999' -Key '9.9-combat') -eq $false)

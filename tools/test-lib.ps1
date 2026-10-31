@@ -179,13 +179,24 @@ function Show-GdCommonVerbChecks {
     $gotAck = Get-GdEntryVerb -Game ark -Verb Ack
     $gotShop = Get-GdEntryVerb -Game r1999 -Verb ShopDone
     Check "Sync-GdEntryVerbs 按本仓库入口给名字(合体工程=$merged)" (($gotAck -eq $wantAck) -and ($gotShop -eq $wantShop)) "ark Ack=$gotAck r1999 ShopDone=$gotShop"
-    # Sync 一次改的是六格，这里也得六格全还原：[t7] 那几条断言的是"默认(短名)行为"，
-    # 漏一格就会在后面假红(第一版就漏了 ShopReset 那两格)。
-    foreach ($g in @('ark', 'r1999')) {
-        Set-GdEntryVerb -Game $g -Verb Ack -Name '-Ack'
-        Set-GdEntryVerb -Game $g -Verb ShopDone -Name '-ShopDone'
-        Set-GdEntryVerb -Game $g -Verb ShopReset -Name '-ShopReset'
+    # 还原面不许在这里数枚数：Sync 两支各写几格由它自己决定(清单支看每份清单声明了哪几枚 verb，回落支看那张表)，
+    # 这里只按"这张表里真被写过什么"逐格还原 —— verb 名册从 Get-GdEntryVerb 的 ValidateSet 现读(那才是名单事实源)，
+    # 游戏名册从这张表自己的键现读(Sync 写过谁就还原谁)。旧那句「Sync 一次改的是六格」就是这么一笔陈旧数：
+    # ark 清单带 Farm 之后 Sync 两支各写 7 格、还原循环还停在 3×2＝6 格，漏的那一格因为全仓没人读它而一直不响
+    # (docs\rust-core-plan.md §11.176 ⑧ 登记的正是这一形：枚数写进注释就和代码不同源)。
+    # [t7] 那几条断言的是"默认(短名)行为"，漏一格就会在后面假红(第一版就漏了 ShopReset 那两格)。
+    $verbAttr = @((Get-Command Get-GdEntryVerb).Parameters['Verb'].Attributes |
+        Where-Object { $_ -is [System.Management.Automation.ValidateSetAttribute] })
+    $verbRoster = @()
+    if ($verbAttr.Count) { $verbRoster = @($verbAttr[0].ValidValues) }
+    Check '[t1c] verb 名册现读自 Get-GdEntryVerb 的 ValidateSet(还原面跟着它走，不跟注释里的枚数走)' ($verbRoster.Count -ge 3) ($verbRoster -join ' / ')
+    $evTable = Get-GdEntryVerbs
+    foreach ($evGame in @($evTable.Keys)) {
+        foreach ($evVerb in $verbRoster) { $evTable[$evGame].Remove($evVerb) }
     }
+    $evLeft = 0
+    foreach ($evGame in @($evTable.Keys)) { $evLeft += @($evTable[$evGame].Keys).Count }
+    Check '[t1c] 还原后这张表没有残留覆盖(Sync 写过几格就还原几格)' ($evLeft -eq 0) "剩余 $evLeft 格 / 游戏 $(@($evTable.Keys).Count) 款"
 }
 
 # 提示语"照抄就能跑"是这一路的用户界面：日志里让用户敲一个本仓库入口没有的参数名，点了就报"找不到参数"。

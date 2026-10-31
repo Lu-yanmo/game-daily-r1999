@@ -7095,7 +7095,7 @@ fn round_answer(
             DirectOut::only(JVal::B(true))
         }
         ("round", a) if a == GD_MODULE_ARK.probe_act => {
-            // R9-a 收编：活动图每轮自证（lib\ark-decisions.ps1:146-177 的采集段整段）。
+            // R9-a 收编：活动图每轮自证（lib\ark-decisions.ps1:144-175 的采集段整段）。
             // 观测读数现采 ⇒ `round_obs_fetch`；两枚前置闸（EventKey／StageHint 给不出就不采）、
             // 四档判据与落盘都在新立的 `update-ark-event-probe` 里（判据那半复用同装配的
             // `decide-ark-event-probe` 本体，**不在核内抄第二份**）。
@@ -7145,7 +7145,7 @@ fn round_answer(
         ("ark", "svdetail") => {
             // R9-a 收编：这一格要的是"屏保当时装着什么"那枚**活读**（HKCU\Control Panel\Desktop 的稳态，
             // 不是 SPI 现值 —— 新立的 `read-screensaver-config` 逐字照 Get-GdScreensaverConfig），
-            // 判据与四档话术**仍在那枚既有 verb** 里（`resolve-screensaver-verdict`／Decisions.cs:436-490）。
+            // 判据与四档话术**仍在那枚既有 verb** 里（`resolve-screensaver-verdict`／Decisions.cs:432-486）。
             // ⚠ **恒返串**：真身那一整段是 `try { … } catch { $svTxt = '' }`（executor 的 `'svdetail'` 答臂，按坐标清账批口径不引行号），
             //   两枚 verb 任何一发起不来都不许把错冒泡成本轮崩，只答空串（早退原因少掉屏保那一行）。
             //   注册表读不到 ≠ 起不来：那一档 verb 返 `Found:false` ⇒ cfg 交 **Null** ⇒ 判定给出
@@ -7787,7 +7787,7 @@ fn daily_round_chain(
                         );
                         match p {
                             // 三句话术由答手（新立的 `update-ark-event-probe`）带**档位**回来，这里转成
-                            // 一行账外日志：真身那三句用的是 WARN／OK／WARN（lib\ark-decisions.ps1:160/172/174），
+                            // 一行账外日志：真身那三句用的是 WARN／OK／WARN（lib\ark-decisions.ps1:158/170/172），
                             // 而 `DirectOut.lines` 只会按 INFO 落侧信道 ⇒ 走 `fx_log` 才不降档。
                             // 空串＝这一轮没什么要说（EventKey／StageHint 给不出那一档，verb 原样返空）。
                             Ok(d) => {

@@ -145,7 +145,7 @@ function Invoke-GdCli {
       唯一转发通道：把 Body 序列化成临时 JSON 走 --in，读回 --out 信封后把 data 交出去。
       退出码语义(0 完成 / 1 内部错 / 2 前置缺或规则拒)：非 0 一律 throw —— 判定层拿不到可信结论时，
       宁可这一轮拒跑，也不带着猜出来的配置继续跑(与 Stop-GdBeforeRun 同哲学)。
-      throw 的是信封 error 原话；调用方怎么处置这句，各家不一样(10-19 C-3 首刀〗i 现读；⚠ 10-19 〗q 补一层：下面两枚 catch 包的都是 Resolve-R1999Instance，原话经 lib\r1999-decisions.ps1:100 那一发 Invoke-GdCli 传上来，而直接调 Invoke-GdCli 的那发不在这一对 try/catch 面内)：
+      throw 的是信封 error 原话；调用方怎么处置这句，各家不一样(10-19 C-3 首刀〗i 现读；⚠ 10-19 〗q 补一层：下面两枚 catch 包的都是 Resolve-R1999Instance，原话经 lib\r1999-decisions.ps1:98 那一发 Invoke-GdCli 传上来，而直接调 Invoke-GdCli 的那发不在这一对 try/catch 面内)：
       lib\r1999-daily.ps1:84 catch 后打一条 ERROR 日志再原样 throw(〗u 重取：catch 紧跟 try 那行)；lib\r1999-status.ps1:48 catch 把它接在 Reason
       后面打印，但不改 $r.Reason。原注那句"调用方(Show-GdDecision)会把这句并进 Reason"随那枚真身一起作废——
       "并进 Reason"那种写法全仓只有 decisions.ps1 里那一处，〗i 之后它已不在场(读数见 docs\rust-core-plan.md §11.81)。

@@ -68,7 +68,7 @@ namespace GdPanel
         }
 
         // 第 7 枚入参 probe = 上一轮"拿活动最后一关当探针试打"的现场结论(state\ark-event-probe.json 同构)。
-        // ack / verbAck 判定层已不读，夹具照样喂：壳侧那一段 body 构造是 ark 与 1999 共用的，喂着才像真输入。
+        // ack / verbAck 判定层已不读(10-12 第 1 刀)；⚠ 10-30 B-3②-d 刀① 起 verbAck／verbShopReset 两枚键从 body 摘掉，壳侧不传、判定层连读取一并摘 ⇒ 夹具跟着不再喂(喂着反而不像真输入)。decide-r1999 段末尾那格「防回归」是唯一例外，它故意手构一份带这两枚键的 body，钉"就算壳侧误传也不进文案"。
         static Dictionary<string, object> ArkIn(object data, long now, string source,
             Dictionary<string, object> ack, Dictionary<string, object> shopDone, int dow,
             Dictionary<string, object> probe)
@@ -80,7 +80,7 @@ namespace GdPanel
                 "planByWeekday", Gd.Out("3", "LS-6"));
             return Gd.Out(
                 "ark", ark, "dow", dow, "now", now, "data", data, "source", source,
-                "ack", ack, "shopDone", shopDone, "verbAck", "-Ack", "verbShopReset", "-ShopReset",
+                "ack", ack, "shopDone", shopDone,
                 "probe", probe);
         }
 
@@ -228,14 +228,14 @@ namespace GdPanel
                         ArkIn(SideStory(oneGrp), now, "假数据", null, null, 5, ProbeToday("zztest-event2", false, ""))));
                     return (string)r["Mode"] == "event" && (string)r["Stage"] == "AI-8";
                 });
-                b.Chk("ark 唯一活动已领空 → 回落长草 + ShopDone + 恢复提示 -ShopReset", delegate
+                b.Chk("ark 唯一活动已领空 → 回落长草 + ShopDone(10-30 B-3②-d 刀① 起这句不再带恢复用的 verb 名)", delegate
                 {
                     Dictionary<string, object> ack = Gd.Out("zztest-event", true);
                     Dictionary<string, object> sd = Gd.Out("zztest-event", true);
                     Dictionary<string, object> r = Gd.Map(Decisions.Ark(ArkIn(SideStory(oneGrp), now, "假数据", ack, sd, 5)));
                     return (string)r["Mode"] == "idle" && (bool)r["ShopDone"] && (bool)r["ClearSanity"]
                         && (string)r["EventKey"] == "zztest-event"   // 领空后仍能报出活动 id(供撤销)
-                        && (string)r["Reason"] == "活动[测试活动]商店已标记领空 → 剩余理智改刷长草计划 CE-5,LS-5(要恢复刷活动：daily-clear.ps1 -ShopReset)(数据源：假数据)";
+                        && (string)r["Reason"] == "活动[测试活动]商店已标记领空 → 剩余理智改刷长草计划 CE-5,LS-5(数据源：假数据)";
                 });
                 b.Chk("ark 两活动：A 领空 + 当日 B 被剪 → pending 且带'另有 1 个…已跳过'尾巴", delegate
                 {
@@ -355,13 +355,13 @@ namespace GdPanel
                 });
 
                 // ---------- decide-r1999 ----------
-                Func<Dictionary<string, object>, Dictionary<string, object>, Dictionary<string, object>, bool, string, string, Dictionary<string, object>> rIn =
-                    delegate(Dictionary<string, object> data, Dictionary<string, object> ack, Dictionary<string, object> sd, bool requiresAck, string vAck, string vReset)
+                Func<Dictionary<string, object>, Dictionary<string, object>, Dictionary<string, object>, bool, Dictionary<string, object>> rIn =
+                    delegate(Dictionary<string, object> data, Dictionary<string, object> ack, Dictionary<string, object> sd, bool requiresAck)
                     {
                         return Gd.Out(
                             "re1999", Gd.Out("mainStoryRequiresAck", requiresAck),
                             "now", now, "data", data, "ack", ack ?? new Dictionary<string, object>(),
-                            "shopDone", sd ?? new Dictionary<string, object>(), "verbAck", vAck, "verbShopReset", vReset);
+                            "shopDone", sd ?? new Dictionary<string, object>());
                     };
                 Func<long, long, string, object, Dictionary<string, object>> ver =
                     delegate(long vs, long ve, string name, object act)
@@ -374,21 +374,21 @@ namespace GdPanel
                 b.Chk("r1999 不在版本窗口 → 长草 + 数据过期提醒", delegate
                 {
                     Dictionary<string, object> past = Gd.Out("1.8", ver(vStart - 86400000L * 20, Ms("2026-09-20 04:00:00"), "旧版本", Gd.Out()));
-                    Dictionary<string, object> r = Gd.Map(Decisions.R1999(rIn(past, null, null, true, "-AckR1999", "-ShopResetR1999")));
+                    Dictionary<string, object> r = Gd.Map(Decisions.R1999(rIn(past, null, null, true)));
                     return (string)r["Mode"] == "idle" && (string)r["Instance"] == "idle"
                         && (string)r["Reason"] == "不在任何已记录版本的窗口内 → 长草；活动数据只记录到 2026-09-20，可能未更新";
                 });
                 b.Chk("r1999 主线进行中未确认 → pending(Instance=idle)", delegate
                 {
-                    Dictionary<string, object> r = Gd.Map(Decisions.R1999(rIn(dataMain, null, null, true, "-AckR1999", "-ShopResetR1999")));
+                    Dictionary<string, object> r = Gd.Map(Decisions.R1999(rIn(dataMain, null, null, true)));
                     return (string)r["Mode"] == "event-pending" && (string)r["Instance"] == "idle"
                         && (string)r["EventKey"] == "1.9-combat" && (string)r["EventTip"] == "版本名"
-                        && (string)r["Reason"] == "版本 1.9[版本名]主线活动进行中(至 09-26 18:00)，未确认手动通关 → 本轮跑长草方案；确认后运行 daily-clear.ps1 -AckR1999";
+                        && (string)r["Reason"] == "版本 1.9[版本名]主线活动进行中(至 09-26 18:00)，未确认手动通关 → 本轮跑长草方案";
                 });
                 b.Chk("r1999 确认后(或 requireAck=false) → event(Instance=event)", delegate
                 {
-                    Dictionary<string, object> r = Gd.Map(Decisions.R1999(rIn(dataMain, Gd.Out("1.9-combat", true), null, true, "-AckR1999", "-ShopResetR1999")));
-                    Dictionary<string, object> r2 = Gd.Map(Decisions.R1999(rIn(dataMain, null, null, false, "-AckR1999", "-ShopResetR1999")));
+                    Dictionary<string, object> r = Gd.Map(Decisions.R1999(rIn(dataMain, Gd.Out("1.9-combat", true), null, true)));
+                    Dictionary<string, object> r2 = Gd.Map(Decisions.R1999(rIn(dataMain, null, null, false)));
                     return (string)r["Mode"] == "event" && (string)r["Instance"] == "event"
                         && (string)r["Reason"] == "版本 1.9[版本名]活动进行中(09-20 04:00 ~ 09-26 18:00)"
                         && (string)r2["Mode"] == "event";
@@ -397,42 +397,41 @@ namespace GdPanel
                 {
                     Dictionary<string, object> d = Gd.Out("1.9", ver(vStart, vEnd, "版本名", Gd.Out(
                         "combat", Gd.Out("start_time", start, "end_time", end, "event_type", "Activity"))));
-                    Dictionary<string, object> r = Gd.Map(Decisions.R1999(rIn(d, null, null, true, "-AckR1999", "-ShopResetR1999")));
+                    Dictionary<string, object> r = Gd.Map(Decisions.R1999(rIn(d, null, null, true)));
                     return (string)r["Mode"] == "event";
                 });
                 b.Chk("r1999 商店领空 → idle 但保留 EventKey/EventTip", delegate
                 {
-                    Dictionary<string, object> r = Gd.Map(Decisions.R1999(rIn(dataMain, Gd.Out("1.9-combat", true), Gd.Out("1.9-combat", true), true, "-AckR1999", "-ShopResetR1999")));
+                    Dictionary<string, object> r = Gd.Map(Decisions.R1999(rIn(dataMain, Gd.Out("1.9-combat", true), Gd.Out("1.9-combat", true), true)));
                     return (string)r["Mode"] == "idle" && (bool)r["ShopDone"] && (string)r["EventKey"] == "1.9-combat"
-                        && (string)r["Reason"] == "版本 1.9[版本名]活动商店已标记领空 → 本轮跑长草方案(要恢复：daily-clear.ps1 -ShopResetR1999)";
+                        && (string)r["Reason"] == "版本 1.9[版本名]活动商店已标记领空 → 本轮跑长草方案";
                 });
-                b.Chk("r1999 verb 覆盖：pending 只带 verbAck、商店领空只带 verbShopReset(两值不串)", delegate
+                b.Chk("r1999 防回归：body 里误带 verbAck／verbShopReset 两枚键也不许拼进文案(10-30 B-3②-d 刀① 摘键后)", delegate
                 {
-                    Dictionary<string, object> p = Gd.Map(Decisions.R1999(rIn(dataMain, null, null, true, "--ack-测试", "--reset-测试")));
-                    Dictionary<string, object> s = Gd.Map(Decisions.R1999(rIn(dataMain, null, Gd.Out("1.9-combat", true), true, "--ack-测试", "--reset-测试")));
-                    return (string)p["Mode"] == "event-pending"
-                        && (string)p["Reason"] == "版本 1.9[版本名]主线活动进行中(至 09-26 18:00)，未确认手动通关 → 本轮跑长草方案；确认后运行 daily-clear.ps1 --ack-测试"
-                        && (string)s["Mode"] == "idle" && (bool)s["ShopDone"]
-                        && (string)s["Reason"] == "版本 1.9[版本名]活动商店已标记领空 → 本轮跑长草方案(要恢复：daily-clear.ps1 --reset-测试)";
+                    // 手构一份"旧形状"的 body：两枚键仍在、值是自造的测试名。判定层现在一个字都不读它们 ⇒ Reason 必须与不喂键那一路逐字相等。
+                    Dictionary<string, object> p = Gd.Map(Decisions.R1999(Gd.Out("re1999", Gd.Out("mainStoryRequiresAck", true), "now", now, "data", dataMain, "ack", new Dictionary<string, object>(), "shopDone", new Dictionary<string, object>(), "verbAck", "--ack-测试", "verbShopReset", "--reset-测试")));
+                    Dictionary<string, object> s = Gd.Map(Decisions.R1999(Gd.Out("re1999", Gd.Out("mainStoryRequiresAck", true), "now", now, "data", dataMain, "ack", new Dictionary<string, object>(), "shopDone", Gd.Out("1.9-combat", true), "verbAck", "--ack-测试", "verbShopReset", "--reset-测试")));
+                    return (string)p["Mode"] == "event-pending" && (string)p["Reason"] == "版本 1.9[版本名]主线活动进行中(至 09-26 18:00)，未确认手动通关 → 本轮跑长草方案"
+                        && (string)s["Mode"] == "idle" && (bool)s["ShopDone"] && (string)s["Reason"] == "版本 1.9[版本名]活动商店已标记领空 → 本轮跑长草方案";
                 });
                 b.Chk("r1999 复刻窗口 → rerun", delegate
                 {
                     Dictionary<string, object> d = Gd.Out("1.9", ver(vStart, vEnd, "版本名", Gd.Out(
                         "re-release", Gd.Out("start_time", Ms("2026-09-21 00:00:00"), "end_time", Ms("2026-09-25 00:00:00")))));
-                    Dictionary<string, object> r = Gd.Map(Decisions.R1999(rIn(d, null, null, true, "-AckR1999", "-ShopResetR1999")));
+                    Dictionary<string, object> r = Gd.Map(Decisions.R1999(rIn(d, null, null, true)));
                     return (string)r["Mode"] == "rerun" && (string)r["Instance"] == "rerun" && (string)r["EventTip"] == "版本名 复刻"
                         && (string)r["Reason"] == "版本 1.9 复刻进行中(09-21 00:00 ~ 09-25 00:00)";
                 });
                 b.Chk("r1999 版本窗口内无活动 → 长草(带版本窗口说明)", delegate
                 {
                     Dictionary<string, object> d = Gd.Out("1.9", ver(vStart, vEnd, "版本名", Gd.Out()));
-                    Dictionary<string, object> r = Gd.Map(Decisions.R1999(rIn(d, null, null, true, "-AckR1999", "-ShopResetR1999")));
+                    Dictionary<string, object> r = Gd.Map(Decisions.R1999(rIn(d, null, null, true)));
                     return (string)r["Mode"] == "idle"
                         && (string)r["Reason"] == "版本 1.9[版本名]当前无进行中活动(版本窗口 09-15 04:00 ~ 09-29 04:00)→ 长草";
                 });
                 b.Chk("r1999 空数据也不炸", delegate
                 {
-                    Dictionary<string, object> r = Gd.Map(Decisions.R1999(rIn(new Dictionary<string, object>(), null, null, true, "-Ack", "-ShopReset")));
+                    Dictionary<string, object> r = Gd.Map(Decisions.R1999(rIn(new Dictionary<string, object>(), null, null, true)));
                     return (string)r["Mode"] == "idle" && ((string)r["Reason"]).StartsWith("不在任何已记录版本的窗口内 → 长草");
                 });
 

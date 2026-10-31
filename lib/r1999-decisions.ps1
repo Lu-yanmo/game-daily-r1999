@@ -32,8 +32,6 @@ function Resolve-R1999Plan {
         data = $Data
         ack = (Get-GdAckMap -Game 'r1999')
         shopDone = $shopDone
-        verbAck = (Get-GdEntryVerb -Game r1999 -Verb Ack)
-        verbShopReset = (Get-GdEntryVerb -Game r1999 -Verb ShopReset)
     }
     return Invoke-GdCli -Verb 'decide-r1999' -Body $body
 }

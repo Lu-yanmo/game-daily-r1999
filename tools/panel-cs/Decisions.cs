@@ -5,8 +5,8 @@
 // 判定面由本目录 Decisions.SelfTest.cs 逐项做**取值断言**(随 build.ps1 -Verify 的 --dectest 跑)，有差异回修这里，禁止放宽对拍。⚠ 10-26 甲档第六刀起 tools\probe-decisions-golden.ps1 不再拿 git 里的旧实现做全字面对拍——那 45 档点的是 HEAD 里两份 PS 件的逐字副本(与现树同一份代码、没有对面)；第八刀把最后留下的屏保 14 档逐字搬进本目录(场景与旧门同名)并整件退役，那座门自此不存在(取证见 docs\rust-core-plan.md §11.141／§11.144)。
 //
 // 输入形状(转发壳组装、--in 文件送来)：各判定所需的一切都是**值**，不含任何现场副作用 ——
-//   decide-ark:            { ark:{…settings块…}, dow, now, data, source, ack:{…}, shopDone:{…}, verbAck, verbShopReset }
-//   decide-r1999:          { re1999:{…}, now, data, ack:{…}, shopDone:{…}, verbAck, verbShopReset }
+//   decide-ark:            { ark:{…settings块…}, dow, now, data, source, ack:{…}, shopDone:{…} }
+//   decide-r1999:          { re1999:{…}, now, data, ack:{…}, shopDone:{…} }
 //   check-stages:          { table:{关卡:理智}, stageText }
 //   r1999-instance:        { dir, want, planKey }
 // 输出进信封 data，键名与声明顺序照抄原 pscustomobject(顺序过得了对拍的 ConvertTo-Json 比对)。
@@ -154,10 +154,9 @@ namespace GdPanel
             object data = Gd.Get(inp, "data");
             string source = Gd.Str(Gd.Get(inp, "source"));
             if (source.Length == 0) source = "无数据";
-            // ack / verbAck 两枚入参自 10-12 第 1 刀起不再读(-AckArk 退场)：壳侧仍会传(1999 那一路共用同一段
-            // body 构造)，判定层不碰它们即可 —— 少一行读取就少一个"提示语指向一枚已经不存在的开关"的假文案。
+            // ack / verbAck 两枚入参自 10-12 第 1 刀起不再读(-AckArk 退场)；⚠ 10-30 B-3②-d 刀① 起壳侧连传都不传了
+            // (body 摘掉 verbAck／verbShopReset 两枚键)，于是这里连"不碰即可"都省了 —— 少一行读取就少一个假文案。
             Dictionary<string, object> shopDone = Gd.Map(Gd.Get(inp, "shopDone")) ?? new Dictionary<string, object>();
-            string verbShopReset = Gd.Str(Gd.Get(inp, "verbShopReset"));
             int dow = Gd.Int(Gd.Get(inp, "dow"), 0);
 
             string idlePlan = Gd.Str(Gd.Get(Gd.Get(arkBlock, "planByWeekday"), dow.ToString(CultureInfo.InvariantCulture)));
@@ -246,8 +245,7 @@ namespace GdPanel
             {
                 List<string> tips = new List<string>();
                 foreach (Dictionary<string, object> e in emptied) tips.Add(Gd.Str(e["Tip"]));
-                return idle("活动[" + string.Join("、", tips.ToArray()) + "]商店已标记领空 → 剩余理智改刷长草计划 " + idlePlan
-                            + "(要恢复刷活动：daily-clear.ps1 " + verbShopReset + ")",
+                return idle("活动[" + string.Join("、", tips.ToArray()) + "]商店已标记领空 → 剩余理智改刷长草计划 " + idlePlan,
                             Gd.Str(emptied[0]["Id"]), Gd.Str(emptied[0]["Tip"]), true);
             }
 
@@ -312,8 +310,6 @@ namespace GdPanel
             object data = Gd.Get(inp, "data");
             Dictionary<string, object> ack = Gd.Map(Gd.Get(inp, "ack")) ?? new Dictionary<string, object>();
             Dictionary<string, object> shopDone = Gd.Map(Gd.Get(inp, "shopDone")) ?? new Dictionary<string, object>();
-            string verbAck = Gd.Str(Gd.Get(inp, "verbAck"));
-            string verbShopReset = Gd.Str(Gd.Get(inp, "verbShopReset"));
 
             Dictionary<string, object> versions = Gd.Map(data) ?? new Dictionary<string, object>();
             KeyValuePair<string, object> cur = new KeyValuePair<string, object>();
@@ -352,7 +348,7 @@ namespace GdPanel
                 if (shopDone.ContainsKey(key))
                 {
                     result["ShopDone"] = true;
-                    result["Reason"] = "版本 " + cur.Key + "[" + vName + "]活动商店已标记领空 → 本轮跑长草方案(要恢复：daily-clear.ps1 " + verbShopReset + ")";
+                    result["Reason"] = "版本 " + cur.Key + "[" + vName + "]活动商店已标记领空 → 本轮跑长草方案";
                     return result;
                 }
                 if (isMain && Gd.Truthy(Gd.Get(re, "mainStoryRequiresAck")) && !ack.ContainsKey(key))
@@ -360,7 +356,7 @@ namespace GdPanel
                     result["Mode"] = "event-pending";
                     result["Instance"] = "idle";
                     result["Reason"] = "版本 " + cur.Key + "[" + vName + "]主线活动进行中(至 " + Gd.Fmt(Gd.Get(combat, "end_time"))
-                                       + ")，未确认手动通关 → 本轮跑长草方案；确认后运行 daily-clear.ps1 " + verbAck;
+                                       + ")，未确认手动通关 → 本轮跑长草方案";
                 }
                 else
                 {

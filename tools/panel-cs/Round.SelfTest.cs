@@ -32,7 +32,7 @@
 // Start-GdArkClient＋Wait-GdArkLauncherReady / Start-GdMuMu / Set-MaaDailyConfig / Set-M9AInstance /
 // Update-GdArkFarmLedger —— 逐条出处见 Chain.cs 头注的两段双源登记)、
 // R9-a 那四枚的对应真身(Get-GdScreensaverConfig(common.ps1:359-378) / Enter-GdNoSleep 的 keepScreenOn 半段
-// (该真身整枚已于丙档落码刀①从 lib\common.ps1 删除，去向见 docs\rust-core-plan.md §11.116) / Add-GdHistory(common.ps1:870-898) / Update-GdArkEventProbe(ark-decisions.ps1:146-177)
+// (该真身整枚已于丙档落码刀①从 lib\common.ps1 删除，去向见 docs\rust-core-plan.md §11.116) / Add-GdHistory(common.ps1:870-898) / Update-GdArkEventProbe(ark-decisions.ps1:144-175)
 // —— 逐条出处见 Round.cs 与 Round.Data.cs 各自那段的头注)——
 // 生产接线(②-d)之前它们仍是事实源(Enter-GdNoSleep 那半段除外——PS 侧原身已于丙档落码刀①删除，那一格没有原身可对)，这里红了就是移植走样，
 // 改 Round.cs / Round.Data.cs / Chain.cs，不改这里的期望(批次 1 起同一条纪律)。
@@ -2053,7 +2053,7 @@ namespace GdPanel
                     && !Directory.Exists(ghostDir) && !File.Exists(Path.Combine(ghostDir, "history.csv"));
             });
 
-            // ---------- update-ark-event-probe(Update-GdArkEventProbe，ark-decisions.ps1:146-177) ----------
+            // ---------- update-ark-event-probe(Update-GdArkEventProbe，ark-decisions.ps1:144-175) ----------
             // 回执三键(Written/NoticeLevel/NoticeText)；两枚前置闸与三档"不落地"都不写盘，只有 Valid 那几档写。
             // 档位必须逐字(WARN/OK/WARN)：核内段 9 用 fx_log 转成一行账外日志，`DirectOut.lines` 只会按 INFO 落，
             // 降档就是改话术的面(§11.67 那条收编理由)，所以这里把**档位与文字**并成一格比。

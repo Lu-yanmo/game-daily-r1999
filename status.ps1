@@ -64,14 +64,14 @@ function Get-GdStatusModule {
     return $mods
 }
 
-# 注册表要先装满，后面的 Sync-GdEntryVerbs / 体检分段问的都是它
+# 注册表要先装满，后面 Get-GdEntryVerb 现问的、体检分段问的都是它
 [void](Import-GdModules -Quiet)
 
 # 提示语里"下一步敲什么"必须跟着本仓库入口的参数名走：合体工程 → -ArkShopDone/-RShopDone，单游戏仓库 → -ShopDone/-ShopReset。
 # 以前这六行映射只写在 daily-clear.ps1 里，于是 status 打出来的是短名、合体入口却不认(2026-09-24 发现)。
 # 追加(2026-10-12 第 1 刀)：方舟的 -AckArk 已从入口退场(活动改每轮机器自证)，所以这里的举例不再用它，
-# 但 Sync 本身照常注册 ark 的那枚 Ack 占位名 —— Rust 链体的 entryverb ask 名册没变，见 lib\ark-module.ps1 的注释。
-if (Test-GdFunc 'Sync-GdEntryVerbs') { Sync-GdEntryVerbs }
+#   但 ark 清单里那枚 Ack 占位名仍在 —— Rust 链体的 entryverb ask 名册没变，见 lib\ark-module.ps1 的注释。
+# 追加(11-01 丙形真转接，§11.176 ⑥)：这里不再点同步件把长名盖进进程内的表，Get-GdEntryVerb 现问上面装满的注册表。
 
 $mods = @(Get-GdStatusModule)
 

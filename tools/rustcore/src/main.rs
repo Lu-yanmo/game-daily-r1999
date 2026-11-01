@@ -6715,10 +6715,10 @@ fn round_is_merged_entry(root: &str) -> bool {
         > 1
 }
 
-/// `Get-GdEntryVerb -Game <id> -Verb <verb>`（lib\decisions-common.ps1:147）的等价：
-/// 查内建名册 → 查不到回落 `'-' + $Verb` 这种短名。**回落那一档必须留着**（合体树上没注册的那一枚
-/// 就是靠它拿到短名），但名册在场时不许越过它去回短名 —— §11.50 ④-4 抓的就是"写成短名了事"。
-/// `Sync-GdEntryVerbs` 的覆盖层（入口运行时按命令行参数再盖一层）仍在射程外，已登记。
+/// `Get-GdEntryVerb -Game <id> -Verb <verb>`（lib\decisions-common.ps1）的等价：合体闸 → 该路清单在位 → 名册里有这枚 verb，
+/// 三闸任一没过就回落 `'-' + $Verb` 这种短名。**回落那一档必须留着**（合体树上没注册的那一枚就是靠它拿到短名），
+/// 但名册在场时不许越过它去回短名 —— §11.50 ④-4 抓的就是"写成短名了事"。
+/// 11-01 丙形真转接（§11.176 ⑥）：PS 侧那层"入口运行时把长名盖进进程内的表"的覆盖件已退役，两侧自此同一把尺＝现问名册；原先引用的那枚同步件只作历史所指，不再有坐标可指。
 fn round_entry_verb(game: &str, verb: &str, root: &str) -> String {
     let merged = round_is_merged_entry(root);
     if merged {

@@ -116,11 +116,11 @@ try {
     Check '1999 主线未确认 → 长草+pending' ($x1.Mode -eq 'event-pending' -and $x1.Instance -eq 'idle') $x1.Reason
     # 10-30 B-3②-d 刀①：body 摘掉 verbAck／verbShopReset 两枚键 ⇒ 判定层不再往提示语里拼开关名；旧那句"照抄就能跑"的分工自此归入口自己的帮助面。
     Check '未确认的提示语不再带 verb 名(反向钉：出现 daily-clear 即红)' (($x1.Reason -notmatch 'daily-clear') -and ($x1.Reason -match '本轮跑长草方案')) $x1.Reason
-    Set-GdEntryVerb -Game r1999 -Verb Ack -Name '-Ack1999'
-    try {
-        $x1b = Resolve-R1999Plan -S $S -Data $rData -Now $nowMs
-        Check '现场覆盖 verb 名不再渗进提示语(摘 body 键后覆盖只归 [t1c] 钉真身)' (($x1b.Reason -notmatch 'Ack1999') -and ($x1b.Reason -match '本轮跑长草方案')) $x1b.Reason
-    } finally { Set-GdEntryVerb -Game r1999 -Verb Ack -Name '-Ack' }
+    $x1b = Resolve-R1999Plan -S $S -Data $rData -Now $nowMs
+    # 11-01 丙形真转接(§11.176 ⑥)：现场覆盖件退役 ⇒ 这一格不再"先盖一枚长名再看它漏不漏"，改钉"现问到什么名都不许渗进提示语"。
+    #   它不再量的是旧那格的"覆盖只影响被写的那一款"——写侧没了，那一形从此不可能出现；跨款隔离这句归 [m6] 的现问面自证。
+    $evName1b = [string](Get-GdEntryVerb -Game 'r1999' -Verb 'Ack')
+    Check "现问到的开关名 [$($evName1b)] 不渗进未确认的提示语(出现即红)" (($x1b.Reason -notmatch [regex]::Escape($evName1b)) -and ($x1b.Reason -match '本轮跑长草方案')) $x1b.Reason
     Set-GdAckKey -Game 'r1999' -Key '9.9-combat'
     $x2 = Resolve-R1999Plan -S $S -Data $rData -Now $nowMs
     Check '1999 确认后 → 活动方案' ($x2.Mode -eq 'event' -and $x2.Instance -eq 'event')

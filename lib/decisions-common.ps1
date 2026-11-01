@@ -133,32 +133,36 @@ function Show-GdGateState {
 # ================= 入口参数名(只给提示语用) =================
 # 判定层会告诉用户"下一步敲什么"，但参数名是入口自己定的：单游戏仓库的入口用干净短名(-Ack / -ShopReset)，
 # 本地合体工程的入口两款混在一起、必须带前缀(-AckArk / -RShopDone)。
-# 所以提示语里不许写死参数名 —— 默认给短名(导出的仓库一个字都不用改)，合体工程的入口点完 lib 之后
-# 调一次 Sync-GdEntryVerbs(它按"这棵树有没有两路的编排文件"决定要不要换成长名)。
+# 所以提示语里不许写死参数名 —— 短名是回落那一支(导出的仓库一个字都不用改)，长名由该路模块清单自己声明。
 # tools\menu.ps1 那个方向(菜单去探测入口有哪些参数)是同一件事的另一半。
-function Get-GdEntryVerbs {
-    # 懒初始化：lib\common.ps1 开着 StrictMode 1.0，直接读未声明的 $script:GdEntryVerbs 会当场报错；
-    # 也不用在文件顶层赋初值 —— 那样同一个作用域被重复 dot-source 时会把入口已经覆盖过的表冲掉。
-    if (-not (Get-Variable -Name GdEntryVerbs -Scope Script -ErrorAction SilentlyContinue)) {
-        $script:GdEntryVerbs = @{}
-    }
-    return $script:GdEntryVerbs
-}
+# ⚠ 11-01 丙形真转接(§11.176 ⑥ 落码)：这一族原来不是"现问"，是"入口点完库调一次同步件、把长名盖进
+#   进程内的一张表"。那张表和模块清单自己声明的 EntryVerbs.Merged 是两份名册(不同源)，而它盖没盖取决于
+#   这个进程先跑过哪个入口 —— 漏调用的就是"提示语让你敲短名、可本仓库入口只认长名"那一形(2026-09-24 犯过)，
+#   调全了也只是把第二份名册按清单再抄一遍。现在 Get-GdEntryVerb 每次现问注册表，与 Rust 核
+#   tools\rustcore\src\main.rs 的 round_entry_verb 同一把尺；同步件与那张表的读写侧(现场覆盖件、取表件)
+#   连同那张写死的回落表一起退役。
+#   代价照登：注册表不在场的进程(只点 common＋decisions 的老消费方)现在只能看到短名 —— 那是回落那一支，
+#   tools\test-lib.ps1 [t1c] 的判语随之改成钉这一支；"清单在场⇒长名"那一支由 tools\test-modules.ps1 [m6]
+#   钉住(它装载得起来，并且拿入口自己的 param() 做对照，两把尺不同轴，所以不把装载面搬到 test-lib 去)。
 function Get-GdEntryVerb {
+    <# 现问，不落表：先判这棵树上把几路当一款游戏在管(合体才换长名)，是就现问该路清单自己声明的
+        EntryVerbs.Merged；问不到(注册表没装载／这一路不在这棵树上／这一路没声明这枚 verb)就回落干净短名。
+        判据与 tools\rustcore\src\main.rs 的 round_entry_verb 逐条对齐：合体闸按"编排文件在位"数，
+        取长名前再核该路自己那两把在位尺，名册里没这枚 verb 才落到 '-' + verb。 #>
     param([Parameter(Mandatory)][string]$Game,
           [Parameter(Mandatory)][ValidateSet('Ack', 'ShopDone', 'ShopReset', 'Farm')][string]$Verb)
-    $t = Get-GdEntryVerbs
-    if ($t.ContainsKey($Game) -and $t[$Game].ContainsKey($Verb) -and $t[$Game][$Verb]) { return $t[$Game][$Verb] }
-    # 没被 Sync 过 = 这就是单游戏仓库(或者只点了 common+decisions 的老消费方) → 干净短名
+    if ((Test-GdMergedEntry) -and (Get-Command Get-GdModules -ErrorAction SilentlyContinue)) {
+        foreach ($m in @(Get-GdModules)) {
+            if (([string]$m.Id) -ne $Game) { continue }
+            if (-not (Test-GdModuleInstalled -Module $m -Key 'OrchestrationLib')) { continue }
+            $v = $m.EntryVerbs.Merged
+            if (-not $v) { continue }
+            $name = [string]$v.$Verb
+            if ($name) { return $name }
+        }
+    }
+    # 回落：合体闸没过、注册表不在场、或这一路没声明这枚 verb —— 短名按被问的 verb 现拼，不许写死任何一枚。
     return '-' + $Verb
-}
-function Set-GdEntryVerb {
-    param([Parameter(Mandatory)][string]$Game,
-          [Parameter(Mandatory)][ValidateSet('Ack', 'ShopDone', 'ShopReset', 'Farm')][string]$Verb,
-          [Parameter(Mandatory)][string]$Name)
-    $t = Get-GdEntryVerbs
-    if (-not $t.ContainsKey($Game)) { $t[$Game] = @{} }
-    $t[$Game][$Verb] = $Name
 }
 function Test-GdMergedEntry {
     <# 这棵树是不是"一个入口管两款"的合体工程：判据用两路的编排文件在不在，
@@ -174,35 +178,4 @@ function Test-GdMergedEntry {
     }
     $lib = Join-Path $global:GD.Root 'lib'
     return ((Test-Path -LiteralPath (Join-Path $lib 'ark-daily.ps1')) -and (Test-Path -LiteralPath (Join-Path $lib 'r1999-daily.ps1')))
-}
-function Sync-GdEntryVerbs {
-    <# 每个"会打出下一步提示"的入口(daily-clear / status / probe-decisions / panel)点完库后调一次：
-        合体工程里把提示语换成本仓库入口真有的长参数名，单游戏仓库保持默认短名(一个字都不用改)。
-        为什么要收成一个函数、而不是各入口抄一遍六行映射：抄漏的地方就会出现
-        "status.ps1 让你敲 -Ack，可合体入口只有 -AckArk"这种情况(2026-09-24 就是这个样子)。
-        长参数名现在由各模块清单的 EntryVerbs.Merged 自己声明；注册表没装载的老消费方走下面那张回落表。 #>
-    if (-not (Test-GdMergedEntry)) { return }
-    if (Get-Command Get-GdModules -ErrorAction SilentlyContinue) {
-        $hits = 0
-        foreach ($m in @(Get-GdModules)) {
-            $v = $m.EntryVerbs.Merged
-            if (-not $v) { continue }
-            foreach ($k in @('Ack', 'ShopDone', 'ShopReset', 'Farm')) {
-                $name = [string]$v.$k
-                if (-not $name) { continue }
-                Set-GdEntryVerb -Game ([string]$m.Id) -Verb $k -Name $name
-                $hits++
-            }
-        }
-        if ($hits) { return }
-    }
-    foreach ($one in @(
-            @{ Game = 'ark'; Verb = 'Ack'; Name = '-AckArk' },
-            @{ Game = 'ark'; Verb = 'ShopDone'; Name = '-ArkShopDone' },
-            @{ Game = 'ark'; Verb = 'ShopReset'; Name = '-ArkShopReset' },
-            @{ Game = 'ark'; Verb = 'Farm'; Name = '-FarmArk' },
-            @{ Game = 'r1999'; Verb = 'Ack'; Name = '-Ack1999' },
-            @{ Game = 'r1999'; Verb = 'ShopDone'; Name = '-RShopDone' },
-            @{ Game = 'r1999'; Verb = 'ShopReset'; Name = '-RShopReset' }
-        )) { Set-GdEntryVerb -Game $one.Game -Verb $one.Verb -Name $one.Name }
 }

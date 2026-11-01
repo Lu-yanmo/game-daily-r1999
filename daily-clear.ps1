@@ -55,7 +55,7 @@ Write-GdLog (Get-GdCoreReadout)
 
 [void](Import-GdModules)
 foreach ($libPath in (Get-GdModuleLibPaths)) { . $libPath }
-Sync-GdEntryVerbs
+# 11-01 丙形真转接(§11.176 ⑥)：单游戏仓库里现问注册表走回落那一支，提示语保持本入口真认的干净短名，同步件已退役。
 
 # 没配置这件事由脚本自己用日志的格式说清楚就走(-TellAndExit)：裸 throw 到了顶层是一屏内部报错，
 # 双击的人只会以为程序坏了。

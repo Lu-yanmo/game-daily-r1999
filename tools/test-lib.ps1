@@ -159,44 +159,40 @@ function Show-GdCommonPathChecks {
 }
 
 # 单游戏仓库的提示语必须写它自己的参数名(否则用户照着日志敲 -AckArk，入口根本没这个参数)。
-# 判定层默认用干净短名，合体入口靠 Set-GdEntryVerb 覆盖 —— 这条把两侧行为都钉住。
+# 11-01 丙形真转接(§11.176 ⑥)改口：verb 名不再有"进程内可被现场覆盖的那张表"——取名函数每次现问模块注册表，
+# 问不到就回落干净短名。本枚件由 test-ark / test-r1999 点起来，那两本只载 common＋decisions、注册表不在场，
+# 所以这里量到的是回落那一支；"注册表在场⇒清单自己声明的长名"那一支由 tools\test-modules.ps1 [m6] 钉：它装载得起来，
+# 而且拿入口自己的 param() 做对照，两把尺不同轴 —— 把装载面搬过来只会并成一把，反而问不出新东西。
+# 旧那两格(现场覆盖只影响被写的那一款／还原后回到默认)随写侧一起退役：没有那张表就没有"盖了没还原"那一形，
+# 这一路不再量它；改量的是名册来源在不在、回落支逐枚逐款是不是短名、短名按被问的 verb 现拼还是写死。
 function Show-GdCommonVerbChecks {
-    Write-Host "`n[t1c] 提示语里的参数名(跟着入口走)"
-    $dArk = @((Get-GdEntryVerb -Game ark -Verb Ack), (Get-GdEntryVerb -Game ark -Verb ShopReset))
-    Check '默认提示用单游戏入口的干净短名' (($dArk -join ',') -eq '-Ack,-ShopReset') ($dArk -join ' , ')
-    Set-GdEntryVerb -Game ark -Verb Ack -Name '-AckArk'
-    $crossed = (Get-GdEntryVerb -Game r1999 -Verb Ack) -eq '-Ack'
-    $overrode = (Get-GdEntryVerb -Game ark -Verb Ack) -eq '-AckArk'
-    Set-GdEntryVerb -Game ark -Verb Ack -Name '-Ack'
-    Check '覆盖只影响那一款(ark 改了 r1999 仍是短名)' ($overrode -and $crossed) "ark=$(Get-GdEntryVerb -Game ark -Verb Ack) r1999=$(Get-GdEntryVerb -Game r1999 -Verb Ack)"
-    Check '还原后回到默认' ((Get-GdEntryVerb -Game ark -Verb Ack) -eq '-Ack')
-    # 上面那六行映射从入口脚本搬进了 Sync-GdEntryVerbs(status/探针/入口都用它)，所以"这个仓库该看到哪种名字"
-    # 也要在这里钉住：合体树给长名(入口只认 -AckArk)，单游戏导出树给短名(它的入口声明的就是 -Ack)。
-    $merged = Test-GdMergedEntry
-    $wantAck = '-Ack'; $wantShop = '-ShopDone'
-    if ($merged) { $wantAck = '-AckArk'; $wantShop = '-RShopDone' }
-    Sync-GdEntryVerbs
-    $gotAck = Get-GdEntryVerb -Game ark -Verb Ack
-    $gotShop = Get-GdEntryVerb -Game r1999 -Verb ShopDone
-    Check "Sync-GdEntryVerbs 按本仓库入口给名字(合体工程=$merged)" (($gotAck -eq $wantAck) -and ($gotShop -eq $wantShop)) "ark Ack=$gotAck r1999 ShopDone=$gotShop"
-    # 还原面不许在这里数枚数：Sync 两支各写几格由它自己决定(清单支看每份清单声明了哪几枚 verb，回落支看那张表)，
-    # 这里只按"这张表里真被写过什么"逐格还原 —— verb 名册从 Get-GdEntryVerb 的 ValidateSet 现读(那才是名单事实源)，
-    # 游戏名册从这张表自己的键现读(Sync 写过谁就还原谁)。旧那句「Sync 一次改的是六格」就是这么一笔陈旧数：
-    # ark 清单带 Farm 之后 Sync 两支各写 7 格、还原循环还停在 3×2＝6 格，漏的那一格因为全仓没人读它而一直不响
-    # (docs\rust-core-plan.md §11.176 ⑧ 登记的正是这一形：枚数写进注释就和代码不同源)。
-    # [t7] 那几条断言的是"默认(短名)行为"，漏一格就会在后面假红(第一版就漏了 ShopReset 那两格)。
+    Write-Host "`n[t1c] 提示语里的参数名(现问注册表，问不到回落短名)"
+    # 两本名册都现读：verb 名册来自取名函数自己的 ValidateSet(那才是名单事实源)，游戏名册来自 Get-GdGameIds。
+    # 写在这里的枚数不作数(旧那句「Sync 一次改的是六格」就是这么一笔陈旧数，§11.176 ⑧ 登记的正是这一形)。
     $verbAttr = @((Get-Command Get-GdEntryVerb).Parameters['Verb'].Attributes |
         Where-Object { $_ -is [System.Management.Automation.ValidateSetAttribute] })
     $verbRoster = @()
     if ($verbAttr.Count) { $verbRoster = @($verbAttr[0].ValidValues) }
-    Check '[t1c] verb 名册现读自 Get-GdEntryVerb 的 ValidateSet(还原面跟着它走，不跟注释里的枚数走)' ($verbRoster.Count -ge 3) ($verbRoster -join ' / ')
-    $evTable = Get-GdEntryVerbs
-    foreach ($evGame in @($evTable.Keys)) {
-        foreach ($evVerb in $verbRoster) { $evTable[$evGame].Remove($evVerb) }
+    Check '[t1c] verb 名册现读自 Get-GdEntryVerb 的 ValidateSet(断言面跟着它走，不跟注释里的枚数走)' ($verbRoster.Count -ge 3) ($verbRoster -join ' / ')
+    $gRoster = @(Get-GdGameIds)
+    Check '[t1c] 游戏名册现读自 Get-GdGameIds(注册表不在场时它给本仓库一直认的那几枚 id)' (($gRoster.Count -ge 2) -and (@($gRoster) -contains 'ark')) ($gRoster -join ' / ')
+    $dArk = @((Get-GdEntryVerb -Game ark -Verb Ack), (Get-GdEntryVerb -Game ark -Verb ShopReset))
+    Check '[t1c] 默认提示用单游戏入口的干净短名' (($dArk -join ',') -eq '-Ack,-ShopReset') ($dArk -join ' , ')
+    # 这一格是本枚件的射程边界，不是对机器现场的要求：注册表不在场才走得到回落支。哪天这两本也点 modules.ps1，
+    # 这一格会红 —— 那不是坏消息，是"两把尺并成一把"的信号，届时把 [m6] 的对照面搬过来再动这里。
+    Check '[t1c] 本进程未装载模块注册表(回落支在此，长名那一支归 [m6] 钉)' ($null -eq (Get-Command Get-GdModules -ErrorAction SilentlyContinue))
+    $combos = 0
+    $longHits = 0
+    foreach ($gid in $gRoster) {
+        foreach ($vb in $verbRoster) {
+            $combos = $combos + 1
+            if ((Get-GdEntryVerb -Game ([string]$gid) -Verb ([string]$vb)) -ne ('-' + [string]$vb)) { $longHits = $longHits + 1 }
+        }
     }
-    $evLeft = 0
-    foreach ($evGame in @($evTable.Keys)) { $evLeft += @($evTable[$evGame].Keys).Count }
-    Check '[t1c] 还原后这张表没有残留覆盖(Sync 写过几格就还原几格)' ($evLeft -eq 0) "剩余 $evLeft 格 / 游戏 $(@($evTable.Keys).Count) 款"
+    Check '[t1c] 逐枚逐款现问不留一枚长名(注册表不在场时每一格都该是短名)' ($longHits -eq 0) "组合 $combos 枚 / 非短名 $longHits 枚"
+    $perWant = @($verbRoster | ForEach-Object { '-' + [string]$_ })
+    $perGot = @($verbRoster | ForEach-Object { [string](Get-GdEntryVerb -Game ark -Verb ([string]$_)) })
+    Check '[t1c] 回落按被问的 verb 现拼(写死任何一枚就在这里红)' (($perGot -join ',') -eq ($perWant -join ',')) ($perGot -join ' , ')
 }
 
 # 提示语"照抄就能跑"是这一路的用户界面：日志里让用户敲一个本仓库入口没有的参数名，点了就报"找不到参数"。

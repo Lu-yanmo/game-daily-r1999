@@ -9,9 +9,9 @@ $S = Get-GdSettings -Quiet
 # 下面打出来的判定理由里有"下一步敲什么"：合体工程要换成本仓库入口真有的长参数名，单游戏仓库保持短名
 # ⚠ 10-31 现读改口(追加式，旧句原文留着、由下面这几行宣布作废)：上面那句理由从刀① 起就不成立了——`e76351d` 从 body 摘掉
 #   verbAck／verbShopReset 两枚键之后，判定理由里不再出现 verb 名(§11.175)，而本枚件只点 common＋decisions、走的是
-#   Sync-GdEntryVerbs 的回落支(§11.176 ③ 现读：全仓唯一"到达回落支却不读那张表"的进程)。所以本行填的那张表在这个进程里没有读者。
-#   调用先留着：摘它属丙/丁 落码批的随动面(会动表账 tools\ps-map\ps-map.tsv:306 那一行的口径)，本批不抢那一刀。
-if (Get-Command Sync-GdEntryVerbs -ErrorAction SilentlyContinue) { Sync-GdEntryVerbs }
+#   同步件的回落支(§11.176 ③ 现读：全仓唯一"到达回落支却不读那张表"的进程)。所以本行填的那张表在这个进程里没有读者。
+# 追加(11-01 丙形真转接，§11.176 ⑥ 落码)：上面那句"调用先留着"在此兑现 —— 同步件与那张进程内的表一起退役，
+#   本枚件这行调用随之摘除(表账里那一枚同步件的行同批划掉，所以这里不引行号)；现问在本进程走的就是"注册表不在场⇒短名"那一支。
 
 if (Get-Command Get-GdStageTable -ErrorAction SilentlyContinue) {   # 关卡表是 MAA 那边的东西，1999 仓库里没有
     Write-Host '== 关卡表 =='

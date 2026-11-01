@@ -34,10 +34,10 @@ $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 . (Join-Path $root 'lib\modules.ps1')
 [void](Import-GdModules -Quiet)
 foreach ($libPath in (Get-GdModuleLibPaths)) { . $libPath }
-# 本工具会往日志里写"下一步等价于敲哪个开关"，所以按 lib/decisions-common.ps1 的规矩点完库同步一次入口参数名：
-# 单游戏导出仓库保持干净短名(-Ack)，本地合体工程的入口两款混在一起、必须是长名(-Ack1999)。
+# 本工具会往日志里写"下一步等价于敲哪个开关"(下面现问 Get-GdEntryVerb)：单游戏导出仓库拿到干净短名(-Ack)，
+# 本地合体工程拿到本入口真有的长名(-Ack1999)——上面 Import-GdModules 已把清单装进注册表，11-01 丙形真转接(§11.176 ⑥)
+# 之后这一支是"现问"而不是"点完库再同步一次"：合体/单游戏两档由注册表自己答，不再需要每枚入口各抄一遍映射。
 # 写死任何一个都会在另一棵树上变成"照抄就跑不起来"的提示语 —— tools/test-lib.ps1 的 [t1d] 就是专门抓这个的。
-Sync-GdEntryVerbs
 
 $S = Get-GdSettings -TellAndExit
 $ev = Get-R1999Event -S $S

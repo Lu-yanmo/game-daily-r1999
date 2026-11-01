@@ -193,7 +193,7 @@ namespace GdPanel
         }
 
         // 帮助行(「命令行怎么跑」那几行)里点名的 .ps1/.cmd 必须真在这棵树里。
-        // 逐字转写原 panel.ps1:1343-1356 的 Get-PanelHelpRowMisses：上面按 Need 滤过一遍，这一条查的是
+        // 逐字转写原 panel.ps1 的 Get-PanelHelpRowMisses(该件已随乙档刀③ 删除)：上面按 Need 滤过一遍，这一条查的是
         // "写行的时候漏了 Need" —— 只有 --selftest 会在导出目录里被跑到，所以它能挡住
         // "发布仓库里教玩家敲一个不存在的命令"。正则、TrimStart、两条查找路径(先 root\ 再 root\tools\)都不许改口径。
         List<string> HelpRowMisses()

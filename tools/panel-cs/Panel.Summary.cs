@@ -12,7 +12,7 @@
 //
 // 三处"取值换了地方但话没换"的转写差，登记在此免得将来当成第二处真身：
 //   1. HEADER 第 3/4/5 列(引擎文件名／绝对路径／root)：PS 侧报的是"此刻正在跑 panel.ps1 的那枚 pwsh"
-//      (panel.ps1:133 `$script:engine = [string](Get-Process -Id $PID).Path`，:401-402 拼进 HEADER)，而 panel.ps1
+//      (原 panel.ps1 的引擎取值那句，已随件删除：`$script:engine = [string](Get-Process -Id $PID).Path`，另两行拼进 HEADER)，而 panel.ps1
 //      本就是 C# 面板用 `PanelForm.PickEngine()`(Panel.Data.cs:44)挑出来的引擎起的 ⇒ 这里复用同一枚 PickEngine() 挑同一颗引擎，
 //      两侧同一条链(刀② 之后报的是这枚引擎解析成的真身路径，不再是别名的名字)。2026-10-23 本机现读：PS 那枚 = `C:\Program Files\WindowsApps\Microsoft.PowerShell_7.6.7.0_x64__8wekyb3d8bbwe\pwsh.exe`
 //      (OS 解析后的包目录)，C# 这枚 = `%LOCALAPPDATA%\Microsoft\WindowsApps\pwsh.exe`(PATH 扫描到的应用执行别名)
@@ -24,7 +24,7 @@
 //      blob 布局版本不是 3／真身不在场)⇒ C# 侧照旧报别名路径，门里在 mode=alias 时**只宽"绝对路径"这一列**(它自己的位次计数叫第 5 列)，
 //      同一行的其余字段逐字段照比(GUN1/GUN3/GUN5 各咬一发)。
 //      (消费方 Panel.cs 的 ParseSummary 只读 HEADER 的第 2 列=入口名，3/4/5 列它自己从不取。)
-//   2. ENV 那句『面板 PS 7.x · 子进程 pwsh.exe』(panel.ps1:341-342，取的是 $PSVersionTable = 本进程；:1207 那枚 rail 标签同款文案)：
+//   2. ENV 那句『面板 PS 7.x · 子进程 pwsh.exe』(原 panel.ps1 的 ENV 那两行，已随件删除；取的是 $PSVersionTable = 本进程，rail 标签同款文案也在那一件里)：
 //      措辞逐字保留，取值处换成**选中引擎文件的 FileVersionInfo 的主.次**。件退役后这句话没有进程可报，语义变成"面板要用的那颗引擎是 PS 几"。
 //      本机实测(仓外 c13-enginevi.ps1，两枚路径对照)：别名形是 ReparsePoint，`ProductVersion` 回**空串** ⇒ 这一格回「读不出」；
 //      包目录那枚回 `7.6.7 SHA: …` ⇒ 主.次取到 7.6。装了安装版(本机 `C:\Program Files\PowerShell\7\pwsh.exe` **不存在**)的机器上
@@ -44,10 +44,10 @@
 //      ⚠ 可用性判据没换：还是"助手库在不在"(Test-GdModuleInstalled 那句)，落点 = lib\<AssistantLib>。
 //
 // 与 panel.ps1 的**故意不同**(两处，都不改结论)：
-//   * PS 侧 Dump-PanelSummaryMachine(:421-423) 为了取 SV 详情把 supervision.json **读了第二遍**(第一遍在
-//     Get-PanelSummaryParts:307)。这里同样读第二遍 —— 照真身的形状走，哪怕两遍之间文件被监督进程改写过，
+//   * PS 侧 Dump-PanelSummaryMachine(原 panel.ps1 里那半段，已随件删除) 为了取 SV 详情把 supervision.json **读了第二遍**(第一遍在
+//     Get-PanelSummaryParts 那句)。这里同样读第二遍 —— 照真身的形状走，哪怕两遍之间文件被监督进程改写过，
 //     两侧也是同一种"可能不一致"，等值门才不会把引擎差当成现场差。
-//   * PS 侧入口脚本一个都不在时是 panel.ps1 启动就 throw(:86)；这里回空串继续出格，因为 C# 面板不许因为
+//   * PS 侧入口脚本一个都不在时是 panel.ps1 启动就 throw(那半段已随件删除)；这里回空串继续出格，因为 C# 面板不许因为
 //     一份清单读不出来而整面没有读数。这一差在等值门上表现为"一侧红"，不会出现"绿的假面"。
 //
 // 等值门首拍全绿读数(2026-10-23，pwsh 7 单引擎；码面=本树，数据面=main 那棵树，PS 侧 panel.ps1 与 HEAD 同字节)：
@@ -66,7 +66,7 @@
 //   ⇒ 这三族在本批**没有**被现场拍到，等值门对它们的自证仍只在 GUN 那几发假帧里。
 //
 // ⚠ 刀③ 删 tools\panel.ps1 时，本头注与各段里的 `panel.ps1:NNN` 锚会一起失效；随行改口按丙档落码刀① 的规矩
-//   改成"原 panel.ps1:…(乙档刀③ 已随件删)"，不许留着指不中的坐标。
+//   改成"原 panel.ps1:…(乙档刀③ 已随件删)"，不许留着指不中的坐标。—— 本件各段的 panel.ps1 锚已按此形改口完毕。
 
 using System;
 using System.Collections.Generic;
@@ -106,7 +106,7 @@ namespace GdPanel
 
     static class GdPanelSummary
     {
-        // = tools\panel.ps1:388 的 $script:GdPanelProtoVer；协议规格本体是 panel.ps1:364-387 那段注释。
+        // = 原 tools\panel.ps1 的 $script:GdPanelProtoVer 那句(该件已随乙档刀③ 删除)；协议规格本体是它上方那段注释。
         // 消费方 Panel.cs 的 GdPanelProtoKnown 认的是同一个数，改协议要三处同批(件删后剩两处)。
         internal const int Proto = 2;
 
@@ -140,7 +140,7 @@ namespace GdPanel
             foreach (GdSummaryRow r in LastRows(c)) o.Add("LAST|" + r.Kind + "|" + r.Game + "|" + r.Text);
             foreach (GdSummaryRow r in GateRows(c)) o.Add("GATE|" + r.Kind + "|" + r.Game + "|" + r.Text);
 
-            // panel.ps1:414-428：环境行里 Slot=supervisor 的那一枚**不进 ENV**，改走 SV(带展开详情)。
+            // 原 panel.ps1 的 ENV 装配那段(已随件删除)：环境行里 Slot=supervisor 的那一枚**不进 ENV**，改走 SV(带展开详情)。
             // 两个分支互斥，所以同一句话不会在环境卡出现两遍。
             GdSummaryRow svRow = null;
             foreach (GdSummaryRow r in EnvRows(c))
@@ -150,11 +150,11 @@ namespace GdPanel
             }
             if (svRow != null)
             {
-                Dictionary<string, object> sv = ReadSupervisor();          // 第二遍，照 panel.ps1:422 的形状
+                Dictionary<string, object> sv = ReadSupervisor();          // 第二遍，照原 panel.ps1 那段的形状(已随件删除)
                 StringBuilder line = new StringBuilder();
                 line.Append("SV|").Append(svRow.Kind).Append("|").Append(svRow.Text);
                 foreach (object d in DetailLines(sv))
-                    line.Append("|").Append(Gd.Str(d).Replace("|", "¦"));   // 详情正文里不许再出现分隔符(panel.ps1:424-426)
+                    line.Append("|").Append(Gd.Str(d).Replace("|", "¦"));   // 详情正文里不许再出现分隔符(原 panel.ps1 那三句，已随件删除)
                 o.Add(line.ToString());
             }
 
@@ -212,24 +212,24 @@ namespace GdPanel
             if (resolved.Length > 0) c.EngineTarget = resolved;
             else c.EngineTarget = c.Engine;
 
-            // 入口名三选一(panel.ps1:81-86)：顺序不许动，合体仓与两份导出仓就靠这三枚候选分家。
+            // 入口名三选一(原 panel.ps1 的入口探量那段，已随件删除)：顺序不许动，合体仓与两份导出仓就靠这三枚候选分家。
             foreach (string cand in new string[] { "daily-clear.ps1", "ark-daily.ps1", "r1999-daily.ps1" })
             {
                 if (File.Exists(Path.Combine(c.Root, cand))) { c.EntryName = cand; break; }
             }
 
-            // 参数名反射(panel.ps1:88-102)：PS 用 Get-Command 读 param 块，这里按"声明位上的 $名"读同一份文本(见 DeclaredParams)。
+            // 参数名反射(原 panel.ps1 的参数名反射那段，已随件删除)：PS 用 Get-Command 读 param 块，这里按"声明位上的 $名"读同一份文本(见 DeclaredParams)。
             HashSet<string> declared = DeclaredParams(Path.Combine(c.Root, c.EntryName));
             c.FlagAck = PickFlag(declared, new string[] { "AckArk", "Ack" });
             c.FlagShopDone = PickFlag(declared, new string[] { "ArkShopDone", "ShopDone" });
             c.FlagGames = PickFlag(declared, new string[] { "Games" }).Length > 0;
 
-            // 哪几路要管理员(panel.ps1:107-116)：只认清单里的 RequiresAdmin，话术里的短名用 ShortName。
+            // 哪几路要管理员(原 panel.ps1 的 RequiresAdmin 清单那段，已随件删除)：只认清单里的 RequiresAdmin，话术里的短名用 ShortName。
             foreach (GdPanelModule m in c.Games) if (m.RequiresAdmin) c.AdminNames.Add(m.ShortName);
 
             List<string> missing;
             try { c.Settings = GdSettings.Load(out missing, true, null); }
-            catch { c.Settings = null; }      // 没有 settings.json / 读坏了：PS 侧也是 catch 掉当 $null 用(panel.ps1:189-190)
+            catch { c.Settings = null; }      // 没有 settings.json / 读坏了：PS 侧也是 catch 掉当 $null 用(原 panel.ps1 那句，已随件删除)
 
             Dictionary<string, object> schedule = SubMap(c.Settings, "schedule");
             foreach (object t in Gd.List(Gd.Get(schedule, "times"))) c.Times.Add(Gd.Str(t));
@@ -241,7 +241,7 @@ namespace GdPanel
             return c;
         }
 
-        // ==================== 模块清单那几枚平键(panel.ps1:68-79 的对面) ====================
+        // ==================== 模块清单那几枚平键(原 panel.ps1 的平键装配那段，已随件删除) ====================
         static List<GdPanelModule> LoadModules(string root)
         {
             List<GdPanelModule> outList = new List<GdPanelModule>();
@@ -364,7 +364,7 @@ namespace GdPanel
             return "";
         }
 
-        // ==================== TIME：逐个时间点问计划任务(panel.ps1:192-216) ====================
+        // ==================== TIME：逐个时间点问计划任务(原 panel.ps1 的 TIME 段，已随件删除) ====================
         // 走 Schedule.Service COM 而不是 schtasks.exe —— Round.cs 的 read-task-state 已经是这个理由。那枚 verb 不报
         // RunLevel，而这一行要的正是"免不免 UAC"，所以这里另取 Principal.RunLevel(既有 verb 的回执形状一个字不动)。
         //
@@ -405,7 +405,7 @@ namespace GdPanel
                 string nm = c.Prefix + "-" + time.Replace(":", "");
                 object task = null;
                 if (com) { try { task = Round.Invoke(folder, "GetTask", nm); } catch { task = null; } }
-                // PS 那句判据是 `$null -eq $info`(panel.ps1:203)，而 $info 由 `$task | Get-ScheduledTaskInfo 造：
+                // PS 那句判据是 `$null -eq $info`(原 panel.ps1 的 TIME 段，已随件删除)，而 $info 由 `$task | Get-ScheduledTaskInfo 造：
                 // $task 取不到 ⇒ 管道无输入 ⇒ $info 为 null。所以这里"未注册"的等价判据就是 task 取没取到，
                 // 不掺读数(读数取不到是另一件事：那一格回「未排期」，PS 也一样)。
                 if (task == null)
@@ -444,7 +444,7 @@ namespace GdPanel
             catch { return null; }
         }
 
-        // ==================== LAST：每个游戏只留最近一条(panel.ps1:218-243) ====================
+        // ==================== LAST：每个游戏只留最近一条(原 panel.ps1 的 LAST 段，已随件删除) ====================
         // CSV 的读法复用 Panel.Data.cs 那份真身(ParseCsv/ReadAllShared/CsvCol) —— 引号里的逗号与 '|' 不能当分隔符，
         // history.csv 的 detail 列全是中文标点和路径，另写一把切分就是第二个事实源。
         static List<GdSummaryRow> LastRows(Ctx c)
@@ -519,13 +519,13 @@ namespace GdPanel
             return r[i].Trim();
         }
 
-        // ==================== GATE：两道门按路分开报(panel.ps1:245-272) ====================
+        // ==================== GATE：两道门按路分开报(原 panel.ps1 的 GATE 段，已随件删除) ====================
         // 第一道门两路措辞**不许统一**：ark 走每轮机器自证(state\ark-event-probe.json)，r1999 照旧报 ack 表(2026-10-12 第 1 刀)。
         // 两张表的读法复用 Round.Data.cs 那几枚助手 —— 文件名与外层键都是既有协议，这里不另开第四本账。
         static List<GdSummaryRow> GateRows(Ctx c)
         {
             List<GdSummaryRow> rows = new List<GdSummaryRow>();
-            bool haveDecisions = File.Exists(Path.Combine(c.Root, @"lib\decisions.ps1"));   // = $haveDecisions(panel.ps1:43-46)
+            bool haveDecisions = File.Exists(Path.Combine(c.Root, @"lib\decisions.ps1"));   // = 原 panel.ps1 的 $haveDecisions 那句(该件已删)
             foreach (GdPanelModule m in c.Games)
             {
                 string g = m.Id;
@@ -574,7 +574,7 @@ namespace GdPanel
             return string.Join(",", ks.ToArray());
         }
 
-        // ==================== ENV：路径就绪 + 屏保 + 监督 + 三行说明(panel.ps1:274-343) ====================
+        // ==================== ENV：路径就绪 + 屏保 + 监督 + 三行说明(原 panel.ps1 的 ENV 段，已随件删除) ====================
         // 行序就是这一段的可押面：卡装不下时从尾部省，所以"armed 的屏保插在前面、常态屏保落最后"这条得原样搬。
         static List<GdSummaryRow> EnvRows(Ctx c)
         {
@@ -586,7 +586,7 @@ namespace GdPanel
             foreach (string k in keys) if (!GdEnv.PathReady(Gd.Str(Gd.Get(paths, k)))) notReady.Add(k);
             if (notReady.Count > 0)
             {
-                // 环境卡只有 264px：键名超过三个就截到三枚并报总数，否则整行被省略号吞掉(panel.ps1:283-289)
+                // 环境卡只有 264px：键名超过三个就截到三枚并报总数，否则整行被省略号吞掉(原 panel.ps1 的 ENV 段，已随件删除)
                 string tail = "";
                 List<string> show = new List<string>(notReady);
                 if (show.Count > 3) { tail = "… 共 " + show.Count.ToString(CultureInfo.InvariantCulture) + " 项"; show = show.GetRange(0, 3); }
@@ -626,10 +626,10 @@ namespace GdPanel
                 "TimeoutSec", Gd.Get(cfg, "TimeoutSec"));
         }
 
-        // 监督在岗三形(panel.ps1:305-337)：在岗 / 已收工 / 进程没了但没说收工。文件不在就一行都不占(不是错误)。
+        // 监督在岗三形(原 panel.ps1 的监督段，已随件删除)：在岗 / 已收工 / 进程没了但没说收工。文件不在就一行都不占(不是错误)。
         static GdSummaryRow SupervisorRow(Ctx c)
         {
-            if (!File.Exists(Path.Combine(c.Root, @"lib\supervisor.ps1"))) return null;   // = $haveSupervisor(panel.ps1:58-62)
+            if (!File.Exists(Path.Combine(c.Root, @"lib\supervisor.ps1"))) return null;   // = 原 panel.ps1 的 $haveSupervisor 那句(该件已删)
             Dictionary<string, object> sv = ReadSupervisor();
             if (sv == null) return null;
 
@@ -706,7 +706,7 @@ namespace GdPanel
             return d == null ? new object[0] : Gd.List(Gd.Get(d, "Lines"));
         }
 
-        // ==================== PROBE：这一路自己的路径探针(panel.ps1:470-489 与 :429-433) ====================
+        // ==================== PROBE：这一路自己的路径探针(原 panel.ps1 的 PROBE 段与 ENV 行那两段，已随件删除) ====================
         // 卡片顺序、标签措辞、"没填或不存在 → 跑 setup.ps1"那一句都由 Get-PanelModuleEnvRows 那段定；
         // 清单本体来自 lib\*-module.ps1 的 EnvProbes 钩子(取法见文件头第 3 条)，面板不另写一套路径知识。
         static List<GdSummaryRow> ModuleProbeRows(Ctx c, GdPanelModule m)
@@ -733,13 +733,13 @@ namespace GdPanel
             return rows;
         }
 
-        // ==================== HELP：按钮对应的命令行(panel.ps1:1320-1377) ====================
+        // ==================== HELP：按钮对应的命令行(原 panel.ps1 的 HELP 段，已随件删除) ====================
         // Need 里点名的文件有一个不在，这一行就不显示 —— 面板要原样进两仓，那边没有 start.cmd / tools\menu.ps1，
         // 照着提示敲等于去撞一个不存在的文件。顺序＝Add-PanelHelpRow 那十一枚调用的顺序，两枚条件行照条件走。
         static List<string[]> BuildHelp(Ctx c)
         {
             List<string[]> rows = new List<string[]>();
-            string timesTxt = "HH:mm,HH:mm";      // 读不到 settings 的 times 时的那句占位(panel.ps1:1358)
+            string timesTxt = "HH:mm,HH:mm";      // 读不到 settings 的 times 时的那句占位(原 panel.ps1 的 HELP 段，已随件删除)
             if (c.Times.Count > 0) timesTxt = string.Join(",", c.Times.ToArray());
 
             Help(rows, c, "今天会跑什么", @".\" + c.EntryName + " -DryRun", new string[] { c.EntryName });

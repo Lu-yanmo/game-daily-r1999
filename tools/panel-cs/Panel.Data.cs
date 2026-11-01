@@ -417,7 +417,7 @@ namespace GdPanel
         // 为什么需要它：PickEngine()(本件 :44)在只装商店版 PowerShell 的机器上回的是**应用执行别名**
         // (`%LOCALAPPDATA%\Microsoft\WindowsApps\pwsh.exe`)，那枚文件是 ReparsePoint 里的 0 字节存根，
         // FileVersionInfo 读它回**空串** ⇒ 摘要里『面板 PS x.y』那一格只能回「读不出」(刀① 登记为转写差 2)。
-        // PS 真身没这一说：panel.ps1:133 报的是 `(Get-Process -Id $PID).Path`，那是 OS 解析之后的包目录路径。
+        // PS 真身没这一说：原 panel.ps1 的引擎取值那句报的是 `(Get-Process -Id $PID).Path`(该件已随乙档刀③ 删除)，那是 OS 解析之后的包目录路径。
         // 本件**不**按包目录名挑版本(本机现量两枚 PowerShell 包目录，挑一枚＝新判定)，只做一件事：
         // 读别名自己的 reparse blob，按 IO_REPARSE_TAG_APPEXECLINK 的字段位次取真身路径，交给调用方去读版本。
         // 解析不成一律回空串(不抛)，由调用方决定怎么说 —— 读不出就说读不出，不静默补一个数。

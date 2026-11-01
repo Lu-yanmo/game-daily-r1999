@@ -10,9 +10,9 @@
 //
 // 七枚名单(全部走 `--in` JSON，回执走 `--out` 信封，形状与既有六十几枚一字不相干 —— 判据见 §11.50 ②-1 末句)：
 //   resolve-round-context  ①-4 那把"轮 ctx 取键名册"：逐枚点名要 runtime 键、判动态 flag、判在位性、判管理员；
-//   start-elevated-round   Start-GdElevatedSelf(common.ps1:775) 的真起那半 —— 拼参那半不重做(build-relaunch-args 已在场)；
-//   send-round-notice      Send-GdNotice(common.ps1:821) 的三档容错：落盘无条件、webhook 失败只 WARN、气泡失败也只 WARN；
-//   start-run-lock         Start-GdRunLock(common.ps1:906)：先报"已有一轮在跑"再登记，**只说不拦**；
+//   start-elevated-round   Start-GdElevatedSelf(common.ps1:771) 的真起那半 —— 拼参那半不重做(build-relaunch-args 已在场)；
+//   send-round-notice      Send-GdNotice(common.ps1:817) 的三档容错：落盘无条件、webhook 失败只 WARN、气泡失败也只 WARN；
+//   start-run-lock         Start-GdRunLock(common.ps1:902)：先报"已有一轮在跑"再登记，**只说不拦**；
 //   stop-run-lock          Stop-GdRunLock(common.ps1:959)：只删自己登记的那一份；
 //   read-task-state        Get-GdTaskState(common.ps1:1031)：走 Schedule.Service COM，不走 schtasks(它的状态标签是本地化的)；
 //   stop-process-tree      Stop-GdProcessTree(common.ps1:478)：名曰"树"、实为按进程名(原样怪癖，见下)。
@@ -493,7 +493,7 @@ namespace GdPanel
         }
 
         // ==================== verb: send-round-notice ====================
-        // Send-GdNotice(common.ps1:821) 的三档容错照抄：**落盘无条件做**，webhook 与气泡各自一把 try，
+        // Send-GdNotice(common.ps1:817) 的三档容错照抄：**落盘无条件做**，webhook 与气泡各自一把 try，
         // 两把都只 WARN —— "发通知"不许合并成一次 try(那样气泡失败会把已推送的 webhook 也说成没推)。
         internal static object Notice(Dictionary<string, object> raw)
         {
@@ -624,7 +624,7 @@ namespace GdPanel
         }
 
         // ==================== verb: start-run-lock ====================
-        // Start-GdRunLock(common.ps1:906)：**先说话再登记，不拦**。拦的活交给面板和计划任务那两侧——
+        // Start-GdRunLock(common.ps1:902)：**先说话再登记，不拦**。拦的活交给面板和计划任务那两侧——
         // 在判定层硬拦会让 06:00/18:00 撞上时整轮直接失败，而"失败"对无人值守的人比"多跑一遍"更难发现。
         internal static object LockStart(Dictionary<string, object> raw)
         {

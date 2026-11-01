@@ -6,7 +6,7 @@
 // 这一份管的是"链体那十一枚 ask 里，必须由这台机器亲手干的那一半"：
 //   takeover-processes         Invoke-GdTakeover(lib\common.ps1:665)：接管关闭，先判 takeOverAssistant。
 //   stop-maa-and-game          Stop-MaaAndGame(lib\maa.ps1:739)。
-//   stop-m9a                   Stop-M9A(lib\m9a.ps1:288)。⚠ 10-26 甲档第五刀刀② 换算：两枚转发壳出仓(本文件净 −49 行)后本族锚再改口
+//   stop-m9a                   Stop-M9A(lib\m9a.ps1:289)。⚠ 10-26 甲档第五刀刀② 换算：两枚转发壳出仓(本文件净 −49 行)后本族锚再改口；⚠ 11-01 坐标清账刀再换算：原写 :288 实拍是空行，定义在 :289
 //                              (历史三值 530→337→288；那句"已关闭 M9A($n 个进程)"现读 :293，行号取自摘件+话术随动后的现树实拍)。
 //   read-maa-fight-skip        Get-GdMaaFightSkip(lib\maa.ps1:60 起)的**读日志尾那半**：gui.log 全量 → 递给已在场的
 //                              detect-maa-fight-skip(Orchestration.cs 批次 5)，判据一枚都不在这儿重写。
@@ -72,13 +72,13 @@
 //
 // ==================== 第二笔(同一批的后五枚，2026-10-14)：起进程与写盘那五枚 ====================
 //  ① `start-ark-client`   Start-GdArkClient(maa.ps1:702)＋Wait-GdArkLauncherReady(maa.ps1:622)＋
-//                          Wait-GdCondition(common.ps1:983)＋Get-GdWindowByTitle(common.ps1:1016)：
+//                          Wait-GdCondition(common.ps1:979)＋Get-GdWindowByTitle(common.ps1:1012)：
 //                          路径闸 → 窗口名册 → 起进程 → 等窗口 → 暖身 → 更新页那一段真点击。
 //  ② `start-mumu`         Start-GdMuMu(mumu.ps1:38)＋Get-GdMuMuState(mumu.ps1:21)＋Invoke-GdNative(common.ps1:493)：
 //                          info 读数 → 已在跑就吭一声 → control launch → 轮询到 AndroidStarted。
 //  ③ `apply-maa-daily-config` Set-MaaDailyConfig(maa.ps1:140)：现场检查＋读盘＋递给 plan-maa-queue＋
 //                          备份／写盘／回读逐队列比 IsEnable。规则段一枚都不在这儿( Processes.cs 第 3 批)。
-//  ④ `apply-m9a-instance` Set-M9AInstance(m9a.ps1:72，10-26 第五刀刀② 后现读、原写 93；10-25 那趟写 83)：点号字面键那两格＋三句原话＋回读校验。
+//  ④ `apply-m9a-instance` Set-M9AInstance(m9a.ps1:73，10-26 第五刀刀② 后现读、原写 93；10-25 那趟写 83；⚠ 11-01 坐标清账刀再换算：那一格实拍是空行)：点号字面键那两格＋三句原话＋回读校验。
 //  ⑤ `update-ark-farm-ledger` Update-GdArkFarmLedger(ark-farm.ps1:125)＋Get-GdArkItemMaps(:53)＋
 //                          Read-GdArkFarmLedger(lib\ark-farm.ps1:93)：首跑按 DepotData 标定、offset 续读、记两本账、
 //                          回一句总结(链体那句 `[string](Update-GdArkFarmLedger)` 要的就是 bare string)。
@@ -287,7 +287,7 @@ namespace GdPanel
             return BaseName(StrOf(Gd.Get(PathsOf(c), "m9aExe"), ""));
         }
 
-        // Get-GdFileTail(common.ps1:999) 的逐字复刻：文件不在 ⇒ Text='' Offset=0；
+        // Get-GdFileTail(common.ps1:995) 的逐字复刻：文件不在 ⇒ Text='' Offset=0；
         // Offset 越界 ⇒ 归零全读(那是"日志被轮转"那一档，不是错误)；FileShare=ReadWrite(MAA 正在往里写)；
         // 编码 UTF8 —— 与 PS 那侧 [System.Text.Encoding]::UTF8 同一个构造(能吃 BOM，无 BOM 也按 UTF8 解)。
         sealed class Tail
@@ -400,7 +400,7 @@ namespace GdPanel
         }
 
         // ==================== verb: stop-m9a ====================
-        // Stop-M9A(m9a.ps1:288，10-26 第五刀刀② 换算、原写 337)：**只有一档** quitAssistantAfter，话术是"M9A"不是"MAA"
+        // Stop-M9A(m9a.ps1:289，10-26 第五刀刀② 换算、原写 337；⚠ 11-01 坐标清账刀再换算：原写 :288 是空行)：**只有一档** quitAssistantAfter，话术是"M9A"不是"MAA"
         // (两侧话术不许统一，②-a 那条纪律在这儿同样成立)。
 
         internal static object StopM9A(Dictionary<string, object> raw)
@@ -536,7 +536,7 @@ namespace GdPanel
             }
         }
 
-        // Get-GdWindowByTitle(common.ps1:1016) 的同形：只看有主窗口的进程，给了进程名就按名过滤(不分大小写)，
+        // Get-GdWindowByTitle(common.ps1:1012) 的同形：只看有主窗口的进程，给了进程名就按名过滤(不分大小写)，
         // 标题走 -match(也不分大小写)，命中回第一枚 {Name;Id;Title}。整段在逐颗进程的 try/catch 里
         // —— 坏正则／取不到的窗口在真身就是被静默吞掉，这里同形(不抛)。
         // 夹具 `windows` = [{Name;Id;Title}]；给了就只按名册判(--roundtest 一律走这一路，不碰真窗口)。
@@ -590,7 +590,7 @@ namespace GdPanel
             catch { return false; }        // 坏正则：真身那一下也被逐颗进程的 catch 吞掉
         }
 
-        // Wait-GdCondition(common.ps1:983) 逐字：先判再睡，睡在 return 之前**无条件**执行
+        // Wait-GdCondition(common.ps1:979) 逐字：先判再睡，睡在 return 之前**无条件**执行
         // (原样怪癖第 10 笔：超时那一档最后一次判完还多睡一轮)。
         static bool WaitUntil(Dictionary<string, object> c, Func<bool> test, int timeoutSeconds,
                               int pollSeconds, string what, List<object> lines)
@@ -1026,7 +1026,7 @@ namespace GdPanel
         }
 
         // ==================== verb: apply-m9a-instance ====================
-        // Set-M9AInstance(m9a.ps1:72，10-26 第五刀刀② 后现读、原写 93)：点号字面键('Instances.LastActive')是 M9A 自己 appsettings 的形状，
+        // Set-M9AInstance(m9a.ps1:73，10-26 第五刀刀② 后现读、原写 93；⚠ 11-01 坐标清账刀再换算：原写 :72 是空行)：点号字面键('Instances.LastActive')是 M9A 自己 appsettings 的形状，
         // Gd.Get 不做点号拆分 ⇒ 直接当字面键取，这一格与 PS 的 $cfg.'Instances.LastActive' 同效。
         // 命令行入口那枚开关(m9aCliArgs)的语义是"没写就是开着"(null ⇒ true)，与 takeover 那一路的
         // 真值判同族、与 arkAutoUpdateClick 的 `-ne $false` 又一族 —— 三族各照各的，不许统一。

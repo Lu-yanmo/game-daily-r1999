@@ -1365,7 +1365,7 @@ function Start-GdNativeStreamed {
 # K1 起每内核化一个函数才往 $script:GdCoreFunctions 添名(白名单=内核有实现且已对拍过的函数，逐个加，不批量放开)。
 # settings.runtime.coreOff 是函数级热开关(列出即关该函数、缺失=全开，"没显式 false 就是开"同族语义)——
 # 单个内核函数出 bug 改一行 settings 当日止血，不挡其余函数继续跑。
-# 注意：自 2026-09-29 的**接线批**起，生产入口(三个 daily-clear / status / run-via-task / supervise)在
+# 注意：自 2026-09-29 的**接线批**起，生产入口(三个 daily-clear / status / run-via-task)在
 # 读到 settings 之前显式调一次 Add-GdCore，并把一行读数写进日志(见下面的 Get-GdCoreReadout)；
 # 没接线的宿主(setup/install 一次性入口)照旧恒 off = 全走 PS 原身，行为一字不变；panel.ps1 那一路兜底宿主已于 2026-10-23 乙档刀③ 整件删除。
 $script:GdCoreState = 'off'      # off|live|fallback

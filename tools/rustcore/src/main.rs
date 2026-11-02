@@ -1622,7 +1622,7 @@ fn gd_day_stamp() -> String {
     format!("{:04}{:02}{:02}", st.w_year, st.w_month, st.w_day)
 }
 
-/// `Get-Date -Format 'MMdd-HHmmss'` —— 兜底截图的文件名后缀用（PS 侧活着的对面：lib\supervisor.ps1:199、tools\vision-ask.ps1:84；旧编排里那枚 `$stamp` 随第二十刀刀③ 出仓）。
+/// `Get-Date -Format 'MMdd-HHmmss'` —— 兜底截图的文件名后缀用（退役前的 PS 对面：lib\supervisor.ps1:199〔该件 11-02 监督族刀③ 出仓，行号只作当时的登记〕、tools\vision-ask.ps1:84；旧编排里那枚 `$stamp` 随第二十刀刀③ 出仓）。
 /// 注意月在前、横线后是时分秒，`H` 是 24 小时制且补零，跟通用的 `yyyy-MM-dd HH:mm:ss` 不是一套。
 /// 命名刻意不叫 stamp：connect_run 那枚形状门数的是全文里那个词根带左括号的出现次数
 /// （8 = 定义 1 + 出口 7），兜底这层借用同一个词会把那条计数顶成假红 —— 形状门只当辅助镜，

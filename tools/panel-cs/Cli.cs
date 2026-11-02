@@ -336,7 +336,7 @@ namespace GdPanel
         }
 
         // supervise-loop：start-supervisor 起的那枚分离子进程的前台入口，阻塞到收工才返回。
-        // 退出码直接照 tools\supervise.ps1 的码面(0=正常收工，3=起不来)，所以这里不复读原话进 Error ——
+        // 退出码直接照退役前 tools\supervise.ps1 的码面(0=正常收工，3=起不来；那件 11-02 刀③ 出仓，码面自此由本 assembly 自己守)，所以这里不复读原话进 Error ——
         // 两档失败的话术 Loop 内部已经按旧版逐字落过日志了，再套一层 "Error" 只会把同一句印两遍。
         // --owner 非整数是参数错(走 GdUsageException，退 1)；owner 没给(<=0)不算错，那一臂不触发。
         static VerbResult SuperviseLoop(Dictionary<string, string> a)

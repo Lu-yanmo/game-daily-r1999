@@ -1,4 +1,4 @@
-// tools/panel-cs/Supervisor.Host.cs —— 宿主批：Start/Stop-GdSupervisor(lib\supervisor.ps1)与 tools\supervise.ps1 心跳循环的 C# 直身。
+// tools/panel-cs/Supervisor.Host.cs —— 宿主批：Start/Stop-GdSupervisor 与心跳循环的 C# 直身(旧 PS 对面 lib\supervisor.ps1 + tools\supervise.ps1 已于 11-02 监督族刀③ 出仓，本件自此是唯一真身)。
 //
 // 与 PS 现形的形态差(都在这登记，回件同步)：
 //   * 心跳住在一枚**分离的子进程**里，跑的是自己这枚 exe 的 supervise-loop。
@@ -100,7 +100,7 @@ namespace GdPanel
             }
         }
 
-        // 子侧(supervise.ps1 心跳循环的阻塞式自举回路)：在自己的前台线程上跑到收工。
+        // 子侧(退役前 supervise.ps1 心跳循环的阻塞式自举回路，那件 11-02 刀③ 出仓)：在自己的前台线程上跑到收工。
         // 不重问 Enabled —— 旧版子进程同样不查开关(开关只拦"要不要起")，已经起来了就拍到收工。
         // 返回退出码：0=正常收工(停拍标记 / owner 消失 / --once / 到达存活上限)，3=起不来(没配置 / 没有可监督的路线)。
         public static int Loop(int ownerPid, string games, bool once, int capMinutes)
@@ -231,16 +231,16 @@ namespace GdPanel
             return string.Join("+", ids.ToArray());
         }
 
-        // ==================== 心跳循环(supervise.ps1 的本体) ====================
+        // ==================== 心跳循环(退役前 supervise.ps1 的本体，此处即唯一真身) ====================
 
-        sealed class Route
+        internal sealed class Route
         {
             public string Id;
             public bool CanRestart;
             public string VisionKind;    // "ark" / "mumu"
         }
 
-        sealed class Session
+        internal sealed class Session
         {
             public Dictionary<string, object> S;
             public string Games;
@@ -424,7 +424,19 @@ namespace GdPanel
                 "ProgressPattern", "开始任务：|队列任务开始|用户操作：启动任务");
         }
 
+        // 刀② 补尺开的三枚注入缝（--svtest 用；生产那一路一字未动，仍走下面这些默认臂）：
+        //   * Collect 的进程表答法可由探针给 —— PS 侧那一路本来就是 function Test-GdProcessRunning 钉桩，同一形；
+        //   * WriteBeat 的三枚路径可注入 —— 旧形硬编 GdEnv.State/Logs，自检要不碰现场盘只能把路径当入参收；
+        //   * metaDoc 现值头可由 ResetMetaForTest 立 —— 记录两族格钉的是"拍落两个文件＋只留最近 30 拍"，得先有一份已知的头。
+        // 缝只收路径与答法两枚入参，不把 Session/Route 的字段外露给自检件：内部形状一改就要改一次自检，那是把尺绑在墙上。
+        internal delegate bool ProcAliveProbe(string name);
+
         static Dictionary<string, object> Collect(Session ss, Route m, Dictionary<string, object> spec, string dailyLogPath)
+        {
+            return Collect(ss, m, spec, dailyLogPath, NameRunning);
+        }
+
+        internal static Dictionary<string, object> Collect(Session ss, Route m, Dictionary<string, object> spec, string dailyLogPath, ProcAliveProbe alive)
         {
             string game = m.Id;
             string asstLog = Gd.Str(Gd.Get(spec, "AssistantLog"));
@@ -474,8 +486,8 @@ namespace GdPanel
             }
             string gameProc = Gd.Str(Gd.Get(spec, "GameProc"));
             return Gd.Out(
-                "AssistantAlive", NameRunning(Gd.Str(Gd.Get(spec, "AssistantProc"))),
-                "GameAlive", gameProc.Length > 0 && NameRunning(gameProc),
+                "AssistantAlive", alive(Gd.Str(Gd.Get(spec, "AssistantProc"))),
+                "GameAlive", gameProc.Length > 0 && alive(gameProc),
                 "AsstAgeSec", asstAge,
                 "DailyAgeSec", dailyAge,
                 "Done", done);
@@ -490,7 +502,10 @@ namespace GdPanel
                 if (offset > fs.Length) offset = 0;
                 fs.Position = offset;
                 string text = "";
-                using (StreamReader sr = new StreamReader(fs, Encoding.UTF8)) text = sr.ReadToEnd();
+                // 这里不套 using：内层 using 一Dispose 就把外层 fs 一起关了，读完再取 fs.Length 当场 ObjectDisposedException，
+                // 而调用方那层 catch 把它咽掉 ⇒ 形状上"第二拍起读不到新行"，完成线永远认不出(11-02 刀② 补尺那两格第一次抓到)。
+                StreamReader sr = new StreamReader(fs, Encoding.UTF8);
+                text = sr.ReadToEnd();
                 return new object[] { text, fs.Length };
             }
         }
@@ -588,14 +603,19 @@ namespace GdPanel
 
         static void WriteBeat(Session ss, List<object> perGame)
         {
+            WriteBeatTo(ss, perGame, StatePath(), BeatPath(), GdEnv.Logs);
+        }
+
+        internal static void WriteBeatTo(Session ss, List<object> perGame, string statePath, string beatPath, string logsDir)
+        {
             Dictionary<string, object> beat = Gd.Out("ts", NowText(), "games", perGame.ToArray());
             try
             {
-                File.AppendAllText(BeatPath(), GdJson.Serialize(beat) + Environment.NewLine, new UTF8Encoding(false));
+                File.AppendAllText(beatPath, GdJson.Serialize(beat) + Environment.NewLine, new UTF8Encoding(false));
             }
             catch { }
             List<object> beats = new List<object>();
-            object prev = ReadSummary();
+            object prev = ReadSummaryFrom(statePath);
             if (prev != null) foreach (object b in Gd.List(Gd.Get(prev, "beats"))) beats.Add(b);
             beats.Add(beat);
             if (beats.Count > 30) beats = new List<object>(beats.GetRange(beats.Count - 30, 30));
@@ -609,12 +629,12 @@ namespace GdPanel
                 "actions", ss.Actions.ToArray(),
                 "stopped", "");
             metaDoc = doc;
-            try { GdJson.Write(StatePath(), doc); } catch { }
+            try { GdJson.Write(statePath, doc); } catch { }
             // 流水文件按天一个，留最近 7 天
             try
             {
                 List<FileInfo> olds = new List<FileInfo>();
-                foreach (string f in Directory.GetFiles(GdEnv.Logs, "supervision-*.jsonl"))
+                foreach (string f in Directory.GetFiles(logsDir, "supervision-*.jsonl"))
                 {
                     try { olds.Add(new FileInfo(f)); } catch { }
                 }
@@ -624,9 +644,11 @@ namespace GdPanel
             catch { }
         }
 
-        static object ReadSummary()
+        static object ReadSummary() { return ReadSummaryFrom(StatePath()); }
+
+        internal static object ReadSummaryFrom(string statePath)
         {
-            string p = StatePath();
+            string p = statePath;
             if (!File.Exists(p)) return null;
             try
             {
@@ -687,7 +709,7 @@ namespace GdPanel
             return picked;
         }
 
-        static Route NewRoute(string id, bool canRestart, string visionKind)
+        internal static Route NewRoute(string id, bool canRestart, string visionKind)
         {
             Route r = new Route();
             r.Id = id;
@@ -716,6 +738,20 @@ namespace GdPanel
                 "actions", new List<object>(),
                 "stopped", "");
             return metaDoc;
+        }
+
+        // 自检注入缝：记录两族格要一份已知的"现值头"才能钉 pid/拍数，生产那一路仍只在 Start/Loop 里立 NewMeta。
+        internal static void ResetMetaForTest(int pid, int owner, string started, string games)
+        {
+            metaDoc = Gd.Out(
+                "pid", pid,
+                "owner", owner,
+                "started", started,
+                "games", games,
+                "updated", "",
+                "beats", new List<object>(),
+                "actions", new List<object>(),
+                "stopped", "");
         }
 
         static string StatePath() { GdEnv.Init(null); return Path.Combine(GdEnv.State, "supervision.json"); }

@@ -122,7 +122,7 @@ namespace GdPanel
                     case "ENV": rowsEnv.Add(RowOf(f, false)); break;
                     case "SV":
                         // SV|kind|一行文本|详情行1|详情行2…  (v2)：环境卡里那一行"监督：…"，正文之后的每段是一行展开。
-                        // 外壳在这里一个新判定都不加：kind 和那一句都是判定层(lib\supervisor.ps1 的读数)算好的，
+                        // 外壳在这里一个新判定都不加：kind 和那一句都是判定层(tools\panel-cs\Supervisor.cs 现算；旧 PS 判据随 11-02 刀③ 出仓)算好的，
                         // 详情段是它逐拍写下的原文 —— 这里只按固定字段位次取文本、拼详情，然后交给 RenderRows。
                         if (f.Length > 2)
                         {

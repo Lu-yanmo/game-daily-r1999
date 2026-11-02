@@ -405,36 +405,42 @@ foreach ($tpl in @('config\settings.example.json', 'publish\src\ark\config\setti
     Check "$tpl 带 visionAllowReward=false(默认硬禁领奖)" ($txt -match '"visionAllowReward"\s*:\s*false')
 }
 
-Write-Host "`n[sv] 监督 agent(lib\supervisor.ps1 + tools\supervise.ps1)"
-# 全部离线：三段纯函数喂字典判决策表，采集用临时文件真演(首拍不扫旧内容/追加才算新增/跨天换路径)，
-# 记录写进临时目录后原样归还 $global:GD —— 不要求机器现场状态，也不碰任何进程。
-$supLib = Join-Path $root 'lib\supervisor.ps1'
-$supLoop = Join-Path $root 'tools\supervise.ps1'
-Check 'lib\supervisor.ps1 在(它是内核文件，两仓都要有)' (Test-Path -LiteralPath $supLib)
-Check 'tools\supervise.ps1 在(心跳子进程本体)' (Test-Path -LiteralPath $supLoop)
+Write-Host "`n[sv] 监督 agent(11-02 刀③ 后只剩轮档静态锚，PS 两件已出仓)"
+# 这一段现在只剩源级静态锚(量的是 lib\rust-round.ps1 的接线形状)：不喂字典、不起进程、不碰现场状态。
+# 原来那批行为级断言(三段纯函数喂字典判决策表／临时文件真演采集／临时目录落记录再归还 $global:GD)的去向见下面那笔账。
+# ---- 刀③ 摘件笔(11-02)的账：这一段原来还有 $supLib／$supLoop 两枚在场格，以及它们门内那批行为级断言 ----
+# 在场格先让门红一次(实跑交回「202 通过 / 2 失败」，红的恰是这两格)再按门落账，不是改完就宣称绿。
+# 门内那批随墙一起拆，判语分三类登记，免得日后当成"静默消失"：
+#   ①配置语义/状态表/动作表/详情文本(共约 40 格)——对面早已搬到 tools\panel-cs\Supervisor.cs，期望串逐字同源，
+#     行为级断言的家换成 panel-cs.exe --svtest(刀② 11-02 已把采集/记录两族 12 格接进去，现量 85 格)。
+#   ②「入口点 lib\supervisor.ps1」那格——它钉的是 dot-source 接线，入口那行已改成一句注释(不装载)，靶子本身出局。
+#   ③纯洁性那两格(监督两件代码面无游戏名)——PS 层没了，尺改钉 Supervisor.cs 自己，落在 --svtest(本格批新增)。
+# 为什么这段注释留在 [sv] 段头而不另起一节：下面的静态锚仍活在这一棵树上，日后有人想给 PS 侧"补回"监督断言，
+# 先在这里撞见判语，比在 git 里考古便宜。
 
-# ---- 监督族刀①(11-02 接线)静态锚：轮档那两臂的"两臂都在" ----
-# 为什么落在 [sv] 段里、却钉在那道 Test-Path 门**之外**：这一格钉的是 lib\rust-round.ps1 的形状，而那枚文件不属
-# 监督族、刀③ 摘件后它照旧在场；写进下面那个 if (supLib 与 supLoop 都在) 里，摘件那一笔会把这格一起带走，
-# 接线的证据反而随靶件消失 —— 那是"把钉做在会被拆的那面墙上"。
+# ---- 监督族刀①(11-02 接线)静态锚：轮档那一臂"接上了" ＋ 刀③(同日)的"回落臂摘净" ----
+# 为什么这几格不受 [sv] 段那批行为级断言出仓的影响(刀③ 已把门内整段摘净)：它们钉的是 lib\rust-round.ps1 的形状，而那枚
+# 文件不属监督族、那两件 PS 件出仓后它照旧在场。当年把钉落在那道 Test-Path 门**之外**，为的就是"摘件那一笔不许把接线的
+# 证据一起带走"；门本身出局后这层理由原样成立 —— "把钉做在会被拆的那面墙上"这一课不许反过来教(不该因此把锚也拆了)。
 # 为什么用整本读源码而不是 Get-Command .Definition：自检套件没点 lib\rust-round.ps1(test-lib.ps1 只点判定层与
 # 助手库)，函数体在这一棵树上拿不到。剥注释两形逐字复用 tools\test-ark.ps1 那批锚 —— 本刀的注释面**就写了**
 # start-supervisor／Stop-GdSupervisor 这些词(那是语义边界登记)，不剥注释的正向锚会在臂被摘掉后照样绿。
+# 刀③ 改口两处(旧句活的只有判据，指的东西换了)：①"两臂都在"这句作废 —— PS 兜底真身退役后只剩一枚臂，
+#   ①那两格量的是"这一枚接上了"；②原来那两格"回落臂在(逐字＝接线前原样)"翻成负锚，它们不再量兜底路是否完好，
+#   改量兜底路是否真的没了(留着一枚调不到人的调用点，比没有更坏：它把"核不可达"这一档交给不在场的命令去答)。
 $rrSrc = ''
 try { $rrSrc = [System.IO.File]::ReadAllText((Join-Path $root 'lib\rust-round.ps1')) } catch { }
 $rrSrc = ($rrSrc -replace '(?s)<\#.*?\#>', ' ') -replace '(?m)^\s*#.*$', ' '
-Check '①核臂在(start)：round-supervisor-start 现问宿主批的 start-supervisor' (
+Check '①臂在(start)：round-supervisor-start 现问宿主批的 start-supervisor' (
     $rrSrc.Contains("Invoke-GdCli -Verb 'start-supervisor'")) $(
     if ($rrSrc.Length -eq 0) { 'lib\rust-round.ps1 不在场(尺没接到电)' } else { "len=$($rrSrc.Length)" })
-Check '①核臂在(stop)：round-supervisor-stop 现问同一批的 stop-supervisor' (
+Check '①臂在(stop)：round-supervisor-stop 现问同一批的 stop-supervisor' (
     $rrSrc.Contains("Invoke-GdCli -Verb 'stop-supervisor'"))
-Check '①回落臂在(start)：核不可用时仍走 Get-Command 守卫 + PS 真身(逐字＝接线前原样)' (
-    $rrSrc.Contains('Get-Command Start-GdSupervisor -ErrorAction SilentlyContinue') -and
-    $rrSrc.Contains('[void](Start-GdSupervisor -S $S -Games ([string]$prm.games))'))
-Check '①回落臂在(stop)：核不可用时仍走 Stop-GdSupervisor(逐字＝接线前原样)' (
-    $rrSrc.Contains('Get-Command Stop-GdSupervisor -ErrorAction SilentlyContinue') -and
-    $rrSrc.Contains('[void](Stop-GdSupervisor)'))
-Check '①两臂同形：start／stop 两臂都按 Available/Err 两枚键交回执(与 Supervisor.SelfTest.cs 钉的核侧键名同形)' (
+Check '③回落臂摘净(start)：轮档码面不再有 Start-GdSupervisor 那枚 PS 真身(原"回落臂在"翻负，它不再量兜底路完好)' (
+    -not $rrSrc.Contains('Start-GdSupervisor'))
+Check '③回落臂摘净(stop)：轮档码面不再有 Stop-GdSupervisor 那枚 PS 真身(同上)' (
+    -not $rrSrc.Contains('Stop-GdSupervisor'))
+Check '①交回执同形：start／stop 两枚 verb 都按 Available/Err 两枚键交回执(与 Supervisor.SelfTest.cs 钉的核侧键名同形)' (
     ([regex]::Matches($rrSrc, 'Available = \[bool\]\$core\.Available; Err = \[string\]\$core\.Err')).Count -eq 2) $(
     'hits=' + ([regex]::Matches($rrSrc, 'Available = \[bool\]\$core\.Available')).Count)
 Check '①语义边界：信封里只喂四枚 runtime 原始值，整枚 settings 不往下传(「取键逐枚点名」那把尺也管这条通道)' (
@@ -443,145 +449,17 @@ Check '①语义边界：信封里只喂四枚 runtime 原始值，整枚 settin
 Check '①顺序锚在：监督起来 → 设睡眠屏蔽 那一发仍在(start 臂末尾)，接线不许把顺序挪' (
     $rrSrc.Contains('if (-not $esHeld) { $esHeld = Start-GdRoundHostNoSleep -S $S }'))
 
-if ((Test-Path -LiteralPath $supLib) -and (Test-Path -LiteralPath $supLoop)) {
-    . $supLib
-    $svEntry = ''
-    try { $svEntry = [System.IO.File]::ReadAllText((Join-Path $root 'daily-clear.ps1')) } catch { }
-    Check '入口点 lib\supervisor.ps1(不然 Invoke-GdDailyRound 的守卫等于没接)' ($svEntry -match [regex]::Escape('lib\supervisor.ps1'))
-
-    # ---- 配置语义(和 arkVisionRescue 同口径：没显式 false 就是开) ----
-    function New-GdSvS { param($V) [pscustomobject]@{ runtime = [pscustomobject]$V } }
-    Check 'supervisor 缺省=开'        (Get-GdSupervisorEnabled -S (New-GdSvS @{}))
-    Check 'supervisor=false 才关'     (-not (Get-GdSupervisorEnabled -S (New-GdSvS @{ supervisor = $false })))
-    Check 'supervisor=true 是开'      (Get-GdSupervisorEnabled -S (New-GdSvS @{ supervisor = $true }))
-    Check '间隔缺省 60s'              ((Get-GdSupervisorIntervalSec -S (New-GdSvS @{})) -eq 60)
-    Check '间隔<15s 归 60(拍太快没意义)' ((Get-GdSupervisorIntervalSec -S (New-GdSvS @{ supervisorIntervalSeconds = 5 })) -eq 60)
-    Check '间隔 90s 原样'             ((Get-GdSupervisorIntervalSec -S (New-GdSvS @{ supervisorIntervalSeconds = 90 })) -eq 90)
-    Check '静止阈值缺省 30 分钟'      ((Get-GdSupervisorQuietSec -S (New-GdSvS @{})) -eq 1800)
-    Check '静止阈值下限 5 分钟'       ((Get-GdSupervisorQuietSec -S (New-GdSvS @{ supervisorQuietMinutes = 1 })) -eq 300)
-    Check '干预额度缺省 1'            ((Get-GdSupervisorMaxInterventions -S (New-GdSvS @{})) -eq 1)
-    Check '干预额度可为 0(纯报告模式)' ((Get-GdSupervisorMaxInterventions -S (New-GdSvS @{ supervisorMaxInterventions = 0 })) -eq 0)
-
-    # ---- 状态判定表 ----
-    function SvEv { param($D = $false, $A = $true, $AA = 10, $DA = 10)
-        [pscustomobject]@{ Done = $D; AssistantAlive = $A; AsstAgeSec = $AA; DailyAgeSec = $DA } }
-    Check '完成线压死一切：进程没了也判 done' ((Get-GdSupervisorState -Evidence (SvEv $true $false) -EverAlive $true) -eq 'done')
-    Check '曾活着+现在没了+没完成 = dead'      ((Get-GdSupervisorState -Evidence (SvEv $false $false) -EverAlive $true) -eq 'dead')
-    Check '助手从没活着过 ≠ dead(开轮太早)'    ((Get-GdSupervisorState -Evidence (SvEv $false $false 9999 10) -EverAlive $false) -eq 'busy')
-    Check '两本日志都超阈值才 quiet'          ((Get-GdSupervisorState -Evidence (SvEv $false $true 9999 9999) -QuietSec 1800) -eq 'quiet')
-    Check '只有助手日志老 = 不算静止'          ((Get-GdSupervisorState -Evidence (SvEv $false $true 9999 10) -QuietSec 1800) -eq 'busy')
-    Check '只有主日志老 = 不算静止'            ((Get-GdSupervisorState -Evidence (SvEv $false $true 10 9999) -QuietSec 1800) -eq 'busy')
-    Check '刚好踩在阈值上不算静止(严格大于)'    ((Get-GdSupervisorState -Evidence (SvEv $false $true 1800 1800) -QuietSec 1800) -eq 'busy')
-
-    # ---- 动作决策表 ----
-    $scrBlocking = [pscustomobject]@{ Ok = $true; Blocking = $true; What = '活动公告' }
-    $scrClear    = [pscustomobject]@{ Ok = $true; Blocking = $false; What = '主界面' }
-    $scrFailed   = [pscustomobject]@{ Ok = $false; Why = '截图没成功' }
-    Check 'busy 不动'      ((Get-GdSupervisorAction -State 'busy').Kind -eq 'none')
-    Check 'done 不动'      ((Get-GdSupervisorAction -State 'done').Kind -eq 'none')
-    Check 'dead 通知一次'  ((Get-GdSupervisorAction -State 'dead').Kind -eq 'notify')
-    Check 'dead 通知过就闭嘴' ((Get-GdSupervisorAction -State 'dead' -AlreadyNotified $true).Kind -eq 'none')
-    Check '静止一拍不动手(可能是抖动)' ((Get-GdSupervisorAction -State 'quiet' -QuietStreak 1 -Screen $scrClear -CanRestart $true).Kind -eq 'none')
-    Check 'blocking 交给主流程兜底，不干预' ((Get-GdSupervisorAction -State 'quiet' -QuietStreak 2 -Screen $scrBlocking -CanRestart $true).Kind -eq 'none')
-    Check '静止+画面干净+许重启 = restart_assistant' ((Get-GdSupervisorAction -State 'quiet' -QuietStreak 2 -Screen $scrClear -CanRestart $true -Interventions 0 -MaxInterventions 1).Kind -eq 'restart_assistant')
-    Check '额度用完退回 notify' ((Get-GdSupervisorAction -State 'quiet' -QuietStreak 2 -Screen $scrClear -CanRestart $true -Interventions 1 -MaxInterventions 1).Kind -eq 'notify')
-    Check '这一路不许重启 → 只 notify' ((Get-GdSupervisorAction -State 'quiet' -QuietStreak 2 -Screen $scrClear -CanRestart $false).Kind -eq 'notify')
-    Check '看不清画面只 notify(绝不瞎重启)' ((Get-GdSupervisorAction -State 'quiet' -QuietStreak 2 -Screen $scrFailed -CanRestart $true).Kind -eq 'notify')
-    Check 'notify 说过不再重复轰炸' ((Get-GdSupervisorAction -State 'quiet' -QuietStreak 3 -Screen $scrFailed -AlreadyNotified $true).Kind -eq 'none')
-
-    # ---- 采集：临时文件真演(首拍对齐 / 追加才算 / 带上下文的完成线 / 跨天换路径) ----
-    $svTmp = Join-Path $env:TEMP ('gd-sv-' + $PID)
-    [void](New-Item -ItemType Directory -Path $svTmp -Force)
-    try {
-        $logA = Join-Path $svTmp 'a.log'
-        '上一轮留下的 任务已全部完成 旧行' | Set-Content -LiteralPath $logA -Encoding utf8
-        function Test-GdProcessRunning { param([string]$Name) return $true }   # 钉桩：进程表一律按"助手活着"答
-        $ctx = @{ asst_offset = @{}; task_seen = @{} }
-        $spec = @{ AssistantProc = '假助手'; AssistantLog = $logA; DonePattern = '任务已全部完成' }
-        $ev1 = Collect-GdSupervisorEvidence -S $S -Spec $spec -Ctx $ctx -Game 't1'
-        Check '首拍只对末尾，不把旧完成线当这一轮的' (-not $ev1.Done)
-        '这一轮 任务已全部完成' | Add-Content -LiteralPath $logA -Encoding utf8
-        $ev2 = Collect-GdSupervisorEvidence -S $S -Spec $spec -Ctx $ctx -Game 't1'
-        Check '拍与拍之间新增的行才算数' ([bool]$ev2.Done)
-        $logB = Join-Path $svTmp 'b.log'
-        'x' | Set-Content -LiteralPath $logB -Encoding utf8
-        $specB = @{ AssistantProc = '假助手'; AssistantLog = $logB
-                    DonePattern = '启动任务完成'; ProgressPattern = '开始任务：' }
-        [void](Collect-GdSupervisorEvidence -S $S -Spec $specB -Ctx $ctx -Game 't2')
-        '启动任务完成' | Add-Content -LiteralPath $logB -Encoding utf8
-        Check '没见过进度线，「启动任务完成」单独出现不算完成' (-not (Collect-GdSupervisorEvidence -S $S -Spec $specB -Ctx $ctx -Game 't2').Done)
-        ('开始任务：日常', '启动任务完成') -join "`r`n" | Add-Content -LiteralPath $logB -Encoding utf8
-        Check '进度线补上后，完成线算数' ([bool](Collect-GdSupervisorEvidence -S $S -Spec $specB -Ctx $ctx -Game 't2').Done)
-        '任务已全部完成' | Set-Content -LiteralPath (Join-Path $svTmp 'c.log') -Encoding utf8
-        $specC = @{ AssistantProc = '假助手'; AssistantLog = (Join-Path $svTmp 'c.log'); DonePattern = '任务已全部完成' }
-        Check '日志换路径(跨天)后首拍同样不扫旧内容' (-not (Collect-GdSupervisorEvidence -S $S -Spec $specC -Ctx $ctx -Game 't2').Done)
-
-        # ---- 记录：写进临时目录再归还，读方(FileShare)拿到的必须是同一份 ----
-        $oldState = $global:GD.State; $oldLogs = $global:GD.Logs
-        try {
-            $global:GD.State = Join-Path $svTmp 'state'
-            $global:GD.Logs = Join-Path $svTmp 'logs'
-            [void](New-Item -ItemType Directory -Path $global:GD.State -Force)
-            [void](New-Item -ItemType Directory -Path $global:GD.Logs -Force)
-            $meta = @{ pid = 4242; owner = 1; started = '2026-09-26 00:00:00'; games = 'all' }
-            $row = @([pscustomobject]@{ game = 't1'; state = 'busy'; alive = $true; asst_age = 5; done = $false; screen = ''; action = 'none'; why = '' })
-            Write-GdSupervisorBeat -Meta $meta -PerGame $row -Actions @()
-            $doc = Read-GdSupervisorSummary
-            Check '一拍落两个文件(jsonl 流水 + json 现值)' ((Test-Path -LiteralPath (Get-GdSupervisorBeatPath)) -and ($null -ne $doc) -and ([int]$doc.pid -eq 4242))
-            Check 'beat 内容原样读回' ((@(@($doc.beats)[0].games)[0].game) -eq 't1')
-            for ($i = 0; $i -lt 32; $i++) { Write-GdSupervisorBeat -Meta $meta -PerGame $row -Actions @() }
-            Check 'json 里只留最近 30 拍(它是"此刻"，流水在 jsonl)' ((@((Read-GdSupervisorSummary).beats).Count) -le 30)
-            $jl = @(Get-Content -LiteralPath (Get-GdSupervisorBeatPath)).Count
-            Check 'jsonl 一行一拍、不截断(33 拍)' ($jl -eq 33) "实际 $jl"
-        } finally { $global:GD.State = $oldState; $global:GD.Logs = $oldLogs }
-    } finally { Remove-Item -LiteralPath $svTmp -Recurse -Force -ErrorAction SilentlyContinue }
-
-    # ---- 详情文本(SV 行的正文)：喂假文档逐字段转达，一点现场都不许依赖 ----
-    # 这段是钉 2026-09-26 那次"C# 主控台看不到监督现场"的：外壳只会按 '|' 切字段、按段显示，
-    # 所以"给人看的话"必须在这儿(能被喂假数据)验完，而不是等真跑一轮有 supervision.json 才第一次见面。
-    $fakeBeat = [pscustomobject]@{ ts = '2026-09-26 13:05:00'; games = @(
-        [pscustomobject]@{ game = 'ark'; state = 'quiet'; alive = $true; asst_age = 1810; done = $false; screen = 'clear'; action = 'notify'; why = '连续静止，额度用完' },
-        [pscustomobject]@{ game = 'r1999'; state = 'dead'; alive = $false; asst_age = -1; done = $true; screen = $null; action = 'none'; why = '' }) }
-    $fakeDoc = [pscustomobject]@{ pid = 4321; owner = 1; started = '2026-09-26 13:00:00'; games = 'ark+r1999';
-        updated = '2026-09-26 13:05:00'; stopped = ''; beats = @($fakeBeat); actions = @() }
-    $dl = @(Get-GdSupervisorDetailLines -Sv $fakeDoc)
-    Check '详情头一句把 PID/路线/上岗/最后一拍念全' (@($dl | Where-Object { $_ -match '4321' -and $_ -match 'ark\+r1999' -and $_ -match '13:00:00' -and $_ -match '13:05:00' }).Count -eq 1) ($dl[0])
-    Check '没收工的文档不许出现「收工」二字' (-not (@($dl) -join ' ').Contains('收工'))
-    Check '一拍两路 → 展开成两行(谁都没被合并)' (@($dl | Where-Object { $_ -match '^\s+13:05:00 ' }).Count -eq 2)
-    Check 'asst_age=-1 说成"读不到"，不是"-1秒"' (@($dl | Where-Object { $_ -match '助手日志静默 读不到' }).Count -eq 1)
-    Check '画面没问过说"没问"(空串不许直接印出来)' (@($dl | Where-Object { $_ -match '画面 没问' }).Count -eq 1)
-    Check '没动作说 none，有动作把动作名原样念出来' ((@($dl | Where-Object { $_ -match '动作 none' }).Count -eq 1) -and (@($dl | Where-Object { $_ -match '动作 notify' }).Count -eq 1))
-    Check 'why 为空的那一路不缀"原因 "(不制造空句子)' (-not (@($dl | Where-Object { $_ -match 'r1999=dead.*原因\s*$' }).Count))
-    Check '这一轮没介入过 → 明说没有，而不是留一行空的「介入记录()」' (@($dl | Where-Object { $_ -match '这一轮没有介入过' }).Count -eq 1)
-    $docStopped = $fakeDoc; $docStopped.stopped = '2026-09-26 13:20:00'
-    $docStopped.actions = @([pscustomobject]@{ ts = '13:06:00'; game = 'ark'; kind = 'restart_assistant'; ok = $false; why = '重启没成' })
-    $dl2 = @(Get-GdSupervisorDetailLines -Sv $docStopped)
-    Check '收工时间只在真收工时出现' (@($dl2 | Where-Object { $_ -match '收工 2026-09-26 13:20:00' }).Count -eq 1)
-    Check '介入记录把次数/成没成都念出来' `
-          ((@($dl2 | Where-Object { $_ -match '介入记录\(1 次\)：$' }).Count -eq 1) -and (@($dl2 | Where-Object { $_ -match 'restart_assistant 没成 — 重启没成' }).Count -eq 1)) `
-          ($dl2[-2] + ' | ' + $dl2[-1])
-    Check '喂 $null(这台机器从没监督过)返回空数组而不是抛' (@(Get-GdSupervisorDetailLines -Sv $null).Count -eq 0)
-    # 拍被 30 拍上限挤掉、介入记录还在：这两件事必须能同时说。用 Where 数行，不押第几行(位置会随措辞变)。
-    $noBeat = @(Get-GdSupervisorDetailLines -Sv ([pscustomobject]@{ pid = 1; games = 'all'; started = 'x'; updated = ''; beats = @();
-        actions = @([pscustomobject]@{ ts = '13:06:00'; game = 'ark'; kind = 'restart_assistant'; ok = $true; why = '已重启' }) }))
-    Check '只有现值没有拍时说的是"还没落下第一拍"' (@($noBeat | Where-Object { $_ -match '还没落下第一拍' }).Count -eq 1) ($noBeat -join ' / ')
-    Check '没有拍也不许顺手吞掉介入记录(节拍被 30 拍上限挤掉时账本还在)' (@($noBeat | Where-Object { $_ -match 'restart_assistant 成' }).Count -eq 1)
-    Check "详情文本自己不带'|'(协议分隔符只由 -DumpSummary 那层转义成 '¦')" ((@($dl + $dl2) -join "`n").IndexOf('|') -lt 0)
-
-    # ---- 纯洁性：监督层也不许认识具体游戏(和 m3 同一把尺) ----
-    foreach ($f in @('lib\supervisor.ps1', 'tools\supervise.ps1')) {
-        $code = Get-GdCodeOnlyText -Text ([System.IO.File]::ReadAllText((Join-Path $root $f)))
-        Check "$f 的代码里没有游戏名/助手名字面量" ($code -notmatch "'ark'" -and $code -notmatch "'r1999'" -and $code -notmatch 'Maa' -and $code -notmatch 'MuMu' -and $code -notmatch '端游')
-    }
-    # settings 模板覆盖：supervisor 四键在每份 example 里都要有(publish-split 的键覆盖检查兜运行时引用，这里先钉静态)
-    foreach ($tpl in @('config\settings.example.json', 'publish\src\ark\config\settings.example.json', 'publish\src\r1999\config\settings.example.json')) {
-        $tp = Join-Path $root $tpl
-        if (-not (Test-Path -LiteralPath $tp)) { continue }
-        $tt = [System.IO.File]::ReadAllText($tp)
-        $miss = @('supervisor', 'supervisorIntervalSeconds', 'supervisorQuietMinutes', 'supervisorMaxInterventions') |
-                Where-Object { $tt -notmatch ('"' + [regex]::Escape($_) + '"') }
-        Check "$tpl 覆盖监督的 4 个 runtime 键" ($miss.Count -eq 0) ($miss -join ' ')
-    }
+# settings 模板覆盖：supervisor 四键在每份 example 里都要有(publish-split 的键覆盖检查兜运行时引用，这里先钉静态)
+# 为什么这几格一直在那道 Test-Path 门之外(11-02 刀②，那道门刀③ 已连墙拆掉)：这三格量的是三本 settings.example.json，
+# 跟 lib\supervisor.ps1／tools\supervise.ps1 在不在场没有半点关系；写在门内，摘件那一笔会把「配置面还覆盖着监督四键」
+# 这条证据一起带走 —— 与监督族刀① 把轮档锚落在门外的理由同一条(钉不许做在会被拆掉的那面墙上)，如今这条已兑现。
+foreach ($tpl in @('config\settings.example.json', 'publish\src\ark\config\settings.example.json', 'publish\src\r1999\config\settings.example.json')) {
+    $tp = Join-Path $root $tpl
+    if (-not (Test-Path -LiteralPath $tp)) { continue }
+    $tt = [System.IO.File]::ReadAllText($tp)
+    $miss = @('supervisor', 'supervisorIntervalSeconds', 'supervisorQuietMinutes', 'supervisorMaxInterventions') |
+            Where-Object { $tt -notmatch ('"' + [regex]::Escape($_) + '"') }
+    Check "$tpl 覆盖监督的 4 个 runtime 键" ($miss.Count -eq 0) ($miss -join ' ')
 }
 
 Write-Host "`n[m12] 版本号：唯一来源 + 三个读数都接上(2026-09-26 起)"

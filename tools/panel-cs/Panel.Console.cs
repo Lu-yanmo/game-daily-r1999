@@ -581,7 +581,7 @@ namespace GdPanel
 
         // 监督 agent 的两件现物：supervision.json 是"此刻"(整体重写)，supervision-YYYYMMDD.jsonl 是流水(逐拍追加)。
         // 为什么流水要裁尾而不是整本拷：它一行一拍、一天几百拍，而跑着的那一枚还在往里写 ——
-        // 共享读 + 取末尾 200 行，既不会独占锁死，也不会把几 MB 搬进诊断包(同一条理由见 lib\supervise.ps1 的采集契约)。
+        // 共享读 + 取末尾 200 行，既不会独占锁死，也不会把几 MB 搬进诊断包(同一条理由原写在退役前的 tools\supervise.ps1 采集契约里，那件 11-02 刀③ 出仓)。
         int CopySupervision(string stage)
         {
             int n = 0;

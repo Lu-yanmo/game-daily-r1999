@@ -65,7 +65,7 @@ Register-GdModule ([pscustomobject]@{
             Ack       = { param($S) Set-GdR1999Ack -S $S }
             ShopState = { param($S, $Done) Set-GdR1999ShopState -S $S -Done:([bool]$Done) }
 
-            # ---- 监督 agent(lib\supervisor.ps1)的可选钩子。这一路刻意**不给 SupervisorRestart**：
+            # ---- 监督一族的可选钩子(11-02 刀③ 起答方是 C# 宿主批，旧真身 lib\supervisor.ps1 已出仓)。这一路刻意**不给 SupervisorRestart**：
             #      MuMu 冷启动要好几分钟，误判一次的代价远超"多跑一轮"，所以 1999 出了状况只发通知。----
             SupervisorEvidence = {
                 param($S)

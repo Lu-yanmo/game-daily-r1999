@@ -40,7 +40,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'lib\decisions.ps1')      # 门面：仓库里有哪些判定文件就点哪些
 . (Join-Path $PSScriptRoot 'lib\modules.ps1')
 . (Join-Path $PSScriptRoot 'lib\rust-round.ps1')   # 入口转接层：整轮交给核内十段骨架，拿不到内置件就整轮拒跑(乙批② 起没有 PS 十段回退)
-. (Join-Path $PSScriptRoot 'lib\supervisor.ps1')   # 监督 agent(可整行删掉=这一轮没人监督，主流程不受影响)
+# 监督面自 11-02 刀③ 起不在这里装载(旧 dot-source 那行已随 lib\supervisor.ps1 退役；真身 tools\panel-cs\Supervisor.Host.cs，轮档段 7 现问 start-supervisor)
 
 Start-GdTranscript -Tag "daily-$Tag"
 Write-GdLog "=== 1999 日常开始(tag=$Tag, dryRun=$DryRun)===" -Level STEP

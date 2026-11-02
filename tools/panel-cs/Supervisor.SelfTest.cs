@@ -91,6 +91,8 @@ namespace GdPanel
             StateGroup(b);
             ActionGroup(b);
             DetailGroup(b);
+            CollectGroup(b);
+            BeatGroup(b);
             HostGroup(b);
             return b.Result("--svtest");
         }
@@ -248,6 +250,106 @@ namespace GdPanel
             b.Chk("screen 空串也走\"没问\"", () => HasLine(ls, "画面 没问"));
         }
 
+        static int ListCount(object container, string key)
+        {
+            int n = 0;
+            foreach (object x in Gd.List(Gd.Get(D(container), key))) n++;
+            return n;
+        }
+
+        static object ItemAt(object container, string key, int idx)
+        {
+            int n = 0;
+            foreach (object x in Gd.List(Gd.Get(D(container), key))) { if (n == idx) return x; n++; }
+            return null;
+        }
+
+        // ---------- 采集真演（刀② 补尺 11-02：从 tools\test-modules.ps1 [sv] 段那六枚搬进来） ----------
+        // 这两组是本件头注那条「不写文件」纪律的第一次破例，破得有限：只写自己的临时目录（gd-svtest-*-<pid>，
+        // 跑完 finally 整棵删掉），进程表一律由注入的探针答（PS 侧同形＝function Test-GdProcessRunning 钉桩），
+        // 所以既不起进程，也不读现场盘上的任何真路径。
+        // 为什么必须搬而不能留在 PS 侧：这些格钉的是「首拍只对齐不扫旧内容／只留最近 30 拍／流水一行一拍」，
+        // 而刀③ 摘的正是这套语义的 PS 真身 —— 尺留在会被拆掉的那面墙上，摘完就没人管这一格了。
+        static void CollectGroup(Box b)
+        {
+            string tmp = Path.Combine(Path.GetTempPath(), "gd-svtest-collect-" + System.Diagnostics.Process.GetCurrentProcess().Id);
+            try { Directory.CreateDirectory(tmp); } catch { }
+            UTF8Encoding noBom = new UTF8Encoding(false);
+            try
+            {
+                SupervisorHost.Session ss = new SupervisorHost.Session();
+                SupervisorHost.Route r1 = SupervisorHost.NewRoute("t1", true, "");
+                SupervisorHost.Route r2 = SupervisorHost.NewRoute("t2", true, "");
+                SupervisorHost.ProcAliveProbe alive = delegate(string n) { return true; };
+
+                string logA = Path.Combine(tmp, "a.log");
+                File.WriteAllText(logA, "上一轮留下的 任务已全部完成 旧行\n", noBom);
+                Dictionary<string, object> specA = Inp("AssistantProc", "假助手", "AssistantLog", logA, "DonePattern", "任务已全部完成");
+                object ev = SupervisorHost.Collect(ss, r1, specA, "", alive);
+                b.Chk("探针答活着时回件 AssistantAlive 为真(注入缝自己被钉住，不是缝开了没人走)",
+                    () => Gd.Truthy(Gd.Get(D(ev), "AssistantAlive")));
+                b.Chk("首拍只对末尾，不把旧完成线当这一轮的", () => !Gd.Truthy(Gd.Get(D(ev), "Done")));
+                File.AppendAllText(logA, "这一轮 任务已全部完成\n", noBom);
+                ev = SupervisorHost.Collect(ss, r1, specA, "", alive);
+                b.Chk("拍与拍之间新增的行才算数", () => Gd.Truthy(Gd.Get(D(ev), "Done")));
+
+                string logB = Path.Combine(tmp, "b.log");
+                File.WriteAllText(logB, "x\n", noBom);
+                Dictionary<string, object> specB = Inp("AssistantProc", "假助手", "AssistantLog", logB,
+                    "DonePattern", "启动任务完成", "ProgressPattern", "开始任务：");
+                SupervisorHost.Collect(ss, r2, specB, "", alive);          // 首拍：只对齐偏移
+                File.AppendAllText(logB, "启动任务完成\n", noBom);
+                ev = SupervisorHost.Collect(ss, r2, specB, "", alive);
+                b.Chk("没见过进度线，「启动任务完成」单独出现不算完成", () => !Gd.Truthy(Gd.Get(D(ev), "Done")));
+                File.AppendAllText(logB, "开始任务：\n启动任务完成\n", noBom);
+                ev = SupervisorHost.Collect(ss, r2, specB, "", alive);
+                b.Chk("进度线补上后，完成线算数", () => Gd.Truthy(Gd.Get(D(ev), "Done")));
+
+                string logC = Path.Combine(tmp, "c.log");
+                File.WriteAllText(logC, "任务已全部完成\n", noBom);
+                Dictionary<string, object> specC = Inp("AssistantProc", "假助手", "AssistantLog", logC, "DonePattern", "任务已全部完成");
+                ev = SupervisorHost.Collect(ss, r2, specC, "", alive);     // 同一路游戏换日志路径＝跨天换本
+                b.Chk("日志换路径(跨天)后首拍同样不扫旧内容", () => !Gd.Truthy(Gd.Get(D(ev), "Done")));
+            }
+            finally { try { Directory.Delete(tmp, true); } catch { } }
+        }
+
+        // ---------- 记录（同上搬入；路径三枚全由缝注入，落盘读数只出现在临时目录里） ----------
+        static void BeatGroup(Box b)
+        {
+            string tmp = Path.Combine(Path.GetTempPath(), "gd-svtest-beat-" + System.Diagnostics.Process.GetCurrentProcess().Id);
+            try { Directory.CreateDirectory(tmp); } catch { }
+            try
+            {
+                string statePath = Path.Combine(tmp, "supervision.json");
+                string beatPath = Path.Combine(tmp, "supervision-20260926.jsonl");
+                SupervisorHost.Session ss = new SupervisorHost.Session();
+                SupervisorHost.ResetMetaForTest(4242, 1, "2026-09-26 00:00:00", "all");
+                List<object> perGame = new List<object>();
+                perGame.Add(Inp("game", "t1", "state", "busy", "alive", true, "asst_age", 5, "done", false,
+                    "screen", "", "action", "none", "why", ""));
+                SupervisorHost.WriteBeatTo(ss, perGame, statePath, beatPath, tmp);
+                object doc = SupervisorHost.ReadSummaryFrom(statePath);
+                b.Chk("一拍落两个文件(jsonl 流水 + json 现值)", () =>
+                    File.Exists(beatPath) && doc != null && Gd.Int(Gd.Get(D(doc), "pid"), -1) == 4242);
+                object beat0 = ItemAt(doc, "beats", 0);
+                b.Chk("beat 内容原样读回", () =>
+                    Gd.Str(Gd.Get(D(ItemAt(beat0, "games", 0)), "game")) == "t1");
+                b.Chk("现值头三枚由注入缝供数到底(pid/owner/games 都没被写手改掉)", () =>
+                    Gd.Int(Gd.Get(D(doc), "owner"), -1) == 1 && Gd.Str(Gd.Get(D(doc), "games")) == "all");
+                // 这一格最初写的是 ListCount(doc,"actions")==0，实测是枚恒真格：Gd.List(null) 返回空数组(Decisions.cs:71)，
+                // 于是"写手把 actions 写成 null"和"写成 []"给出同一个读数。改成咬盘上那串字面量。
+                b.Chk("这一轮没介入过时 actions 落成空数组而不是 null/缺键(盘上字面量)", () =>
+                    File.ReadAllText(statePath).Contains("\"actions\":[]") && ListCount(doc, "actions") == 0);
+                for (int i = 0; i < 32; i++) SupervisorHost.WriteBeatTo(ss, perGame, statePath, beatPath, tmp);
+                doc = SupervisorHost.ReadSummaryFrom(statePath);
+                // PS 侧那枚写的是 -le 30(上限口径)，这里按实现钉死 ==30：改成 31 拍仍绿＝尺没牙。
+                b.Chk("json 里只留最近 30 拍(它是\"此刻\"，流水在 jsonl)", () => ListCount(doc, "beats") == 30);
+                b.Chk("jsonl 一行一拍、不截断(33 拍)", () => File.ReadAllLines(beatPath).Length == 33);
+            }
+            finally { try { Directory.Delete(tmp, true); } catch { } }
+        }
+
         // ---------- 宿主批：Gate.Host.cs 的端点算术 + 两枚 supervisor verb 的回件键名契约 ----------
         // 这一组不碰现场盘：adb/Manager 两枚路径一律指到 panel-cs.exe 自己那一枚"确实存在的文件"上，
         // 且每格都走"序列号已由 conn 供上"或"路径守卫先返回"那两支 ⇒ 全程不起任何进程、不写任何文件。
@@ -358,6 +460,53 @@ namespace GdPanel
                 Occ(host, "public const int CapDefault") == 1 &&
                 cli.IndexOf("SupervisorHost.CapDefault", StringComparison.Ordinal) >= 0 &&
                 Occ(cli, "480") == 0);
+
+            // ---- 刀③ 摘件笔的第一格：面板那一行不再问 PS 兜底壳在不在盘上 ----
+            // 为什么钉"不在场"而不是钉别处：这一格量的是「摘件这件事不会把给人看的那一行一起摘掉」。
+            // 原来 SupervisorRow 第一行钉的是 lib\supervisor.ps1 在不在盘上(抄已删的 panel.ps1 那句 $haveSupervisor)，
+            // 监督面迁到本 assembly 后那枚 .ps1 只是兜底壳 —— 壳一摘，那行就静默消失(绿着变空，比红难发现)。
+            // 针里带上 Combine(c.Root, 与 @" 两形，注释里那句"lib\supervisor.ps1"不会被误当活锚命中。
+            string sum = File.ReadAllText(Path.Combine(dir, "Panel.Summary.cs"), Encoding.UTF8);
+            b.Chk("面板的监督行不再问 PS 兜底壳在不在(在场闸门已摘，且没有别的 File.Exists 影子闸门)", () =>
+                Occ(sum, "Combine(c.Root, @\"lib\\supervisor") == 0);
+            // 闸门摘了，行还得能产生：头一句必须是现读心跳，占不占位只由 state\supervision.json 说了算。
+            // 为什么不写成整文件的 Occ 计数：`Dictionary<string, object> sv = ReadSupervisor();` 这一形在上一段
+            // (详情那一处)逐字出现过两次，整文件计数==1 会当场红成假伤 —— 改按"定义行往后那一截"区间量，
+            // 顺带把 File.Exists 也只在区间内判空，摘闸门与留来源钉在同一截里。
+            int srow = sum.IndexOf("static GdSummaryRow SupervisorRow(Ctx c)", StringComparison.Ordinal);
+            string shead = srow < 0 ? "" : sum.Substring(srow, Math.Min(260, sum.Length - srow));
+            b.Chk("SupervisorRow 仍在位且定义后头一句就是现读心跳(这一截里不许再有 File.Exists 型在场闸门)", () =>
+                srow >= 0 &&
+                shead.IndexOf("= ReadSupervisor();", StringComparison.Ordinal) >= 0 &&
+                Occ(shead, "File.Exists") == 0);
+
+            // ---- 刀③ 摘件笔的第二格：纯洁性那把尺从 PS 侧搬钉到本层自己 ----
+            // 旧格住在 tools\test-modules.ps1 的 [sv] 门内，逐枚扫 lib\supervisor.ps1 与 tools\supervise.ps1 的代码面
+            // (Get-GdCodeOnlyText 剥注释那把尺)。两件出仓后那格没有靶子，而 Supervisor.cs 头注「m3 纯洁性…这里也不许出现
+            // 具体游戏名」是一句活的承诺 —— 承诺不许只留在注释里，所以尺改钉 Supervisor.cs 自己，剥注释同口径。
+            // 为什么只钉本件不钉 Supervisor.Host.cs：宿主批按清单里的 id 认路线，"ark"/"r1999" 字面量本来就在位，那是另一张脸
+            // 的账；在这一格里把它一起算成"也纯洁"就是偷偷放宽判据(反过来把它挂成一格红的又是另一批的活，不属本刀)。
+            string svsrc = File.ReadAllText(Path.Combine(dir, "Supervisor.cs"), Encoding.UTF8);
+            b.Chk("监督判定层的代码面没有游戏名/助手名字面量(纯洁性那把尺已随 PS 两件搬钉到本层)", () =>
+            {
+                string code = StripLineComments(svsrc);
+                return Occ(code, "ark") == 0 && Occ(code, "r1999") == 0 && Occ(code, "Maa") == 0 &&
+                       Occ(code, "MAA") == 0 && Occ(code, "MuMu") == 0 && Occ(code, "端游") == 0;
+            });
+        }
+
+        // 剥注释只处理 // 两形(整行与行尾)：Supervisor.cs 里没有 /* */ 块注释，也没有跨行字符串，
+        // 所以这一把尺的盲区是"字符串字面量里出现 //"——那会把后面真代码切掉，只会造成假绿不会造成假红；
+        // 纯洁性这一格的正对照由 mutation 现拍(临时往代码面塞一枚 "ark" 字面量，必红)。
+        static string StripLineComments(string src)
+        {
+            var sb = new System.Text.StringBuilder();
+            foreach (string raw in src.Split('\n'))
+            {
+                int cut = raw.IndexOf("//", StringComparison.Ordinal);
+                sb.Append(cut < 0 ? raw : raw.Substring(0, cut)).Append('\n');
+            }
+            return sb.ToString();
         }
 
         static int Occ(string hay, string ndl)

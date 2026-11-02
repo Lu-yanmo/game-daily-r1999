@@ -6,14 +6,13 @@
 // 该门已于 2026-10-26 退役(甲档第九刀)，48 档搬进 Supervisor.SelfTest.cs 的 --svtest；有差异回修这里，禁止改期望、禁止放宽比对(docs\ps-migration-batch0.md §7)。
 //
 // 切分口径(批次 6 的边界)：
-//   * 三个有副作用的函数(Collect-GdSupervisorEvidence 读文件指针 / Request-GdSupervisorScreen 问视觉 /
-//     Restart-GdSupervisorAssistant 重启进程)与 Write/Read(读写盘)、Start/Stop(起停子进程)、
-//     三个 Path 函数(拼现场目录)整体留 PS 壳 —— 它们是"活"，不是规矩。
-//   * tools\supervise.ps1(心跳子进程本体)与 Send-GdNotice(住在 lib\common.ps1，转发壳的地基)本批不动。
-//   * test-modules [sv] 块是行为级断言(喂字典验返回值)，薄壳后函数名/参数名/返回形状原样保留 ——
+//   ⚠ 11-02 监督族刀③ 更正：下面三行是批次 6 当时的边界，此后两刀把它推翻了(留字只为认出"当初打算把活留在 PS")。
+//   * 有副作用的那批(Collect/RequestScreen/Restart 与 Write/Read、Start/Stop、三个 Path 函数)自此全住本 assembly(Supervisor.Host.cs)，
+//     lib\supervisor.ps1 与 tools\supervise.ps1 双双出仓 —— 那批"活"不再"留 PS 壳"；只有 Send-GdNotice 仍住 lib\common.ps1(转发壳的地基，没动)。
+//   * test-modules 的 [sv] 块自此只留门外的静态锚，行为级断言随刀② 搬进 --svtest ——
 //     尤其 -Evidence 这个名字不许缩短(旧注释：-Ev 撞 advanced function 公共参数别名的实测坑)。
 //
-// m3 纯洁性(两仓 test-modules 钉的)：本层的 PS 壳与这里都不许出现具体游戏名/助手名字面量。
+// m3 纯洁性(11-02 监督族刀③ 起由本 assembly 的 --svtest 钉 Supervisor.cs 自己的代码面)：这里不许出现具体游戏名/助手名字面量(PS 壳两件已出仓)。
 
 using System;
 using System.Collections.Generic;

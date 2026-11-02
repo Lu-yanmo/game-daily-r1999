@@ -626,10 +626,12 @@ namespace GdPanel
                 "TimeoutSec", Gd.Get(cfg, "TimeoutSec"));
         }
 
-        // 监督在岗三形(原 panel.ps1 的监督段，已随件删除)：在岗 / 已收工 / 进程没了但没说收工。文件不在就一行都不占(不是错误)。
+        // 监督在岗三形：在岗 / 已收工 / 进程没了但没说收工。文件不在就一行都不占(不是错误)。
+        // 11-02 刀③ 摘件笔：原来这里第一行还钉着"lib\supervisor.ps1 在不在盘上"(抄的是已删的 panel.ps1 那句 $haveSupervisor)。
+        //   监督面迁到本 assembly 后，那枚 PS 件只是兜底壳，它摘与不摘都不该决定给人看的那一行占不占位——
+        //   「绿着变空」比红难发现，所以闸门只留下一条：下面 ReadSupervisor() 在 state\supervision.json 缺席时本来就回 null。
         static GdSummaryRow SupervisorRow(Ctx c)
         {
-            if (!File.Exists(Path.Combine(c.Root, @"lib\supervisor.ps1"))) return null;   // = 原 panel.ps1 的 $haveSupervisor 那句(该件已删)
             Dictionary<string, object> sv = ReadSupervisor();
             if (sv == null) return null;
 
@@ -679,7 +681,8 @@ namespace GdPanel
                 "监督：进程没了但没说收工(最后心跳 " + Gd.Str(Gd.Get(sv, "updated")) + ") → 看 supervision.jsonl", "supervisor");
         }
 
-        // Read-GdSupervisorSummary(lib\supervisor.ps1:346-356) 的对面：读不动／空文件／顶层不是对象都算"没监督过"，回 null。
+        // Read-GdSupervisorSummary 的对面(那枚 PS 件 11-02 刀③ 退役，旧坐标锚按改口登记、不再指向具体行)：
+        // 读不动／空文件／顶层不是对象都算"没监督过"，回 null。
         // FileShare 必须是 ReadWrite —— 监督进程正握着这份文件写下一拍，独占读会当场抛(和 history.csv 同一条坑)。
         static Dictionary<string, object> ReadSupervisor()
         {

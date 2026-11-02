@@ -24,7 +24,7 @@
 # key 只经环境变量给子进程：不进命令行、不进请求文件、不进日志、不进诊断包。
 #
 # 后端怎么找：Get-GdVisionTarget 按 `New-GdVisionTarget-<kind>` 这个命名约定 Get-Command 探路，
-# 找不到就返回 $null，由调用方自己给一句原因(现在活着的调用方是 lib\supervisor.ps1 的"人眼看一眼"那一路)。
+# 找不到就返回 $null，由调用方自己给一句原因(旧调用方是 lib\supervisor.ps1 的"人眼看一眼"那一路，那枚件随 11-02 刀③ 出仓)。
 # 同一条纪律的原话是拿 `lib\maa.ps1 里 Get-Command Invoke-GdVisionRescue` 作比 —— 那枚比较对象与它比的
 # 东西如今都不在现树了(maa.ps1 现读零枚 Get-Command)，但纪律本身不许变：**不靠导出时改写源码**。
 #

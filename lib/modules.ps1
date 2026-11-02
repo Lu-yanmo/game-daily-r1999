@@ -164,41 +164,6 @@ function Invoke-GdModuleHook {
     return (& $sb @Params)
 }
 
-function Get-GdModuleEnvRows {
-    <# 这一路要探的路径清单(标签 -> 路径)。由模块钩子给出，框架只做"路径填了没/在不在"的统一染色。
-        以前这份清单在 daily-clear.ps1 里写死六行，单游戏薄壳里又写三行 —— 现在两边都是零行。 #>
-    param([Parameter(Mandatory)]$Module, [Parameter(Mandatory)]$S)
-    $rows = Invoke-GdModuleHook -Module $Module -Hook EnvProbes -Params @{ S = $S }
-    if ($null -eq $rows) { return [ordered]@{} }
-    return $rows
-}
-
-function Select-GdModules {
-    <# 把"命令行想跑哪几路"翻译成模块对象列表。
-        -Ids 为空 = 这棵树上装了的全跑；认不出来的 id 当场报错，别让它变成"静默少跑一款"。 #>
-    param([string[]]$Ids)
-    $avail = @(Get-GdModules -AvailableOnly)
-    if (-not $avail.Count) {
-        throw "这棵树上没有可加载的游戏模块(lib\*-module.ps1 一个都没有)，也没有任何一路的助手库 —— 检查工程是否完整"
-    }
-    if (-not $Ids -or (@(@($Ids) | Where-Object { $_ -and $_ -ne 'all' }).Count -eq 0)) { return $avail }
-    $want = @($Ids | Where-Object { $_ -and $_ -ne 'all' })
-    $picked = @()
-    foreach ($id in $want) {
-        $m = Get-GdModule -Id ([string]$id)
-        if (-not $m) {
-            throw "没有这个模块：$id(这棵树上有：$((Get-GdModuleIds) -join ' / '))。要跑某一款就先把它的 <id>-module.ps1 放进 lib\"
-        }
-        if (-not (Test-GdModuleInstalled -Module $m)) {
-            Write-GdLog "$id 已注册但这一路没装(lib\$([string]$m.AssistantLib) 不在)，本轮跳过它" -Level WARN
-            continue
-        }
-        $picked += $m
-    }
-    if (-not $picked.Count) { throw "选中的模块一个都没装：$($want -join ' / ')" }
-    return @($picked)
-}
-
 function Set-GdModuleState {
     <# 两道手动门(活动确认 / 商店领空)的统一分发入口。
         参数名是各入口自己的事(-AckArk vs -Ack)，所以入口只管把"用户敲了哪个开关"报成 Verb；
@@ -223,9 +188,13 @@ function Set-GdModuleState {
 # 拿不到内置件、主闸被人拨关(GD_RUST_OFF=1 或 runtime.rustOff 含 gdcore)、轮上下文装配炸 ——
 # 这三种形状一律整轮拒跑(2)并落一句人话，不再有"换人跑"的第二条腿；代价与受影响的形态见转接层头注。
 # 本文件剩下的是**还被两头问回来**的零件：注册表与装载器(Register-GdModule / Import-GdModules)、
-# 选人(Select-GdModules)、手动门分发(Set-GdModuleState)、钩子唯一收口(Invoke-GdModuleHook)、
-# 环境读数(Get-GdModuleEnvRows)。
+# 手动门分发(Set-GdModuleState)、钩子唯一收口(Invoke-GdModuleHook)。
 # ⚠ 11-02 刀③ 作废登记：上一句末尾原本还挂着半句按位置分派「谁在点」的口径，已不作数——
 #   那半句把 选人 Select-GdModules 与 环境读数 Get-GdModuleEnvRows 也算成被生产在点，而它们的生产调用点早已归零（只剩自检还点）；
 #   那半句里的「面板」那一路，也随 tools\panel.ps1 整件退役一起没了。
 #   谁在调不由注释供数：表账 tools\ps-map\ps-map.tsv 每枚一行、第六列改由人工逐枚现量＋仓外对平尺复核(11-02 改口：供数那本门 tools\ps-map\probe-ps-map.ps1 已整件出仓，旧句「由门逐行现量」不作数)。
+# ⚠ 11-03 转接刀 落码：上面那段零件名册里的「选人」「环境读数」本批真的摘件了，那两行表账随之划除。
+#   选路只剩核内 tools\rustcore\src\main.rs 的 select_gd_modules（清单＝注册、助手库＝装了、编排库＝合体，三枚文件各判一件事）；
+#   要探的路径清单只剩那本文件里的两张静态表（ark 与 r1999 各一张，行文本「标签 → 展示值」由它供）。
+#   PS 侧自此没有「选哪几路／探哪几行」的出口，连自检也不点它们：tools\test-modules.ps1 的 [m4] 改成直接点 EnvProbes 钩子，
+#   [m5] 与 [m7] 里那几格量 PS 真身的钉随真身一并作废——那本门绿着的地方自此不再替这一路作证。

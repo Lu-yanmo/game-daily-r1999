@@ -6615,14 +6615,19 @@ fn round_ctx_parse(v: &JVal) -> Result<RoundCtx, String> {
     })
 }
 
-/// `Select-GdModules`（lib\modules.ps1:179）的复刻。**三句 throw 各是不同档**，不许合并：
+/// `Select-GdModules` 的复刻（11-03 转接刀：那枚 PS 真身已就地摘掉，本件是这一路的**唯一事实源**；
+/// 旧句里引的 `lib\modules.ps1:179` 那枚坐标自此没有对面，按坐标清账批口径不再引行号）。
+/// **三句 throw 各是不同档**，不许合并：
 /// 树上一路都没有／命令行点了没注册的那一路／点了但没装的那一路，玩家看到的三句话完全不一样。
 /// 判据全在 `--root` 现问的三个文件上：`lib\<id>-module.ps1`（注册）、`lib\<AssistantLib>`（装了）、
 /// `lib\<OrchestrationLib>`（合体判据，`entryverb` 那格另读）。
 /// 返回 Err 的两句是骨架里**唯一**在进十段之前就发生的失败 ⇒ 调用方一律按 Fail 信封出（rc=1），
 /// 真身那边它们是 terminating error，由入口的 catch 收尾，形状本来就不是"退出码 2"。
-/// `Select-GdModules` 里"认不出来的 id 当场报错"那一句（throw 原文逐字）。
-/// 括号里那格名册：真身列现装注册表的 id（= 文件名序），核内列**这棵树上清单在位**的那几枚 ——
+/// ⚠ 11-03 转接刀 作废登记：上一句的"真身那边"已没有可对照的那块件——那句留在这里讲的是**这一路为什么
+/// 不是 rc=2**（形状来历），不是"现在还有两条腿"；语义钉由 `--selftest` 的 24e 那格供数。
+/// `Select-GdModules` 里"认不出来的 id 当场报错"那一句（throw 原文逐字——真身出仓后，这一句的原文
+/// 就只住在这里，改它等于改口径）。
+/// 括号里那格名册：真身当年列现装注册表的 id（= 文件名序），核内列**这棵树上清单在位**的那几枚 ——
 /// 同一把尺换了事实源，只在清单被裁坏时文案才分岔（登记在册）。
 fn round_no_module_msg(id: &str, registered: &[&'static GdModule]) -> String {
     let names: Vec<&str> = registered.iter().map(|m| m.id).collect();
@@ -6737,6 +6742,9 @@ fn round_entry_verb(game: &str, verb: &str, root: &str) -> String {
 /// 环境检查那一段的读数：就绪条数 + 缺失行（行文本与 PS 侧 `Get-GdModuleEnvRows` 逐字同形；原引的那枚 `modules.ps1` 坐标**在删除之前就已指歪**——它落在函数头注与 param 上，环境检查段在其后——而那十段 PS 真身已随乙批② `e3dec2b` 整块出仓 ⇒ 按坐标清账批口径不引行号）。
 /// ⚠ 11-02 刀③ 作废登记：上一句里原本还带着「那枚函数至今仍在场、被面板点」的半句，已不作数——函数确实仍在场，但「面板」那一路随 `tools\panel.ps1` 整件退役一起没了；
 /// 这枚 PS 函数还有没有被生产在点，不由注释供数（表账 `tools\ps-map\ps-map.tsv` 里有它一行、第六列 11-02 起改由人工逐枚现量＋仓外对平尺复核——供数那本门 `tools\ps-map\probe-ps-map.ps1` 已整件出仓，旧句「由门逐行现量」不作数）。
+/// ⚠ 11-03 转接刀 作废登记：上面两句里"与 PS 侧 `Get-GdModuleEnvRows` 逐字同形"那半句的对照面已不在场——
+/// 那枚函数连同表账那一行一起划掉，环境行的名册自此只有核内两张静态表（两路各自的 `env_rows`）；
+/// "逐字同形"降级为来历说明，**口径就是这里**，语义钉由 `--selftest` 的 24f-2 那两格供数。
 /// 第二枚返回值非空 ⇒ 骨架写 ERROR 后 `return 2`（**不是报错**、也不抛：真身就是"环境不完整"退 2）。
 /// ⚠ 这里读到的是 `Test-Path`，与 `resolve-round-context` 的 `Ready` 同一把尺（填了且真存在），
 /// 但那一格按**单键**算、这一处按**拼接后的整行**算 —— 'MAA 配置' 的 Ready 在 verb 侧比的是相对段，
@@ -17976,6 +17984,35 @@ fn selftest() -> i32 {
             &mut fails,
             &mut total,
         );
+
+        // 「-Ids all／ALL／空串＋all／根本没传 ids」在真身那边是同一读数：那两句
+        // `Where-Object { $_ -and $_ -ne 'all' }`（PS 的 -ne 不分大小写）滤完为空就直接回 $avail。
+        // 正对照＝同一副路数递 "ark" 时 ids 真落进了 ctx —— 少了这一枚，上面几档在 ctx 静默落空时
+        // 也会「读起来像全跑」，那是死灯不是判据。
+        let ctx_with_ids = |lit: &str| -> RoundCtx {
+            let raw = format!("{{\"pid\":4242,\"opt\":{{}},\"ids\":{}}}", lit);
+            match jv_parse(&raw) {
+                Ok(jv) => round_ctx_parse(&jv).unwrap_or_else(|_| round_ctx_empty()),
+                Err(_) => round_ctx_empty(),
+            }
+        };
+        let ids_of24 = |res: &Result<Vec<&'static GdModule>, String>| -> Vec<&str> {
+            match res {
+                Ok(list) => list.iter().map(|m| m.id).collect(),
+                Err(_) => Vec::new(),
+            }
+        };
+        let c_ark24 = ctx_with_ids("[\"ark\"]");
+        chk(
+            c_ark24.ids == vec!["ark".to_string()]
+                && ids_of24(&select_gd_modules(&ctx_with_ids("[]"), &root_all)) == vec!["ark", "r1999"]
+                && ids_of24(&select_gd_modules(&ctx_with_ids("[\"all\"]"), &root_all)) == vec!["ark", "r1999"]
+                && ids_of24(&select_gd_modules(&ctx_with_ids("[\"ALL\"]"), &root_all)) == vec!["ark", "r1999"]
+                && ids_of24(&select_gd_modules(&ctx_with_ids("[\"\",\"all\"]"), &root_ark)) == vec!["ark"],
+            "「all／ALL／空串＋all／没传 ids」四档在核内不是同一读数，或者 ctx 压根没把 ids 读进来（正对照那枚 ark 跟着一起红就是后一档）：真身滤完为空就直接回全装的那一路，核内的 filter 段是这一句的复刻",
+            &mut fails,
+            &mut total,
+        );
         // 入口 verb：合体树上取长名（-AckArk），非合体树回落短名（-Ack）—— §11.50 ④-4 抓过的那一处。
         chk(
             round_entry_verb("ark", "Ack", &root_all) == "-AckArk"
@@ -18051,6 +18088,42 @@ fn selftest() -> i32 {
                 && !env24.elev_on("no-such-flag"),
             &format!(
                 "环境检查/elev_on 那把尺走样了（就绪条数、(没填) 那一档、或 Elevation 的折真值 —— 缺键按**开**算才是真身那把 -ne $false）：{}",
+                bad24.join(" / ")
+            ),
+            &mut fails,
+            &mut total,
+        );
+
+        // ---------- 24f-2 环境名册的条数／标签，与缺失行的**行序** ----------
+        // 上一格只钉了首尾两位，中间两行换序（ark 与 1999 两路互换、同路内两枚互换）那一形它咬不住；
+        // 「行文本 = 标签 → 展示值」这句拼装的成立前提就是标签非空且互不相同——空标签会写成
+        // 「 → (没填)」而条数照样对平，所以条数与标签要分开钉。
+        let mut labels24: Vec<&str> = Vec::new();
+        for m in GD_MODULES.iter() {
+            for row in m.env_rows.iter() {
+                labels24.push(row.label);
+            }
+        }
+        let mut uniq24 = labels24.clone();
+        uniq24.sort();
+        uniq24.dedup();
+        chk(
+            labels24.len() == 6 && uniq24.len() == 6
+                && GD_MODULE_ARK.env_rows.len() == 3 && GD_MODULE_R1999.env_rows.len() == 3
+                && labels24.iter().all(|l| !l.is_empty())
+                && GD_MODULES.iter().all(|m| m.env_rows.iter().all(|r| !r.base_key.is_empty())),
+            "环境行的名册走样了（总数、两路各自条数、标签非空且互不相同，或某行没带 base_key）：这张名册就是环境检查那一段唯一的事实源，行文本的「标签」那半截只能由它供",
+            &mut fails,
+            &mut total,
+        );
+        chk(
+            bad24.len() == 4
+                && bad24[0] == "方舟端游 → (没填)"
+                && bad24[1] == "M9A 目录 → (没填)"
+                && bad24[2] == "M9A appsettings → (没填)"
+                && bad24[3] == "MuMu Manager → (没填)",
+            &format!(
+                "缺失行的行序或某一档的展示值不对（行序＝名册行序：ark 三枚在前、1999 三枚在后；base 空时带 rel 的那两枚该落成 (没填) 而不是裸相对段——Join-GdPath 的空 base 语义）：{}",
                 bad24.join(" / ")
             ),
             &mut fails,

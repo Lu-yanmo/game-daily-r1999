@@ -185,7 +185,9 @@ foreach ($m in @(Get-GdModules -AvailableOnly)) {
     $id = [string]$m.Id
     $rows = $null
     $err = ''
-    try { $rows = Get-GdModuleEnvRows -Module $m -S $S } catch { $err = $_.Exception.Message }
+    # 11-03 转接刀：这几格量的一直是 EnvProbes 钩子自己的返回形状，那枚薄壳只转发明再加一条 null→空表；
+    # 壳已摘 ⇒ 这里直接点钩子，判语一字不动（生产侧没有 caller，null 那一档只在壳里，摘了就是少一档兜底）。
+    try { $rows = Invoke-GdModuleHook -Module $m -Hook EnvProbes -Params @{ S = $S } } catch { $err = $_.Exception.Message }
     Check "[$id] EnvProbes 调得动" ($err -eq '') $err
     Check "[$id] 环境探测至少一项" (@($rows).Count -gt 0) "$(@($rows).Count) 项"
     $labels = @($rows.Keys)
@@ -212,14 +214,11 @@ foreach ($m in @(Get-GdModules -AvailableOnly)) {
 }
 
 Write-Host "`n[m5] 选择与参数名"
-Check 'Select-GdModules 不传 Id = 装了的全跑' ((@(Select-GdModules).Count) -eq @(Get-GdModules -AvailableOnly).Count)
-Check "Select-GdModules -Ids all 等价于全跑" ((@(Select-GdModules -Ids @('all')).Count) -eq @(Get-GdModules -AvailableOnly).Count)
-$firstId = [string](@(Get-GdModuleIds -AvailableOnly)[0])
-Check "Select-GdModules -Ids $firstId 只挑一款" ((@(Select-GdModules -Ids @($firstId)).Count) -eq 1)
-$pickErr = ''
-try { [void](Select-GdModules -Ids @('__no_such__')) } catch { $pickErr = $_.Exception.Message }
-Check '挑了不存在的模块当场抛(不静默少跑一款)' ($pickErr -ne '')
-Check '抛出来那句会告诉这棵树上有什么(照抄就能改对)' ($pickErr -match $firstId) $pickErr
+# 11-03 转接刀：这一段原本量的是 Select-GdModules 那枚 PS 真身(不传 Id ／ -Ids all ／ 只挑一款 ／
+# 点了没注册的那一路当场抛 ／ 抛出来那句把树上的名册一起印出来)。真身已摘 ⇒ 这几格作废，且自此 PS 侧
+# 不再量「命令行 ids 变成待跑那几路」这一格 —— 对面在 tools\rustcore\src\main.rs 的 select_gd_modules，
+# 语义钉由它 --selftest 的 24e 段供数(三档在位树现问＋all／ALL／空串／没传 ids 同一读数)。
+# 空壳留着只会让下一批把「门绿着」读成「还在量这一格」。
 foreach ($id in @(Get-GdModuleIds)) {
     Check "[$id] 过 Get-GdGameId 校验(注册表与判定层的口径一致)" $(try { $null = Assert-GdGameId -Game $id; $true } catch { $false })
 }
@@ -283,7 +282,9 @@ $snap = [ordered]@{}
 foreach ($k in @($global:GdModules.Keys)) { $snap[$k] = $global:GdModules[$k] }
 $global:GdModules.Clear()
 Check '清空后 Get-GdModules 返回空(不抛)' (@(Get-GdModules).Count -eq 0)
-Check '清空后 Select-GdModules 抛"没有可加载的游戏模块"' $(try { [void](Select-GdModules); $false } catch { $_.Exception.Message -match '没有可加载' })
+# 11-03 转接刀：这一格原本拿清空后的注册表去点 Select-GdModules 的那句 throw，真身已摘 ⇒ 作废；
+# 「裁坏了要说人话」那一档从此由核内的在位树现问供数(--selftest 24e 的 root-none 那档交回同一句)。
+# 这一段剩下的还是 PS 侧自己的事：注册表清空不炸、判定层的两款兜底、还原后数量对平。
 Check '清空后 Get-GdGameIds 落到老的两款兜底' ((@(Get-GdGameIds) -join ',') -match 'ark')
 foreach ($k in @($snap.Keys)) { $global:GdModules[$k] = $snap[$k] }
 Check '还原后注册表数量不变' ($global:GdModules.Count -eq $snap.Count) "$($snap.Count) → $($global:GdModules.Count)"

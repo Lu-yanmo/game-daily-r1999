@@ -11,7 +11,7 @@
 // 七枚名单(全部走 `--in` JSON，回执走 `--out` 信封，形状与既有六十几枚一字不相干 —— 判据见 §11.50 ②-1 末句)：
 //   resolve-round-context  ①-4 那把"轮 ctx 取键名册"：逐枚点名要 runtime 键、判动态 flag、判在位性、判管理员；
 //   start-elevated-round   Start-GdElevatedSelf(common.ps1:771) 的真起那半 —— 拼参那半不重做(build-relaunch-args 已在场)；
-//   send-round-notice      Send-GdNotice(common.ps1:817) 的三档容错：落盘无条件、webhook 失败只 WARN、气泡失败也只 WARN；
+//   send-round-notice      Send-GdNotice(common.ps1 已摘于本批) 的三档容错：落盘无条件、webhook 失败只 WARN、气泡失败也只 WARN；
 //   start-run-lock         Start-GdRunLock(common.ps1:902)：先报"已有一轮在跑"再登记，**只说不拦**；
 //   stop-run-lock          Stop-GdRunLock(common.ps1:959)：只删自己登记的那一份；
 //   read-task-state        Get-GdTaskState(common.ps1:1031)：走 Schedule.Service COM，不走 schtasks(它的状态标签是本地化的)；
@@ -493,7 +493,7 @@ namespace GdPanel
         }
 
         // ==================== verb: send-round-notice ====================
-        // Send-GdNotice(common.ps1:817) 的三档容错照抄：**落盘无条件做**，webhook 与气泡各自一把 try，
+        // Send-GdNotice(common.ps1 已摘于本批) 的三档容错照抄：**落盘无条件做**，webhook 与气泡各自一把 try，
         // 两把都只 WARN —— "发通知"不许合并成一次 try(那样气泡失败会把已推送的 webhook 也说成没推)。
         internal static object Notice(Dictionary<string, object> raw)
         {
@@ -505,7 +505,7 @@ namespace GdPanel
             string level = OptStr(c, "level", delegate { return allOk ? "OK" : "WARN"; });
             string time = OptStr(c, "nowText", delegate { return DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture); });
 
-            // 真身(common.ps1:828)这一句**不在 try 里**：落盘是无条件的第一件事，盘坏了就该把整枚 verb 抛出去
+            // 真身(common.ps1 已摘于本批)这一句**不在 try 里**：落盘是无条件的第一件事，盘坏了就该把整枚 verb 抛出去
             // (Cli 换算成退出码 1)，而不是"落盘失败只吭一声、后面 webhook 照打"—— 那是给通知加了它没有的容错。
             // 真身是 ConvertTo-Json 缩进版(带换行)，这里是单行 —— 读的只有人和面板，形状差登记在文件头。
             Dictionary<string, object> payload = Sub(
@@ -551,7 +551,7 @@ namespace GdPanel
             else
             {
                 string fakeErr = OptStr(c, "fakeToastErr", null);
-                // 原话逐字(common.ps1:853)：气泡失败也是"不影响日常本身"这一档，别写成 ERROR。
+                // 原话逐字(common.ps1 已摘于本批)：气泡失败也是"不影响日常本身"这一档，别写成 ERROR。
                 if (fakeErr.Length > 0) { toastState = "failed"; lines.Add("桌面通知发送失败(不影响日常本身)：" + fakeErr); }
                 else
                 {

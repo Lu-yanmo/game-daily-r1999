@@ -8,7 +8,7 @@
 // 切分口径(批次 6 的边界)：
 //   ⚠ 11-02 监督族刀③ 更正：下面三行是批次 6 当时的边界，此后两刀把它推翻了(留字只为认出"当初打算把活留在 PS")。
 //   * 有副作用的那批(Collect/RequestScreen/Restart 与 Write/Read、Start/Stop、三个 Path 函数)自此全住本 assembly(Supervisor.Host.cs)，
-//     lib\supervisor.ps1 与 tools\supervise.ps1 双双出仓 —— 那批"活"不再"留 PS 壳"；只有 Send-GdNotice 仍住 lib\common.ps1(转发壳的地基，没动)。
+//     lib\supervisor.ps1 与 tools\supervise.ps1 双双出仓 —— 那批"活"不再"留 PS 壳"；Send-GdNotice 于本批摘除(lib\common.ps1 侧零活调用点，verb 已承接)。
 //   * test-modules 的 [sv] 块自此只留门外的静态锚，行为级断言随刀② 搬进 --svtest ——
 //     尤其 -Evidence 这个名字不许缩短(旧注释：-Ev 撞 advanced function 公共参数别名的实测坑)。
 //

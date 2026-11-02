@@ -56,8 +56,25 @@ function Convert-GdUtc8ToMs {
 function Get-GdAckMap {
     param([Parameter(Mandatory)][string]$Game)
     # 游戏 id 会被拼进状态文件名("$Game-event-ack")，所以认不得的 id 必须当场挡住，
-    # 不能让它悄悄写出一个谁都不会再读的 json。
+    # 不能让它悄悄写出一个谁都不会再读的 json。两臂共这道闸，回落臂那句原样留在下面。
     Assert-GdGameId -Game $Game | Out-Null
+    # ── B-3②-d 刀①(2026-11-01 §11.189 定档)：ack 表那半段读改指核 ──
+    # 核臂＝verb read-decision-state(真身 tools\panel-cs\Round.Data.cs::DecisionState)，want 里只点自己那一枚：
+    #   没要的表核不去碰(不多读那两本，也不替调用方多取)。键不分大小写两侧同一把尺——C# 侧那本表用
+    #   OrdinalIgnoreCase 建，交回来的对象在这里经 Convert-GdMapToHashtable 落成 PS 的 @{}，两边都不分大小写。
+    # 回落臂＝下面那段，逐字是改指前的原样。
+    # 语义边界(两臂必须同判语的那一句)：账本坏了两侧都拦、谁也不许咽。C# 那本表没有 try，坏 json 当场抛、
+    #   信封非 0 由唯一转发通道 throw 上来，这一发的 catch 只把它交给回落臂——而回落臂读同一枚文件会抛同一句话，
+    #   所以"坏了就拦下这一轮"不因为多了一条核臂就变软。反过来核不在场(exe 没编／那枚 exe 还不认这 verb／
+    #   settings 缺席时核读不到它自己不消费的 ShopDoneGateOpen)也只是回落到 PS，读数一字不差。
+    #   这里不取 ShopDoneGateOpen：那把尺仍归 Test-GdShopDoneEnabled(表账「不许动」那一档)。
+    $core = $null
+    try {
+        $core = Invoke-GdCli -Verb 'read-decision-state' -Body ([pscustomobject]@{ game = $Game; want = @('ack') })
+    } catch { $core = $null }
+    if ($null -ne $core -and $null -ne $core.PSObject.Properties['Ack'] -and $null -ne $core.Ack) {
+        return (Convert-GdMapToHashtable $core.Ack)
+    }
     $obj = Get-GdStateObject -Name "$Game-event-ack" -Default $null
     if ($null -eq $obj) { return @{} }
     return (Convert-GdMapToHashtable (Get-GdMapValue $obj 'acked'))
@@ -74,6 +91,18 @@ function Set-GdAckKey {
 function Get-GdShopDoneMap {
     param([Parameter(Mandatory)][string]$Game)
     Assert-GdGameId -Game $Game | Out-Null
+    # ── B-3②-d 刀①(2026-11-01 §11.189 定档)：领空表那半段读改指核，与上面 ack 那枚同一把出口 ──
+    # 核臂＝read-decision-state 的 shopDone 那一格(want 只点这一枚)；回落臂＝下面那段，逐字是改指前原样。
+    # 语义边界同 Get-GdAckMap 那一句：坏了两侧都拦(核那本表也没 try)，核不在场就整段回落到 PS，读数不变；
+    #   "领空表给不给调用方"仍归这里(核只把原表和读数摆上桌，这一发只取表)。撤销那一步的 ContainsKey
+    #   按不分大小写判(Remove-GdShopDoneKey 与 tools\test-ark.ps1 的[撤销标记生效]都吃这把尺)——两臂同一把。
+    $core = $null
+    try {
+        $core = Invoke-GdCli -Verb 'read-decision-state' -Body ([pscustomobject]@{ game = $Game; want = @('shopDone') })
+    } catch { $core = $null }
+    if ($null -ne $core -and $null -ne $core.PSObject.Properties['ShopDone'] -and $null -ne $core.ShopDone) {
+        return (Convert-GdMapToHashtable $core.ShopDone)
+    }
     $obj = Get-GdStateObject -Name "$Game-shop-done" -Default $null
     if ($null -eq $obj) { return @{} }
     return (Convert-GdMapToHashtable (Get-GdMapValue $obj 'done'))

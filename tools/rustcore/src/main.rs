@@ -6734,7 +6734,9 @@ fn round_entry_verb(game: &str, verb: &str, root: &str) -> String {
     format!("-{}", verb)
 }
 
-/// 环境检查那一段的读数：就绪条数 + 缺失行（行文本与 PS 侧 `Get-GdModuleEnvRows` 逐字同形，那枚函数至今仍在场、被面板点；原引的那枚 `modules.ps1` 坐标**在删除之前就已指歪**——它落在函数头注与 param 上，环境检查段在其后——而那十段 PS 真身已随乙批② `e3dec2b` 整块出仓 ⇒ 按坐标清账批口径不引行号）。
+/// 环境检查那一段的读数：就绪条数 + 缺失行（行文本与 PS 侧 `Get-GdModuleEnvRows` 逐字同形；原引的那枚 `modules.ps1` 坐标**在删除之前就已指歪**——它落在函数头注与 param 上，环境检查段在其后——而那十段 PS 真身已随乙批② `e3dec2b` 整块出仓 ⇒ 按坐标清账批口径不引行号）。
+/// ⚠ 11-02 刀③ 作废登记：上一句里原本还带着「那枚函数至今仍在场、被面板点」的半句，已不作数——函数确实仍在场，但「面板」那一路随 `tools\panel.ps1` 整件退役一起没了；
+/// 这枚 PS 函数还有没有被生产在点，不由注释供数（表账 `tools\ps-map\ps-map.tsv` 里有它一行、第六列由门逐行现量）。
 /// 第二枚返回值非空 ⇒ 骨架写 ERROR 后 `return 2`（**不是报错**、也不抛：真身就是"环境不完整"退 2）。
 /// ⚠ 这里读到的是 `Test-Path`，与 `resolve-round-context` 的 `Ready` 同一把尺（填了且真存在），
 /// 但那一格按**单键**算、这一处按**拼接后的整行**算 —— 'MAA 配置' 的 Ready 在 verb 侧比的是相对段，
@@ -7095,7 +7097,7 @@ fn round_answer(
             DirectOut::only(JVal::B(true))
         }
         ("round", a) if a == GD_MODULE_ARK.probe_act => {
-            // R9-a 收编：活动图每轮自证（lib\ark-decisions.ps1:144-175 的采集段整段）。
+            // R9-a 收编：活动图每轮自证（lib\ark-decisions.ps1:165-196 的采集段整段）。
             // 观测读数现采 ⇒ `round_obs_fetch`；两枚前置闸（EventKey／StageHint 给不出就不采）、
             // 四档判据与落盘都在新立的 `update-ark-event-probe` 里（判据那半复用同装配的
             // `decide-ark-event-probe` 本体，**不在核内抄第二份**）。
@@ -7787,7 +7789,7 @@ fn daily_round_chain(
                         );
                         match p {
                             // 三句话术由答手（新立的 `update-ark-event-probe`）带**档位**回来，这里转成
-                            // 一行账外日志：真身那三句用的是 WARN／OK／WARN（lib\ark-decisions.ps1:158/170/172），
+                            // 一行账外日志：真身那三句用的是 WARN／OK／WARN（lib\ark-decisions.ps1:179/191/193），
                             // 而 `DirectOut.lines` 只会按 INFO 落侧信道 ⇒ 走 `fx_log` 才不降档。
                             // 空串＝这一轮没什么要说（EventKey／StageHint 给不出那一档，verb 原样返空）。
                             Ok(d) => {

@@ -224,4 +224,8 @@ function Set-GdModuleState {
 # 这三种形状一律整轮拒跑(2)并落一句人话，不再有"换人跑"的第二条腿；代价与受影响的形态见转接层头注。
 # 本文件剩下的是**还被两头问回来**的零件：注册表与装载器(Register-GdModule / Import-GdModules)、
 # 选人(Select-GdModules)、手动门分发(Set-GdModuleState)、钩子唯一收口(Invoke-GdModuleHook)、
-# 环境读数(Get-GdModuleEnvRows) —— 前两枚被入口/面板/status 点，后三枚被转接层那批外发格点。
+# 环境读数(Get-GdModuleEnvRows)。
+# ⚠ 11-02 刀③ 作废登记：上一句末尾原本还挂着半句按位置分派「谁在点」的口径，已不作数——
+#   那半句把 选人 Select-GdModules 与 环境读数 Get-GdModuleEnvRows 也算成被生产在点，而它们的生产调用点早已归零（只剩自检还点）；
+#   那半句里的「面板」那一路，也随 tools\panel.ps1 整件退役一起没了。
+#   谁在调不由注释供数：表账 tools\ps-map\ps-map.tsv 每枚一行、第六列由门逐行现量(活账)。

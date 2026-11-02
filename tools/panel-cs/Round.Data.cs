@@ -3,7 +3,7 @@
 //  取数与写盘件逐枚新立(活动两路／ack／shopDone／门表写三枚)"，本批不升号、不改任何既有 verb 的回执形状。)
 //
 // 这一份管的是"一轮判定开跑之前必须先从这台机器上取到、以及跑完之后必须落回盘上"的那些值：
-//   read-ark-activity     Get-ArkEvent(lib\ark-decisions.ps1:82) 的**取数半段**：接口 → MAA 本地缓存 → 无数据，
+//   read-ark-activity     Get-ArkEvent(lib\ark-decisions.ps1:75) 的**取数半段**：接口 → MAA 本地缓存 → 无数据，
 //                         三档顺序与那两条 WARN 原话照抄；后半段(把值喂进 decide-ark)不在这儿——那是判定，已住 Decisions.cs。
 //   read-r1999-activity   Get-R1999Event(lib\r1999-decisions.ps1:39) 的**取数半段**：读 M9A 自带活动数据 + 算 DataAge(天)。
 //   read-decision-state   "五本 state 读"一次取齐：<game>-event-ack.json / <game>-shop-done.json / ark-event-probe.json，
@@ -18,13 +18,13 @@
 //     缺的从来只是"把值取来放桌上"。所以 ArkActivity / R1999Activity 只回 Data+Source，不回 Mode／EventKey／Reason(判定结论)。
 //   * 门表写三枚的"先取数后写盘、没活动只 WARN 不写盘"那半段属于**调用方**：本文件收 eventKey 非空当已取过数，
 //     空串就是那一句 WARN 的形状(照抄)，不自己去看活动 —— 否则判定链会被复制第二份。
-//   * 领空门的"给不给"那一步仍留在调用方(lib\ark-decisions.ps1:65-68 的冻结头明写它是协议的一部分)：
+//   * 领空门的"给不给"那一步仍留在调用方(lib\ark-decisions.ps1:58-61 的冻结头明写它是协议的一部分)：
 //     本 verb 只把**原表**和**那把 flag 尺的读数**(ShopDoneGateOpen)一起摆上桌，谁用谁自己折。
 //
 // 双源登记(改一句要两侧同改；生产接线(②-d)之前 PS 那侧仍是事实源)：
-//   * 上面每一句 WARN/OK 原话 ↔ lib\ark-daily.ps1:48-58 / lib\r1999-daily.ps1:49-68 / lib\ark-decisions.ps1:94-116；
+//   * 上面每一句 WARN/OK 原话 ↔ lib\ark-daily.ps1:48-58 / lib\r1999-daily.ps1:49-68 / lib\ark-decisions.ps1:87-109；
 //   * state 文件名与外层键(`$Game-event-ack`+`acked`、`$Game-shop-done`+`done`、`ark-event-probe` 的五键)
-//     ↔ lib\decisions-common.ps1:57-139 与 lib\ark-decisions.ps1:126-187 —— 键名与时间戳格式('yyyy-MM-dd HH:mm')是磁盘协议，
+//     ↔ lib\decisions-common.ps1:57-139 与 lib\ark-decisions.ps1:119-180 —— 键名与时间戳格式('yyyy-MM-dd HH:mm')是磁盘协议，
 //     PS 那侧还在按这个名字读，这里写错了就是"门自己关不上"；
 //   * **r1999 的 `DataAge` 后处理是 §11.52 ⑤ 新登记的那处双源，本批不定档**：PS 侧 Get-R1999Event(lib\r1999-decisions.ps1:84-85) 拿 age 追加
 //     到 `$result.Reason` 那句"(活动数据 N 天前)"里。本 verb 只回 `DataAgeDays` 这个**数**，不做那句追加(追加属于判定结论)；
@@ -267,7 +267,7 @@ namespace GdPanel
         }
 
         // ==================== verb: read-ark-activity ====================
-        // Get-ArkEvent 的取数半段(lib\ark-decisions.ps1:82-119)：三档顺序一把不差 ——
+        // Get-ArkEvent 的取数半段(lib\ark-decisions.ps1:75-112)：三档顺序一把不差 ——
         //   接口(非 offline 且 apiUrl 非空，一把 try) → MAA 本地缓存(读盘 + mtime 算小时 + 过期 WARN) → 无数据。
         // 那两句 WARN 原话逐字抄；`Resolve-ArkPlan` 那一步不在这里(它是转发壳，真身是 decide-ark)。
         internal static object ArkActivity(Dictionary<string, object> raw)
@@ -314,7 +314,7 @@ namespace GdPanel
                         }
                         catch (Exception ex)
                         {
-                            // 原话逐字(lib\ark-decisions.ps1:97)。⚠ 这一支在 --roundtest 里只走夹具档：真打接口 unobserved。
+                            // 原话逐字(lib\ark-decisions.ps1:90)。⚠ 这一支在 --roundtest 里只走夹具档：真打接口 unobserved。
                             Say(lines, "WARN", "活动接口拉取失败(" + ex.Message + ")，改用本地缓存");
                         }
                     }
@@ -612,7 +612,7 @@ namespace GdPanel
         }
 
         // ==================== verb: update-ark-event-probe(R9-a 收编 round-probe:ark) ====================
-        // Update-GdArkEventProbe(lib\ark-decisions.ps1:165-196) 的**整枚**：两枚前置闸(EventKey／StageHint
+        // Update-GdArkEventProbe(lib\ark-decisions.ps1:158-189) 的**整枚**：两枚前置闸(EventKey／StageHint
         // 给不出就不采)、四档判据、落盘、三句话术，全在这里 —— 判据那半**直调同装配的
         // Orchestration.ArkEventProbe 本体**(`decide-ark-event-probe`，不在核内也不在这里抄第二份)。
         // 与同文件那三枚写件的差别：这一枚**不打 GdLog**，把要说的话连同**档位**一起带回回执
@@ -640,7 +640,7 @@ namespace GdPanel
 
             string evidence = Gd.Str(Gd.Get(v, "Evidence"));
             if (!Gd.Truthy(Gd.Get(v, "Valid")))
-                // 原话逐字(ark-decisions.ps1:179)：这一档**不落地**(留着昨天的结论也没意义)，下轮照常再试。
+                // 原话逐字(ark-decisions.ps1:172)：这一档**不落地**(留着昨天的结论也没意义)，下轮照常再试。
                 return Gd.Out("Written", false, "NoticeLevel", "WARN", "NoticeText", "活动图自证：" + evidence);
 
             bool entered = Gd.Truthy(Gd.Get(v, "Entered"));
@@ -653,7 +653,7 @@ namespace GdPanel
                 "Evidence", evidence);
             string dir = OptStr(c, "stateDir", delegate { return StateDir(); });
             GdJson.Write(Path.Combine(dir, ProbeFile), obj);
-            // 两句人话逐字(ark-decisions.ps1:191/193)，档位 OK／WARN 也逐字。
+            // 两句人话逐字(ark-decisions.ps1:184/186)，档位 OK／WARN 也逐字。
             if (entered)
                 return Gd.Out("Written", true, "NoticeLevel", "OK",
                     "NoticeText", "活动图自证：" + stage + " 进得去 → 下一轮照常按活动图刷(" + evidence + ")");

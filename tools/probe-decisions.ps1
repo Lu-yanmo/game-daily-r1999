@@ -17,7 +17,7 @@ if (Get-Command Get-GdStageTable -ErrorAction SilentlyContinue) {   # 关卡表�
     Write-Host '== 关卡表 =='
     $table = Get-GdStageTable -S $S
     Write-Host "  条目 $($table.Count)  CE-5=$($table['CE-5']) LS-5=$($table['LS-5']) SK-5=$($table['SK-5'])"
-    Write-Host ("  校验 CE-5,LS-5 -> " + (ConvertTo-Json -Compress (Test-GdStages -S $S -StageText 'CE-5,LS-5')))
+    Write-Host ("  校验 CE-5,LS-5 -> " + (ConvertTo-Json -Compress (Invoke-GdCli -Verb 'check-stages' -Body ([pscustomobject]@{ table = $table; stageText = 'CE-5,LS-5' }))))
 }
 
 Write-Host "`n== 方舟活动接口逐条 =="

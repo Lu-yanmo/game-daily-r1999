@@ -7097,7 +7097,7 @@ fn round_answer(
             DirectOut::only(JVal::B(true))
         }
         ("round", a) if a == GD_MODULE_ARK.probe_act => {
-            // R9-a 收编：活动图每轮自证（lib\ark-decisions.ps1:165-196 的采集段整段）。
+            // R9-a 收编：活动图每轮自证（lib\ark-decisions.ps1:158-189 的采集段整段）。
             // 观测读数现采 ⇒ `round_obs_fetch`；两枚前置闸（EventKey／StageHint 给不出就不采）、
             // 四档判据与落盘都在新立的 `update-ark-event-probe` 里（判据那半复用同装配的
             // `decide-ark-event-probe` 本体，**不在核内抄第二份**）。
@@ -7789,7 +7789,7 @@ fn daily_round_chain(
                         );
                         match p {
                             // 三句话术由答手（新立的 `update-ark-event-probe`）带**档位**回来，这里转成
-                            // 一行账外日志：真身那三句用的是 WARN／OK／WARN（lib\ark-decisions.ps1:179/191/193），
+                            // 一行账外日志：真身那三句用的是 WARN／OK／WARN（lib\ark-decisions.ps1:172/184/186），
                             // 而 `DirectOut.lines` 只会按 INFO 落侧信道 ⇒ 走 `fx_log` 才不降档。
                             // 空串＝这一轮没什么要说（EventKey／StageHint 给不出那一档，verb 原样返空）。
                             Ok(d) => {
@@ -8992,7 +8992,7 @@ fn vstr_list(v: &JVal) -> Vec<String> {
     jv_list(v).iter().map(|e| jv_str(e)).collect()
 }
 
-/// `[string]::IsNullOrWhiteSpace`（Get-MaaAsstStuckState/Hint 的壳内早退判据，maa.ps1:117-138）。
+/// `[string]::IsNullOrWhiteSpace`（出处＝Get-MaaAsstStuckState/Hint 的壳内早退判据；那枚壳已于 11-02 转接刀出仓，现读判据本体在 Processes.cs::ScanAsst）。
 fn is_null_or_white(s: &str) -> bool {
     s.trim().is_empty()
 }
@@ -9766,7 +9766,7 @@ fn maa_run<H: MaaHost>(h: &mut H, sc: &MaaScen) -> Result<MaaRet, String> {
                     let (at, ao) = h.file_tail(&p.asst_log, asst_offset);
                     asst_offset = ao;
                     if !at.is_empty() {
-                        // 两枚转发壳的"空文本壳内早退"（别为空串起进程）照 maa.ps1:117-138 复刻。
+                        // 空文本不起进程：判据本体在 Processes.cs::ScanAsst（PS 侧转发壳已于 11-02 转接刀出仓，这里不配活行号）。
                         let white = is_null_or_white(&at);
                         let (task, exec, clicks) = if white {
                             (String::new(), 0i64, 0i64)
@@ -15156,7 +15156,7 @@ fn selftest() -> i32 {
     );
     chk(
         is_null_or_white("") && is_null_or_white("   ") && is_null_or_white("\t\r\n") && !is_null_or_white("x"),
-        "IsNullOrWhiteSpace 的早退判据走样：会为空文本起一次判定进程（真身两枚转发壳明确不许，maa.ps1:117-138）",
+        "IsNullOrWhiteSpace 的早退判据走样：会为空文本起一次判定进程（判据本体在 Processes.cs::ScanAsst，PS 侧转发壳已出仓）",
         &mut fails,
         &mut total,
     );

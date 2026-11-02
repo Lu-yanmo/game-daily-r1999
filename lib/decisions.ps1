@@ -2,7 +2,7 @@
 #
 # 2026-09-23 拆分：判定本体已经按游戏搬走，本文件只留聚合(所以老代码 . lib\decisions.ps1 照旧可用)。
 #   lib\decisions-common.ps1   两个游戏共用的底座：时间换算 + 活动确认门/商店领空标记的读写
-#   lib\ark-decisions.ps1      方舟侧：Get-GdStageTable / Test-GdStages / Resolve-ArkPlan / Get-ArkEvent
+#   lib\ark-decisions.ps1      方舟侧：Get-GdStageTable / Resolve-ArkPlan / Get-ArkEvent(⚠ 11-02 转接刀摘掉 Test-GdStages 那枚转发壳；逐枚名册以表账为准)
 #   lib\r1999-decisions.ps1    1999 侧：Resolve-R1999Plan / Get-R1999Event / Resolve-R1999Instance
 # 只发布一个游戏的仓库时，本文件可以原样复制过去：下面按"文件在不在"决定点不点，
 # 单游戏仓库里没有另一侧那个文件，就自动少一侧的函数，不会因为 dot 一个不存在的文件而炸。

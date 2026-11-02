@@ -76,7 +76,7 @@
 //                          路径闸 → 窗口名册 → 起进程 → 等窗口 → 暖身 → 更新页那一段真点击。
 //  ② `start-mumu`         Start-GdMuMu(mumu.ps1:38)＋Get-GdMuMuState(mumu.ps1:21)＋Invoke-GdNative(common.ps1:493)：
 //                          info 读数 → 已在跑就吭一声 → control launch → 轮询到 AndroidStarted。
-//  ③ `apply-maa-daily-config` Set-MaaDailyConfig(maa.ps1:140)：现场检查＋读盘＋递给 plan-maa-queue＋
+//  ③ `apply-maa-daily-config` Set-MaaDailyConfig(maa.ps1:115)：现场检查＋读盘＋递给 plan-maa-queue＋
 //                          备份／写盘／回读逐队列比 IsEnable。规则段一枚都不在这儿( Processes.cs 第 3 批)。
 //  ④ `apply-m9a-instance` Set-M9AInstance(m9a.ps1:73，10-26 第五刀刀② 后现读、原写 93；10-25 那趟写 83；⚠ 11-01 坐标清账刀再换算：那一格实拍是空行)：点号字面键那两格＋三句原话＋回读校验。
 //  ⑤ `update-ark-farm-ledger` Update-GdArkFarmLedger(ark-farm.ps1:125)＋Get-GdArkItemMaps(:53)＋
@@ -93,7 +93,7 @@
 //   * "MuMu 目录还没填(先跑 setup.ps1)"、"MuMuManager 无法读取虚拟机信息(index)：Raw"、
 //     "MuMu 虚拟机 Index(Name)已在运行"、"启动 MuMu 虚拟机 Index(Name)"、"launch 返回码 C：ErrOut" ↔ lib\mumu.ps1:11-52；
 //   * "MAA 正在运行，请先关闭再改配置"、"MAA 配置不存在：…"、"MAA 配置回读不一致：…(备份：leaf)"、
-//     "MAA 配置已更新并校验通过(备份：leaf)"、"(无需改动)" ↔ lib\maa.ps1:140-215；
+//     "MAA 配置已更新并校验通过(备份：leaf)"、"(无需改动)" ↔ lib\maa.ps1:115-193；
 //   * "M9A 正在运行，请先关闭再改实例"、"M9A appsettings 不存在：…"、"M9A 实例切换回读失败(备份：leaf)"、
 //     "M9A 实例已切到[Name](备份：leaf)"、"(M9A 在跑，交给命令行 -i 转发)"、"(已是 Name，无需改动)" ↔ lib\m9a.ps1:72-102(10-26 第五刀刀② 后现读、原写 93-123)；
 //   * "stages.json 解析失败：…"、"未能建立 MAA 关卡表，理智计划不会被校验" ↔ lib\ark-decisions.ps1:14-40；
@@ -876,10 +876,10 @@ namespace GdPanel
         }
 
         // ==================== verb: apply-maa-daily-config ====================
-        // Set-MaaDailyConfig(maa.ps1:140) 的现场半段：在跑判据／配置在不在／读盘／把 15 枚平铺值递给
+        // Set-MaaDailyConfig(maa.ps1:115) 的现场半段：在跑判据／配置在不在／读盘／把 15 枚平铺值递给
         // plan-maa-queue(规则段整段住 Processes.cs，批次 3 已冻结)／按序回放 Logs／备份—写盘—逐队列回读比 IsEnable。
         // farm 那四格从 decision.Farm 抠出来(farmPlan 不在 ⇒ ''/0/0/0/Active=false)，verb 不认 Decision 的形状 ——
-        // 这句是 maa.ps1:159 那段注释的原样兑现。
+        // 这句是 maa.ps1:135 那段注释的原样兑现。
 
         static Dictionary<string, object> StageTableNow(Dictionary<string, object> c, List<object> lines)
         {

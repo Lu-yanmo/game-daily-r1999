@@ -323,6 +323,48 @@ namespace GdPanel
                 }
                 return true;
             });
+
+            // ---- 宿主批第二刀(阻塞式自举回路)的五组锚 ----
+            // 为什么这几组只读源码不跑现场：--svtest 的纪律是"不起进程、不写盘"，而这一刀的产物正是一枚子进程；
+            // 能静态钉死的是**两端同名**(分派链里的 verb 与 Start 拼进 argv 的那一枚)与"心跳不再住在本进程线程上"——
+            // 这两条形变了，接进轮档那一臂就是静默接断监督，当场查不出来。
+            b.Chk("出口两端同名：Cli.cs 分派链有 supervise-loop，且 SpawnLoop 的 argv 首枚就是它", () =>
+                cli.IndexOf("verb == \"supervise-loop\"", StringComparison.Ordinal) >= 0 &&
+                host.IndexOf("psi.Arguments = \"supervise-loop ", StringComparison.Ordinal) >= 0);
+
+            b.Chk("心跳不住在本进程的线程上(new Thread／自家停拍标记都不许在场，子进程是隐藏起的)", () =>
+                Occ(host, "new Thread(") == 0 && Occ(host, "static Thread") == 0 &&
+                Occ(host, "stopReq") == 0 && Occ(host, "psi.CreateNoWindow = true") == 1);
+
+            // 盘上 pid/owner 两格是面板与 Stop 唯一的读数来源：
+            //   Start 侧 pid=子进程(不是自己)，Loop 侧 pid=自己 —— 两形的 owner 都必须是调用方给的那枚，不许写成 self。
+            b.Chk("上岗文档两侧各一次 NewMeta：父侧记子 pid、子侧记自己 pid，owner 一律用调用方给的那枚", () =>
+                Occ(host, "NewMeta(childPid, ownerPid, games)") == 1 &&
+                Occ(host, "NewMeta(SelfPid(), ownerPid, games)") == 1 &&
+                Occ(host, "if (ownerPid > 0 && !ProcessAlive(ownerPid)) return \"owner\";") == 1);
+
+            b.Chk("收工四臂话术逐字在位(停拍标记／owner 消失／-Once／存活上限，一条都不许少)", () =>
+                host.IndexOf("-Once：拍完这一拍就收工", StringComparison.Ordinal) >= 0 &&
+                host.IndexOf("到达存活上限 ", StringComparison.Ordinal) >= 0 &&
+                host.IndexOf("收到停拍标记，监督收工", StringComparison.Ordinal) >= 0 &&
+                host.IndexOf("owner 进程消失了，监督下班", StringComparison.Ordinal) >= 0);
+
+            // 宽限与强杀三处都要带"不是自己"这一判：漏一处就是面板点一下"停止"把整轮带走。
+            b.Chk("强杀只对外来 pid：Start 与 Stop 里 prevPid != selfPid 三处守卫齐", () =>
+                Occ(host, "prevPid != selfPid") == 3);
+
+            // --cap 兜底与 Start 用的是同一把尺：写成两处字面量，改默认值时必漏一处。
+            b.Chk("存活上限只有一把尺：Cli 的 --cap 兜底读 SupervisorHost.CapDefault", () =>
+                Occ(host, "public const int CapDefault") == 1 &&
+                cli.IndexOf("SupervisorHost.CapDefault", StringComparison.Ordinal) >= 0 &&
+                Occ(cli, "480") == 0);
+        }
+
+        static int Occ(string hay, string ndl)
+        {
+            int n = 0, at = 0;
+            while ((at = hay.IndexOf(ndl, at + 1, StringComparison.Ordinal)) >= 0) n++;
+            return n;
         }
     }
 }

@@ -1,14 +1,19 @@
 // tools/panel-cs/Supervisor.Host.cs —— 宿主批：Start/Stop-GdSupervisor(lib\supervisor.ps1)与 tools\supervise.ps1 心跳循环的 C# 直身。
 //
 // 与 PS 现形的形态差(都在这登记，回件同步)：
-//   * PS 起一枚隐藏 PowerShell 子进程；这里不许再经过 powershell ⇒ 监督改在本进程一条后台线程上跑。
-//     线程的 pid 与 owner 都是本进程，supervision.json 里这两格同值(旧版是"子 pid + 父 pid")。
-//   * Stop 对"自己这一枚"只能发停拍标记再等线程收尾(进程不能自杀)；对盘上读到的**外来** pid 仍按旧版强杀。
-//   * supervise.ps1 缺失/没有可监督路线这两档在旧版是子进程起后 exit 3；这里折进 Start 的返回值
-//     (Available=false，不报错)，ERROR 那句原话逐字保留。
-//   * -Once 旁路(排查用)宿主形态下没有意义，不搬。owner 消失自退那一臂恒不触发(owner 就是本进程)。
-//   * 盘上形状：键名与顺序照 PS 原文；但落盘写手是 GdJson(单行 JSON、无 BOM)，
-//     PS 的 Write-GdJson/ConvertTo-Json 是缩进形态 —— 空白与 BOM 差异照 Round.Notice 的先例登记。
+//   * 心跳住在一枚**分离的子进程**里，跑的是自己这枚 exe 的 supervise-loop。
+//     宿主批第一版把它放在本进程一条后台线程上，而 CLI 的名册口径是"一次调用一个进程"——
+//     调用方一退，那条 IsBackground 线程连同一个没人监督的读数一起消失，等于把监督静默接断。
+//     照 Gate.Host.cs 头注「先把出口建出来再摘调用方」的先例补这一枚阻塞式自举回路；
+//     调用方(lib\rust-round.ps1 的 round-supervisor-start 那一臂)本批**不改指**，仍在 PS 手里。
+//   * 盘上形状回到 PS 旧版的"子 pid + 父 pid"：pid=子进程，owner=调用方给的 owner pid。
+//     owner 没给或给了非正数 ⇒ 记 0，"owner 消失自退"那一臂不触发，只靠停拍标记与存活上限收工。
+//   * Stop 全是进程语义(写停拍标记 → 等那枚 pid 消失 → 过宽限才强杀)；读到的 pid 恰是本进程时不强杀自己。
+//   * 子进程自己从盘上读 settings.json(旧版子进程 dot 库重读同一份，同形)：调用方内存里改过的配置不往下传。
+//   * supervise.ps1 缺失/没有可监督路线这两档：旧版是子进程起后 exit 3，这里 Start 侧回 Available=false、
+//     loop 侧按 PS 的退出码面回 3(0=正常收工，3=起不来)。
+//   * -Once 旁路(排查用)由 loop 侧的 --once 供上，Start 不认；owner 消失自退那一臂在 PS 旧版是子进程每 5 秒瞄一次，这里同尺。
+//   * 落盘写手是 GdJson(单行 JSON、无 BOM)，PS 的 Write-GdJson/ConvertTo-Json 是缩进形态 —— 空白与 BOM 差异照 Round.Notice 的先例登记。
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -30,14 +35,17 @@ namespace GdPanel
     public static class SupervisorHost
     {
         static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
-        static Thread worker;
-        static volatile bool stopReq;
-        static int selfPid;
         static Dictionary<string, object> metaDoc;   // WriteBeat 每拍重刷的那份"现在"文档(pid/owner/started/games 定值)
+
+        // 存活上限：旧版是 tools\supervise.ps1 的参数默认值，不进 runtime 开关面，这里同值同口径。
+        // 公开给 Cli 的 --cap 兜底用：两处一份尺，免得改默认值时只改一半。
+        public const int CapDefault = 480;
 
         // ==================== 公开面 ====================
 
-        public static HostResult Start(Dictionary<string, object> S, string games)
+        // 父侧(一次 CLI 调用)：算开关 → 停掉上一枚 → 起子进程 → 落一帧"现在"文档 → 立刻返回。
+        // ownerPid 由调用方给(轮档那一臂就是跑整轮的那个进程)，子进程靠它做"owner 消失自退"那一臂。
+        public static HostResult Start(Dictionary<string, object> S, string games, int ownerPid)
         {
             HostResult r = new HostResult();
             r.Available = false;
@@ -45,36 +53,22 @@ namespace GdPanel
             try
             {
                 GdEnv.Init(null);
-                if (selfPid == 0) selfPid = Process.GetCurrentProcess().Id;
                 if (S == null)
                 {
                     List<string> missing;
                     S = GdSettings.Load(out missing, true, null);
                 }
-                Dictionary<string, object> rt = Gd.Map(Gd.Get(S, "runtime"));
-                Dictionary<string, object> set = Gd.Map(Supervisor.Settings(Sub(
-                    "supervisor", Gd.Get(rt, "supervisor"),
-                    "intervalSeconds", Gd.Get(rt, "supervisorIntervalSeconds"),
-                    "quietMinutes", Gd.Get(rt, "supervisorQuietMinutes"),
-                    "maxInterventions", Gd.Get(rt, "supervisorMaxInterventions"))));
-                bool enabled = Gd.Truthy(Gd.Get(set, "Enabled"));
-                if (!enabled) return r;                       // 开关关着：与旧版 return $false 同格，不算错
+                Dictionary<string, object> set = SettingsOf(S);
+                if (!Gd.Truthy(Gd.Get(set, "Enabled"))) return r;   // 开关关着：与旧版 return $false 同格，不算错
 
-                // 上一枚还活着(旧轮硬退出没停干净)：先停掉它再起新的。外来 pid 强杀；自家线程发标记等收尾。
+                // 上一枚还活着(旧轮硬退出没停干净)：先停掉它再起新的。外来 pid 强杀；恰是本进程时不动手。
+                int selfPid = SelfPid();
                 object prev = ReadSummary();
                 int prevPid = prev == null ? 0 : Gd.Int(Gd.Get(prev, "pid"), 0);
                 if (prev != null && prevPid > 0 && ProcessAlive(prevPid))
                 {
                     GdLog.Line("上一枚监督进程(PID " + Gd.Str(Gd.Get(prev, "pid")) + ")还活着，先停掉它再起新的", "WARN");
-                    if (prevPid == selfPid)
-                    {
-                        stopReq = true;
-                        Thread oldw = worker;
-                        if (oldw != null) { try { oldw.Join(5000); } catch { } }
-                        worker = null;
-                        stopReq = false;
-                    }
-                    else KillQuiet(prevPid);
+                    if (prevPid != selfPid) KillQuiet(prevPid);
                 }
 
                 List<Route> routes = PickRoutes(S, games);
@@ -83,45 +77,18 @@ namespace GdPanel
                     GdLog.Line("没有可监督的路线(Games=" + games + "，注册表里没有一路给 SupervisorEvidence 钩子，或那几路没装)", "ERROR");
                     return r;
                 }
+                int cap = CapDefault;
 
-                int interval = Gd.Int(Gd.Get(set, "IntervalSec"), 60);
-                int quietSec = Gd.Int(Gd.Get(set, "QuietSec"), 1800);
-                int maxInt = Gd.Int(Gd.Get(set, "MaxInterventions"), 1);
-
-                metaDoc = Gd.Out(
-                    "pid", selfPid,
-                    "owner", selfPid,
-                    "started", NowText(),
-                    "games", games,
-                    "updated", "",
-                    "beats", new List<object>(),
-                    "actions", new List<object>(),
-                    "stopped", "");
-                try { GdJson.Write(StatePath(), metaDoc); } catch { }
-
-                Session ss = new Session();
-                ss.S = S;
-                ss.Games = games;
-                ss.Interval = interval;
-                ss.QuietSec = quietSec;
-                ss.MaxInt = maxInt;
-                ss.Routes = routes;
-                stopReq = false;
-                try
+                Process child = SpawnLoop(games, ownerPid, cap);
+                if (child == null)
                 {
-                    ThreadStart body = delegate { RunLoop(ss); };
-                    worker = new Thread(body);
-                    worker.IsBackground = true;
-                    worker.Name = "gd-supervisor";
-                    worker.Start();
-                }
-                catch (Exception ex)
-                {
-                    GdLog.Line("监督进程没起来：" + ex.Message + "(这一轮没人监督，主流程不受影响)", "WARN");
-                    worker = null;
+                    GdLog.Line("监督进程没起来(认不出自己这枚 exe 或 spawn 当场失败)(这一轮没人监督，主流程不受影响)", "WARN");
                     return r;
                 }
-                QuietLine("监督 agent 上岗(PID " + selfPid + "，每 " + interval + " 秒一拍，只在可疑时才问模型)", "INFO");
+                int childPid = child.Id;
+                child.Dispose();
+                try { GdJson.Write(StatePath(), NewMeta(childPid, ownerPid, games)); } catch { }
+                QuietLine("监督 agent 上岗(PID " + childPid + "，每 " + Gd.Int(Gd.Get(set, "IntervalSec"), 60) + " 秒一拍，只在可疑时才问模型)", "INFO");
                 r.Available = true;
                 return r;
             }
@@ -131,6 +98,50 @@ namespace GdPanel
                 r.Available = false;
                 return r;
             }
+        }
+
+        // 子侧(supervise.ps1 心跳循环的阻塞式自举回路)：在自己的前台线程上跑到收工。
+        // 不重问 Enabled —— 旧版子进程同样不查开关(开关只拦"要不要起")，已经起来了就拍到收工。
+        // 返回退出码：0=正常收工(停拍标记 / owner 消失 / --once / 到达存活上限)，3=起不来(没配置 / 没有可监督的路线)。
+        public static int Loop(int ownerPid, string games, bool once, int capMinutes)
+        {
+            GdEnv.Init(null);
+            Dictionary<string, object> S;
+            try
+            {
+                List<string> missing;
+                S = GdSettings.Load(out missing, true, null);
+            }
+            catch (Exception ex)
+            {
+                GdLog.Line("配置读不到，监督不起：" + ex.Message, "ERROR");
+                return 3;
+            }
+            Dictionary<string, object> set = SettingsOf(S);
+            List<Route> routes = PickRoutes(S, games);
+            if (routes.Count == 0)
+            {
+                GdLog.Line("没有可监督的路线(Games=" + games + "，注册表里没有一路给 SupervisorEvidence 钩子，或那几路没装)", "ERROR");
+                return 3;
+            }
+            Session ss = new Session();
+            ss.S = S;
+            ss.Games = games;
+            ss.Interval = Gd.Int(Gd.Get(set, "IntervalSec"), 60);
+            ss.QuietSec = Gd.Int(Gd.Get(set, "QuietSec"), 1800);
+            ss.MaxInt = Gd.Int(Gd.Get(set, "MaxInterventions"), 1);
+            ss.Routes = routes;
+            ss.OwnerPid = ownerPid;
+            ss.Once = once;
+            ss.CapMinutes = capMinutes;
+            GdLog.Line("监督心跳开始(间隔 " + ss.Interval + "s，静止阈值 " + ss.QuietSec + "s，games=" + GameIds(routes) +
+                       "，owner PID " + ownerPid + ")");
+            GdJson.Write(StatePath(), NewMeta(SelfPid(), ownerPid, games));
+            RunLoop(ss);
+            // 自己退场前把 stopped 写回最终读数，面板念得出"几点下班"而不是"进程没了(崩?)"。
+            // 死在循环外那一档走不到这里 —— 与旧版子进程在 while 里抛出后直接终止同形。
+            MarkStopped();
+            return 0;
         }
 
         public static HostResult Stop()
@@ -147,27 +158,17 @@ namespace GdPanel
                 string stopFile = StopPath();
                 try { File.WriteAllText(stopFile, NowText() + Environment.NewLine, new UTF8Encoding(false)); } catch { }
 
-                int grace = 75;
-                DateTime deadline = DateTime.Now.AddSeconds(grace);
-                if (prevPid == selfPid)
+                int selfPid = SelfPid();
+                if (prevPid != selfPid)
                 {
-                    stopReq = true;
-                    Thread w = worker;
-                    if (w != null)
-                    {
-                        while (DateTime.Now < deadline) { if (w.Join(1000)) break; }
-                        // 进程不能自杀：宽限过了还没收完尾就把这条后台线程放任自灭(它是 IsBackground，主进程退时一起退)。
-                        if (w.IsAlive) worker = null;
-                    }
-                }
-                else
-                {
+                    DateTime deadline = DateTime.Now.AddSeconds(75);
                     while (DateTime.Now < deadline)
                     {
                         if (!ProcessAlive(prevPid)) break;
                         Thread.Sleep(1000);
                     }
-                    if (ProcessAlive(prevPid)) { KillQuiet(prevPid); Thread.Sleep(300); }
+                    // 宽限过了还没退(它卡在某一次采集里)才强杀；本进程除外，不许自杀。
+                    if (ProcessAlive(prevPid) && prevPid != selfPid) { KillQuiet(prevPid); Thread.Sleep(300); }
                 }
                 try { if (File.Exists(stopFile)) File.Delete(stopFile); } catch { }
                 MarkStopped();
@@ -179,6 +180,55 @@ namespace GdPanel
                 r.Err = ex.Message;
                 return r;
             }
+        }
+
+        // ==================== 起子进程的小件 ====================
+
+        // 四枚开关一次算全(与 eval-supervisor-settings 同一把尺)，Start 与 Loop 各取自己要的那几格。
+        static Dictionary<string, object> SettingsOf(Dictionary<string, object> S)
+        {
+            Dictionary<string, object> rt = Gd.Map(Gd.Get(S, "runtime"));
+            return Gd.Map(Supervisor.Settings(Sub(
+                "supervisor", Gd.Get(rt, "supervisor"),
+                "intervalSeconds", Gd.Get(rt, "supervisorIntervalSeconds"),
+                "quietMinutes", Gd.Get(rt, "supervisorQuietMinutes"),
+                "maxInterventions", Gd.Get(rt, "supervisorMaxInterventions"))));
+        }
+
+        static Process SpawnLoop(string games, int ownerPid, int capMinutes)
+        {
+            string exe = SelfExePath();
+            if (exe.Length == 0) return null;
+            try
+            {
+                ProcessStartInfo psi = new ProcessStartInfo(exe);
+                psi.Arguments = "supervise-loop --no-out --transcript --games=" + games +
+                                " --owner=" + ownerPid.ToString(Inv) + " --cap=" + capMinutes.ToString(Inv);
+                psi.WorkingDirectory = GdEnv.Root;
+                psi.UseShellExecute = false;
+                psi.CreateNoWindow = true;
+                return Process.Start(psi);
+            }
+            catch { return null; }
+        }
+
+        static string SelfExePath()
+        {
+            try { return Process.GetCurrentProcess().MainModule.FileName ?? ""; }
+            catch { return ""; }
+        }
+
+        static int SelfPid()
+        {
+            try { return Process.GetCurrentProcess().Id; }
+            catch { return 0; }
+        }
+
+        static string GameIds(List<Route> routes)
+        {
+            List<string> ids = new List<string>();
+            foreach (Route r in routes) ids.Add(r.Id);
+            return string.Join("+", ids.ToArray());
         }
 
         // ==================== 心跳循环(supervise.ps1 的本体) ====================
@@ -197,12 +247,14 @@ namespace GdPanel
             public int Interval;
             public int QuietSec;
             public int MaxInt;
+            public int OwnerPid;          // 调用方进程；<=0 时"owner 消失自退"那一臂不触发
+            public bool Once;
+            public int CapMinutes;
             public List<Route> Routes;
             public Dictionary<string, object[]> AsstOffset = new Dictionary<string, object[]>(StringComparer.OrdinalIgnoreCase);
             public Dictionary<string, bool> TaskSeen = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
             public Dictionary<string, bool> EverAlive = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
             public Dictionary<string, bool> Finished = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
-            public Dictionary<string, bool> Streak = null;
             public Dictionary<string, int> Streaks = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             public Dictionary<string, DateTime> LastAsk = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
             public Dictionary<string, bool> Notified = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
@@ -213,10 +265,9 @@ namespace GdPanel
 
         static void RunLoop(Session ss)
         {
-            // 循环体外没有兜底 catch：旧版子进程 ErrorActionPreference=Stop，死在循环外就是整枚退出，这里同形(线程直接死)。
+            // 循环体外没有兜底 catch：旧版子进程 ErrorActionPreference=Stop，死在循环外就是整枚退出( stopped 也不写回)，这里同形。
             Dictionary<string, object> S = ss.S;
-            bool leave = false;
-            while (!leave)
+            while (true)
             {
                 string dailyLog = "";
                 try
@@ -317,25 +368,34 @@ namespace GdPanel
                 try { WriteBeat(ss, perGame); }
                 catch (Exception ex) { GdLog.Line("这一拍的记录没写进去：" + ex.Message, "WARN"); }
 
-                if ((DateTime.Now - ss.StartedAt).TotalMinutes > 480)
+                if (ss.Once) { GdLog.Line("-Once：拍完这一拍就收工"); return; }
+                if ((DateTime.Now - ss.StartedAt).TotalMinutes > ss.CapMinutes)
                 {
-                    GdLog.Line("到达存活上限 480 分钟，主动收工(主流程没走到收尾？去看它)", "WARN");
-                    break;
+                    GdLog.Line("到达存活上限 " + ss.CapMinutes + " 分钟，主动收工(主流程没走到收尾？去看它)", "WARN");
+                    return;
                 }
-                // 睡眠切片：每 5 秒瞄一次停拍标记，Stop 的宽限因此用不到一整拍(owner 就是本进程，那条判据不搬)。
+                // 睡眠切片：每 5 秒瞄一次停拍标记/owner，Stop 的宽限因此用不到一整拍。
                 DateTime sleepUntil = DateTime.Now.AddSeconds(ss.Interval);
                 while (DateTime.Now < sleepUntil)
                 {
                     Thread.Sleep(5000);
-                    if (stopReq || File.Exists(StopPath()))
+                    string why2 = StopReason(ss.OwnerPid);
+                    if (why2.Length > 0)
                     {
-                        GdLog.Line("收到停拍标记，监督收工");
-                        leave = true;
-                        break;
+                        GdLog.Line(why2 == "stop" ? "收到停拍标记，监督收工" : "owner 进程消失了，监督下班");
+                        return;
                     }
                 }
             }
-            MarkStopped();
+        }
+
+        // Test-GdSupervisorStopRequested 的直身：'' = 继续，'stop' / 'owner' = 该下播。
+        // owner <= 0(调用方没给)时那一臂不触发 —— Get-Process 查不到 pid 0 会当场抛，那是假"owner 消失"。
+        static string StopReason(int ownerPid)
+        {
+            if (File.Exists(StopPath())) return "stop";
+            if (ownerPid > 0 && !ProcessAlive(ownerPid)) return "owner";
+            return "";
         }
 
         // ==================== 采集(Collect-GdSupervisorEvidence 的直身) ====================
@@ -643,6 +703,20 @@ namespace GdPanel
         }
 
         // ==================== 小件 ====================
+
+        static Dictionary<string, object> NewMeta(int pid, int owner, string games)
+        {
+            metaDoc = Gd.Out(
+                "pid", pid,
+                "owner", owner,
+                "started", NowText(),
+                "games", games,
+                "updated", "",
+                "beats", new List<object>(),
+                "actions", new List<object>(),
+                "stopped", "");
+            return metaDoc;
+        }
 
         static string StatePath() { GdEnv.Init(null); return Path.Combine(GdEnv.State, "supervision.json"); }
         static string StopPath() { GdEnv.Init(null); return Path.Combine(GdEnv.State, "supervisor.stop"); }

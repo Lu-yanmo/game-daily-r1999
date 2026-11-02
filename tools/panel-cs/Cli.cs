@@ -191,6 +191,8 @@ namespace GdPanel
                 // ---- 宿主批(监督 agent 的 C# 直身)：这两枚是**宿主侧入口**，不是轮骨架外发名册里的动作 ----
                 else if (verb == "start-supervisor") r = StartSupervisor(a);
                 else if (verb == "stop-supervisor") r = StopSupervisor(a);
+                // ---- supervise-loop 是 start-supervisor 起的那枚子进程自己跑的回路(阻塞到收工)，不是给调用方调的出口 ----
+                else if (verb == "supervise-loop") r = SuperviseLoop(a);
                 else throw new GdUsageException("未知子命令：" + verb + "(现有：" + GdCliVerbs.Roster() + "；后续批次见 docs\\ps-migration-batch0.md 与 docs\\ps-migration-live-caliber.md)");
             }
             catch (GdUsageException ex)
@@ -315,6 +317,7 @@ namespace GdPanel
             RequireKnown(a, "--in", "--out", "--no-out", "--garbage", "--transcript");
             Dictionary<string, object> S = null;
             string games = "all";
+            int ownerPid = 0;
             string inPath = Get(a, "--in");
             if (inPath != null)
             {
@@ -324,10 +327,47 @@ namespace GdPanel
                 S = Gd.Map(Gd.Get(map, "settings"));
                 string g = Gd.Str(Gd.Get(map, "games"));
                 if (g != null && g.Length > 0) games = g;
+                ownerPid = Gd.Int(Gd.Get(map, "ownerPid"), 0);
             }
-            HostResult hr = SupervisorHost.Start(S, games);
+            HostResult hr = SupervisorHost.Start(S, games, ownerPid);
             VerbResult r = new VerbResult();
             r.Data = Gd.Out("Available", hr.Available, "Err", hr.Err == null ? "" : hr.Err);
+            return r;
+        }
+
+        // supervise-loop：start-supervisor 起的那枚分离子进程的前台入口，阻塞到收工才返回。
+        // 退出码直接照 tools\supervise.ps1 的码面(0=正常收工，3=起不来)，所以这里不复读原话进 Error ——
+        // 两档失败的话术 Loop 内部已经按旧版逐字落过日志了，再套一层 "Error" 只会把同一句印两遍。
+        // --owner 非整数是参数错(走 GdUsageException，退 1)；owner 没给(<=0)不算错，那一臂不触发。
+        static VerbResult SuperviseLoop(Dictionary<string, string> a)
+        {
+            RequireKnown(a, "--in", "--out", "--no-out", "--garbage", "--transcript",
+                         "--games", "--owner", "--once", "--cap");
+            int owner = 0;
+            string os = Get(a, "--owner");
+            if (os != null && os.Length > 0)
+            {
+                int parsed;
+                if (!int.TryParse(os, out parsed))
+                    throw new GdUsageException("--owner 不是一个进程号：" + os);
+                owner = parsed;
+            }
+            string games = Get(a, "--games");
+            if (games == null || games.Length == 0) games = "all";
+            bool once = Has(a, "--once") && !string.Equals(Get(a, "--once"), "false", StringComparison.OrdinalIgnoreCase);
+            int cap = SupervisorHost.CapDefault;
+            string cs = Get(a, "--cap");
+            if (cs != null && cs.Length > 0)
+            {
+                int parsed;
+                if (!int.TryParse(cs, out parsed))
+                    throw new GdUsageException("--cap 不是一个分钟数：" + cs);
+                cap = parsed;
+            }
+            int code = SupervisorHost.Loop(owner, games, once, cap);
+            VerbResult r = new VerbResult();
+            r.Ok = code == 0;
+            r.Exit = code;
             return r;
         }
 

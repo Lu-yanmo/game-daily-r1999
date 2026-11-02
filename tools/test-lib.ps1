@@ -120,11 +120,14 @@ function Show-GdCommonTimeChecks {
     Write-Host "`n[t1] 路径/时间工具"
     Check 'Join-GdPath 拼多层' ((Join-GdPath 'C:\A' @('b', 'c.json')) -eq 'C:\A\b\c.json')
     Check 'Join-GdPath 单段'   ((Join-GdPath 'C:\A' @('b.json')) -eq 'C:\A\b.json')
-    $ms = Convert-GdUtc8ToMs '2026-09-04 12:00:00'
+    # 时间换算的证性格自 2026-11-03 起问的是核内那一份(verb convert-utc8-to-ms／format-unix-ms)：
+    # PS 侧那两枚真身已出仓，这四格不再量本地实现，改量"出口答得对不对"；输入字面逐字照旧，不趁搬轴改判据。
+    $ms = (Invoke-GdCli -Verb 'convert-utc8-to-ms' -Body ([pscustomobject]@{ text = '2026-09-04 12:00:00' })).Ms
     Check 'UTC+8 时间转换' ($ms -eq ([DateTimeOffset]::new(2026, 9, 4, 4, 0, 0, [TimeSpan]::Zero).ToUnixTimeMilliseconds())) "得到 $ms"
-    Check '斜杠日期同样可解析' ($ms -eq (Convert-GdUtc8ToMs '2026-09-04 12:00:00'))
-    Check '坏日期返回 null'  ($null -eq (Convert-GdUtc8ToMs '不是时间'))
-    Check 'Format-GdUnixMs' ((Format-GdUnixMs $ms) -eq '09-04 12:00') (Format-GdUnixMs $ms)
+    Check '斜杠日期同样可解析' ($ms -eq (Invoke-GdCli -Verb 'convert-utc8-to-ms' -Body ([pscustomobject]@{ text = '2026-09-04 12:00:00' })).Ms)
+    Check '坏日期返回 null'  ($null -eq (Invoke-GdCli -Verb 'convert-utc8-to-ms' -Body ([pscustomobject]@{ text = '不是时间' })).Ms)
+    $fmt = (Invoke-GdCli -Verb 'format-unix-ms' -Body ([pscustomobject]@{ ms = $ms })).Text
+    Check '毫秒格式化到分钟' ($fmt -eq '09-04 12:00') $fmt
 }
 
 function Show-GdCommonTailChecks {

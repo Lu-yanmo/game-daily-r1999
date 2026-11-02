@@ -42,10 +42,13 @@ if ($data) {
                 Write-Host "  $($e.Name) <无 Activity> keys=$keys"
                 continue
             }
-            $st = Convert-GdUtc8ToMs (Get-GdMapValue $a 'UtcStartTime')
-            $en = Convert-GdUtc8ToMs (Get-GdMapValue $a 'UtcExpireTime')
+            # 换算一律问核(verb convert-utc8-to-ms／format-unix-ms)：PS 侧那两枚真身 2026-11-03 已出仓。
+            $st = (Invoke-GdCli -Verb 'convert-utc8-to-ms' -Body ([pscustomobject]@{ text = (Get-GdMapValue $a 'UtcStartTime') })).Ms
+            $en = (Invoke-GdCli -Verb 'convert-utc8-to-ms' -Body ([pscustomobject]@{ text = (Get-GdMapValue $a 'UtcExpireTime') })).Ms
             $live = ($st -le $now) -and ($now -le $en)
-            Write-Host ("  {0,-12} live={1,-5} {2} | {3} ~ {4} | stages={5}" -f $e.Name, $live, (Get-GdMapValue $a 'Tip'), (Format-GdUnixMs $st), (Format-GdUnixMs $en), ((Get-GdMapValue $v 'Stages' | ForEach-Object { $_.Value }) -join ','))
+            $stTxt = (Invoke-GdCli -Verb 'format-unix-ms' -Body ([pscustomobject]@{ ms = $st })).Text
+            $enTxt = (Invoke-GdCli -Verb 'format-unix-ms' -Body ([pscustomobject]@{ ms = $en })).Text
+            Write-Host ("  {0,-12} live={1,-5} {2} | {3} ~ {4} | stages={5}" -f $e.Name, $live, (Get-GdMapValue $a 'Tip'), $stTxt, $enTxt, ((Get-GdMapValue $v 'Stages' | ForEach-Object { $_.Value }) -join ','))
         }
     }
 }

@@ -193,6 +193,9 @@ namespace GdPanel
                 else if (verb == "stop-supervisor") r = StopSupervisor(a);
                 // ---- supervise-loop 是 start-supervisor 起的那枚子进程自己跑的回路(阻塞到收工)，不是给调用方调的出口 ----
                 else if (verb == "supervise-loop") r = SuperviseLoop(a);
+                // ---- 转接刀·时间换算族(2026-11-03)：这两枚只做"信封 → 现成本体 → 信封"，规则一律住 Decisions.cs ----
+                else if (verb == "convert-utc8-to-ms") r = Decide(a, Decisions.Utc8ToMsV);
+                else if (verb == "format-unix-ms") r = Decide(a, Decisions.UnixMsFmtV);
                 else throw new GdUsageException("未知子命令：" + verb + "(现有：" + GdCliVerbs.Roster() + "；后续批次见 docs\\ps-migration-batch0.md 与 docs\\ps-migration-live-caliber.md)");
             }
             catch (GdUsageException ex)

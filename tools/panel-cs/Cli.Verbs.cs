@@ -17,7 +17,10 @@ namespace GdPanel
         // disable-screensaver-for-round / append-round-history / update-ark-event-probe)。
         // 乙档刀①(2026-10-23 面板摘要判定面进核)：88 → 89，链尾再加 emit-panel-summary。
         // 宿主批第二刀(2026-11-02 监督自举回路)：91 → 92，链尾再加 supervise-loop(Start 起的子进程自己跑的那一枚)。
-        public const int ExpectedCount = 92;
+        // 转接刀·时间换算族(2026-11-03)：92 → 94，链尾再加 convert-utc8-to-ms／format-unix-ms
+        //   —— 这两枚不新写任何规则，只是把这一件里早就存在的 Gd.Utc8ToMs／Gd.Fmt 露成出口，
+        //   给 PS 侧那两枚同规则真身出仓用；既有 verb 的回执形状一枚没动。
+        public const int ExpectedCount = 94;
 
         // 顺序＝Cli.cs 分派链里的出现顺序（自检只比集合，不比顺序；顺序留着是为了肉眼对照分派链方便）。
         public static readonly string[] Names = new string[]
@@ -120,7 +123,10 @@ namespace GdPanel
             "start-supervisor",
             "stop-supervisor",
             // ---- 宿主批第二刀：start-supervisor 起的那枚分离子进程的前台入口(阻塞到收工)，调用方不直接调它 ----
-            "supervise-loop"
+            "supervise-loop",
+            // ---- 转接刀·时间换算族(2026-11-03)：把 Gd.Utc8ToMs／Gd.Fmt 露成出口，PS 侧那两枚真身因此出仓 ----
+            "convert-utc8-to-ms",
+            "format-unix-ms"
         };
 
         // "未知子命令"那句报错用的名册串：逐枚全名，不再有通配与纯计数。

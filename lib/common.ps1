@@ -996,14 +996,6 @@ function Convert-GdMapToHashtable {
     return $h
 }
 
-function Format-GdUnixMs {
-    param($Ms, [string]$Pattern = 'MM-dd HH:mm')
-    if (-not $Ms) { return '?' }
-    try {
-        return ([DateTimeOffset]::FromUnixTimeMilliseconds([long]$Ms)).ToOffset([TimeSpan]::FromHours(8)).ToString($Pattern)
-    } catch { return '?' }
-}
-
 # ---------- 本机专属值：两道扫描共用的判据(2026-09-25 从 tools\publish-split.ps1 挪上来) ----------
 # 为什么在这儿：原来只有导出那一步扫得到，于是要等 publish-split 跑起来才看得见"源码里粘了本机路径"。
 # 同一套判据挪进 lib\ 之后，tools\test-modules.ps1 [m8] 也能用它扫源码 —— 早一步红，就少一轮返工。

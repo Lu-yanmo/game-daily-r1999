@@ -1,4 +1,5 @@
-﻿# lib/decisions-common.ps1 — 两个游戏共用的判定底座：时间换算 + 两道手动门的读写(只读状态，不碰 GUI)
+﻿# lib/decisions-common.ps1 — 两个游戏共用的判定底座：两道手动门的读写(只读状态，不碰 GUI)
+# ⚠ 2026-11-03 转接刀改口：原句里「时间换算」那半段已随 Convert-GdUtc8ToMs 出仓，换算只有核内一份(verb convert-utc8-to-ms／format-unix-ms)。
 # 方舟侧看 lib/ark-decisions.ps1，1999 侧看 lib/r1999-decisions.ps1；只发布一个游戏时只需要本文件 + 对应那一侧。
 #
 # 关于下面的 [ValidateSet('ark','r1999')] 都换成了 Assert-GdGameId：
@@ -37,21 +38,6 @@ function Get-GdSettingsBlock {
 
 function Get-GdNowMs { [DateTimeOffset]::Now.ToUnixTimeMilliseconds() }
 
-function Convert-GdUtc8ToMs {
-    param($Text)
-    if (-not $Text) { return $null }
-    $s = ([string]$Text) -replace '\s+', ' '
-    $s = $s.Replace('/', '-').Trim()
-    $dt = [datetime]::MinValue
-    $fmts = @('yyyy-MM-dd HH:mm:ss', 'yyyy-M-d H:mm:ss', 'yyyy-MM-dd', 'yyyy-M-d')
-    $ok = [datetime]::TryParseExact($s, [string[]]$fmts, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::None, [ref]$dt)
-    if (-not $ok) { $ok = [datetime]::TryParse($s, [ref]$dt) }
-    if (-not $ok) { return $null }
-    # $dt 是 UTC+8 墙上时间：先按 UTC 解释，再回退 8 小时得到真实 UTC
-    $asUtc = [DateTime]::SpecifyKind($dt, [DateTimeKind]::Utc)
-    $dto = [DateTimeOffset]::new($asUtc, [TimeSpan]::FromHours(0))
-    return $dto.ToUnixTimeMilliseconds() - 8 * 3600 * 1000
-}
 
 function Get-GdAckMap {
     param([Parameter(Mandatory)][string]$Game)

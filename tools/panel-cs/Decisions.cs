@@ -106,7 +106,8 @@ namespace GdPanel
             try { return Convert.ToInt32(v, CultureInfo.InvariantCulture); } catch { return def; }
         }
 
-        // 对齐 Convert-GdUtc8ToMs：压缩空白、/ 换 -、四种精确格式再兜底 TryParse；失败/空 → null。
+        // 压缩空白、/ 换 -、四种精确格式再兜底 TryParse；失败/空 → null。
+        // ⚠ 2026-11-03 转接刀改口：原句「对齐 Convert-GdUtc8ToMs」——那枚 PS 真身已出仓，这一份是唯一实现，出口＝verb convert-utc8-to-ms。
         public static long? Utc8ToMs(object textObj)
         {
             string text = Str(textObj);
@@ -121,7 +122,8 @@ namespace GdPanel
             return new DateTimeOffset(asUtc).ToUnixTimeMilliseconds() - 8 * 3600 * 1000;
         }
 
-        // 对齐 Format-GdUnixMs：假值(含 0)一律 '?'。
+        // 假值(含 0)一律 '?'。
+        // ⚠ 2026-11-03 转接刀改口：原句「对齐 Format-GdUnixMs」——那枚 PS 真身已出仓，这一份是唯一实现，出口＝verb format-unix-ms。
         public static string Fmt(object msObj) { return Fmt(msObj, "MM-dd HH:mm"); }
 
         public static string Fmt(object msObj, string pattern)
@@ -450,6 +452,22 @@ namespace GdPanel
             if (prod.Length > 0) return prod;
             try { return Path.GetFileNameWithoutExtension(saver); }   // 面板那行要给人名，不印 8.3 短名
             catch { return saver; }
+        }
+
+        // ==================== verb: convert-utc8-to-ms ／ format-unix-ms ====================
+        // 这两枚出口一格规则都不写：只是把上面的 Gd.Utc8ToMs／Gd.Fmt 露成信封，给 PS 侧那两枚同规则真身出仓用。
+        // null 原样出信封(PS 侧 ConvertFrom-Json 收到 $null，与旧 PS 实现的返回形状同形)；
+        // pattern 不给就走 Fmt 的单参版(MM-dd HH:mm)，"假值(含 0)一律 '?'"那条兜底也留在 Fmt 里，不在这儿重抄一遍。
+        public static object Utc8ToMsV(Dictionary<string, object> inp)
+        {
+            return Gd.Out("Ms", Gd.Utc8ToMs(Gd.Get(inp, "text")));
+        }
+
+        public static object UnixMsFmtV(Dictionary<string, object> inp)
+        {
+            object ms = Gd.Get(inp, "ms");
+            string pattern = Gd.Str(Gd.Get(inp, "pattern"));
+            return Gd.Out("Text", pattern.Length == 0 ? Gd.Fmt(ms) : Gd.Fmt(ms, pattern));
         }
 
         public static object ScreensaverWhoV(Dictionary<string, object> inp)

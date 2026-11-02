@@ -412,6 +412,37 @@ $supLib = Join-Path $root 'lib\supervisor.ps1'
 $supLoop = Join-Path $root 'tools\supervise.ps1'
 Check 'lib\supervisor.ps1 在(它是内核文件，两仓都要有)' (Test-Path -LiteralPath $supLib)
 Check 'tools\supervise.ps1 在(心跳子进程本体)' (Test-Path -LiteralPath $supLoop)
+
+# ---- 监督族刀①(11-02 接线)静态锚：轮档那两臂的"两臂都在" ----
+# 为什么落在 [sv] 段里、却钉在那道 Test-Path 门**之外**：这一格钉的是 lib\rust-round.ps1 的形状，而那枚文件不属
+# 监督族、刀③ 摘件后它照旧在场；写进下面那个 if (supLib 与 supLoop 都在) 里，摘件那一笔会把这格一起带走，
+# 接线的证据反而随靶件消失 —— 那是"把钉做在会被拆的那面墙上"。
+# 为什么用整本读源码而不是 Get-Command .Definition：自检套件没点 lib\rust-round.ps1(test-lib.ps1 只点判定层与
+# 助手库)，函数体在这一棵树上拿不到。剥注释两形逐字复用 tools\test-ark.ps1 那批锚 —— 本刀的注释面**就写了**
+# start-supervisor／Stop-GdSupervisor 这些词(那是语义边界登记)，不剥注释的正向锚会在臂被摘掉后照样绿。
+$rrSrc = ''
+try { $rrSrc = [System.IO.File]::ReadAllText((Join-Path $root 'lib\rust-round.ps1')) } catch { }
+$rrSrc = ($rrSrc -replace '(?s)<\#.*?\#>', ' ') -replace '(?m)^\s*#.*$', ' '
+Check '①核臂在(start)：round-supervisor-start 现问宿主批的 start-supervisor' (
+    $rrSrc.Contains("Invoke-GdCli -Verb 'start-supervisor'")) $(
+    if ($rrSrc.Length -eq 0) { 'lib\rust-round.ps1 不在场(尺没接到电)' } else { "len=$($rrSrc.Length)" })
+Check '①核臂在(stop)：round-supervisor-stop 现问同一批的 stop-supervisor' (
+    $rrSrc.Contains("Invoke-GdCli -Verb 'stop-supervisor'"))
+Check '①回落臂在(start)：核不可用时仍走 Get-Command 守卫 + PS 真身(逐字＝接线前原样)' (
+    $rrSrc.Contains('Get-Command Start-GdSupervisor -ErrorAction SilentlyContinue') -and
+    $rrSrc.Contains('[void](Start-GdSupervisor -S $S -Games ([string]$prm.games))'))
+Check '①回落臂在(stop)：核不可用时仍走 Stop-GdSupervisor(逐字＝接线前原样)' (
+    $rrSrc.Contains('Get-Command Stop-GdSupervisor -ErrorAction SilentlyContinue') -and
+    $rrSrc.Contains('[void](Stop-GdSupervisor)'))
+Check '①两臂同形：start／stop 两臂都按 Available/Err 两枚键交回执(与 Supervisor.SelfTest.cs 钉的核侧键名同形)' (
+    ([regex]::Matches($rrSrc, 'Available = \[bool\]\$core\.Available; Err = \[string\]\$core\.Err')).Count -eq 2) $(
+    'hits=' + ([regex]::Matches($rrSrc, 'Available = \[bool\]\$core\.Available')).Count)
+Check '①语义边界：信封里只喂四枚 runtime 原始值，整枚 settings 不往下传(「取键逐枚点名」那把尺也管这条通道)' (
+    $rrSrc.Contains('settings = [pscustomobject]@{ runtime = [pscustomobject]@{') -and
+    -not [regex]::IsMatch($rrSrc, 'settings\s*=\s*\$S\b'))
+Check '①顺序锚在：监督起来 → 设睡眠屏蔽 那一发仍在(start 臂末尾)，接线不许把顺序挪' (
+    $rrSrc.Contains('if (-not $esHeld) { $esHeld = Start-GdRoundHostNoSleep -S $S }'))
+
 if ((Test-Path -LiteralPath $supLib) -and (Test-Path -LiteralPath $supLoop)) {
     . $supLib
     $svEntry = ''

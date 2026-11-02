@@ -228,4 +228,4 @@ function Set-GdModuleState {
 # ⚠ 11-02 刀③ 作废登记：上一句末尾原本还挂着半句按位置分派「谁在点」的口径，已不作数——
 #   那半句把 选人 Select-GdModules 与 环境读数 Get-GdModuleEnvRows 也算成被生产在点，而它们的生产调用点早已归零（只剩自检还点）；
 #   那半句里的「面板」那一路，也随 tools\panel.ps1 整件退役一起没了。
-#   谁在调不由注释供数：表账 tools\ps-map\ps-map.tsv 每枚一行、第六列由门逐行现量(活账)。
+#   谁在调不由注释供数：表账 tools\ps-map\ps-map.tsv 每枚一行、第六列改由人工逐枚现量＋仓外对平尺复核(11-02 改口：供数那本门 tools\ps-map\probe-ps-map.ps1 已整件出仓，旧句「由门逐行现量」不作数)。

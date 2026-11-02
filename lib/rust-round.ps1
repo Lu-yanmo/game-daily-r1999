@@ -381,8 +381,32 @@ function Invoke-GdDailyRoundRust {
                             $data = [pscustomobject]@{ Code = [int]$ec }
                         }
                         'round-supervisor-start' {
-                            # Get-Command 守卫照真身：命令不在场那一档真身一句都不吭，所以回执给 Available=false 而不是 err。
-                            if (Get-Command Start-GdSupervisor -ErrorAction SilentlyContinue) {
+                            # ── 监督族刀①(2026-11-02 接线)：核臂现问宿主批的 start-supervisor(真身 tools\panel-cs\Supervisor.Host.cs::Start)──
+                            # 回落臂＝下面那三段，逐字是改指前的原样；只在 CLI 不可达(编不出／信封不对／ok=false 抛上来)时才走。
+                            # 两臂交回的都是 Available/Err 两枚键，核侧段 7 的读法一字未动(main.rs 那句「Available 缺席按在处理」照旧)。
+                            # 语义边界一条(两臂不同源的那一格，不许当同义抄)：旧臂的 Available 只答"命令在不在场"——真身自己吞了失败
+                            #   (Start-GdSupervisor 起不来时 Write-GdLog 一句 WARN 后 return $false)，所以那一臂恒回 Available=true／Err=''；
+                            #   核臂的 Available 答的是"真上岗没有"。开关关着那一档旧臂回 true、核臂回 false，两档核都不吭
+                            #   (核只在 Available 为真且 Err 非空时补一句 WARN，而旧臂那格恒空)，人话仍从写手那侧落盘 ⇒ 读数以盘上那条为准。
+                            # 另一条：这一臂只喂四枚 runtime 原始值(与 lib\supervisor.ps1 的 Get-GdSupervisorSettingsEval 同一把名册)，
+                            #   整枚 settings 不进信封——「取键逐枚点名、visionApiKey 不许进核」那条判据也管这条通道。
+                            $core = $null
+                            try {
+                                $core = Invoke-GdCli -Verb 'start-supervisor' -Body ([pscustomobject]@{
+                                    settings = [pscustomobject]@{ runtime = [pscustomobject]@{
+                                        supervisor                 = $S.runtime.supervisor
+                                        supervisorIntervalSeconds  = $S.runtime.supervisorIntervalSeconds
+                                        supervisorQuietMinutes     = $S.runtime.supervisorQuietMinutes
+                                        supervisorMaxInterventions = $S.runtime.supervisorMaxInterventions
+                                    } }
+                                    games    = [string]$prm.games
+                                    ownerPid = [int]$PID
+                                })
+                            } catch { $core = $null }
+                            if ($null -ne $core) {
+                                $data = [pscustomobject]@{ Available = [bool]$core.Available; Err = [string]$core.Err }
+                            } elseif (Get-Command Start-GdSupervisor -ErrorAction SilentlyContinue) {
+                                # Get-Command 守卫照真身：命令不在场那一档真身一句都不吭，所以回执给 Available=false 而不是 err。
                                 $e = ''
                                 try { [void](Start-GdSupervisor -S $S -Games ([string]$prm.games)) } catch { $e = [string]$_.Exception.Message }
                                 $data = [pscustomobject]@{ Available = $true; Err = $e }
@@ -393,7 +417,15 @@ function Invoke-GdDailyRoundRust {
                             if (-not $esHeld) { $esHeld = Start-GdRoundHostNoSleep -S $S }
                         }
                         'round-supervisor-stop' {
-                            if (Get-Command Stop-GdSupervisor -ErrorAction SilentlyContinue) {
+                            # 核臂现问 stop-supervisor(真身 Supervisor.Host.cs::Stop，宽限 75 秒与 Stop-GdSupervisor 的默认值同尺)；
+                            # 回落臂逐字＝改指前原样。这一枚两臂都没有"开关"那一档，Available 的语义差同 start 那一臂的注释。
+                            $core = $null
+                            try {
+                                $core = Invoke-GdCli -Verb 'stop-supervisor' -Body ([pscustomobject]@{})
+                            } catch { $core = $null }
+                            if ($null -ne $core) {
+                                $data = [pscustomobject]@{ Available = [bool]$core.Available; Err = [string]$core.Err }
+                            } elseif (Get-Command Stop-GdSupervisor -ErrorAction SilentlyContinue) {
                                 $e = ''
                                 try { [void](Stop-GdSupervisor) } catch { $e = [string]$_.Exception.Message }
                                 $data = [pscustomobject]@{ Available = $true; Err = $e }

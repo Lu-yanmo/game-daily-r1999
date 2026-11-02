@@ -188,6 +188,9 @@ namespace GdPanel
                 else if (verb == "update-ark-event-probe") r = Decide(a, RoundData.ArkEventProbeUpdate);
                 // ---- 乙档刀①(2026-10-23)：面板状态摘要的判定面进核 —— 照读 --in(可以是空 {})，摘要只吃盘上四样，不吃输入字段 ----
                 else if (verb == "emit-panel-summary") r = PanelSummaryRun(a);
+                // ---- 宿主批(监督 agent 的 C# 直身)：这两枚是**宿主侧入口**，不是轮骨架外发名册里的动作 ----
+                else if (verb == "start-supervisor") r = StartSupervisor(a);
+                else if (verb == "stop-supervisor") r = StopSupervisor(a);
                 else throw new GdUsageException("未知子命令：" + verb + "(现有：" + GdCliVerbs.Roster() + "；后续批次见 docs\\ps-migration-batch0.md 与 docs\\ps-migration-live-caliber.md)");
             }
             catch (GdUsageException ex)
@@ -301,6 +304,40 @@ namespace GdPanel
                 a.Remove("--root");             // 已经用过了，剩下的照 Decide 的老名册判，别让它在下一道闸里被当成未知参数
             }
             return Decide(a, GdPanelSummary.Emit);
+        }
+
+        // ---------- 宿主批：监督 agent 的起停（SupervisorHost 的 verb 外衣） ----------
+        // 回执形状照 lib\rust-round.ps1 那一臂的 [pscustomobject]@{Available;Err}，键名与两半语义同格：
+        //   Available=false ⇒ "开关没开／这一枚根本不在场"（旧版 Get-Command 不在场那一档），不算错；
+        //   Err 非空 ⇒ 起/停这一步抛了原文。两枚都不许把 Available 与 Err 混成一枚布尔。
+        static VerbResult StartSupervisor(Dictionary<string, string> a)
+        {
+            RequireKnown(a, "--in", "--out", "--no-out", "--garbage", "--transcript");
+            Dictionary<string, object> S = null;
+            string games = "all";
+            string inPath = Get(a, "--in");
+            if (inPath != null)
+            {
+                object input = GdJson.Read(inPath);
+                Dictionary<string, object> map = input as Dictionary<string, object>;
+                if (map == null) throw new GdUsageException("--in 指向的 JSON 顶层不是对象({})：" + inPath);
+                S = Gd.Map(Gd.Get(map, "settings"));
+                string g = Gd.Str(Gd.Get(map, "games"));
+                if (g != null && g.Length > 0) games = g;
+            }
+            HostResult hr = SupervisorHost.Start(S, games);
+            VerbResult r = new VerbResult();
+            r.Data = Gd.Out("Available", hr.Available, "Err", hr.Err == null ? "" : hr.Err);
+            return r;
+        }
+
+        static VerbResult StopSupervisor(Dictionary<string, string> a)
+        {
+            RequireKnown(a, "--in", "--out", "--no-out", "--garbage", "--transcript");
+            HostResult hr = SupervisorHost.Stop();
+            VerbResult r = new VerbResult();
+            r.Data = Gd.Out("Available", hr.Available, "Err", hr.Err == null ? "" : hr.Err);
+            return r;
         }
 
         // ---------- 参数工具 ----------

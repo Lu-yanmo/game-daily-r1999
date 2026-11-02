@@ -2,12 +2,17 @@
 // 期望串逐字抄自 lib\supervisor.ps1 的旧实现(四句 Why、现值头、拍行、"读不到/没问/none/原因"话术，
 // 与 tools\test-modules.ps1 [sv] 块同一批口径) —— 这里红了就是移植走样，改 Supervisor.cs，
 // 不改这里的期望(§7 同一条纪律)。
-// 批次纪律：不起进程、不读盘、不写文件 —— 证据/状态/画面/文档全部由场景直接喂进来。
+// 批次纪律：不起进程、不读现场盘、不写文件 —— 证据/状态/画面/文档全部由场景直接喂进来。
+// 宿主批(HostGroup)同一条纪律，只多一项：它按 Cli.SelfTest 的先例读**同目录的 .cs 源码**当文本锚，
+// 且两枚 supervisor 出口都走"序列号已由 conn 供上"或"路径守卫先返回"那两支，全程不起 adb、不起 MuMuManager。
 // 已知局限(与 Supervisor.cs 头注同一条)：beats/games 缺失形状旧侧 @($null) 会多出一个空元素，
 // 真实 supervision.json 恒为数组，场景全部用数组形状。
 
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Reflection;
+using System.Text;
 
 namespace GdPanel
 {
@@ -86,6 +91,7 @@ namespace GdPanel
             StateGroup(b);
             ActionGroup(b);
             DetailGroup(b);
+            HostGroup(b);
             return b.Result("--svtest");
         }
 
@@ -240,6 +246,83 @@ namespace GdPanel
                 "beats", new object[] { b1 }, "actions", new object[0]), "maxBeats", 0, "date", "20260926")));
             b.Chk("MaxBeats=0 钳到 1 拍", () => HasLine(ls, "最近 1 拍"));
             b.Chk("screen 空串也走\"没问\"", () => HasLine(ls, "画面 没问"));
+        }
+
+        // ---------- 宿主批：Gate.Host.cs 的端点算术 + 两枚 supervisor verb 的回件键名契约 ----------
+        // 这一组不碰现场盘：adb/Manager 两枚路径一律指到 panel-cs.exe 自己那一枚"确实存在的文件"上，
+        // 且每格都走"序列号已由 conn 供上"或"路径守卫先返回"那两支 ⇒ 全程不起任何进程、不写任何文件。
+        // 钉的是形状与口径(拼接、两形入参、优先级、落空话术)，判据来源＝lib\vision-mumu.ps1 的 Get-GdMuMuAdbEndpoint 真身。
+        static void HostGroup(Box b)
+        {
+            string dir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+            string self = Path.Combine(dir, "panel-cs.exe");       // 只当"在位的文件"用，绝不起它
+            string gone = Path.Combine(dir, "gd-no-such-adb-zzz.exe");
+
+            Dictionary<string, object> S = Inp(
+                "paths", Inp("mumuDir", dir, "mumuManager", "MuMuManager.exe", "mumuAdb", "panel-cs.exe"),
+                "mumu", Inp("vmIndex", "0", "vmNameHint", "gd-hostgroup"));
+
+            object e = GateHost.MuMuEndpoint(S, Inp("adb", self, "serial", "127.0.0.1:16384"));
+            b.Chk("conn 供齐 adb+serial 时原样采用，不兜第二源", () =>
+                Gd.Str(Gd.Get(D(e), "Adb")) == self && Gd.Str(Gd.Get(D(e), "Serial")) == "127.0.0.1:16384" &&
+                Gd.Str(Gd.Get(D(e), "Why")).Length == 0);
+
+            e = GateHost.MuMuEndpoint(S, Inp("serial", "emulator-5554"));
+            b.Chk("conn 只给 serial 时 adb 由 paths.mumuDir+mumuAdb 拼出(字符串形)", () =>
+                Gd.Str(Gd.Get(D(e), "Adb")).EndsWith("panel-cs.exe", StringComparison.Ordinal) &&
+                Gd.Str(Gd.Get(D(e), "Serial")) == "emulator-5554");
+
+            Dictionary<string, object> SList = Inp(
+                "paths", Inp("mumuDir", dir, "mumuManager", "MuMuManager.exe",
+                             "mumuAdb", new object[] { "panel-cs.exe", "nope.exe" }),
+                "mumu", Inp("vmIndex", "0"));
+            object eList = GateHost.MuMuEndpoint(SList, Inp("serial", "emulator-5554"));
+            b.Chk("mumuAdb 写成清单时取第一枚，与字符串形同读数(照 Join-GdPath 的 @(...) 口径)", () =>
+                Gd.Str(Gd.Get(D(eList), "Adb")) == Gd.Str(Gd.Get(D(e), "Adb")));
+
+            // 相对名那一路必须挑一枚"哪儿都不在"的文件名：换成 panel-cs.exe 时，
+            // 自检的工作目录恰好是 tools\panel-cs 的话 File.Exists 会变真，这一格就成了看目录脸色的假红/假绿。
+            e = GateHost.MuMuEndpoint(Inp("paths", Inp("mumuAdb", "gd-no-such-rel-zzz.exe")), Inp("serial", "x:1"));
+            b.Chk("mumuDir 空：拼出来还是相对名、文件不在 → 报 setup.ps1 那句而不是丢一句内部报错", () =>
+                Gd.Str(Gd.Get(D(e), "Adb")).Length == 0 &&
+                Gd.Str(Gd.Get(D(e), "Why")).Contains("setup.ps1") &&
+                Gd.Str(Gd.Get(D(e), "Serial")).Length == 0);
+
+            e = GateHost.MuMuEndpoint(S, Inp("adb", gone, "serial", "127.0.0.1:16384"));
+            b.Chk("conn 给的 adb 文件不在：路径守卫排在序列号之前，同一句 setup.ps1 话术", () =>
+                Gd.Str(Gd.Get(D(e), "Adb")).Length == 0 && Gd.Str(Gd.Get(D(e), "Why")).Contains("setup.ps1"));
+
+            b.Chk("探活两枚空参数直接回假(不起进程)", () =>
+                !GateHost.MuMuVmAlive("", "127.0.0.1:16384") && !GateHost.MuMuVmAlive(self, "") &&
+                !GateHost.MuMuVmAlive(gone, "127.0.0.1:16384"));
+
+            // 跨语言契约：lib\rust-round.ps1 那两臂把回件读成 [pscustomobject]@{Available;Err}，
+            // 键名一改，PS 侧读到的是 $null —— Available 恒假(监督静默没上岗)且不报错，正是最难查的那种坏。
+            string cli = File.ReadAllText(Path.Combine(dir, "Cli.cs"), Encoding.UTF8);
+            int kv = 0, at = 0;
+            while ((at = cli.IndexOf("\"Available\", hr.Available, \"Err\"", at + 1, StringComparison.Ordinal)) >= 0) { kv++; }
+            b.Chk("两枚 supervisor verb 的回件都按 Available/Err 两枚键交出(与 PS 臂的键名同形)", () => kv == 2);
+
+            string host = File.ReadAllText(Path.Combine(dir, "Supervisor.Host.cs"), Encoding.UTF8);
+            int meta = host.IndexOf("metaDoc = Gd.Out(", StringComparison.Ordinal);
+            string[] keys = new string[] { "\"pid\"", "\"owner\"", "\"started\"", "\"games\"", "\"updated\"", "\"beats\"", "\"actions\"", "\"stopped\"" };
+            b.Chk("心跳文档八枚键齐且顺序对(Supervisor.Detail 与 Get-GdSupervisorState 认的就是这套名)", () =>
+            {
+                // 只在 metaDoc 那一句里扫：整文件扫会让改名后的旧键名在文件后段(读回件那一处)再出现一次，
+                // 于是"把 owner 改掉"这种真伤形态反而照旧绿 —— mutation 实测交回过这一形。
+                if (meta < 0) return false;
+                int end = host.IndexOf(';', meta);
+                if (end < 0) return false;
+                string stmt = host.Substring(meta, end - meta);
+                int cur = 0;
+                for (int i = 0; i < keys.Length; i++)
+                {
+                    int nx = stmt.IndexOf(keys[i], cur, StringComparison.Ordinal);
+                    if (nx < 0) return false;
+                    cur = nx;
+                }
+                return true;
+            });
         }
     }
 }

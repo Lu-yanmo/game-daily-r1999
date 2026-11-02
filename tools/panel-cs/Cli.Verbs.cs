@@ -16,7 +16,7 @@ namespace GdPanel
         // R9-a(2026-10-17 轮骨架四格收编)：84 → 88，新立四枚排在链尾(read-screensaver-config /
         // disable-screensaver-for-round / append-round-history / update-ark-event-probe)。
         // 乙档刀①(2026-10-23 面板摘要判定面进核)：88 → 89，链尾再加 emit-panel-summary。
-        public const int ExpectedCount = 89;
+        public const int ExpectedCount = 91;
 
         // 顺序＝Cli.cs 分派链里的出现顺序（自检只比集合，不比顺序；顺序留着是为了肉眼对照分派链方便）。
         public static readonly string[] Names = new string[]
@@ -114,7 +114,10 @@ namespace GdPanel
             "update-ark-event-probe",
             // ---- 乙档刀①(2026-10-23)：panel.ps1 的 -DumpSummary 判定面转写进核(tool 侧只有一份真身) ----
             //   消费方＝面板自检(--selftest 那七格摘要机读面)；生产链暂不接，接在刀③。
-            "emit-panel-summary"
+            "emit-panel-summary",
+            // ---- 宿主批：监督 agent 起停的 C# 直身入口(宿主侧，不是轮骨架外发名册里的动作) ----
+            "start-supervisor",
+            "stop-supervisor"
         };
 
         // "未知子命令"那句报错用的名册串：逐枚全名，不再有通配与纯计数。

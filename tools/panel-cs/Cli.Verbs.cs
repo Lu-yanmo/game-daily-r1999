@@ -20,7 +20,9 @@ namespace GdPanel
         // 转接刀·时间换算族(2026-11-03)：92 → 94，链尾再加 convert-utc8-to-ms／format-unix-ms
         //   —— 这两枚不新写任何规则，只是把这一件里早就存在的 Gd.Utc8ToMs／Gd.Fmt 露成出口，
         //   给 PS 侧那两枚同规则真身出仓用；既有 verb 的回执形状一枚没动。
-        public const int ExpectedCount = 94;
+        // 刀① round-gate/stop 四臂直答(2026-11-03)：94 → 95，链尾再加 stop-mumu
+        //   (Stop-GdMuMu 的 C# 直身，lib\r1999-module.ps1 Stop 钩子随臂进核的"跑完关模拟器"那半的出口)。
+        public const int ExpectedCount = 95;
 
         // 顺序＝Cli.cs 分派链里的出现顺序（自检只比集合，不比顺序；顺序留着是为了肉眼对照分派链方便）。
         public static readonly string[] Names = new string[]
@@ -126,7 +128,10 @@ namespace GdPanel
             "supervise-loop",
             // ---- 转接刀·时间换算族(2026-11-03)：把 Gd.Utc8ToMs／Gd.Fmt 露成出口，PS 侧那两枚真身因此出仓 ----
             "convert-utc8-to-ms",
-            "format-unix-ms"
+            "format-unix-ms",
+            // ---- 刀① round-gate/stop 四臂直答(2026-11-03)：Stop-GdMuMu 的 C# 直身，收尾钩子 stop:r1999 的
+            //      "跑完关模拟器"那半经它出口(closeEmulatorAfter 的判据在核内直答臂，本件不判开关) ----
+            "stop-mumu"
         };
 
         // "未知子命令"那句报错用的名册串：逐枚全名，不再有通配与纯计数。

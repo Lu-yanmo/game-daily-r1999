@@ -43,12 +43,15 @@ function Get-GdRoundCoreExe {
 }
 
 function Get-GdRoundOuterActs {
-    <# **外发 13 格的名册(唯一口径)**。尺子的出处＝§11.64 ③：按"码面动作字面量 × 两路"展开，
+    <# **外发 9 格的名册(唯一口径)**。尺子的出处＝§11.64 ③：按"码面动作字面量 × 两路"展开，
        与核内 round_answer 那个 `_ => return Ok(None)` 的注释名单同源；直答那一族不在这里(核内自己答)，
        take_act 那三格(mark/obsrec/admin)不发 ask 因此也不在。
        ⚠ **R9-a(10-17) 把这一族从 18 收成 13**：`round-history:ark`／`round-history:r1999`／`round-probe:ark`／
        `svdetail`／`round-screensaver` 五枚改由核内直答(换答方不换语义，判据与话术仍在 panel-cs 那四枚 verb 里)，
        这里**同批删臂**——两侧只改一边就是"核还出 ask 而壳不认识"＝整轮拒跑(2)，对账由 round 门的应答册钉。
+       ⚠ **刀①(2026-11-03) 再收四枚，13→9**：`round-gate:ark`／`round-gate:r1999`／`stop:ark`／`stop:r1999`
+       改核内直答(问三枚 set-* verb 与 stop-maa-and-game/stop-m9a(+stop-mumu)，问法与落账形状逐字不动)，
+       臂与名册同批摘；closeEmulatorAfter 随 stop 臂回 ROUND_RUNTIME_KEYS(§11.55 ③ 那条取键裁决翻案)。
        ⚠ **`round-elevate` 刻意留在名册里**：它按拍板"全收编"走 `--relaunch-entry` 那枚**可选**入程参数，
        缺参数／文件读不动／形状坏 ⇒ 核答 `None` ⇒ 照旧出 ask(§11.66 那条"恒绿的判据就是没验过的判据"的正面用法：
        入程通道是新立的，必须留一条"没递到就退回老路"的落点，而不是把它升级成整轮拒跑)。
@@ -57,10 +60,8 @@ function Get-GdRoundOuterActs {
        ⚠ 不要把驱动档那十四枚白名单(lib\ark-daily.ps1)当这枚名册用，那是另一族的数(§11.64 ③ 倒数第二段)。 #>
     return @(
         'round-elevate', 'round-supervisor-start', 'round-supervisor-stop',
-        'round-gate:ark', 'round-gate:r1999',
         'round-resolve:ark', 'round-resolve:r1999',
         'round-preview:ark', 'round-preview:r1999',
-        'stop:ark', 'stop:r1999',
         'updgate', 'audit'
     )
 }
@@ -424,14 +425,12 @@ function Invoke-GdDailyRoundRust {
                                 $data = [pscustomobject]@{ Available = $false; Err = '' }
                             }
                         }
-                        'round-gate:ark' {
-                            Set-GdModuleState -Id ([string]$prm.id) -Verb ([string]$prm.verb) -S $S
-                            $data = $true
-                        }
-                        'round-gate:r1999' {
-                            Set-GdModuleState -Id ([string]$prm.id) -Verb ([string]$prm.verb) -S $S
-                            $data = $true
-                        }
+                        # ---- 刀① 收编(2026-11-03)：`round-gate:<id>`／`stop:<id>` 四枚臂已摘——核内 round_answer
+                        #      直答(问法与落账形状逐字不动，data 恒 $true)，这里不再有"壳替核答"的那一截。
+                        #      ⚠ **一次删两侧**：main.rs 的 `round_answer` 若还答 None 而这里留着臂，死臂会遮住
+                        #      "收到不认识的动作"拒跑；反过来核先答了这里还问，ask 会走拒跑 ⇒ 整轮没跑(2)。
+                        #      这条对账由核内 --selftest 第 28 节的 S28_ROSTER（9 枚，与下面的名册同数）与
+                        #      R-gate-call 格（门格的 set-* 直答消费）钉着，不靠人记得。
                         'round-resolve:ark' {
                             $o = @{}
                             foreach ($pp in @($prm.opt.PSObject.Properties)) { if ($pp) { $o[[string]$pp.Name] = $pp.Value } }
@@ -475,14 +474,9 @@ function Invoke-GdDailyRoundRust {
                         #      这里的臂与名册同批摘除。⚠ **一次删两侧**：main.rs 的 `round_answer` 若还答 None
                         #      而这里删了臂，那一发 ask 会走"收到不认识的动作"拒跑 ⇒ 整轮没跑(2)。
                         #      这条对账由核内 --selftest 第 28 节的 R-outer 白名单格钉着（round 门已退役），不靠人记得。
-                        'stop:ark' {
-                            Invoke-GdModuleHook -Module (Get-GdModule -Id 'ark') -Hook Stop -Params @{ S = $S }
-                            $data = $true
-                        }
-                        'stop:r1999' {
-                            Invoke-GdModuleHook -Module (Get-GdModule -Id 'r1999') -Hook Stop -Params @{ S = $S }
-                            $data = $true
-                        }
+                        # ---- 刀① 收编(2026-11-03)：`stop:ark`／`stop:r1999` 两臂同批摘——直答臂在核内问
+                        #      stop-maa-and-game／stop-m9a(+stop-mumu)，Lines 回放与 data 恒 true 同 PS 臂形状；
+                        #      模块清单的 Stop 钩子体暂留(1eq.④ 摘臂不摘格，去留归后续刀)。
                         'updgate' {
                             # 回退段那一段的"活"(起更新器子进程)原样搬来，两句闸话由链体按 code 三态决定；
                             # 挑行与全量拼串两个口径照回退段逐字同形，否则同一轮换头前后日志对不上。

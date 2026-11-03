@@ -57,6 +57,8 @@ Register-GdModule ([pscustomobject]@{
             Run       = { param($S, $Decision) return (Start-GdR1999Daily -S $S -Instance $Decision.Instance) }
             Stop      = {
                 param($S)
+                # ⚠ 刀①(2026-11-03)：round 的 stop:r1999 已改核内直答(stop-m9a＋closeEmulatorAfter 真值开
+                # stop-mumu)，上面那层 PS 臂已摘 ⇒ 这一钩子格自此没有 round 消费面，体暂留(1eq.④)，去留归后续刀。
                 Stop-M9A -S $S
                 # "跑完关模拟器"是这一路自己的设置项，原来写在入口的 finally 里并按 -Games 判断；
                 # 挪进收尾钩子后，"这一路本轮到底跑没跑"就是天然的判据。

@@ -396,6 +396,13 @@ namespace GdPanel
                 arkClosed = ProcTreeMatched(c, BaseName(arkExe));
                 if (arkClosed > 0) Say(lines, "INFO", "已关闭明日方舟端游(" + arkClosed + " 个进程)");
             }
+            // MaaAgentBinary(视觉/识别子进程)的收尾杀段(11-03 刀① 从 lib\ark-module.ps1 Stop 钩子随臂进核，
+            // 原真身 :86)：无条件杀、逐枚 try/catch 吞错、进程数不进话术也不进 Lines —— 与真身逐字同形，
+            // 不吃 quitAssistantAfter 那把开关(当年入口 finally 无条件杀，挪进收尾钩子后改判"真跑过方舟"，现由调用方定时机)。
+            foreach (System.Diagnostics.Process p in System.Diagnostics.Process.GetProcessesByName("MaaAgentBinary"))
+            {
+                try { p.Kill(); } catch { }
+            }
             return Gd.Out("Done", true, "MaaClosed", maaClosed, "ArkClosed", arkClosed, "Lines", lines.ToArray());
         }
 
@@ -873,6 +880,28 @@ namespace GdPanel
             bool got = WaitUntil(c, delegate { return Gd.Truthy(Gd.Get(MuMuStateNow(c), "AndroidStarted")); },
                                  timeout, poll, "MuMu 安卓系统启动", lines);
             return Gd.Out("Done", true, "Started", got, "Name", StrOf(Gd.Get(st, "Name"), ""), "Lines", lines.ToArray());
+        }
+
+        // ==================== verb: stop-mumu ====================
+        // Stop-GdMuMu(mumu.ps1:52，11-03 刀① 从 lib\r1999-module.ps1 Stop 钩子随臂进核)的同形：
+        // 目录没填那一档 MuMuStateNow 回 Available=false 对象(不抛，与真身 Get-GdMuMuState :26-28 同形)
+        // ⇒ 落"未在运行"档；两枚 Started 都没起也落这一档，只回一句 INFO 就完(真身 :56 同句)；
+        // 否则 STEP 一句 + control shutdown。真身 [void](Invoke-GdNative ...) 不看退出码 —— 这里同样不判 r.Code。
+
+        internal static object StopMuMu(Dictionary<string, object> raw)
+        {
+            Dictionary<string, object> c = View(raw);
+            List<object> lines = new List<object>();
+            Dictionary<string, string> m = MumuNow(c);
+            Dictionary<string, object> st = MuMuStateNow(c);
+            if (!Gd.Truthy(Gd.Get(st, "AndroidStarted")) && !Gd.Truthy(Gd.Get(st, "ProcessStarted")))
+            {
+                Say(lines, "", "MuMu 未在运行，无需关闭");
+                return Gd.Out("Done", true, "Lines", lines.ToArray());
+            }
+            Say(lines, "STEP", "关闭 MuMu 虚拟机 " + m["Index"]);
+            RunNative(c, m["Manager"], new List<string> { "control", "-v", m["Index"], "shutdown" }, 120);
+            return Gd.Out("Done", true, "Lines", lines.ToArray());
         }
 
         // ==================== verb: apply-maa-daily-config ====================

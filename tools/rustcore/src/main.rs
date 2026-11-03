@@ -6338,15 +6338,17 @@ fn round_path_keys() -> Vec<&'static str> {
 /// 每枚都有消费点，一枚不落：
 /// - `blockSleep`／`keepScreenOn` ⇒ 段 9 的睡眠屏蔽（核内 `SetThreadExecutionState`，见 `round_no_sleep`）
 /// - `retryOnce` ⇒ 两路 `ArkDInput.retry_once` / `R1999DInput.retry_once`
-/// ⚠ 两枚**不在这本名册上**的键，各自因为一把尺不同而被挪走（b3 落码前的取键修正，§11.55 ③）：
+/// ⚠ 三枚**不在这本名册上**（或曾被挪走）的键，各自因为一把尺不同（刀① 之后剩两枚挪走）：
 /// - `launchArkFromHelper` ⇒ 真身是 `$S.runtime.launchArkFromHelper -ne $false`（**缺键算开**，
 ///   executor 写 ctx 的 `launch` 那一格实证（现读 executor 的 ctx 装配；回退臂出仓前另有行号，按坐标清账批口径不引行号），与本名册的**真值判**（缺键算关）方向相反。挪到 `elevFlags`，
 ///   由 verb 侧 `Round.FlagEnabled` 折成真值 —— 留在 runtimeKeys 会把"没配的一轮"从"照样拉起端游"
 ///   读成"不拉起"，那是判定翻案不是取数。
-/// - `closeEmulatorAfter` ⇒ 唯一消费点在 r1999 的收尾钩子，而收尾段按 ② 的名册走 **ask**
-///   （`Stop-GdMuMu` 现场件不在 B-3 射程：真身走 MuMuManager 命令行），核内没有读它的那一格 ⇒ 移除。
-///   留着它只会造出"账上取了、没人读"的死格 —— 与 `R1999DInput.decision` 那格同一类，那格已被注释判死。
-const ROUND_RUNTIME_KEYS: &[&str] = &["blockSleep", "keepScreenOn", "retryOnce"];
+/// - `closeEmulatorAfter` ⇒ **刀① 随臂翻案回名册（2026-11-03）**：§11.55 ③ 当年移除的判据是
+///   "唯一消费点在 r1999 收尾钩子、而收尾段走 ask、核内没有读它的那一格"；刀① 把 stop:r1999
+///   改成核内直答后，消费点（`round_answer` 的 r1999 stop 臂 `env.flag("closeEmulatorAfter")`）
+///   回到核内，"账上取了、没人读"的死格判据不再成立 ⇒ 按真值判回名册。缺键算关与 PS 真身
+///   `if ($S.runtime.closeEmulatorAfter)` 同形。
+const ROUND_RUNTIME_KEYS: &[&str] = &["blockSleep", "keepScreenOn", "retryOnce", "closeEmulatorAfter"];
 
 /// 本轮要问 ctx verb 的 elevFlags（`-ne $false` 那一把尺，缺键算**开**）。两来源合一：
 /// 1. 两枚清单声明的 `ElevationFlag` —— 真身 `$S.runtime.<flag> -ne $false` 提权闸门读的就是它。
@@ -7338,13 +7340,71 @@ fn round_answer(
             (hooks.nap)(secs);
             DirectOut::only(JVal::B(true))
         }
+        // ==================== 刀① 收编：门表两枚＋收尾钩子两枚 ====================
+        ("round", a) if a == GD_MODULE_ARK.gate_act || a == GD_MODULE_R1999.gate_act => {
+            // 刀① 收编(2026-11-03)：`round-gate:<id>` 两臂改核内直答 —— 换的是"谁来答"，问法与落账
+            // 形状逐字不动(PS 臂 lib\rust-round.ps1:427-434 已随刀①笔(c) 摘臂，当年逐字同形：data 恒 `$true`，回执不被消费)。
+            // 真身是三枚既有 verb(与 PS 侧手动门分发 Set-GdModuleState——本体也随刀①笔(c) 出仓——当年
+            // 分发到 Ack/ShopState 钩子、钩子再写
+            // `<game>-*-ack/shop-done.json` 的形状同构，写盘原语 StampMapKey/DropMapKey 一套事实源)：
+            //   ark   ShopDone/ShopReset ⇒ set-ark-shop-state{done}；Ack ⇒ 门已退场(2026-10-12，daily-clear
+            //         无 -AckArk)的死档，PS 侧只打一句 WARN 交 true —— 直答交 true，那句话术不带回
+            //         (DirectOut.lines 只落 INFO，带档位要动 data 形状，为一个问不出的档不值)。
+            //   r1999 Ack ⇒ set-r1999-ack；ShopDone/ShopReset ⇒ set-r1999-shop-state{done}。
+            // ⚠ 未知的 verb 要返 Err：PS 侧手动门分发当年的 ValidateSet 抛(真身已随刀①笔(c) 出仓) ⇒ ask 回执 err ⇒ 段 5
+            //   Fail(整轮拒跑 2)。直答后判据住在核内，自检 gate-crash 那格的注入缝同批搬家(见 Crash24n)。
+            let verb = jv_str(&jv_get_ci(params, "verb"));
+            // body 一律不带 id 键：三枚 set-* verb 的入参解析只点名取 eventKey/eventTip/done/reason
+            // （Round.Data.cs :500-599），id 传了也是没人读的死键；eventKey 让 verb 自己现读活动
+            // （PS 真身同形：Get-R1999Event 在 verb 体内）。
+            let (v, body): (&str, JVal) = if a == GD_MODULE_ARK.gate_act && verb == "Ack" {
+                // ark 的 Ack 死档：协议占位(daily-clear 发不出)，照 PS 臂形状交 true。
+                return Ok(Some(DirectOut::only(JVal::B(true))));
+            } else if a == GD_MODULE_R1999.gate_act && verb == "Ack" {
+                ("set-r1999-ack", JVal::O(Vec::new()))
+            } else if verb == "ShopDone" || verb == "ShopReset" {
+                let done = JVal::B(verb == "ShopDone");
+                if a == GD_MODULE_ARK.gate_act {
+                    ("set-ark-shop-state", jv_o(vec![("done", done)]))
+                } else {
+                    ("set-r1999-shop-state", jv_o(vec![("done", done)]))
+                }
+            } else {
+                return Err(format!("round-gate 收到不认识的 verb：{}", verb));
+            };
+            let _ = (hooks.call)(v, &body)?;
+            DirectOut::only(JVal::B(true))
+        }
+        ("round", a) if a == GD_MODULE_ARK.stop_act => {
+            // 刀① 收编：收尾钩子 stop:ark。PS 臂(lib\rust-round.ps1:478-485 前半，已随刀①笔(c) 摘臂)＝问模块 Stop 钩子(钩子内现问 stop-maa-and-game
+            // ＋Lines 回放＋杀 MaaAgentBinary)；直答臂直接问同一把 verb，杀段已进 Chain.cs::StopMaaAndGame
+            // 尾部(无条件、不进 Lines)⇒ 链体格 ("ark","stop") 同受益。data 恒 true(转接层当年写进 res 的那枚)。
+            let d = (hooks.call)("stop-maa-and-game", &JVal::O(Vec::new()))?;
+            let lines: Vec<String> = jv_list(&jv_get_ci(&d, "Lines")).into_iter().map(jv_str).collect();
+            DirectOut::with_lines(JVal::B(true), lines)
+        }
+        ("round", a) if a == GD_MODULE_R1999.stop_act => {
+            // 刀① 收编：收尾钩子 stop:r1999。PS 臂(同上 :478-485 后半，已随刀①笔(c) 摘臂)＝Stop 钩子＝Stop-M9A(quitAssistantAfter 档，
+            // 核内 stop-m9a 同判)＋closeEmulatorAfter 真则 Stop-GdMuMu。后半的判据**回到核内**：
+            // closeEmulatorAfter 已回 ROUND_RUNTIME_KEYS(§11.55 ③ 那条取键裁决随臂翻案，见名册头注)，
+            // 出口是新立的 stop-mumu verb(Stop-GdMuMu 的 C# 直身，本臂不判开关、verb 不读设置)。
+            // data 恒 true；两把 Lines 都回放(与 PS 臂的日志面同形，lines 只落 INFO 与真身档位一致)。
+            let d = (hooks.call)("stop-m9a", &JVal::O(Vec::new()))?;
+            let mut lines: Vec<String> = jv_list(&jv_get_ci(&d, "Lines")).into_iter().map(jv_str).collect();
+            if env.flag("closeEmulatorAfter") {
+                let d2 = (hooks.call)("stop-mumu", &JVal::O(Vec::new()))?;
+                lines.extend(jv_list(&jv_get_ci(&d2, "Lines")).into_iter().map(jv_str));
+            }
+            DirectOut::with_lines(JVal::B(true), lines)
+        }
         // ==================== 其余一律外发 ====================
-        // 名单（R9-a 收编之后）：门表（round-gate:*）／判定（round-resolve:*）／预览（round-preview:*）／
-        // 收尾钩子（stop:*）／监督两枚，加上链体里 `updgate`／`audit`（那两枚走 `gate`、根本不进这里）。
+        // 名单（刀① 收编之后）：判定（round-resolve:*）／预览（round-preview:*）／监督两枚，加上链体里
+        // `updgate`／`audit`（那两枚走 `gate`、根本不进这里）。
         // 这里**不写任何判据**：外发那一族的真身动作在 PS 侧，转接层（B-4②）答它们。
         // ⚠ R10 时代这份名单里还有六枚（`round-history:*` 两枚／`round-probe:ark`／`round-screensaver`／
-        //   `svdetail`／`round-elevate`），R9-a 把它们改成了核内直答 —— 换的是"谁来答"，
-        //   问法与落账形状逐字不动（判据在核内 --selftest 第 28 节的 R-outer／X3 两族；round 门已退役）。
+        //   `svdetail`／`round-elevate`），R9-a 把它们改成了核内直答；刀① 又收编四枚（`round-gate:*` 两枚／
+        //   `stop:*` 两枚）—— 换的是"谁来答"，问法与落账形状逐字不动
+        //   （判据在核内 --selftest 第 28 节的 R-outer／X3 两族；round 门已退役）。
         _ => return Ok(None),
     };
     Ok(Some(out))
@@ -7553,7 +7613,7 @@ fn daily_round_chain(
     for (id, verb) in &rc.gates {
         let m = match gd_module_by_id(id) {
             Some(m) => *m,
-            // 真身 Set-GdModuleState 那句 throw 逐字（装载期事实，不是本轮的"退出码 2"那一档）。
+            // PS 真身 Set-GdModuleState(已随刀①笔(c) 出仓)那句 throw 逐字（装载期事实，不是本轮的"退出码 2"那一档）。
             None => return Err(ArkAbort::Fail(format!("没有这个模块：{}", id))),
         };
         // C-0①(c)：真身在这一格外就有一层 try ⇒ 抛出来走的是 `Stop-GdBeforeRun`（一句 ERROR + 退 2），
@@ -17855,9 +17915,9 @@ fn selftest() -> i32 {
         let d24s = d24.to_string_lossy().to_string();
         let t24 = |n: &str| format!("{}\\{}", d24s, n);
 
-        // ---------- 24a 取键名册：三枚 runtime 逐枚点名、elevFlags 去重、pathKeys 带两枚取名键 ----------
+        // ---------- 24a 取键名册：四枚 runtime 逐枚点名（closeEmulatorAfter 刀① 随臂翻案回册）、elevFlags 去重、pathKeys 带两枚取名键 ----------
         chk(
-            ROUND_RUNTIME_KEYS == ["blockSleep", "keepScreenOn", "retryOnce"],
+            ROUND_RUNTIME_KEYS == ["blockSleep", "keepScreenOn", "retryOnce", "closeEmulatorAfter"],
             "runtimeKeys 这本名册改了形状：多一枚就是整块 runtime 往核里漏一格（visionApiKey 住在那个块里），少一枚就有一格现场参数没人取",
             &mut fails,
             &mut total,
@@ -18212,6 +18272,15 @@ fn selftest() -> i32 {
                 ("round", GD_MODULE_ARK.history_act, jv_o(vec![("id", jv_s("ark"))])),
                 ("round", GD_MODULE_R1999.history_act, jv_o(vec![("id", jv_s("r1999"))])),
                 ("round", GD_MODULE_ARK.probe_act, jv_o(vec![("decision", JVal::Null)])),
+                // ---- 刀① 收编四发（原来在外发那一族，下面那段逐枚点名已把它们摘出去）----
+                // gate 两发带 verb 进 params（直答臂从 params 取 verb 分发；不带 verb 会落
+                // 「不认识的 verb」Err，那是 24g 崩路的事，不是这格）。ark+Ack 是死档（门已退场）：
+                // 直接交 true、一个 verb 都不调 —— 由 proj24 那格反向钉（无 set-* 发）。
+                ("round", GD_MODULE_ARK.gate_act, jv_o(vec![("verb", jv_s("ShopDone"))])),
+                ("round", GD_MODULE_ARK.gate_act, jv_o(vec![("verb", jv_s("Ack"))])),
+                ("round", GD_MODULE_R1999.gate_act, jv_o(vec![("verb", jv_s("Ack"))])),
+                ("round", GD_MODULE_ARK.stop_act, JVal::Null),
+                ("round", GD_MODULE_R1999.stop_act, JVal::Null),
             ]
             .iter()
             {
@@ -18221,16 +18290,16 @@ fn selftest() -> i32 {
                     Err(m) => ask_none.push(format!("{}:{}→Err({})", role, action, m)),
                 }
             }
-            // 外发那一族逐枚点名（答 None = 协议没删）：门表/判定/预览/收尾/监督/提权 + updgate/audit。
+            // 外发那一族逐枚点名（答 None = 协议没删）：判定/预览/监督/提权 + updgate/audit。
             // ⚠ R9-a 把上一族的四枚（svdetail／round-screensaver／history 两枚／round-probe）摘走了，
             //   但 `ROUND_ELEVATE_ACT` **必须留在这一族**：env24.relaunch 是 Null ⇒ 缺 `--relaunch-entry`
             //   那一发答 None ⇒ 照旧外发。这一格同时就是 elevate 的**负对照**——收编不许把旧调用方
             //   （门的旧夹具、没带新参数面的壳）的那条通道堵死，堵死了回退档就没地方站了。
+            // ⚠ 刀①(2026-11-03) 又把 `round-gate:ark` 与 `stop:ark` 两枚摘进直答族（上面那五发）；
+            //   gate/stop 的 r1999 两枚同批收编（直答点名族的 GD_MODULE_R1999 两发）。
             for (role, action, params) in [
-                ("round", "round-gate:ark", JVal::Null),
                 ("round", "round-resolve:ark", JVal::Null),
                 ("round", "round-preview:ark", JVal::Null),
-                ("round", "stop:ark", JVal::Null),
                 ("round", ROUND_SUPERVISOR_START_ACT, JVal::Null),
                 ("round", ROUND_SUPERVISOR_STOP_ACT, JVal::Null),
                 ("round", ROUND_ELEVATE_ACT, JVal::Null),
@@ -18307,7 +18376,13 @@ fn selftest() -> i32 {
                     .any(|l| l == "round:round-screensaver:{\"Read\":true,\"WasActive\":true,\"Disabled\":true}")
                 && data_of.iter().any(|l| l == "round:round-history:ark:true")
                 && data_of.iter().any(|l| l == "round:round-history:r1999:true")
-                && data_of.iter().any(|l| l.starts_with("round:round-probe:ark:{\"Written\":false,\"Level\":\"WARN\",\"Text\":")),
+                && data_of.iter().any(|l| l.starts_with("round:round-probe:ark:{\"Written\":false,\"Level\":\"WARN\",\"Text\":"))
+                // ---- 刀① 收编四发：账行 data 仍是裸 `true`（PS 臂当年写进 res 的那枚逐字同形）。
+                //   喂给 verb 的消费证据不在这格、在 proj24 那格（set-ark-shop-state 等）。
+                && data_of.iter().any(|l| l == "round:round-gate:ark:true")
+                && data_of.iter().any(|l| l == "round:round-gate:r1999:true")
+                && data_of.iter().any(|l| l == "round:stop:ark:true")
+                && data_of.iter().any(|l| l == "round:stop:r1999:true"),
             &format!(
                 "直答那一族的账行形状变了（PS executor 当年写进 res 的 data 是这个形状，改了②-b 的门就没法逐字节比）：{}",
                 data_of.join(" § ")
@@ -18332,7 +18407,20 @@ fn selftest() -> i32 {
                 && proj24.iter().any(|p| p.starts_with("resolve-screensaver-verdict|cfg,floorSec"))
                 && proj24.iter().any(|p| p == "disable-screensaver-for-round|stateDir")
                 && proj24.iter().any(|p| p == "append-round-history|detail,durationSec,id,mode,stateDir,status")
-                && proj24.iter().any(|p| p == "update-ark-event-probe|decision,obs,stateDir"),
+                && proj24.iter().any(|p| p == "update-ark-event-probe|decision,obs,stateDir")
+                // ---- 刀① 收编四发的消费证据（gate 直答把 verb 折成 set-* 发；stop 直答各自调收尾件）：
+                //   ark+ShopDone ⇒ set-ark-shop-state 只带 done 一枚键；ark+Ack 是死档 ⇒ 反向钉
+                //   「gate 那 5 发里 set-ark-shop-state 恰好 1 发」（多一发就是死档漏了 verb）。
+                //   r1999 的 Ack 臂交的是**空对象**（不是 Null）：臂头注钉的「body 一律不带 id 键」
+                //   那一族同形（stop 两臂同款），投影渲染成空键串。
+                && proj24.iter().any(|p| p == "set-ark-shop-state|done")
+                && proj24.iter().any(|p| p == "set-r1999-ack|")
+                && proj24.iter().filter(|p| *p == "set-ark-shop-state|done").count() == 1
+                && proj24.iter().any(|p| p == "stop-maa-and-game|")
+                && proj24.iter().any(|p| p == "stop-m9a|")
+                // 「缺键算关」的反向钉：env24 的 runtime 没这枚键 ⇒ stop:r1999 直答臂只许调 stop-m9a，
+                //   一次 stop-mumu 都不许冒出来（正例在下面刀① 专块）。
+                && proj24.iter().filter(|p| *p == "stop-mumu|").count() == 0,
             &format!(
                 "答手喂给 verb 的 body 键名册变了（逐枚点名取键是②的判据，整块 runtime/paths 不许进去）：{}",
                 proj24.join(" § ")
@@ -18395,6 +18483,44 @@ fn selftest() -> i32 {
             &mut fails,
             &mut total,
         );
+
+        // ---------- 刀① 专块：closeEmulatorAfter 的「真值开门」那档 ----------
+        // 点名族那发 stop:r1999 用 env24（runtime 缺键）钉了「缺键算关」；这一格钉正方向——
+        // §11.55 ③ 当年把 closeEmulatorAfter 挪出名册的判据（「消费点在 ask 收尾钩子、核内没有
+        // 读它的那一格」）随直答臂翻案：消费点回了核内 ⇒ 键回 ROUND_RUNTIME_KEYS，flag 真值开门。
+        {
+            let env_ce = RoundEnv {
+                runtime: jv_o(vec![("closeEmulatorAfter", JVal::B(true))]),
+                ..env24.clone()
+            };
+            let mut ce_calls: Vec<String> = Vec::new();
+            let mut call_ce = |v: &str, _b: &JVal| -> Result<JVal, String> {
+                ce_calls.push(v.to_string());
+                Ok(r24_reply(v, &paths_ok24))
+            };
+            let mut nap_ce = |_s: u32| {};
+            let mut es_ce = |_f: u32| -> u32 { ES_CONTINUOUS };
+            let mut hk_ce = RoundHooks { call: &mut call_ce, nap: &mut nap_ce, es: &mut es_ce };
+            let ce_ans = match round_answer(
+                &mut hk_ce, &env_ce, &root_all, &t24("state"), &inst24, &live_dec, "round",
+                GD_MODULE_R1999.stop_act, &JVal::Null,
+            ) {
+                Ok(Some(o)) => jv_to_json(&o.data),
+                Ok(None) => "None".to_string(),
+                Err(m) => format!("Err({})", m),
+            };
+            chk(
+                ce_ans == "true"
+                    && ce_calls.iter().filter(|v| v.as_str() == "stop-m9a").count() == 1
+                    && ce_calls.iter().filter(|v| v.as_str() == "stop-mumu").count() == 1,
+                &format!(
+                    "closeEmulatorAfter 真值开门那格变了（flag 该把 stop-mumu 开出来一次；账上仍是裸 true）：calls={:?} data={}",
+                    ce_calls, ce_ans
+                ),
+                &mut fails,
+                &mut total,
+            );
+        }
 
         // ---------- R9-a 专块 B：svdetail 的「恒返串」三档 ----------
         // 真身那一整段是 `try { … } catch { $svTxt = '' }`（executor 的 `'svdetail'` 答臂，按坐标清账批口径不引行号）⇒ 两枚 verb
@@ -18624,13 +18750,14 @@ fn selftest() -> i32 {
         //   不是漏了一格。同理 keepScreenOn=false ⇒ 屏保那格也没问。
         // ⚠ R9-a 起名单里**再没有 round-history / round-probe**：这四格收编成核内直答之后，
         //   它们从"问出去的 ask"变成"落进来的 soft 账行"，形状由下面那格 jrows 钉。
+        //   ⚠ 刀①(2026-11-03) 再收 stop:ark：外发名册自此到 supervisor-stop 为止，
+        //   stop 的消费证据在 proj24（stop-maa-and-game／stop-m9a 两发）。
         //   这一段只钉"段与段之间的先后"，外发那一族的**完整名册**由 24g 那一段逐枚钉。
         chk(
             acts24 == vec![
                 "round-resolve:ark".to_string(),
                 "round-supervisor-start".to_string(),
                 "round-supervisor-stop".to_string(),
-                "stop:ark".to_string(),
             ],
             &format!("外发那一族的**顺序或枚数**变了（骨架的段序就是判据：锁/判定在前、监督先停再收尾、历史排在通知之前）：{:?}", acts24),
             &mut fails,
@@ -19144,6 +19271,9 @@ fn selftest() -> i32 {
         //   能冒到段 9 的只有链体内侧不接的那几步(desk／mumu 这类 `?` 直冒)——正对真身那句
         //   "Run 钩子里抛出来、而钩子体内层 catch 没接住"那一档。`fb` 是派发层那一档(=真身外层 catch)，
         //   `err_action` 把门表／预览那一格答成 err，就是①(c) 那两处 try 该走的拒跑通道。
+        //   ⚠ 刀①(2026-11-03) 后 gate-crash 这格不再走 err_action：round-gate 改核内直答后
+        //   根本不问出去(折回层缝死)，ark 的 Ack 直答后还是死档 ⇒ 注入缝从 err_action 搬进
+        //   hooks 替身——ark_bad_verb="set-ark-shop-state"，让直答臂里那发 `?` 冒 Err。
         struct Crash24n {
             name: &'static str,
             ids: &'static str,
@@ -19158,7 +19288,7 @@ fn selftest() -> i32 {
             Crash24n { name: "crash-one", ids: "[\"ark\",\"r1999\"]", gates: "[]", dry: false, fb: "", err_action: "", ark_bad_verb: "ark-desktop-state", m9a_bad_verb: "" },
             Crash24n { name: "crash-both", ids: "[\"ark\",\"r1999\"]", gates: "[]", dry: false, fb: "", err_action: "", ark_bad_verb: "ark-desktop-state", m9a_bad_verb: "start-mumu" },
             Crash24n { name: "framework-break", ids: "[\"ark\",\"r1999\"]", gates: "[]", dry: false, fb: "自检让派发层炸了", err_action: "", ark_bad_verb: "", m9a_bad_verb: "" },
-            Crash24n { name: "gate-crash", ids: "[\"ark\"]", gates: "[{\"id\":\"ark\",\"verb\":\"Ack\"}]", dry: false, fb: "", err_action: "round-gate:ark", ark_bad_verb: "", m9a_bad_verb: "" },
+            Crash24n { name: "gate-crash", ids: "[\"ark\"]", gates: "[{\"id\":\"ark\",\"verb\":\"ShopDone\"}]", dry: false, fb: "", err_action: "", ark_bad_verb: "set-ark-shop-state", m9a_bad_verb: "" },
             Crash24n { name: "preview-crash", ids: "[\"ark\"]", gates: "[]", dry: true, fb: "", err_action: "round-preview:ark", ark_bad_verb: "", m9a_bad_verb: "" },
         ];
         for cse in cases24n.iter() {
@@ -19180,8 +19310,13 @@ fn selftest() -> i32 {
             let err_action = cse.err_action.to_string();
             let mut done_n = (9i32, String::new());
             let mut acts_n: Vec<String> = Vec::new();
+            // 刀①(2026-11-03)：stop:ark／stop:r1999 已收编核内直答，它们不再进 acts_n；
+            //   直答臂各自问的 verb（stop-maa-and-game／stop-m9a…）落这本账，「finally 的每路
+            //   Stop 照跑」那格的判据随臂搬家到这里（与上面 history 判据搬 jrown 同形）。
+            let mut verbs_n: Vec<String> = Vec::new();
             for _ in 0..24 {
                 let mut call_n = |v: &str, _b: &JVal| -> Result<JVal, String> {
+                    verbs_n.push(v.to_string());
                     if (!ark_bad_verb.is_empty() && v == ark_bad_verb.as_str())
                         || (!m9a_bad_verb.is_empty() && v == m9a_bad_verb.as_str())
                     {
@@ -19337,9 +19472,9 @@ fn selftest() -> i32 {
                     );
                     chk(
                         sinkn.iter().any(|l| l.contains("--- 收尾 ---"))
-                            && acts_n.iter().any(|a| a == "stop:ark")
-                            && acts_n.iter().any(|a| a == "stop:r1999"),
-                        &format!("崩的是派发层不是收尾：finally 那一段(收尾·撤锁·每路 Stop)照跑，否则这一档只剩半本账：{:?}", acts_n),
+                            && verbs_n.iter().any(|v| v == "stop-maa-and-game")
+                            && verbs_n.iter().any(|v| v == "stop-m9a"),
+                        &format!("崩的是派发层不是收尾：finally 那一段(收尾·撤锁·每路 Stop)照跑——stop 两臂已收编核内直答，判据改钉直答臂各自问的收尾 verb 必须各有一发：acts={:?} verbs={:?}", acts_n, verbs_n),
                         &mut fails,
                         &mut total,
                     );
@@ -19352,7 +19487,7 @@ fn selftest() -> i32 {
                             && !jrown.iter().any(|l| l.contains("\"action\":\"round-lock\""))
                             && sinkn.iter().any(|l| {
                                 l.contains(
-                                    "\"level\":\"ERROR\",\"text\":\"这一轮没跑：手动门没敲进去(ark Ack)：自检让门抛",
+                                    "\"level\":\"ERROR\",\"text\":\"这一轮没跑：手动门没敲进去(ark ShopDone)：自检让 Run 抛",
                                 )
                             }),
                         &format!(
@@ -20146,28 +20281,25 @@ asst-failed|ev|2|asst|10000|TaskChainError|TaskChainError|task_chain|Error|local
         // R9-a 提权入参那枚唯一针（门 $ElevNeedle 逐字）：只许住在 start-elevated-round 的转交 body 里，
         // journal／侧信道／ask 信封／done 结果一枚都不许见（A-elev-noleak）。
         const S28_ELEV_NEEDLE: &str = "FIXTURE-ELEV-ENTRY-NEEDLE";
-        // 白名单冻签名册 13 枚（R-outer 的 B 面：lib\rust-round.ps1::Get-GdRoundOuterActs 现值的冻结；ASCII 序）。
+        // 白名单冻签名册 9 枚（R-outer 的 B 面：Get-GdRoundOuterActs 的冻结；ASCII 序）。
+        // 刀①(2026-11-03)：round-gate:ark/r1999 与 stop:ark/r1999 四枚改核内直答后不再问出去 ⇒ 出册；
+        // PS 侧 Get-GdRoundOuterActs 随本刀笔(c) 同步缩到 9，最终帧两册同为 9。
         const S28_ROSTER: &[&str] = &[
             "audit",
             "round-elevate",
-            "round-gate:ark",
-            "round-gate:r1999",
             "round-preview:ark",
             "round-preview:r1999",
             "round-resolve:ark",
             "round-resolve:r1999",
             "round-supervisor-start",
             "round-supervisor-stop",
-            "stop:ark",
-            "stop:r1999",
             "updgate",
         ];
-        // 段 9 那六枚的硬期望（门 $Seg9Want 逐字；事实源＝核内骨架的段序与链体那两枚闸，不是本节的读数）。
+        // 段 9 那四枚的硬期望（门 $Seg9Want 逐字；事实源＝核内骨架的段序与链体那两枚闸，不是本节的读数）。
+        // 刀①(2026-11-03)：stop 两枚直答后不进 ask 序 ⇒ 出册；账面那两条 S|stop| 行由场景册 must_have 继续钉。
         const S28_SEG9: &[&str] = &[
             "round-supervisor-start",
             "round-supervisor-stop",
-            "stop:ark",
-            "stop:r1999",
             "updgate",
             "audit",
         ];
@@ -20408,7 +20540,9 @@ asst-failed|ev|2|asst|10000|TaskChainError|TaskChainError|task_chain|Error|local
                     continue;
                 }
                 if act.starts_with("round-gate:") {
-                    out.push(format!("S|round-gate|{}|{}", &act["round-gate:".len()..], pp("verb")));
+                    // 刀①(2026-11-03) 直答后账行只有 {seq,action,data:true}，ask 信封里那枚 verb 没了
+                    // ⇒ 投影改两段形；verb 落到哪枚 set-* 由 R-gate-call 在 calls28v 上供证。
+                    out.push(format!("S|round-gate|{}", &act["round-gate:".len()..]));
                     continue;
                 }
                 if act.starts_with("round-resolve:") {
@@ -20480,6 +20614,7 @@ asst-failed|ev|2|asst|10000|TaskChainError|TaskChainError|task_chain|Error|local
             need_admin: bool,
             fail_ark: bool,
             fail_r9: bool,
+            fail_gate: bool,
             elev_code: i64,
         ) -> Result<JVal, String> {
             if verb == "resolve-round-context" {
@@ -20635,6 +20770,41 @@ asst-failed|ev|2|asst|10000|TaskChainError|TaskChainError|task_chain|Error|local
                     ("NoticeLevel", jv_s("")),
                     ("NoticeText", jv_s("")),
                 ]),
+                // 刀①(2026-11-03)：round-gate 直答后三枚 set-* verb 从这册子里走，gate 的注入缝也搬进来
+                //（ark 的 Ack 是死档、折回层缝死，见 Crash24n 同批登记）。回执六键形照 Round.Data.cs Out()。
+                "set-ark-shop-state" => {
+                    if fail_gate {
+                        return Err(S28_MSG_GATE.to_string());
+                    }
+                    jv_o(vec![
+                        ("Action", jv_s("none")),
+                        ("Written", JVal::B(false)),
+                        ("Key", jv_s("")),
+                        ("Time", jv_s("2026-10-15 06:00:00")),
+                        ("Count", JVal::I(0)),
+                        ("Lines", JVal::A(vec![jv_s("夹具:方舟当前没有进行中的活动可标记")])),
+                    ])
+                }
+                "set-r1999-ack" => jv_o(vec![
+                    ("Action", jv_s("none")),
+                    ("Written", JVal::B(false)),
+                    ("Key", jv_s("")),
+                    ("Time", jv_s("2026-10-15 06:00:00")),
+                    ("Count", JVal::I(0)),
+                    ("Lines", JVal::A(vec![jv_s("夹具:1999 当前没有待确认活动")])),
+                ]),
+                "set-r1999-shop-state" => jv_o(vec![
+                    ("Action", jv_s("none")),
+                    ("Written", JVal::B(false)),
+                    ("Key", jv_s("")),
+                    ("Time", jv_s("2026-10-15 06:00:00")),
+                    ("Count", JVal::I(0)),
+                    ("Lines", JVal::A(vec![jv_s("夹具:1999 当前没有进行中的活动可标记")])),
+                ]),
+                "stop-mumu" => jv_o(vec![
+                    ("Done", JVal::B(true)),
+                    ("Lines", JVal::A(vec![jv_s("夹具已关 MuMu")])),
+                ]),
                 _ => return Err(format!("§28 夹具册子没有这枚 verb：{}", verb)),
             };
             Ok(r)
@@ -20690,7 +20860,7 @@ asst-failed|ev|2|asst|10000|TaskChainError|TaskChainError|task_chain|Error|local
                 gates: &[("ark", "ShopDone")],
                 dry_run: true,
                 must_have: &[
-                    "S|round-gate|ark|ShopDone",
+                    "S|round-gate|ark",
                     "W|OK|[dry-run] 仅记录确认/领空状态，结束",
                     "Z|0|",
                 ],
@@ -20700,7 +20870,7 @@ asst-failed|ev|2|asst|10000|TaskChainError|TaskChainError|task_chain|Error|local
             S28Scen {
                 gates: &[("ark", "Ack")],
                 must_have: &[
-                    "S|round-gate|ark|Ack",
+                    "S|round-gate|ark",
                     "W|INFO|状态已更新；继续执行本轮日常",
                     "S|round-lock",
                 ],
@@ -20845,11 +21015,11 @@ asst-failed|ev|2|asst|10000|TaskChainError|TaskChainError|task_chain|Error|local
                 ..s28_new("run-framework-break")
             },
             S28Scen {
-                gates: &[("ark", "Ack")],
+                gates: &[("ark", "ShopDone")],
                 fail_gate: &["ark"],
                 must_have: &[
-                    "S|round-gate|ark|Ack",
-                    "W|ERROR|这一轮没跑：手动门没敲进去(ark Ack)：夹具让门抛(详情见 logs\\round.log)",
+                    "S|round-gate|ark",
+                    "W|ERROR|这一轮没跑：手动门没敲进去(ark ShopDone)：夹具让门抛(详情见 logs\\round.log)",
                     "Z|2|",
                 ],
                 must_not: &["S|round-lock", "S|round-notice", "S|round-resolve"],
@@ -21119,16 +21289,10 @@ asst-failed|ev|2|asst|10000|TaskChainError|TaskChainError|task_chain|Error|local
                 } else {
                     String::new()
                 };
-                // 外发格应答册（门 Get-AskTable 逐字；同名 FIFO 同一条纪律：round-gate/preview/stop 真身不读返回值 ⇒ 交 true）。
+                // 外发格应答册（门 Get-AskTable 逐字；同名 FIFO 同一条纪律：preview 真身不读返回值 ⇒ 交 true）。
+                // 刀①(2026-11-03)：round-gate 动态段与 stop 两枚静态条目出册——两族改核内直答后不再问出去，
+                // gate 的注入缝搬到 s28_verb_reply 的 fail_gate（见 Crash24n 同批登记）。
                 let mut ask_tbl: Vec<(String, bool, JVal)> = Vec::new();
-                for (gid, _gv) in sc.gates.iter() {
-                    let bad = sc.fail_gate.contains(gid);
-                    ask_tbl.push((
-                        format!("round-gate:{}", gid),
-                        bad,
-                        if bad { jv_s(S28_MSG_GATE) } else { JVal::B(true) },
-                    ));
-                }
                 let ark_bad = sc.fail_resolve.contains(&"ark");
                 ask_tbl.push((
                     "round-resolve:ark".to_string(),
@@ -21151,7 +21315,6 @@ asst-failed|ev|2|asst|10000|TaskChainError|TaskChainError|task_chain|Error|local
                     ark_prev_bad,
                     if ark_prev_bad { jv_s(S28_MSG_PREVIEW) } else { JVal::B(true) },
                 ));
-                ask_tbl.push(("stop:ark".to_string(), false, JVal::B(true)));
                 let r9_bad = sc.fail_resolve.contains(&"r1999");
                 ask_tbl.push((
                     "round-resolve:r1999".to_string(),
@@ -21174,7 +21337,6 @@ asst-failed|ev|2|asst|10000|TaskChainError|TaskChainError|task_chain|Error|local
                     r9_prev_bad,
                     if r9_prev_bad { jv_s(S28_MSG_PREVIEW) } else { JVal::B(true) },
                 ));
-                ask_tbl.push(("stop:r1999".to_string(), false, JVal::B(true)));
                 ask_tbl.push((
                     "round-supervisor-start".to_string(),
                     false,
@@ -21197,9 +21359,10 @@ asst-failed|ev|2|asst|10000|TaskChainError|TaskChainError|task_chain|Error|local
                 let sc_elev = sc.elev_code;
                 let fail_ark = sc.fail_run.contains(&"ark");
                 let fail_r9 = sc.fail_run.contains(&"r1999");
+                let fail_gate = !sc.fail_gate.is_empty();
                 let mut call28 = move |v: &str, b: &JVal| -> Result<JVal, String> {
                     calls_fx.borrow_mut().push((v.to_string(), jv_to_json(b)));
-                    s28_verb_reply(v, &paths_json_c, &maa_cfg_c, adm, sc_need, fail_ark, fail_r9, sc_elev)
+                    s28_verb_reply(v, &paths_json_c, &maa_cfg_c, adm, sc_need, fail_ark, fail_r9, fail_gate, sc_elev)
                 };
                 let st28a = sc.run_status.to_string();
                 let dt28a = sc.run_detail.to_string();
@@ -21409,11 +21572,11 @@ asst-failed|ev|2|asst|10000|TaskChainError|TaskChainError|task_chain|Error|local
                         &mut total,
                     );
                 }
-                // R-outer：核问出去的每一枚动作，必须当场能在白名单（冻签名册＋本档门格）里找到。
+                // R-outer：核问出去的每一枚动作，必须当场能在白名单（冻签名册）里找到。
+                // （刀① 后 round-gate 不再问出去，"本档门格"那半白名单随之死——门格只剩 set-* 的直答消费面，归 R-gate-call。）
                 let mut unk28: Vec<String> = Vec::new();
                 for a in &asked28v {
-                    let ok = S28_ROSTER.contains(&a.as_str())
-                        || sc.gates.iter().any(|(gid, _)| format!("round-gate:{}", gid) == *a);
+                    let ok = S28_ROSTER.contains(&a.as_str());
                     if !ok {
                         unk28.push(a.clone());
                     }
@@ -21431,6 +21594,37 @@ asst-failed|ev|2|asst|10000|TaskChainError|TaskChainError|task_chain|Error|local
                     &mut fails,
                     &mut total,
                 );
+                // R-gate-call（刀① 2026-11-03 新立）：凡场景里配了门，除 ark-Ack 死档外，每道门必须在
+                // calls28v 里留下一发 set-* 的直答消费——投影改两段形后 verb 不再出现在账面，这一格是
+                // 它唯一的落账证明；ark-Ack 那档走 24a 的「恰 1 发」反向钉，不在这里重复。
+                if !sc.gates.is_empty() {
+                    let mut miss_g: Vec<String> = Vec::new();
+                    for (gid, gv) in sc.gates.iter() {
+                        let want: Option<&str> = if *gid == "ark" {
+                            if *gv == "Ack" { None } else { Some("set-ark-shop-state") }
+                        } else if *gv == "Ack" {
+                            Some("set-r1999-ack")
+                        } else {
+                            Some("set-r1999-shop-state")
+                        };
+                        if let Some(wv) = want {
+                            if !calls28v.iter().any(|(v, _)| v == wv) {
+                                miss_g.push(format!("{}:{}→{}", gid, gv, wv));
+                            }
+                        }
+                    }
+                    chk(
+                        miss_g.is_empty(),
+                        &format!(
+                            "§28 R-gate-call {}({})：门格没有 set-* 直答消费：{}",
+                            sc.name,
+                            vtag,
+                            miss_g.join(",")
+                        ),
+                        &mut fails,
+                        &mut total,
+                    );
+                }
                 // R-obsdate：现采观测喂 verb 的 nowText 只许纯日期（判据长在 body 里那枚值上）。
                 let mut obs_bad_now = 0usize;
                 let mut obs_cnt_now = 0usize;
@@ -21520,7 +21714,7 @@ asst-failed|ev|2|asst|10000|TaskChainError|TaskChainError|task_chain|Error|local
                             &["ask", "ask", "done"],
                         )
                     } else {
-                        (&["round-gate:ark"], &["ask", "done"])
+                        (&[], &["done"])
                     };
                     let got_a: Vec<&str> = asked28v.iter().map(|s| s.as_str()).collect();
                     let got_k: Vec<&str> = kinds28v.iter().map(|s| s.as_str()).collect();
@@ -21545,11 +21739,11 @@ asst-failed|ev|2|asst|10000|TaskChainError|TaskChainError|task_chain|Error|local
                 }
             }
         }
-        // R-outer-seg9：段 9 那六枚必须真在 ask 序里出现过 ⇒ 否则 A⊆B 是空集恒绿。
+        // R-outer-seg9：段 9 那四枚必须真在 ask 序里出现过 ⇒ 否则 A⊆B 是空集恒绿。
         chk(
             S28_SEG9.iter().all(|s| outer_seen28.iter().any(|a| a == s)),
             &format!(
-                "§28 R-outer-seg9：段 9 那六枚没真被问出去过，缺={}",
+                "§28 R-outer-seg9：段 9 那四枚没真被问出去过，缺={}",
                 S28_SEG9
                     .iter()
                     .filter(|s| !outer_seen28.iter().any(|a| a == *s))

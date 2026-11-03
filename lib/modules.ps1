@@ -164,21 +164,6 @@ function Invoke-GdModuleHook {
     return (& $sb @Params)
 }
 
-function Set-GdModuleState {
-    <# 两道手动门(活动确认 / 商店领空)的统一分发入口。
-        参数名是各入口自己的事(-AckArk vs -Ack)，所以入口只管把"用户敲了哪个开关"报成 Verb；
-        真正干什么由模块清单的 Ack / ShopState 钩子决定。 #>
-    param(
-        [Parameter(Mandatory)][string]$Id,
-        [Parameter(Mandatory)][ValidateSet('Ack', 'ShopDone', 'ShopReset')][string]$Verb,
-        [Parameter(Mandatory)]$S
-    )
-    $m = Get-GdModule -Id $Id
-    if (-not $m) { throw "没有这个模块：$Id" }
-    if ($Verb -eq 'Ack') { return (Invoke-GdModuleHook -Module $m -Hook Ack -Params @{ S = $S }) }
-    return (Invoke-GdModuleHook -Module $m -Hook ShopState -Params @{ S = $S; Done = ($Verb -eq 'ShopDone') })
-}
-
 # —— "跑一轮"这一格现在不住在这里(2026-10-20 乙批②) ——
 # 十段的 PS 原身 Invoke-GdDailyRound 与它的逐路执行器 Invoke-GdModuleRuns 已一并划掉。带走后者用的判据
 # 与退役单元① 同形：删掉调用方之后，被删函数自己的唯一调用方同时消失，那才是"级联可削面"而不是"漏删"。
@@ -188,7 +173,10 @@ function Set-GdModuleState {
 # 拿不到内置件、主闸被人拨关(GD_RUST_OFF=1 或 runtime.rustOff 含 gdcore)、轮上下文装配炸 ——
 # 这三种形状一律整轮拒跑(2)并落一句人话，不再有"换人跑"的第二条腿；代价与受影响的形态见转接层头注。
 # 本文件剩下的是**还被两头问回来**的零件：注册表与装载器(Register-GdModule / Import-GdModules)、
-# 手动门分发(Set-GdModuleState)、钩子唯一收口(Invoke-GdModuleHook)。
+# 钩子唯一收口(Invoke-GdModuleHook)。
+# ⚠ 刀①(2026-11-03) 追记：上一版名册里的「手动门分发(Set-GdModuleState)」已随 rust-round 四臂摘除
+#   (round-gate:<id> 两枚改核内直答)一并出仓——它的唯一消费面就是那两枚臂，臂摘了它就是零活；
+#   手动门真身自此只剩 panel-cs 那三枚 set-* verb(Round.Data.cs)与核内 round_answer 的直答臂。
 # ⚠ 11-02 刀③ 作废登记：上一句末尾原本还挂着半句按位置分派「谁在点」的口径，已不作数——
 #   那半句把 选人 Select-GdModules 与 环境读数 Get-GdModuleEnvRows 也算成被生产在点，而它们的生产调用点早已归零（只剩自检还点）；
 #   那半句里的「面板」那一路，也随 tools\panel.ps1 整件退役一起没了。

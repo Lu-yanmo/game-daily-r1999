@@ -180,6 +180,8 @@ namespace GdPanel
                 else if (verb == "read-maa-stage-observation") r = Decide(a, Chain.ReadStageObservation);
                 else if (verb == "start-ark-client") r = Decide(a, Chain.StartArkClient);
                 else if (verb == "start-mumu") r = Decide(a, Chain.StartMuMu);
+                // ---- 刀①(2026-11-03)：stop-mumu 照 start-mumu 排进链体起进程侧之后，不加任何分支语义 ----
+                else if (verb == "stop-mumu") r = Decide(a, Chain.StopMuMu);
                 else if (verb == "apply-maa-daily-config") r = Decide(a, Chain.ApplyMaaDailyConfig);
                 else if (verb == "apply-m9a-instance") r = Decide(a, Chain.ApplyM9AInstance);
                 else if (verb == "update-ark-farm-ledger") r = Decide(a, Chain.UpdateFarmLedger);

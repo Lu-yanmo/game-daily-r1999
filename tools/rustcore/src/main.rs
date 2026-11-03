@@ -7397,13 +7397,101 @@ fn round_answer(
             }
             DirectOut::with_lines(JVal::B(true), lines)
         }
+        ("round", a) if a == GD_MODULE_ARK.preview_act => {
+            // 刀② 收编(2026-11-03)：`round-preview:ark` 改核内直答 —— 换的是"谁来答"，问法与日志面逐字不动。
+            // 日志面四段逐字照 Show-GdArkPreview(lib\ark-daily.ps1:94，当年真身)：
+            //   ① verb.Lines 全量回放＝Set-MaaDailyConfig 自己 Write-GdLog 的那几句(在跑 WARN／plan Logs 回放)；
+            //   ② "  MAA：{c}" × Changes(apply-maa-daily-config 不给 apply ⇒ 预览档，:1032 那句「缺键按预览办」)；
+            //   ③ Farm 在场才有的材料补刷行(lean 剔关轮没这键 ⇒ 自然跳过，照 round_lean_decision 头注那条形状)；
+            //   ④ 窗口行。
+            let dec = jv_get_ci(params, "decision");
+            let d = (hooks.call)(
+                "apply-maa-daily-config",
+                &jv_o(vec![("decision", dec.clone())]),
+            )?;
+            let mut lines: Vec<String> = jv_list(&jv_get_ci(&d, "Lines")).into_iter().map(jv_str).collect();
+            for c in jv_list(&jv_get_ci(&d, "Changes")) {
+                lines.push(format!("  MAA：{}", jv_str(&c)));
+            }
+            let farm = jv_get_ci(&dec, "Farm");
+            if jv_truthy(&farm) {
+                lines.push(format!(
+                    "  材料补刷：{}(档位={})",
+                    jv_str(&jv_get_ci(&farm, "Reason")),
+                    jv_str(&jv_get_ci(&dec, "FarmMode")),
+                ));
+            }
+            // 窗口行的答手是 ark-find-window —— 换答方带**一档语义差**，如实登记：
+            // 真身 Get-GdWindowByTitle 是「标题 pattern＋进程名」双闸，ark-find-window 只认进程名单闸；
+            // 浏览器标签页冒充面两把都挡得住(进程名闸在场)，差的那档只在"该进程有窗口、标题不匹配
+            // pattern"时读数会翻。号牌 [Name#Id] 里的 Id＝回执 ProcId(同一枚 p.Id，键名两源)。
+            // procName 由核内从 env 现算递去(与链体 takeover 递 names 同一路数)，不靠 verb 回读它自己的 settings。
+            let exe = env.path("arknightsExe");
+            let ark_proc = env.proc_name("arknightsExe");
+            let mut wk: Vec<(&str, JVal)> = Vec::new();
+            if !ark_proc.is_empty() {
+                wk.push(("procName", jv_s(&ark_proc)));
+            }
+            let w = (hooks.call)("ark-find-window", &jv_o(wk))?;
+            if jv_truthy(&jv_get_ci(&w, "Found")) {
+                lines.push(format!(
+                    "  端游窗口：已存在 [{}#{}] {}",
+                    jv_str(&jv_get_ci(&w, "Name")),
+                    jv_str(&jv_get_ci(&w, "ProcId")),
+                    jv_str(&jv_get_ci(&w, "Title")),
+                ));
+            } else {
+                lines.push(format!("  端游窗口：没有 → 会先启动 {} 再让 MAA 连", exe));
+            }
+            DirectOut::with_lines(JVal::B(true), lines)
+        }
+        ("round", a) if a == GD_MODULE_R1999.preview_act => {
+            // 刀② 收编(2026-11-03)：`round-preview:r1999` 改核内直答 —— 日志面三段逐字照
+            // Show-GdR1999Preview(lib\r1999-daily.ps1:89，当年真身)：
+            //   ① apply-m9a-instance 的 Lines(在跑 WARN 那一句)＋"  M9A：{c}" × Changes(apply 显式给 false)；
+            //   ② ADB 行＝read-m9a-connection(本批新立出口，探活读实例自己的 json)；
+            //   ③ MuMu 行＝mumu-state(本批新立出口)，号牌由回执 Index 带(ctx 里没有 mumu 段)。
+            // instance 整块从 decision.Instance 取(与段 5 覆盖 m9a_instance 槽同一源，round_m9a_apply_decision
+            // 读的也是它)：链体 cfg 那格只递 Id/Name 是因为 apply-m9a-instance 只读 appsettings，
+            // 探活要的 Path 只有 decision 里那份完整实例对象才有。
+            let dec = jv_get_ci(params, "decision");
+            let inst = jv_get_ci(&dec, "Instance");
+            let d = (hooks.call)(
+                "apply-m9a-instance",
+                &jv_o(vec![("instance", inst.clone()), ("apply", JVal::B(false))]),
+            )?;
+            let mut lines: Vec<String> = jv_list(&jv_get_ci(&d, "Lines")).into_iter().map(jv_str).collect();
+            for c in jv_list(&jv_get_ci(&d, "Changes")) {
+                lines.push(format!("  M9A：{}", jv_str(&c)));
+            }
+            let d2 = (hooks.call)(
+                "read-m9a-connection",
+                &jv_o(vec![("instance", inst.clone())]),
+            )?;
+            lines.push(format!(
+                "  ADB：{}({})",
+                jv_str(&jv_get_ci(&d2, "Serial")),
+                jv_str(&jv_get_ci(&d2, "Name")),
+            ));
+            let d3 = (hooks.call)("mumu-state", &JVal::O(Vec::new()))?;
+            lines.push(format!(
+                "  MuMu 虚拟机 {}：{}",
+                jv_str(&jv_get_ci(&d3, "Index")),
+                if jv_truthy(&jv_get_ci(&d3, "AndroidStarted")) {
+                    "运行中"
+                } else {
+                    "未运行(将自动启动)"
+                },
+            ));
+            DirectOut::with_lines(JVal::B(true), lines)
+        }
         // ==================== 其余一律外发 ====================
-        // 名单（刀① 收编之后）：判定（round-resolve:*）／预览（round-preview:*）／监督两枚，加上链体里
+        // 名单（刀② 收编之后）：判定（round-resolve:*）／监督两枚，加上链体里
         // `updgate`／`audit`（那两枚走 `gate`、根本不进这里）。
         // 这里**不写任何判据**：外发那一族的真身动作在 PS 侧，转接层（B-4②）答它们。
         // ⚠ R10 时代这份名单里还有六枚（`round-history:*` 两枚／`round-probe:ark`／`round-screensaver`／
         //   `svdetail`／`round-elevate`），R9-a 把它们改成了核内直答；刀① 又收编四枚（`round-gate:*` 两枚／
-        //   `stop:*` 两枚）—— 换的是"谁来答"，问法与落账形状逐字不动
+        //   `stop:*` 两枚）、刀② 再收编两枚（`round-preview:*`）—— 换的是"谁来答"，问法与落账形状逐字不动
         //   （判据在核内 --selftest 第 28 节的 R-outer／X3 两族；round 门已退役）。
         _ => return Ok(None),
     };
@@ -18297,9 +18385,11 @@ fn selftest() -> i32 {
             //   （门的旧夹具、没带新参数面的壳）的那条通道堵死，堵死了回退档就没地方站了。
             // ⚠ 刀①(2026-11-03) 又把 `round-gate:ark` 与 `stop:ark` 两枚摘进直答族（上面那五发）；
             //   gate/stop 的 r1999 两枚同批收编（直答点名族的 GD_MODULE_R1999 两发）。
+            // ⚠ 刀②(2026-11-03) 再摘 `round-preview:ark`（直答点名族的 GD_MODULE_ARK.preview_act 一发）：
+            //   与刀① 同形——收编后这一格答 Some(DirectOut)，不再走"答 None ⇒ 照旧外发"那条道，
+            //   名册里留着它就是让这一格永远答 None 的死锚（壳侧名册同批 9→7）。
             for (role, action, params) in [
                 ("round", "round-resolve:ark", JVal::Null),
-                ("round", "round-preview:ark", JVal::Null),
                 ("round", ROUND_SUPERVISOR_START_ACT, JVal::Null),
                 ("round", ROUND_SUPERVISOR_STOP_ACT, JVal::Null),
                 ("round", ROUND_ELEVATE_ACT, JVal::Null),
@@ -19274,6 +19364,9 @@ fn selftest() -> i32 {
         //   ⚠ 刀①(2026-11-03) 后 gate-crash 这格不再走 err_action：round-gate 改核内直答后
         //   根本不问出去(折回层缝死)，ark 的 Ack 直答后还是死档 ⇒ 注入缝从 err_action 搬进
         //   hooks 替身——ark_bad_verb="set-ark-shop-state"，让直答臂里那发 `?` 冒 Err。
+        //   ⚠ 刀②(2026-11-03) 同形搬到 preview-crash：round-preview 改核内直答后也不问出去，
+        //   注入缝搬进 hooks 替身——ark_bad_verb="apply-maa-daily-config"（直答臂第一发），
+        //   让臂里那发 `?` 冒 Err；期望句尾相应从"自检让预览抛"换成替身的"自检让 Run 抛"。
         struct Crash24n {
             name: &'static str,
             ids: &'static str,
@@ -19289,7 +19382,7 @@ fn selftest() -> i32 {
             Crash24n { name: "crash-both", ids: "[\"ark\",\"r1999\"]", gates: "[]", dry: false, fb: "", err_action: "", ark_bad_verb: "ark-desktop-state", m9a_bad_verb: "start-mumu" },
             Crash24n { name: "framework-break", ids: "[\"ark\",\"r1999\"]", gates: "[]", dry: false, fb: "自检让派发层炸了", err_action: "", ark_bad_verb: "", m9a_bad_verb: "" },
             Crash24n { name: "gate-crash", ids: "[\"ark\"]", gates: "[{\"id\":\"ark\",\"verb\":\"ShopDone\"}]", dry: false, fb: "", err_action: "", ark_bad_verb: "set-ark-shop-state", m9a_bad_verb: "" },
-            Crash24n { name: "preview-crash", ids: "[\"ark\"]", gates: "[]", dry: true, fb: "", err_action: "round-preview:ark", ark_bad_verb: "", m9a_bad_verb: "" },
+            Crash24n { name: "preview-crash", ids: "[\"ark\"]", gates: "[]", dry: true, fb: "", err_action: "", ark_bad_verb: "apply-maa-daily-config", m9a_bad_verb: "" },
         ];
         for cse in cases24n.iter() {
             let jj = t24(&format!("jn-{}.ndjson", cse.name));
@@ -19506,7 +19599,9 @@ fn selftest() -> i32 {
                             && !jrown.iter().any(|l| l.contains("\"action\":\"round-lock\""))
                             && sinkn.iter().any(|l| {
                                 l.contains(
-                                    "\"level\":\"ERROR\",\"text\":\"这一轮没跑：方舟 的预览没做成：自检让预览抛",
+                                    // 刀②(2026-11-03)：缝搬进 hooks 替身(ark_bad_verb)后，冒上来的
+                                    // 就是替身那句"自检让 Run 抛"——与 gate-crash 刀① 同形状。
+                                    "\"level\":\"ERROR\",\"text\":\"这一轮没跑：方舟 的预览没做成：自检让 Run 抛",
                                 )
                             }),
                         &format!(
@@ -20281,14 +20376,13 @@ asst-failed|ev|2|asst|10000|TaskChainError|TaskChainError|task_chain|Error|local
         // R9-a 提权入参那枚唯一针（门 $ElevNeedle 逐字）：只许住在 start-elevated-round 的转交 body 里，
         // journal／侧信道／ask 信封／done 结果一枚都不许见（A-elev-noleak）。
         const S28_ELEV_NEEDLE: &str = "FIXTURE-ELEV-ENTRY-NEEDLE";
-        // 白名单冻签名册 9 枚（R-outer 的 B 面：Get-GdRoundOuterActs 的冻结；ASCII 序）。
+        // 白名单冻签名册 7 枚（R-outer 的 B 面：Get-GdRoundOuterActs 的冻结；ASCII 序）。
         // 刀①(2026-11-03)：round-gate:ark/r1999 与 stop:ark/r1999 四枚改核内直答后不再问出去 ⇒ 出册；
         // PS 侧 Get-GdRoundOuterActs 随本刀笔(c) 同步缩到 9，最终帧两册同为 9。
+        // 刀②(2026-11-03)：round-preview:ark/r1999 两枚同形出册，PS 侧同步缩到 7，最终帧两册同为 7。
         const S28_ROSTER: &[&str] = &[
             "audit",
             "round-elevate",
-            "round-preview:ark",
-            "round-preview:r1999",
             "round-resolve:ark",
             "round-resolve:r1999",
             "round-supervisor-start",
@@ -20550,6 +20644,7 @@ asst-failed|ev|2|asst|10000|TaskChainError|TaskChainError|task_chain|Error|local
                     continue;
                 }
                 if act.starts_with("round-preview:") {
+                    // 刀②(2026-11-03) 直答后账行只有 {seq,action,data:true}，投影两段形照 gate 分支同批。
                     out.push(format!("S|round-preview|{}", &act["round-preview:".len()..]));
                     continue;
                 }
@@ -20615,6 +20710,7 @@ asst-failed|ev|2|asst|10000|TaskChainError|TaskChainError|task_chain|Error|local
             fail_ark: bool,
             fail_r9: bool,
             fail_gate: bool,
+            fail_preview: &[&'static str],
             elev_code: i64,
         ) -> Result<JVal, String> {
             if verb == "resolve-round-context" {
@@ -20671,15 +20767,23 @@ asst-failed|ev|2|asst|10000|TaskChainError|TaskChainError|task_chain|Error|local
                     ("Stopped", JVal::A(vec![jv_s("MAA")])),
                     ("Lines", JVal::A(vec![jv_s("夹具接管句")])),
                 ]),
-                "apply-maa-daily-config" => jv_o(vec![
-                    ("Done", JVal::B(true)),
-                    ("Path", jv_s(maa_cfg)),
-                    ("Changes", JVal::A(vec![jv_s("队列：作战 开")])),
-                    ("ExpectedChains", JVal::A(vec![jv_s("combat")])),
-                    ("Stage", jv_s("CE-5")),
-                    ("Applied", JVal::B(true)),
-                    ("Lines", JVal::A(vec![])),
-                ]),
+                // 刀②(2026-11-03)：preview 直答后这枚从这册子里走，preview 的注入缝也搬进来
+                //（ask_tbl 那两行出册，见同批登记）。dry-run 档这枚只被 preview 臂问到（不给 apply），
+                // 缝挂在这里与 fail_gate 挂在 set-ark-shop-state 上同一形。
+                "apply-maa-daily-config" => {
+                    if fail_preview.contains(&"ark") {
+                        return Err(S28_MSG_PREVIEW.to_string());
+                    }
+                    jv_o(vec![
+                        ("Done", JVal::B(true)),
+                        ("Path", jv_s(maa_cfg)),
+                        ("Changes", JVal::A(vec![jv_s("队列：作战 开")])),
+                        ("ExpectedChains", JVal::A(vec![jv_s("combat")])),
+                        ("Stage", jv_s("CE-5")),
+                        ("Applied", JVal::B(true)),
+                        ("Lines", JVal::A(vec![])),
+                    ])
+                }
                 "start-ark-client" => jv_o(vec![
                     ("Done", JVal::B(true)),
                     ("Started", JVal::B(true)),
@@ -20709,11 +20813,29 @@ asst-failed|ev|2|asst|10000|TaskChainError|TaskChainError|task_chain|Error|local
                 ]),
                 "adb-connect" => jv_o(vec![("Ok", JVal::B(true))]),
                 "adb-game-pid" => jv_o(vec![("Ok", JVal::B(false)), ("Pid", JVal::I(0))]),
-                "apply-m9a-instance" => jv_o(vec![
-                    ("Done", JVal::B(true)),
-                    ("Changes", JVal::A(vec![jv_s("Instances.LastActive: a -> b")])),
-                    ("Applied", JVal::B(true)),
-                    ("Lines", JVal::A(vec![])),
+                // 刀②(2026-11-03)：r1999 侧同形——缝挂这枚（直答臂第一发），冒的还是 S28_MSG_PREVIEW，
+                // 场景册那句「夹具让预览抛」逐字不动。
+                "apply-m9a-instance" => {
+                    if fail_preview.contains(&"r1999") {
+                        return Err(S28_MSG_PREVIEW.to_string());
+                    }
+                    jv_o(vec![
+                        ("Done", JVal::B(true)),
+                        ("Changes", JVal::A(vec![jv_s("Instances.LastActive: a -> b")])),
+                        ("Applied", JVal::B(true)),
+                        ("Lines", JVal::A(vec![])),
+                    ])
+                }
+                // 刀②(2026-11-03)：preview 直答臂 ②③ 段新问到的两枚（核内 :7468/:7476），
+                // 回执键与 panel-cs 真身对齐——Serial/Name 供 ADB 行、Index/AndroidStarted 供 MuMu 行。
+                "read-m9a-connection" => jv_o(vec![
+                    ("Adb", jv_s("adb-fixture")),
+                    ("Serial", jv_s("127.0.0.1:16384")),
+                    ("Name", jv_s("夹具实例")),
+                ]),
+                "mumu-state" => jv_o(vec![
+                    ("Index", JVal::I(1)),
+                    ("AndroidStarted", JVal::B(false)),
                 ]),
                 "stop-m9a" => jv_o(vec![("Done", JVal::B(true)), ("M9aClosed", JVal::I(1))]),
                 "decide-daily-retry" => jv_o(vec![("Retryable", JVal::B(false)), ("Logs", JVal::A(vec![]))]),
@@ -21292,6 +21414,8 @@ asst-failed|ev|2|asst|10000|TaskChainError|TaskChainError|task_chain|Error|local
                 // 外发格应答册（门 Get-AskTable 逐字；同名 FIFO 同一条纪律：preview 真身不读返回值 ⇒ 交 true）。
                 // 刀①(2026-11-03)：round-gate 动态段与 stop 两枚静态条目出册——两族改核内直答后不再问出去，
                 // gate 的注入缝搬到 s28_verb_reply 的 fail_gate（见 Crash24n 同批登记）。
+                // 刀②(2026-11-03)：round-preview 两枚同形出册——直答后不再问出去，preview 的注入缝
+                // 搬到 s28_verb_reply 的 fail_preview（S28_MSG_PREVIEW 常量留在缝里继续冒）。
                 let mut ask_tbl: Vec<(String, bool, JVal)> = Vec::new();
                 let ark_bad = sc.fail_resolve.contains(&"ark");
                 ask_tbl.push((
@@ -21309,12 +21433,6 @@ asst-failed|ev|2|asst|10000|TaskChainError|TaskChainError|task_chain|Error|local
                         ])
                     },
                 ));
-                let ark_prev_bad = sc.fail_preview.contains(&"ark");
-                ask_tbl.push((
-                    "round-preview:ark".to_string(),
-                    ark_prev_bad,
-                    if ark_prev_bad { jv_s(S28_MSG_PREVIEW) } else { JVal::B(true) },
-                ));
                 let r9_bad = sc.fail_resolve.contains(&"r1999");
                 ask_tbl.push((
                     "round-resolve:r1999".to_string(),
@@ -21330,12 +21448,6 @@ asst-failed|ev|2|asst|10000|TaskChainError|TaskChainError|task_chain|Error|local
                             ("FarmMode", jv_s("")),
                         ])
                     },
-                ));
-                let r9_prev_bad = sc.fail_preview.contains(&"r1999");
-                ask_tbl.push((
-                    "round-preview:r1999".to_string(),
-                    r9_prev_bad,
-                    if r9_prev_bad { jv_s(S28_MSG_PREVIEW) } else { JVal::B(true) },
                 ));
                 ask_tbl.push((
                     "round-supervisor-start".to_string(),
@@ -21360,9 +21472,11 @@ asst-failed|ev|2|asst|10000|TaskChainError|TaskChainError|task_chain|Error|local
                 let fail_ark = sc.fail_run.contains(&"ark");
                 let fail_r9 = sc.fail_run.contains(&"r1999");
                 let fail_gate = !sc.fail_gate.is_empty();
+                // 刀②(2026-11-03)：preview 注入缝随直答臂搬进替身，拍名传进 s28_verb_reply。
+                let fail_preview = sc.fail_preview;
                 let mut call28 = move |v: &str, b: &JVal| -> Result<JVal, String> {
                     calls_fx.borrow_mut().push((v.to_string(), jv_to_json(b)));
-                    s28_verb_reply(v, &paths_json_c, &maa_cfg_c, adm, sc_need, fail_ark, fail_r9, fail_gate, sc_elev)
+                    s28_verb_reply(v, &paths_json_c, &maa_cfg_c, adm, sc_need, fail_ark, fail_r9, fail_gate, fail_preview, sc_elev)
                 };
                 let st28a = sc.run_status.to_string();
                 let dt28a = sc.run_detail.to_string();
@@ -21707,12 +21821,10 @@ asst-failed|ev|2|asst|10000|TaskChainError|TaskChainError|task_chain|Error|local
                     }
                 }
                 // R3-order-hard：动作名序＋kind 序＋done result 键集（dry-run／gate-dry 两档硬期望）。
+                // 刀②(2026-11-03)：round-preview:ark 直答后不进 ask 序 ⇒ dry-run 档收窄一档（照刀① gate-dry 同形）。
                 if sc.name == "dry-run" || sc.name == "gate-dry" {
                     let (want_a, want_k): (&[&str], &[&str]) = if sc.name == "dry-run" {
-                        (
-                            &["round-resolve:ark", "round-preview:ark"],
-                            &["ask", "ask", "done"],
-                        )
+                        (&["round-resolve:ark"], &["ask", "done"])
                     } else {
                         (&[], &["done"])
                     };

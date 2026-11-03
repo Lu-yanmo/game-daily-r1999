@@ -22,7 +22,9 @@ namespace GdPanel
         //   给 PS 侧那两枚同规则真身出仓用；既有 verb 的回执形状一枚没动。
         // 刀① round-gate/stop 四臂直答(2026-11-03)：94 → 95，链尾再加 stop-mumu
         //   (Stop-GdMuMu 的 C# 直身，lib\r1999-module.ps1 Stop 钩子随臂进核的"跑完关模拟器"那半的出口)。
-        public const int ExpectedCount = 95;
+        // 刀② round-preview 两臂直答(2026-11-03)：95 → 97，链尾再加 mumu-state／read-m9a-connection
+        //   (Get-GdMuMuState／Get-M9AConnection 的 C# 直身，round-preview:r1999 直答臂的 ADB 行与 MuMu 行经它们出口)。
+        public const int ExpectedCount = 97;
 
         // 顺序＝Cli.cs 分派链里的出现顺序（自检只比集合，不比顺序；顺序留着是为了肉眼对照分派链方便）。
         public static readonly string[] Names = new string[]
@@ -131,7 +133,11 @@ namespace GdPanel
             "format-unix-ms",
             // ---- 刀① round-gate/stop 四臂直答(2026-11-03)：Stop-GdMuMu 的 C# 直身，收尾钩子 stop:r1999 的
             //      "跑完关模拟器"那半经它出口(closeEmulatorAfter 的判据在核内直答臂，本件不判开关) ----
-            "stop-mumu"
+            "stop-mumu",
+            // ---- 刀② round-preview 两臂直答(2026-11-03)：mumu-state 回执比真身多一枚 Index(MuMu 号牌，ctx 里没有 mumu 段)；
+            //      read-m9a-connection 只读实例自己的 json(AdbDevice 三格，adb 空回落 mumuDir+mumuAdb) ----
+            "mumu-state",
+            "read-m9a-connection"
         };
 
         // "未知子命令"那句报错用的名册串：逐枚全名，不再有通配与纯计数。

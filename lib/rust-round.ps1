@@ -43,7 +43,7 @@ function Get-GdRoundCoreExe {
 }
 
 function Get-GdRoundOuterActs {
-    <# **外发 9 格的名册(唯一口径)**。尺子的出处＝§11.64 ③：按"码面动作字面量 × 两路"展开，
+    <# **外发 7 格的名册(唯一口径)**。尺子的出处＝§11.64 ③：按"码面动作字面量 × 两路"展开，
        与核内 round_answer 那个 `_ => return Ok(None)` 的注释名单同源；直答那一族不在这里(核内自己答)，
        take_act 那三格(mark/obsrec/admin)不发 ask 因此也不在。
        ⚠ **R9-a(10-17) 把这一族从 18 收成 13**：`round-history:ark`／`round-history:r1999`／`round-probe:ark`／
@@ -52,6 +52,9 @@ function Get-GdRoundOuterActs {
        ⚠ **刀①(2026-11-03) 再收四枚，13→9**：`round-gate:ark`／`round-gate:r1999`／`stop:ark`／`stop:r1999`
        改核内直答(问三枚 set-* verb 与 stop-maa-and-game/stop-m9a(+stop-mumu)，问法与落账形状逐字不动)，
        臂与名册同批摘；closeEmulatorAfter 随 stop 臂回 ROUND_RUNTIME_KEYS(§11.55 ③ 那条取键裁决翻案)。
+       ⚠ **刀②(2026-11-03) 再收两枚，9→7**：`round-preview:ark`／`round-preview:r1999` 改核内直答
+       (问 apply-maa-daily-config/apply-m9a-instance/ark-find-window 与 read-m9a-connection/mumu-state，
+       日志面四段/三段逐字不动)，臂与名册同批摘；模块清单的 Preview 钩子体暂留(摘臂不摘格，1eq.④ 先例)。
        ⚠ **`round-elevate` 刻意留在名册里**：它按拍板"全收编"走 `--relaunch-entry` 那枚**可选**入程参数，
        缺参数／文件读不动／形状坏 ⇒ 核答 `None` ⇒ 照旧出 ask(§11.66 那条"恒绿的判据就是没验过的判据"的正面用法：
        入程通道是新立的，必须留一条"没递到就退回老路"的落点，而不是把它升级成整轮拒跑)。
@@ -61,7 +64,6 @@ function Get-GdRoundOuterActs {
     return @(
         'round-elevate', 'round-supervisor-start', 'round-supervisor-stop',
         'round-resolve:ark', 'round-resolve:r1999',
-        'round-preview:ark', 'round-preview:r1999',
         'updgate', 'audit'
     )
 }
@@ -461,19 +463,10 @@ function Invoke-GdDailyRoundRust {
                                 }
                             }
                         }
-                        'round-preview:ark' {
-                            Invoke-GdModuleHook -Module (Get-GdModule -Id 'ark') -Hook Preview -Params @{ S = $S; Decision = $prm.decision }
-                            $data = $true
-                        }
-                        'round-preview:r1999' {
-                            Invoke-GdModuleHook -Module (Get-GdModule -Id 'r1999') -Hook Preview -Params @{ S = $S; Decision = $prm.decision }
-                            $data = $true
-                        }
-                        # ---- R9-a 收编：`round-history:ark`／`round-history:r1999`／`round-probe:ark`／
-                        #      `svdetail`／`round-screensaver` 五枚改由核内直答(答的仍是 panel-cs 那四枚 verb)，
-                        #      这里的臂与名册同批摘除。⚠ **一次删两侧**：main.rs 的 `round_answer` 若还答 None
-                        #      而这里删了臂，那一发 ask 会走"收到不认识的动作"拒跑 ⇒ 整轮没跑(2)。
-                        #      这条对账由核内 --selftest 第 28 节的 R-outer 白名单格钉着（round 门已退役），不靠人记得。
+                        # ---- 刀② 收编(2026-11-03)：`round-preview:ark`／`round-preview:r1999` 两臂同批摘——
+                        #      直答臂在核内问 apply-maa-daily-config(不给 apply ⇒ 预览档)／apply-m9a-instance(apply:false)
+                        #      ＋ark-find-window／read-m9a-connection／mumu-state，日志面四段/三段逐字同 PS 臂形状；
+                        #      模块清单的 Preview 钩子体暂留(摘臂不摘格，去留归后续刀)。
                         # ---- 刀① 收编(2026-11-03)：`stop:ark`／`stop:r1999` 两臂同批摘——直答臂在核内问
                         #      stop-maa-and-game／stop-m9a(+stop-mumu)，Lines 回放与 data 恒 true 同 PS 臂形状；
                         #      模块清单的 Stop 钩子体暂留(1eq.④ 摘臂不摘格，去留归后续刀)。

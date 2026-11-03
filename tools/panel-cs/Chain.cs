@@ -904,6 +904,51 @@ namespace GdPanel
             return Gd.Out("Done", true, "Lines", lines.ToArray());
         }
 
+        // ==================== verb: mumu-state ====================
+        // Get-GdMuMuState(mumu.ps1:21，11-03 刀② 从 round-preview:r1999 臂进核)的整枚直答：
+        // 判据一枚不在这儿重写 —— MuMuStateNow(上几行)就是那具同形(目录没填回 Available=false 对象不抛，
+        // info 读数递给已在场的 parse-mumu-state)，round 臂只读 AndroidStarted 进话术。
+        // 回执比真身多一枚 Index(MumuNow 同源现读)：真身那头 "$($S.mumu.vmIndex)" 的号牌在核内直答臂拼，
+        // 而 ctx 里没有 mumu 段 ⇒ 号牌只能由回执带来 —— 与 stop-mumu 那笔「回执比真身多 Lines」同一个先例形。
+
+        internal static object MuMuState(Dictionary<string, object> raw)
+        {
+            Dictionary<string, object> c = View(raw);
+            Dictionary<string, object> d = MuMuStateNow(c);
+            d["Index"] = MumuNow(c)["Index"];
+            return d;
+        }
+
+        // ==================== verb: read-m9a-connection ====================
+        // Get-M9AConnection(m9a.ps1:105，11-03 刀② 从 round-preview:r1999 臂进核)的同形：
+        // 实例 json 的 AdbDevice 只点名取三格(AdbPath／AdbSerial／Name)；adb 空或不在盘上回落 MuMu 那把
+        // (真身 `(Get-GdMuMu -S).Adb` = Join-GdPath mumuDir mumuAdb，落点本身不 Test-Path，照抄)；
+        // 没 serial 抛同字面。json 读不动/文件不在由 GdJson.Read 自己抛(FileNotFoundException，真身
+        // Read-GdJson 同档 terminating error)，这里不替它补存在性闸 —— 真身没有的闸不许加。
+        // instance 入参形状照 apply-m9a-instance 那枚(Id/Name/Path)：apply 那枚不读 Path(它读 appsettings)，
+        // 探活读的是实例自己的 json —— 两份文件不是一份，这就是它得单独立一枚出口的理由。
+
+        internal static object ReadM9AConnection(Dictionary<string, object> raw)
+        {
+            Dictionary<string, object> c = View(raw);
+            Dictionary<string, object> inst = Gd.Map(Gd.Get(c, "instance")) ?? new Dictionary<string, object>();
+            string name = StrOf(Gd.Get(inst, "Name"), "");
+            string path = StrOf(Gd.Get(inst, "Path"), "");
+            object cfg = Gd.Get(c, "config");
+            if (cfg == null) cfg = GdJson.Read(path);
+            Dictionary<string, object> dev = Gd.Map(Gd.Get(cfg, "AdbDevice"));
+            string serial = dev == null ? "" : StrOf(Gd.Get(dev, "AdbSerial"), "");
+            if (dev == null || serial.Length == 0)
+                throw new GdRuleException("实例[" + name + "]里没有 AdbDevice.AdbSerial，无法探活");
+            string adb = StrOf(Gd.Get(dev, "AdbPath"), "");
+            if (adb.Length == 0 || !File.Exists(adb))
+            {
+                Dictionary<string, object> p = PathsOf(c);
+                adb = GdEnv.JoinPath(StrOf(Gd.Get(p, "mumuDir"), ""), new string[] { StrOf(Gd.Get(p, "mumuAdb"), "") });
+            }
+            return Gd.Out("Adb", adb, "Serial", serial, "Name", StrOf(Gd.Get(dev, "Name"), ""));
+        }
+
         // ==================== verb: apply-maa-daily-config ====================
         // Set-MaaDailyConfig(maa.ps1:116，11-03 拉起族摘件后现读、原写 115) 的现场半段：在跑判据／配置在不在／读盘／把 15 枚平铺值递给
         // plan-maa-queue(规则段整段住 Processes.cs，批次 3 已冻结)／按序回放 Logs／备份—写盘—逐队列回读比 IsEnable。

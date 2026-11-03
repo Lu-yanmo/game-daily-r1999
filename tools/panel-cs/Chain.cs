@@ -5,7 +5,7 @@
 //
 // 这一份管的是"链体那十一枚 ask 里，必须由这台机器亲手干的那一半"：
 //   takeover-processes         Invoke-GdTakeover(lib\common.ps1:665)：接管关闭，先判 takeOverAssistant。
-//   stop-maa-and-game          Stop-MaaAndGame(lib\maa.ps1:739)。
+//   stop-maa-and-game          Stop-MaaAndGame(旧 lib\maa.ps1 真身，11-03 转接刀·方舟拉起族整枚出仓；这一路的唯一事实源自此是本件)。
 //   stop-m9a                   Stop-M9A(lib\m9a.ps1:289)。⚠ 10-26 甲档第五刀刀② 换算：两枚转发壳出仓(本文件净 −49 行)后本族锚再改口；⚠ 11-01 坐标清账刀再换算：原写 :288 实拍是空行，定义在 :289
 //                              (历史三值 530→337→288；那句"已关闭 M9A($n 个进程)"现读 :293，行号取自摘件+话术随动后的现树实拍)。
 //   read-maa-fight-skip        Get-GdMaaFightSkip(lib\maa.ps1:60 起)的**读日志尾那半**：gui.log 全量 → 递给已在场的
@@ -41,7 +41,7 @@
 //   * "已关闭 MAA($n 个进程)"、"已关闭明日方舟端游($n 个进程)" ↔ lib\maa.ps1:744／748；
 //     "已关闭 M9A($n 个进程)" ↔ lib\m9a.ps1:293(10-26 第五刀刀② 换算、原写 342) —— 三句的括号里都带进程数、都不带句号，逐字照抄；
 //   * gui.log／asst.log 两枚路径与 `debug\asst.log` 那条兜底、asst.log 只取尾 16MB(16777216) 那把尺
-//     ↔ lib\maa.ps1:46-52 与 Get-GdMaaStageObservation 的注释(「asst.log 连日不轮转能涨到几十 MB」)。
+//     ↔ lib\maa.ps1:47-53(11-03 转接刀·方舟拉起族换算：摘件批给那本头注加了一行，整本自 13 行起推一格；原写 46-52) 与 Get-GdMaaStageObservation 的注释(「asst.log 连日不轮转能涨到几十 MB」)。
 //
 // 原样怪癖(照抄，不许"顺手修")：
 //   1. **`-not $S.runtime.takeOverAssistant` 与 `-ne $false` 不是同一把尺**：前者"没填"就算**关**(缺键 ⇒ $null ⇒ 抛)，
@@ -57,7 +57,7 @@
 //   5. **takeover 的 names 由调用方组装**：ark 那路是 MAA + 端游两枚名，m9a 那路只 M9A 一枚名 ——
 //      那是链体的编排(lib\ark-daily.ps1 与 lib\r1999-daily.ps1 各自 executor 的 takeover 答臂——那两枚调用原本在 PS 回退臂里还各另有一份，随 10-24 刀②③ 两份都整段出仓了，按坐标清账批口径不引行号)，不进 verb。verb 只认 names 数组，
 //      空名照旧 continue(真身那一句挡的是"paths 没填 ⇒ 文件名算出空串")。
-//   6. **paths 没填 ⇒ 进程名算出空串 ⇒ 这一档不抛**：Stop-MaaAndGame 真身在 maaDir／maaExe 空时会拿空名去
+//   6. **paths 没填 ⇒ 进程名算出空串 ⇒ 这一档不抛**：Stop-MaaAndGame 旧真身(11-03 摘件前实拍)在 maaDir／maaExe 空时会拿空名去
 //      Get-Process(恒空 ⇒ 0 个进程 ⇒ 一句都不吭)。这里同形：ProcTreeValue 见空名直接回 0，不把那句
 //      "没给进程名(这一枚按进程名匹配，不给就是空打)"的 GdRuleException 提前引到 stop 两枚里 —— 那是
 //      ②-a 给 stop-process-tree 立的话术，两条路对"空名"的处理本来就不一样。
@@ -71,12 +71,12 @@
 //     SENTINEL 不外泄纪律在这儿同样成立)。
 //
 // ==================== 第二笔(同一批的后五枚，2026-10-14)：起进程与写盘那五枚 ====================
-//  ① `start-ark-client`   Start-GdArkClient(maa.ps1:702)＋Wait-GdArkLauncherReady(maa.ps1:622)＋
+//  ① `start-ark-client`   Start-GdArkClient＋Wait-GdArkLauncherReady(旧 maa.ps1 真身两枚，11-03 转接刀·方舟拉起族整枚出仓；那两枚坐标 702／622 自此按历史引文读)＋
 //                          Wait-GdCondition(common.ps1:979)＋Get-GdWindowByTitle(common.ps1:1012)：
 //                          路径闸 → 窗口名册 → 起进程 → 等窗口 → 暖身 → 更新页那一段真点击。
 //  ② `start-mumu`         Start-GdMuMu(mumu.ps1:38)＋Get-GdMuMuState(mumu.ps1:21)＋Invoke-GdNative(common.ps1:493)：
 //                          info 读数 → 已在跑就吭一声 → control launch → 轮询到 AndroidStarted。
-//  ③ `apply-maa-daily-config` Set-MaaDailyConfig(maa.ps1:115)：现场检查＋读盘＋递给 plan-maa-queue＋
+//  ③ `apply-maa-daily-config` Set-MaaDailyConfig(maa.ps1:116，11-03 拉起族摘件后现读、原写 115)：现场检查＋读盘＋递给 plan-maa-queue＋
 //                          备份／写盘／回读逐队列比 IsEnable。规则段一枚都不在这儿( Processes.cs 第 3 批)。
 //  ④ `apply-m9a-instance` Set-M9AInstance(m9a.ps1:73，10-26 第五刀刀② 后现读、原写 93；10-25 那趟写 83；⚠ 11-01 坐标清账刀再换算：那一格实拍是空行)：点号字面键那两格＋三句原话＋回读校验。
 //  ⑤ `update-ark-farm-ledger` Update-GdArkFarmLedger(ark-farm.ps1:125)＋Get-GdArkItemMaps(:53)＋
@@ -93,7 +93,7 @@
 //   * "MuMu 目录还没填(先跑 setup.ps1)"、"MuMuManager 无法读取虚拟机信息(index)：Raw"、
 //     "MuMu 虚拟机 Index(Name)已在运行"、"启动 MuMu 虚拟机 Index(Name)"、"launch 返回码 C：ErrOut" ↔ lib\mumu.ps1:11-52；
 //   * "MAA 正在运行，请先关闭再改配置"、"MAA 配置不存在：…"、"MAA 配置回读不一致：…(备份：leaf)"、
-//     "MAA 配置已更新并校验通过(备份：leaf)"、"(无需改动)" ↔ lib\maa.ps1:115-193；
+//     "MAA 配置已更新并校验通过(备份：leaf)"、"(无需改动)" ↔ lib\maa.ps1:116-194(11-03 拉起族摘件后现读、原写 115-193)；
 //   * "M9A 正在运行，请先关闭再改实例"、"M9A appsettings 不存在：…"、"M9A 实例切换回读失败(备份：leaf)"、
 //     "M9A 实例已切到[Name](备份：leaf)"、"(M9A 在跑，交给命令行 -i 转发)"、"(已是 Name，无需改动)" ↔ lib\m9a.ps1:72-102(10-26 第五刀刀② 后现读、原写 93-123)；
 //   * "stages.json 解析失败：…"、"未能建立 MAA 关卡表，理智计划不会被校验" ↔ lib\ark-decisions.ps1:14-40；
@@ -374,7 +374,7 @@ namespace GdPanel
         }
 
         // ==================== verb: stop-maa-and-game ====================
-        // Stop-MaaAndGame(maa.ps1:739)：两档**分开的开关**，各自一把 Stop-GdProcessTree，只有真关掉了才吭那一句。
+        // Stop-MaaAndGame(旧 lib\maa.ps1 真身，11-03 转接刀·方舟拉起族整枚出仓；那句 :739 在摘件前就已是历史引文)：两档**分开的开关**，各自一把 Stop-GdProcessTree，只有真关掉了才吭那一句。
         // 真身把进程数只写进话术、不返出去(maa.ps1:744 那个 $n)；这里 MaaClosed／ArkClosed 只为自检与答手而多。
 
         internal static object StopMaaAndGame(Dictionary<string, object> raw)
@@ -613,7 +613,7 @@ namespace GdPanel
             return (int)Num(Gd.Get(Gd.Get(SettingsOf(c), "runtime"), key));
         }
 
-        // ==================== 启动器更新页那一段(Wait-GdArkLauncherReady，maa.ps1:622) ====================
+        // ==================== 启动器更新页那一段(旧 Wait-GdArkLauncherReady 真身，11-03 转接刀·方舟拉起族整枚出仓；maa.ps1:622 按历史引文读) ====================
         // 分工逐字照真身那句注释："判据(五档相位、话术、点击预算、千分比→客户区的换算、越界拒绝)全在 C# 的
         // check-ark-launcher；这里只做活 —— 循环、睡眠、真点击、落日志"。本件做的还是那四样活，
         // 只是"这里"从 PS 换成了 Chain.cs。相位一条都不在这儿判。
@@ -737,7 +737,7 @@ namespace GdPanel
         }
 
         // ==================== verb: start-ark-client ====================
-        // Start-GdArkClient(maa.ps1:702) 整枚直答：路径闸 → 已有窗口就吭一声 → 起进程 → 等窗口 → 暖身 →
+        // Start-GdArkClient(旧 maa.ps1:702 真身，11-03 转接刀·方舟拉起族整枚出仓)的整枚直答：路径闸 → 已有窗口就吭一声 → 起进程 → 等窗口 → 暖身 →
         // 更新页那一段按画面确认。回执比真身的 [bool] 多 Done／Window／Lines(定档第 2 条)，
         // 链体那一侧要的仍是 [bool](答手取 Started)。
 
@@ -876,10 +876,10 @@ namespace GdPanel
         }
 
         // ==================== verb: apply-maa-daily-config ====================
-        // Set-MaaDailyConfig(maa.ps1:115) 的现场半段：在跑判据／配置在不在／读盘／把 15 枚平铺值递给
+        // Set-MaaDailyConfig(maa.ps1:116，11-03 拉起族摘件后现读、原写 115) 的现场半段：在跑判据／配置在不在／读盘／把 15 枚平铺值递给
         // plan-maa-queue(规则段整段住 Processes.cs，批次 3 已冻结)／按序回放 Logs／备份—写盘—逐队列回读比 IsEnable。
         // farm 那四格从 decision.Farm 抠出来(farmPlan 不在 ⇒ ''/0/0/0/Active=false)，verb 不认 Decision 的形状 ——
-        // 这句是 maa.ps1:135 那段注释的原样兑现。
+        // 这句是 maa.ps1:136(11-03 拉起族摘件后现读、原写 135)那段注释的原样兑现。
 
         static Dictionary<string, object> StageTableNow(Dictionary<string, object> c, List<object> lines)
         {

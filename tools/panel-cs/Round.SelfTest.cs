@@ -29,12 +29,12 @@
 // 转写体，不随工作树改口，原文只剩轮骨架门钉住的那份 blob)，以及 ②-b1 的六份真身(Get-ArkEvent / Get-R1999Event /
 // Set-GdArkShopState / Set-GdR1999Ack / Set-GdR1999ShopState / Get-Gd{Ack,ShopDone}Map)、
 // ②-b2 的十份真身(Invoke-GdTakeover / Stop-MaaAndGame / Stop-M9A / Get-GdMaa{FightSkip,StageObservation} /
-// Start-GdArkClient＋Wait-GdArkLauncherReady / Start-GdMuMu / Set-MaaDailyConfig / Set-M9AInstance /
+// Start-GdArkClient＋Wait-GdArkLauncherReady(这两枚与上一行的 Stop-MaaAndGame 已于 11-03 转接刀·方舟拉起族从 lib\maa.ps1 删除，去向见 docs\rust-core-plan.md §11.217) / Start-GdMuMu / Set-MaaDailyConfig / Set-M9AInstance /
 // Update-GdArkFarmLedger —— 逐条出处见 Chain.cs 头注的两段双源登记)、
 // R9-a 那四枚的对应真身(Get-GdScreensaverConfig(common.ps1 旧 359-378；该真身已于转接刀·屏保稳态族从 lib\common.ps1 删除，去向见 docs\rust-core-plan.md §11.215) / Enter-GdNoSleep 的 keepScreenOn 半段
 // (该真身整枚已于丙档落码刀①从 lib\common.ps1 删除，去向见 docs\rust-core-plan.md §11.116) / Add-GdHistory(common.ps1:870-898) / Update-GdArkEventProbe(ark-decisions.ps1:158-189)
 // —— 逐条出处见 Round.cs 与 Round.Data.cs 各自那段的头注)——
-// 生产接线(②-d)之前它们仍是事实源(Enter-GdNoSleep 那半段与屏保 config 那枚除外——PS 侧原身已分别于丙档落码刀①与转接刀·屏保稳态族删除，那两格没有原身可对)，这里红了就是移植走样，
+// 生产接线(②-d)之前它们仍是事实源(Enter-GdNoSleep 那半段、屏保 config 那枚与②-b2 的拉起族三枚除外——PS 侧原身已分别于丙档落码刀①、转接刀·屏保稳态族与转接刀·方舟拉起族删除，那几格没有原身可对)，这里红了就是移植走样，
 // 改 Round.cs / Round.Data.cs / Chain.cs，不改这里的期望(批次 1 起同一条纪律)。
 //
 // 专门钉住的原样怪癖：① `-ne $false` 由**左侧类型**决定怎么折 $false ⇒ 字符串 "0" 算**开着**

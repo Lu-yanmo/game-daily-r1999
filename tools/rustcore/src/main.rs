@@ -7485,13 +7485,276 @@ fn round_answer(
             ));
             DirectOut::with_lines(JVal::B(true), lines)
         }
+        // ==================== 刀③ 收编：判定两臂 ====================
+        ("round", a) if a == GD_MODULE_ARK.resolve_act => {
+            // 刀③ 收编(2026-11-03)：`round-resolve:ark` 改核内直答 —— 换的是"谁来答"，问序与落账形状照
+            // PS 真身链逐字（lib\rust-round.ps1 的 ark 臂已随笔(c) 摘臂 → ark-module.ps1 的 Resolve 钩子
+            // → Resolve-GdArkDecision(lib\ark-daily.ps1) → Get-ArkEvent/Resolve-ArkPlan(lib\ark-decisions.ps1)）。
+            // 六发问序：
+            //   ① compose-decision-inputs{game}：ack/领空(shopDone 折好)/probe 三本门表＋dow(周日=7)/now
+            //      全在 verb 里现读（1ev.① 的链内纯 PS 判据随臂搬家）；
+            //   ② read-ark-activity：接口→MAA 本地缓存→无 的取数半段全在 verb 里；settings 走**注入缝**
+            //      （B-3②-d 刀① 的"paths 走直答"先例：喂 compose 刚读出的同一份 Block/Paths，
+            //      保同一次判定内同一事实源，不让 verb 现读第二份 settings）；
+            //   ③ decide-ark：body 八键照 Resolve-ArkPlan 当年的组装序（没有 probe 键的是 r1999 那一路）；
+            //   ④⑤⑥ apply-ark-daily-intent 两发＋中间夹 resolve-ark-farm-decision —— 两步序的旧序刻意保留
+            //      （先 manual/force 一步，再拿变换后的 ark 过 farm 档一步，fi_ark_case 门夹具同形）。
+            // data＝Ark 信封整块（段 9 cfg 直答与 ark_dec 槽消费的就是它）；HasFarmFields 才挂 Farm/FarmMode
+            // （Add-Member 同形：新键排在末尾；PS 侧 Farm 挂"原 PS 对象"的讲究在核侧自动成立——
+            //  挂的就是 resolve-ark-farm-decision 那发回执的原值）。日志面：verb 的 Lines/Warnings 全回放＋
+            //  "方舟方案：{Mode} — {Reason}"（INFO；真身档位 WARN 的那几句回放进 lines 后落 INFO
+            //  ＝刀① 起登记的档位差，与 stop/preview 两族同口径）。
+            let opt = jv_get_ci(params, "opt");
+            let force = jv_truthy(&jv_get_ci(params, "force"));
+            let c = (hooks.call)("compose-decision-inputs", &jv_o(vec![("game", jv_s("ark"))]))?;
+            let block = jv_get_ci(&c, "Block");
+            let paths = jv_get_ci(&c, "Paths");
+            let act = (hooks.call)(
+                "read-ark-activity",
+                &jv_o(vec![(
+                    "settings",
+                    jv_o(vec![("ark", block.clone()), ("paths", paths.clone())]),
+                )]),
+            )?;
+            let mut lines: Vec<String> = jv_list(&jv_get_ci(&act, "Lines")).into_iter().map(jv_str).collect();
+            let dec = (hooks.call)(
+                "decide-ark",
+                &jv_o(vec![
+                    ("ark", block),
+                    ("dow", jv_get_ci(&c, "Dow")),
+                    ("now", jv_get_ci(&c, "Now")),
+                    ("data", jv_get_ci(&act, "Data")),
+                    ("source", jv_get_ci(&act, "Source")),
+                    ("ack", jv_get_ci(&c, "Ack")),
+                    ("shopDone", jv_get_ci(&c, "ShopDone")),
+                    ("probe", jv_get_ci(&c, "Probe")),
+                ]),
+            )?;
+            let d1 = (hooks.call)(
+                "apply-ark-daily-intent",
+                &jv_o(vec![
+                    ("ark", dec),
+                    ("stage", jv_get_ci(&opt, "Stage")),
+                    ("force", JVal::B(force)),
+                    ("farm", JVal::B(false)),
+                    ("farmOpt", JVal::Null),
+                ]),
+            )?;
+            for w in jv_list(&jv_get_ci(&d1, "Warnings")) {
+                lines.push(jv_str(w));
+            }
+            let ark1 = jv_get_ci(&d1, "Ark");
+            // PS 侧当年那枚 Get-Command 守卫（farm 功能没装就跳过）在核侧不存在也不需要：
+            // resolve-ark-farm-decision 是常驻 verb，"功能没装/本轮不该刷 → Farm=null"的判据在 verb 体内。
+            let farm = (hooks.call)(
+                "resolve-ark-farm-decision",
+                &jv_o(vec![
+                    ("decision", ark1.clone()),
+                    ("dedicated", JVal::B(jv_truthy(&jv_get_ci(&opt, "Farm")))),
+                ]),
+            )?;
+            for l in jv_list(&jv_get_ci(&farm, "Lines")) {
+                lines.push(jv_str(l));
+            }
+            let d2 = (hooks.call)(
+                "apply-ark-daily-intent",
+                &jv_o(vec![
+                    ("ark", ark1),
+                    ("stage", jv_s("")),
+                    ("force", JVal::B(false)),
+                    ("farm", JVal::B(jv_truthy(&jv_get_ci(&opt, "Farm")))),
+                    ("farmOpt", jv_get_ci(&farm, "Farm")),
+                ]),
+            )?;
+            for w in jv_list(&jv_get_ci(&d2, "Warnings")) {
+                lines.push(jv_str(w));
+            }
+            let mut ark = jv_get_ci(&d2, "Ark");
+            if jv_truthy(&jv_get_ci(&d2, "HasFarmFields")) {
+                if let JVal::O(o) = &mut ark {
+                    o.push(("Farm".to_string(), jv_get_ci(&farm, "Farm")));
+                    o.push(("FarmMode".to_string(), jv_get_ci(&d2, "FarmMode")));
+                }
+            }
+            lines.push(format!(
+                "方舟方案：{} — {}",
+                jv_str(&jv_get_ci(&ark, "Mode")),
+                jv_str(&jv_get_ci(&ark, "Reason")),
+            ));
+            DirectOut::with_lines(ark, lines)
+        }
+        ("round", a) if a == GD_MODULE_R1999.resolve_act => {
+            // 刀③ 收编(2026-11-03)：`round-resolve:r1999` 改核内直答 —— 问序照 PS 真身链逐字
+            // （lib\rust-round.ps1 的 r1999 臂已随笔(c) 摘臂 → r1999-module.ps1 的 Resolve 钩子
+            //  （Plan 缺省 auto／回执平铺成 {Mode,Instance,Decision}）→ Resolve-GdR1999Decision
+            //  (lib\r1999-daily.ps1) → Get-R1999Event/Resolve-R1999Plan/Resolve-R1999Instance
+            //  (lib\r1999-decisions.ps1)）。
+            // 六发问序：
+            //   ① compose-decision-inputs{game}（r1999 的 Block=re1999 块）；
+            //   ② read-r1999-activity{paths 直答}：B-3②-d 刀① 起的同形问法（m9aDir/m9aActivityData 两键逐字）；
+            //   ③ Ready 分档：false → 九键 idle 信封**在这里造**（判定结论形状 §11.52 ⑤，真身逐字）；
+            //     true → decide-r1999（body 五键照 Resolve-R1999Plan：没有 dow/source/probe 三键）
+            //          ＋DataAge 追加（dec.DataAge=age；age>0 且 Reason 不含「未更新」→ 后缀，真身逐字）；
+            //   ④ apply-r1999-daily-intent{decision,plan,force}（Plan 缺省 auto 的折法照 module 钩子）；
+            //   ⑤ r1999-instance：planToInstance 那道前置**核臂照做**（throw 同话术 → 段 5 Fail＝整轮拒跑(2)，
+            //     与 PS 侧 ERROR＋throw 同形，PS 那句 ERROR 前奏归并在 Fail 那一格里）；dir 那道前置
+            //     （Test-GdPathReady）**省略**——核不读盘，盘上的事由 verb 的 IO 异常兜底（行为差：
+            //     缺目录报的是 IO 原话不是"M9A 实例目录不存在"那句人话）；
+            //   ⑥ read-m9a-connection：**不许抛**（真身臂头那段判据逐字成立——在这里抛会走段 5 Fail
+            //     ＝"判定不出来"＝把一款游戏的配置问题升级成两款都没跑）：Err 只回放那句 WARN、不交 Conn 键，
+            //     核内保持 ctx 那两枚回落值；WARN 落 INFO＝刀① 起登记的档位差。
+            // data＝{Mode,Instance,Decision,Conn?}：前三键是 module 钩子当年平铺的形状，
+            // Conn 是臂尾派生的（键名小写 adb/serial，round_m9a_apply_decision 照这个读）。
+            let opt = jv_get_ci(params, "opt");
+            let force = jv_truthy(&jv_get_ci(params, "force"));
+            let c = (hooks.call)("compose-decision-inputs", &jv_o(vec![("game", jv_s("r1999"))]))?;
+            let block = jv_get_ci(&c, "Block");
+            let paths = jv_get_ci(&c, "Paths");
+            let act = (hooks.call)(
+                "read-r1999-activity",
+                &jv_o(vec![(
+                    "paths",
+                    jv_o(vec![
+                        ("m9aDir", jv_get_ci(&paths, "m9aDir")),
+                        ("m9aActivityData", jv_get_ci(&paths, "m9aActivityData")),
+                    ]),
+                )]),
+            )?;
+            let mut lines: Vec<String> = Vec::new();
+            let decision = if !jv_truthy(&jv_get_ci(&act, "Ready")) {
+                jv_o(vec![
+                    ("Mode", jv_s("idle")),
+                    ("Version", JVal::Null),
+                    ("VersionName", JVal::Null),
+                    ("EventKey", JVal::Null),
+                    ("EventTip", JVal::Null),
+                    ("Reason", jv_get_ci(&act, "Reason")),
+                    ("Instance", jv_s("idle")),
+                    ("DataAge", JVal::Null),
+                    ("ShopDone", JVal::B(false)),
+                ])
+            } else {
+                let age = jv_get_ci(&act, "DataAgeDays");
+                let mut dec = (hooks.call)(
+                    "decide-r1999",
+                    &jv_o(vec![
+                        (
+                            "re1999",
+                            jv_o(vec![(
+                                "mainStoryRequiresAck",
+                                jv_get_ci(&block, "mainStoryRequiresAck"),
+                            )]),
+                        ),
+                        ("now", jv_get_ci(&c, "Now")),
+                        ("data", jv_get_ci(&act, "Data")),
+                        ("ack", jv_get_ci(&c, "Ack")),
+                        ("shopDone", jv_get_ci(&c, "ShopDone")),
+                    ]),
+                )?;
+                if let JVal::O(o) = &mut dec {
+                    o.push(("DataAge".to_string(), age.clone()));
+                }
+                let age_f = match &age {
+                    JVal::F(f) => *f,
+                    JVal::I(i) => *i as f64,
+                    _ => 0.0,
+                };
+                if age_f > 0.0 {
+                    let reason = jv_str(&jv_get_ci(&dec, "Reason"));
+                    if !reason.contains("未更新") {
+                        let suffixed = format!("{}(活动数据 {} 天前)", reason, jv_str(&age));
+                        if let JVal::O(o) = &mut dec {
+                            if let Some((_, v)) = o.iter_mut().find(|(k, _)| k == "Reason") {
+                                *v = JVal::S(suffixed);
+                            }
+                        }
+                    }
+                }
+                dec
+            };
+            let plan = {
+                let p = jv_str(&jv_get_ci(&opt, "Plan"));
+                if p.is_empty() { "auto".to_string() } else { p }
+            };
+            let d = (hooks.call)(
+                "apply-r1999-daily-intent",
+                &jv_o(vec![
+                    ("decision", decision),
+                    ("plan", jv_s(&plan)),
+                    ("force", JVal::B(force)),
+                ]),
+            )?;
+            for w in jv_list(&jv_get_ci(&d, "Warnings")) {
+                lines.push(jv_str(w));
+            }
+            let dec = jv_get_ci(&d, "Decision");
+            // ⑤ 实例解析：planKey 取**变换后** decision 的 Instance（真身 Resolve-GdR1999Decision 同源）。
+            let plan_key = jv_str(&jv_get_ci(&dec, "Instance"));
+            let want = jv_str(&jv_get_ci(&jv_get_ci(&block, "planToInstance"), &plan_key));
+            if want.is_empty() {
+                return Err(format!(
+                    "settings.re1999.planToInstance 里没有 {} 对应的实例名",
+                    plan_key
+                ));
+            }
+            // dir 的拼法照 C# GdEnv.JoinPath 同形（base 空串回空串、空段跳过；核内没有 join 先例，现拼）。
+            let m9a_dir = jv_str(&jv_get_ci(&paths, "m9aDir"));
+            let inst_rel = jv_str(&jv_get_ci(&paths, "m9aInstancesDir"));
+            let dir = if m9a_dir.is_empty() || inst_rel.is_empty() {
+                m9a_dir.clone()
+            } else {
+                format!("{}\\{}", m9a_dir, inst_rel)
+            };
+            let inst = (hooks.call)(
+                "r1999-instance",
+                &jv_o(vec![
+                    ("dir", jv_s(&dir)),
+                    ("want", jv_s(&want)),
+                    ("planKey", jv_s(&plan_key)),
+                ]),
+            )?;
+            lines.push(format!(
+                "1999 方案：{} → 实例[{}]— {}",
+                jv_str(&jv_get_ci(&dec, "Mode")),
+                jv_str(&jv_get_ci(&inst, "Name")),
+                jv_str(&jv_get_ci(&dec, "Reason")),
+            ));
+            let mut data = jv_o(vec![
+                ("Mode", jv_get_ci(&dec, "Mode")),
+                ("Instance", inst.clone()),
+                ("Decision", dec),
+            ]);
+            // ⑥ Conn 派生：Instance 在场才问（PS 臂同形；idle 档 Instance='idle' 也算在场——
+            //    真身当年对 idle 实例同样派生 Conn，探活按连不上的形状报错）。
+            if !matches!(jv_get_ci(&data, "Instance"), JVal::Null) {
+                match (hooks.call)("read-m9a-connection", &jv_o(vec![("instance", inst)])) {
+                    Ok(cn) => {
+                        if let JVal::O(o) = &mut data {
+                            o.push((
+                                "Conn".to_string(),
+                                jv_o(vec![
+                                    ("adb", jv_get_ci(&cn, "Adb")),
+                                    ("serial", jv_get_ci(&cn, "Serial")),
+                                ]),
+                            ));
+                        }
+                    }
+                    Err(msg) => lines.push(format!(
+                        "1999 的 adb 落点取不出来：{} → 本轮按 ctx 回落档跑，这一路的探活会照实失败",
+                        msg
+                    )),
+                }
+            }
+            DirectOut::with_lines(data, lines)
+        }
         // ==================== 其余一律外发 ====================
-        // 名单（刀② 收编之后）：判定（round-resolve:*）／监督两枚，加上链体里
+        // 名单（刀③ 收编之后）：`round-elevate`＋监督两枚，加上链体里
         // `updgate`／`audit`（那两枚走 `gate`、根本不进这里）。
         // 这里**不写任何判据**：外发那一族的真身动作在 PS 侧，转接层（B-4②）答它们。
         // ⚠ R10 时代这份名单里还有六枚（`round-history:*` 两枚／`round-probe:ark`／`round-screensaver`／
         //   `svdetail`／`round-elevate`），R9-a 把它们改成了核内直答；刀① 又收编四枚（`round-gate:*` 两枚／
-        //   `stop:*` 两枚）、刀② 再收编两枚（`round-preview:*`）—— 换的是"谁来答"，问法与落账形状逐字不动
+        //   `stop:*` 两枚）、刀② 再收编两枚（`round-preview:*`）、刀③ 再收编两枚（`round-resolve:*`）——
+        //   换的是"谁来答"，问法与落账形状逐字不动
         //   （判据在核内 --selftest 第 28 节的 R-outer／X3 两族；round 门已退役）。
         _ => return Ok(None),
     };
@@ -7599,7 +7862,9 @@ fn round_answer_available(d: &JVal) -> bool {
 ///
 /// 三件事压在下面每一行上，改之前先读：
 /// 1. **判据一行不许新写**。这一段只做"什么时候问、问完拿那一句写日志、按读数走哪条分支"；
-///    判定本身（decide-ark／farm／门表）全在 `round-resolve:*` 那枚 ask 的另一头。
+///    判定本身自刀③(2026-11-03)起也住核内（`round_answer` 的直答两臂现问判定 verb）——
+///    1ev.② 那句"判定本身全在 `round-resolve:*` 那枚 ask 的另一头"随结构翻案；仍外发的
+///    只剩监督两枚（见 round_answer 的外发名册头注）。
 /// 2. **谁来答由 `round_answer` 一家说了算**（§11.52 ③ 的乙档）。这里一律 `fx.ans(...)`，
 ///    不许出现"这一格能不能直答"的 if —— 那是第二份事实源。
 /// 3. **ask/res 协议不许删**（§11.52 ④ 随行定档第 1 条）。外发那几格照旧出 ask 信封、照旧靠 seq 重放，
@@ -17942,6 +18207,91 @@ fn selftest() -> i32 {
                     ("Lines", JVal::A(Vec::new())),
                 ]),
                 "stop-m9a" => jv_o(vec![("Done", JVal::B(true)), ("M9aClosed", JVal::I(1))]),
+                // ---- 刀③(2026-11-03)：resolve 直答后判定族十枚从这册子里走（24g 的直答点名两发
+                // 与 24i 的 dry-run 档都经 round_answer 的直答臂现问）。回执键名照 panel-cs 真身
+                // 原样 PascalCase 摆，假值一律中性字面量；「farm／夹具实例」互相咬合——r1999 臂的
+                // planToInstance 前置要拿 Decision.Instance 查到非空名才肯往下走。 ----
+                "compose-decision-inputs" => jv_o(vec![
+                    ("Game", JVal::Null),
+                    (
+                        "Block",
+                        jv_o(vec![
+                            ("mainStoryRequiresAck", JVal::B(false)),
+                            ("planToInstance", jv_o(vec![("farm", jv_s("夹具实例"))])),
+                        ]),
+                    ),
+                    ("Paths", paths.clone()),
+                    ("Dow", JVal::I(4)),
+                    ("Now", jv_s("2026-10-15 06:00:00")),
+                    ("Ack", JVal::B(false)),
+                    ("ShopDone", JVal::B(false)),
+                    ("Probe", JVal::Null),
+                ]),
+                "read-ark-activity" => jv_o(vec![
+                    ("Data", JVal::Null),
+                    ("Source", jv_s("none")),
+                    ("CacheAgeHours", JVal::I(0)),
+                    ("CacheStale", JVal::B(false)),
+                    ("ApiUrlGiven", JVal::B(false)),
+                    ("Offline", JVal::B(false)),
+                    ("Lines", JVal::A(Vec::new())),
+                ]),
+                "decide-ark" => jv_o(vec![
+                    ("Mode", jv_s("farm")),
+                    ("ClearSanity", JVal::B(true)),
+                    ("Stage", jv_s("CE-5")),
+                    ("Reason", jv_s("夹具判定")),
+                ]),
+                "apply-ark-daily-intent" => jv_o(vec![
+                    (
+                        "Ark",
+                        jv_o(vec![
+                            ("Mode", jv_s("farm")),
+                            ("ClearSanity", JVal::B(true)),
+                            ("Stage", jv_s("CE-5")),
+                            ("Reason", jv_s("夹具判定")),
+                        ]),
+                    ),
+                    ("FarmMode", jv_s("")),
+                    ("HasFarmFields", JVal::B(false)),
+                    ("Warnings", JVal::A(Vec::new())),
+                ]),
+                "resolve-ark-farm-decision" => jv_o(vec![("Farm", JVal::Null), ("Lines", JVal::A(Vec::new()))]),
+                "read-r1999-activity" => jv_o(vec![
+                    ("Ready", JVal::B(true)),
+                    ("Data", JVal::Null),
+                    ("DataAgeDays", JVal::I(0)),
+                    ("Reason", jv_s("夹具活动数据")),
+                ]),
+                "decide-r1999" => jv_o(vec![
+                    ("Mode", jv_s("farm")),
+                    ("Instance", jv_s("farm")),
+                    ("Reason", jv_s("夹具判定")),
+                    ("EventKey", JVal::Null),
+                    ("EventTip", JVal::Null),
+                ]),
+                "apply-r1999-daily-intent" => jv_o(vec![
+                    (
+                        "Decision",
+                        jv_o(vec![
+                            ("Mode", jv_s("farm")),
+                            ("Instance", jv_s("farm")),
+                            ("Reason", jv_s("夹具判定")),
+                        ]),
+                    ),
+                    ("Warnings", JVal::A(Vec::new())),
+                ]),
+                "r1999-instance" => jv_o(vec![
+                    ("Id", jv_s("1")),
+                    ("Name", jv_s("夹具实例")),
+                    ("Path", jv_s("D:\\No\\Where\\instances\\夹具实例")),
+                    ("Tasks", JVal::A(Vec::new())),
+                ]),
+                "read-m9a-connection" => jv_o(vec![
+                    ("Adb", jv_s("adb-fixture")),
+                    ("Serial", jv_s("127.0.0.1:16384")),
+                    ("Name", jv_s("夹具实例")),
+                ]),
                 // 两枚"读日志尾"的现场件：这一档全按**没读到**回 ⇒ 验的就是答手把 Found=false
                 // 折成账上那一枚 null（而不是折成空对象）的那条定档。
                 "read-maa-fight-skip" => jv_o(vec![("Found", JVal::B(false)), ("Reason", jv_s("gui-log-missing"))]),
@@ -18369,6 +18719,11 @@ fn selftest() -> i32 {
                 ("round", GD_MODULE_R1999.gate_act, jv_o(vec![("verb", jv_s("Ack"))])),
                 ("round", GD_MODULE_ARK.stop_act, JVal::Null),
                 ("round", GD_MODULE_R1999.stop_act, JVal::Null),
+                // ---- 刀③ 收编两发（原来在外发那一族，下面那段逐枚点名已把它们摘出去）----
+                // 判定面进核：两臂经判定族十枚 verb 现问（proj24/data_of 两格逐枚供证）。
+                // opt/force 都给 Null ⇒ Plan 缺省 auto、Farm 缺省 false、Stage/FarmOpt 走夹具值。
+                ("round", GD_MODULE_ARK.resolve_act, JVal::Null),
+                ("round", GD_MODULE_R1999.resolve_act, JVal::Null),
             ]
             .iter()
             {
@@ -18388,8 +18743,9 @@ fn selftest() -> i32 {
             // ⚠ 刀②(2026-11-03) 再摘 `round-preview:ark`（直答点名族的 GD_MODULE_ARK.preview_act 一发）：
             //   与刀① 同形——收编后这一格答 Some(DirectOut)，不再走"答 None ⇒ 照旧外发"那条道，
             //   名册里留着它就是让这一格永远答 None 的死锚（壳侧名册同批 9→7）。
+            // ⚠ 刀③(2026-11-03) 再摘 `round-resolve:ark`／`round-resolve:r1999`（直答点名族两发）：
+            //   判定面进核后同形——壳侧名册同批 7→5（笔(c)）。
             for (role, action, params) in [
-                ("round", "round-resolve:ark", JVal::Null),
                 ("round", ROUND_SUPERVISOR_START_ACT, JVal::Null),
                 ("round", ROUND_SUPERVISOR_STOP_ACT, JVal::Null),
                 ("round", ROUND_ELEVATE_ACT, JVal::Null),
@@ -18472,7 +18828,12 @@ fn selftest() -> i32 {
                 && data_of.iter().any(|l| l == "round:round-gate:ark:true")
                 && data_of.iter().any(|l| l == "round:round-gate:r1999:true")
                 && data_of.iter().any(|l| l == "round:stop:ark:true")
-                && data_of.iter().any(|l| l == "round:stop:r1999:true"),
+                && data_of.iter().any(|l| l == "round:stop:r1999:true")
+                // ---- 刀③ 收编两发：data 是判定信封整块（ark=Ark 信封、r1999=module 钩子平铺形
+                //   {Mode,Instance,Decision,Conn?}）——Mode 位照旧排头，假值「farm」与 run-crash
+                //   那几行 S|round-history|…|farm|… 的 mode 位同源。 ----
+                && data_of.iter().any(|l| l.starts_with("round:round-resolve:ark:{\"Mode\":\"farm\""))
+                && data_of.iter().any(|l| l.starts_with("round:round-resolve:r1999:{\"Mode\":\"farm\"")),
             &format!(
                 "直答那一族的账行形状变了（PS executor 当年写进 res 的 data 是这个形状，改了②-b 的门就没法逐字节比）：{}",
                 data_of.join(" § ")
@@ -18514,6 +18875,51 @@ fn selftest() -> i32 {
             &format!(
                 "答手喂给 verb 的 body 键名册变了（逐枚点名取键是②的判据，整块 runtime/paths 不许进去）：{}",
                 proj24.join(" § ")
+            ),
+            &mut fails,
+            &mut total,
+        );
+        // ---------- 刀③ 收编两发的消费证据（判定族十枚 verb，逐发点名键名册）----------
+        // 键名串与核臂码面逐发现读对平（r24_keys＝顶层键排序逗号串）：compose 的 body 只有 game 一枚
+        // （settings/probe/ack 等全在回执里折好，不许整块 runtime 借道）；decide-ark 八键照
+        // Resolve-ArkPlan 组装序、decide-r1999 五键没有 dow/source/probe；apply-ark-daily-intent 是
+        // **两发**（fi_ark_case 门夹具同形的两步序）键册同形；read-r1999-activity 的 paths 是
+        // m9aDir/m9aActivityData 两键折好的子对象（B-3②-d 刀① 同形问法）；r1999-instance 三键；
+        // read-m9a-connection 只带 instance 一枚（不许带 dir/serial 借道）。
+        chk(
+            proj24.iter().filter(|p| *p == "compose-decision-inputs|game").count() == 2
+                && proj24.iter().filter(|p| *p == "read-ark-activity|settings").count() == 1
+                && proj24.iter().filter(|p| *p == "decide-ark|ack,ark,data,dow,now,probe,shopDone,source").count() == 1
+                && proj24.iter().filter(|p| *p == "apply-ark-daily-intent|ark,farm,farmOpt,force,stage").count() == 2
+                && proj24.iter().filter(|p| *p == "resolve-ark-farm-decision|decision,dedicated").count() == 1
+                && proj24.iter().filter(|p| *p == "read-r1999-activity|paths").count() == 1
+                && proj24.iter().filter(|p| *p == "decide-r1999|ack,data,now,re1999,shopDone").count() == 1
+                && proj24.iter().filter(|p| *p == "apply-r1999-daily-intent|decision,force,plan").count() == 1
+                && proj24.iter().filter(|p| *p == "r1999-instance|dir,planKey,want").count() == 1
+                && proj24.iter().filter(|p| *p == "read-m9a-connection|instance").count() == 1,
+            &format!(
+                "判定族十枚 verb 的问序或键名册变了（compose 恰 2 发、apply-ark 恰 2 发，其余各恰 1 发）：{}",
+                proj24
+                    .iter()
+                    .filter(|p| {
+                        [
+                            "compose-decision-inputs|",
+                            "read-ark-activity|",
+                            "decide-ark|",
+                            "apply-ark-daily-intent|",
+                            "resolve-ark-farm-decision|",
+                            "read-r1999-activity|",
+                            "decide-r1999|",
+                            "apply-r1999-daily-intent|",
+                            "r1999-instance|",
+                            "read-m9a-connection|",
+                        ]
+                        .iter()
+                        .any(|pre| p.starts_with(pre))
+                    })
+                    .cloned()
+                    .collect::<Vec<String>>()
+                    .join(" § ")
             ),
             &mut fails,
             &mut total,
@@ -18792,13 +19198,6 @@ fn selftest() -> i32 {
             let data = match act.as_str() {
                 a if a == "svdetail" => jv_s("屏保：没挂 .scr"),
                 a if a == ROUND_ELEVATE_ACT => jv_o(vec![("Code", JVal::I(0))]),
-                a if a.starts_with("round-resolve:") => jv_o(vec![
-                    ("Mode", jv_s("farm")),
-                    ("ClearSanity", JVal::B(true)),
-                    ("Stage", jv_s("CE-5")),
-                    ("Farm", JVal::Null),
-                    ("FarmMode", jv_s("")),
-                ]),
                 a if a == ROUND_SUPERVISOR_START_ACT || a == ROUND_SUPERVISOR_STOP_ACT => {
                     jv_o(vec![("Available", JVal::B(true)), ("Err", jv_s(""))])
                 }
@@ -18842,14 +19241,15 @@ fn selftest() -> i32 {
         //   它们从"问出去的 ask"变成"落进来的 soft 账行"，形状由下面那格 jrows 钉。
         //   ⚠ 刀①(2026-11-03) 再收 stop:ark：外发名册自此到 supervisor-stop 为止，
         //   stop 的消费证据在 proj24（stop-maa-and-game／stop-m9a 两发）。
+        //   ⚠ 刀③(2026-11-03) 再收 round-resolve:ark：外发名册头一枚也没了（判定面进核），
+        //   判定的消费证据在 proj24 刀③ 专块与 data_of 两行 starts_with。
         //   这一段只钉"段与段之间的先后"，外发那一族的**完整名册**由 24g 那一段逐枚钉。
         chk(
             acts24 == vec![
-                "round-resolve:ark".to_string(),
                 "round-supervisor-start".to_string(),
                 "round-supervisor-stop".to_string(),
             ],
-            &format!("外发那一族的**顺序或枚数**变了（骨架的段序就是判据：锁/判定在前、监督先停再收尾、历史排在通知之前）：{:?}", acts24),
+            &format!("外发那一族的**顺序或枚数**变了（骨架的段序就是判据：锁在前、监督先停再收尾、历史排在通知之前）：{:?}", acts24),
             &mut fails,
             &mut total,
         );
@@ -19007,7 +19407,6 @@ fn selftest() -> i32 {
                 let seq = jv_int(&jv_get(&ev, "seq"), 0);
                 let act = jv_str(&jv_get(&ev, "action"));
                 let data = match act.as_str() {
-                    a if a.starts_with("round-resolve:") => jv_o(vec![("Mode", jv_s("farm")), ("Stage", jv_s("CE-5"))]),
                     _ => jv_o(vec![("Done", JVal::B(true))]),
                 };
                 let _ = std::fs::write(
@@ -20376,15 +20775,15 @@ asst-failed|ev|2|asst|10000|TaskChainError|TaskChainError|task_chain|Error|local
         // R9-a 提权入参那枚唯一针（门 $ElevNeedle 逐字）：只许住在 start-elevated-round 的转交 body 里，
         // journal／侧信道／ask 信封／done 结果一枚都不许见（A-elev-noleak）。
         const S28_ELEV_NEEDLE: &str = "FIXTURE-ELEV-ENTRY-NEEDLE";
-        // 白名单冻签名册 7 枚（R-outer 的 B 面：Get-GdRoundOuterActs 的冻结；ASCII 序）。
+        // 白名单冻签名册 5 枚（R-outer 的 B 面：Get-GdRoundOuterActs 的冻结；ASCII 序）。
         // 刀①(2026-11-03)：round-gate:ark/r1999 与 stop:ark/r1999 四枚改核内直答后不再问出去 ⇒ 出册；
         // PS 侧 Get-GdRoundOuterActs 随本刀笔(c) 同步缩到 9，最终帧两册同为 9。
         // 刀②(2026-11-03)：round-preview:ark/r1999 两枚同形出册，PS 侧同步缩到 7，最终帧两册同为 7。
+        // 刀③(2026-11-03)：round-resolve:ark/r1999 两枚同形出册（判定面进核），PS 侧同步缩到 5，
+        // 最终帧两册同为 5；fail_resolve 的缝随臂搬进替身的 compose-decision-inputs（见函数头注）。
         const S28_ROSTER: &[&str] = &[
             "audit",
             "round-elevate",
-            "round-resolve:ark",
-            "round-resolve:r1999",
             "round-supervisor-start",
             "round-supervisor-stop",
             "updgate",
@@ -20698,9 +21097,11 @@ asst-failed|ev|2|asst|10000|TaskChainError|TaskChainError|task_chain|Error|local
             out
         }
 
-        // 假 verb 册（门 Get-VerbTable 复刻；30 余臂照摆，err 注入两枚＝ark 取 desk、r1999 取 mumu）。
+        // 假 verb 册（门 Get-VerbTable 复刻；30 余臂照摆，err 注入三枚＝ark 取 desk、r1999 取 mumu、resolve 取 compose）。
         // read-screensaver-config 照门给 Found:false；disable-screensaver-for-round 照门**不给**
         //（段 8 在这 20 档不出场，它一旦被点到就该响「册子耗尽」）。
+        // `game` 只服务 compose-decision-inputs 那道缝：直答臂第一发的 body 里就带 game，
+        // 由 call28 闭包现取传进来（其余 verb 的 body 没这枚键，传空串即可）。
         fn s28_verb_reply(
             verb: &str,
             paths_json: &str,
@@ -20711,8 +21112,37 @@ asst-failed|ev|2|asst|10000|TaskChainError|TaskChainError|task_chain|Error|local
             fail_r9: bool,
             fail_gate: bool,
             fail_preview: &[&'static str],
+            fail_resolve: &[&'static str],
+            game: &str,
             elev_code: i64,
         ) -> Result<JVal, String> {
+            // 刀③(2026-11-03)：resolve 直答后判定族十枚 verb 从这册子里走，fail_resolve 缝也搬进来
+            //（ask_tbl 那两行出册，见同批登记）。缝挂在直答臂**第一发** compose-decision-inputs 上
+            // ——与 fail_gate 挂在 set-ark-shop-state、fail_preview 挂在 apply-* 上同一形；
+            // 冒的还是 S28_MSG_RESOLVE，场景册 res-fail 那句「夹具让 Resolve 抛」逐字不动。
+            if verb == "compose-decision-inputs" {
+                if fail_resolve.contains(&game) {
+                    return Err(S28_MSG_RESOLVE.to_string());
+                }
+                // Block 两枚键照 r1999 臂的消费面摆（planToInstance 那道前置要拿 Decision.Instance
+                // 在这里查到非空名才肯往下走）；ark 臂只把 Block 原样折进 read-ark-activity 的缝里。
+                return Ok(jv_o(vec![
+                    ("Game", jv_s(game)),
+                    (
+                        "Block",
+                        jv_o(vec![
+                            ("mainStoryRequiresAck", JVal::B(false)),
+                            ("planToInstance", jv_o(vec![("farm", jv_s("夹具实例"))])),
+                        ]),
+                    ),
+                    ("Paths", jv_parse(paths_json).unwrap_or(JVal::Null)),
+                    ("Dow", JVal::I(4)),
+                    ("Now", jv_s("2026-10-15 06:00:00")),
+                    ("Ack", JVal::B(false)),
+                    ("ShopDone", JVal::B(false)),
+                    ("Probe", JVal::Null),
+                ]));
+            }
             if verb == "resolve-round-context" {
                 return Ok(jv_o(vec![
                     (
@@ -20826,6 +21256,73 @@ asst-failed|ev|2|asst|10000|TaskChainError|TaskChainError|task_chain|Error|local
                         ("Lines", JVal::A(vec![])),
                     ])
                 }
+                // 刀③(2026-11-03)：resolve 直答六发问序里的判定族（回执键名照 panel-cs 真身原样 PascalCase 摆，
+                // 假值一律中性字面量；「farm／夹具实例」两枚互相咬合——r1999 臂的 planToInstance 前置
+                // 要拿 Decision.Instance 查到非空名才肯往下走，ark 侧 Mode=farm 供 run-crash 那几行
+                // 「S|round-history|…|farm|…」的 mode 位继续对得上）。
+                "read-ark-activity" => jv_o(vec![
+                    ("Data", JVal::Null),
+                    ("Source", jv_s("none")),
+                    ("CacheAgeHours", JVal::I(0)),
+                    ("CacheStale", JVal::B(false)),
+                    ("ApiUrlGiven", JVal::B(false)),
+                    ("Offline", JVal::B(false)),
+                    ("Lines", JVal::A(vec![])),
+                ]),
+                "decide-ark" => jv_o(vec![
+                    ("Mode", jv_s("farm")),
+                    ("ClearSanity", JVal::B(true)),
+                    ("Stage", jv_s("CE-5")),
+                    ("Reason", jv_s("夹具判定")),
+                ]),
+                // 两发 apply 同一枚回执形状都接得住：第 1 发臂里只读 Ark/Warnings，第 2 发臂里
+                // 另读 HasFarmFields/FarmMode——HasFarmFields=false ⇒ data 不挂 Farm 两键（正面档
+                // 的 Farm 形状由 --dectest 的 fi 族钉，这里不重复）。
+                "apply-ark-daily-intent" => jv_o(vec![
+                    (
+                        "Ark",
+                        jv_o(vec![
+                            ("Mode", jv_s("farm")),
+                            ("ClearSanity", JVal::B(true)),
+                            ("Stage", jv_s("CE-5")),
+                            ("Reason", jv_s("夹具判定")),
+                        ]),
+                    ),
+                    ("FarmMode", jv_s("")),
+                    ("HasFarmFields", JVal::B(false)),
+                    ("Warnings", JVal::A(vec![])),
+                ]),
+                "resolve-ark-farm-decision" => jv_o(vec![("Farm", JVal::Null), ("Lines", JVal::A(vec![]))]),
+                "read-r1999-activity" => jv_o(vec![
+                    ("Ready", JVal::B(true)),
+                    ("Data", JVal::Null),
+                    ("DataAgeDays", JVal::I(0)),
+                    ("Reason", jv_s("夹具活动数据")),
+                ]),
+                "decide-r1999" => jv_o(vec![
+                    ("Mode", jv_s("farm")),
+                    ("Instance", jv_s("farm")),
+                    ("Reason", jv_s("夹具判定")),
+                    ("EventKey", JVal::Null),
+                    ("EventTip", JVal::Null),
+                ]),
+                "apply-r1999-daily-intent" => jv_o(vec![
+                    (
+                        "Decision",
+                        jv_o(vec![
+                            ("Mode", jv_s("farm")),
+                            ("Instance", jv_s("farm")),
+                            ("Reason", jv_s("夹具判定")),
+                        ]),
+                    ),
+                    ("Warnings", JVal::A(vec![])),
+                ]),
+                "r1999-instance" => jv_o(vec![
+                    ("Id", jv_s("1")),
+                    ("Name", jv_s("夹具实例")),
+                    ("Path", jv_s("D:\\No\\Where\\instances\\夹具实例")),
+                    ("Tasks", JVal::A(vec![])),
+                ]),
                 // 刀②(2026-11-03)：preview 直答臂 ②③ 段新问到的两枚（核内 :7468/:7476），
                 // 回执键与 panel-cs 真身对齐——Serial/Name 供 ADB 行、Index/AndroidStarted 供 MuMu 行。
                 "read-m9a-connection" => jv_o(vec![
@@ -21416,39 +21913,10 @@ asst-failed|ev|2|asst|10000|TaskChainError|TaskChainError|task_chain|Error|local
                 // gate 的注入缝搬到 s28_verb_reply 的 fail_gate（见 Crash24n 同批登记）。
                 // 刀②(2026-11-03)：round-preview 两枚同形出册——直答后不再问出去，preview 的注入缝
                 // 搬到 s28_verb_reply 的 fail_preview（S28_MSG_PREVIEW 常量留在缝里继续冒）。
+                // 刀③(2026-11-03)：round-resolve 两枚同形出册——判定面进核后不再问出去，resolve 的注入缝
+                // 搬到 s28_verb_reply 的 fail_resolve（挂在直答臂第一发 compose-decision-inputs 上，
+                // S28_MSG_RESOLVE 常量留在缝里继续冒；判定族九枚 verb 的假回执也归那册子）。
                 let mut ask_tbl: Vec<(String, bool, JVal)> = Vec::new();
-                let ark_bad = sc.fail_resolve.contains(&"ark");
-                ask_tbl.push((
-                    "round-resolve:ark".to_string(),
-                    ark_bad,
-                    if ark_bad {
-                        jv_s(S28_MSG_RESOLVE)
-                    } else {
-                        jv_o(vec![
-                            ("Mode", jv_s("farm")),
-                            ("ClearSanity", JVal::B(true)),
-                            ("Stage", jv_s("CE-5")),
-                            ("Farm", JVal::Null),
-                            ("FarmMode", jv_s("")),
-                        ])
-                    },
-                ));
-                let r9_bad = sc.fail_resolve.contains(&"r1999");
-                ask_tbl.push((
-                    "round-resolve:r1999".to_string(),
-                    r9_bad,
-                    if r9_bad {
-                        jv_s(S28_MSG_RESOLVE)
-                    } else {
-                        jv_o(vec![
-                            ("Mode", jv_s("farm")),
-                            ("ClearSanity", JVal::B(false)),
-                            ("Stage", jv_s("CE-5")),
-                            ("Farm", JVal::Null),
-                            ("FarmMode", jv_s("")),
-                        ])
-                    },
-                ));
                 ask_tbl.push((
                     "round-supervisor-start".to_string(),
                     false,
@@ -21473,10 +21941,17 @@ asst-failed|ev|2|asst|10000|TaskChainError|TaskChainError|task_chain|Error|local
                 let fail_r9 = sc.fail_run.contains(&"r1999");
                 let fail_gate = !sc.fail_gate.is_empty();
                 // 刀②(2026-11-03)：preview 注入缝随直答臂搬进替身，拍名传进 s28_verb_reply。
+                // 刀③(2026-11-03)：resolve 注入缝同形搬进替身——game 从 body 现取（只有
+                // compose-decision-inputs 的 body 带这枚键），缝按 game 分流。
                 let fail_preview = sc.fail_preview;
+                let fail_resolve = sc.fail_resolve;
                 let mut call28 = move |v: &str, b: &JVal| -> Result<JVal, String> {
                     calls_fx.borrow_mut().push((v.to_string(), jv_to_json(b)));
-                    s28_verb_reply(v, &paths_json_c, &maa_cfg_c, adm, sc_need, fail_ark, fail_r9, fail_gate, fail_preview, sc_elev)
+                    let game = jv_str(&jv_get_ci(b, "game"));
+                    s28_verb_reply(
+                        v, &paths_json_c, &maa_cfg_c, adm, sc_need, fail_ark, fail_r9, fail_gate,
+                        fail_preview, fail_resolve, &game, sc_elev,
+                    )
                 };
                 let st28a = sc.run_status.to_string();
                 let dt28a = sc.run_detail.to_string();
@@ -21822,12 +22297,10 @@ asst-failed|ev|2|asst|10000|TaskChainError|TaskChainError|task_chain|Error|local
                 }
                 // R3-order-hard：动作名序＋kind 序＋done result 键集（dry-run／gate-dry 两档硬期望）。
                 // 刀②(2026-11-03)：round-preview:ark 直答后不进 ask 序 ⇒ dry-run 档收窄一档（照刀① gate-dry 同形）。
+                // 刀③(2026-11-03)：round-resolve:ark 同形出册（判定面进核）⇒ dry-run 的最后一枚 ask 也没了，
+                // 两档合流成同一硬期望（ask 序全空、kind 序只剩 done）。
                 if sc.name == "dry-run" || sc.name == "gate-dry" {
-                    let (want_a, want_k): (&[&str], &[&str]) = if sc.name == "dry-run" {
-                        (&["round-resolve:ark"], &["ask", "done"])
-                    } else {
-                        (&[], &["done"])
-                    };
+                    let (want_a, want_k): (&[&str], &[&str]) = (&[], &["done"]);
                     let got_a: Vec<&str> = asked28v.iter().map(|s| s.as_str()).collect();
                     let got_k: Vec<&str> = kinds28v.iter().map(|s| s.as_str()).collect();
                     let mut res_keys28: Vec<String> = match jv_get(&jv_parse(&env28).unwrap_or(JVal::Null), "result") {

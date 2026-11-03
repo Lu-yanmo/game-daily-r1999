@@ -24,7 +24,10 @@ namespace GdPanel
         //   (Stop-GdMuMu 的 C# 直身，lib\r1999-module.ps1 Stop 钩子随臂进核的"跑完关模拟器"那半的出口)。
         // 刀② round-preview 两臂直答(2026-11-03)：95 → 97，链尾再加 mumu-state／read-m9a-connection
         //   (Get-GdMuMuState／Get-M9AConnection 的 C# 直身，round-preview:r1999 直答臂的 ADB 行与 MuMu 行经它们出口)。
-        public const int ExpectedCount = 97;
+        // 刀③ round-resolve 判定面进核(2026-11-03)：97 → 99，链尾再加 compose-decision-inputs／resolve-ark-farm-decision
+        //   (Resolve-ArkPlan／Resolve-R1999Plan 的组值半段与 Resolve-GdArkFarmDecision 的活层——
+        //   核臂组 decide-* body 缺的 settings 通路与 farm 半段的取数四件；既有 verb 的回执形状一枚没动)。
+        public const int ExpectedCount = 99;
 
         // 顺序＝Cli.cs 分派链里的出现顺序（自检只比集合，不比顺序；顺序留着是为了肉眼对照分派链方便）。
         public static readonly string[] Names = new string[]
@@ -137,7 +140,12 @@ namespace GdPanel
             // ---- 刀② round-preview 两臂直答(2026-11-03)：mumu-state 回执比真身多一枚 Index(MuMu 号牌，ctx 里没有 mumu 段)；
             //      read-m9a-connection 只读实例自己的 json(AdbDevice 三格，adb 空回落 mumuDir+mumuAdb) ----
             "mumu-state",
-            "read-m9a-connection"
+            "read-m9a-connection",
+            // ---- 刀③ round-resolve 判定面进核(2026-11-03)：compose-decision-inputs 组判定接线值(dow 周日=7／
+            //      now 毫秒／ack／领空折好的 shopDone／probe／ark·re1999 块与 paths 块)；resolve-ark-farm-decision
+            //      是 Resolve-GdArkFarmDecision 的活层(三前置＋取数＋进程内调 FarmPlan) ----
+            "compose-decision-inputs",
+            "resolve-ark-farm-decision"
         };
 
         // "未知子命令"那句报错用的名册串：逐枚全名，不再有通配与纯计数。

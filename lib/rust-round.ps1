@@ -43,7 +43,7 @@ function Get-GdRoundCoreExe {
 }
 
 function Get-GdRoundOuterActs {
-    <# **外发 7 格的名册(唯一口径)**。尺子的出处＝§11.64 ③：按"码面动作字面量 × 两路"展开，
+    <# **外发 5 格的名册(唯一口径)**。尺子的出处＝§11.64 ③：按"码面动作字面量 × 两路"展开，
        与核内 round_answer 那个 `_ => return Ok(None)` 的注释名单同源；直答那一族不在这里(核内自己答)，
        take_act 那三格(mark/obsrec/admin)不发 ask 因此也不在。
        ⚠ **R9-a(10-17) 把这一族从 18 收成 13**：`round-history:ark`／`round-history:r1999`／`round-probe:ark`／
@@ -55,6 +55,11 @@ function Get-GdRoundOuterActs {
        ⚠ **刀②(2026-11-03) 再收两枚，9→7**：`round-preview:ark`／`round-preview:r1999` 改核内直答
        (问 apply-maa-daily-config/apply-m9a-instance/ark-find-window 与 read-m9a-connection/mumu-state，
        日志面四段/三段逐字不动)，臂与名册同批摘；模块清单的 Preview 钩子体暂留(摘臂不摘格，1eq.④ 先例)。
+       ⚠ **刀③(2026-11-03) 再收两枚，7→5**：`round-resolve:ark`／`round-resolve:r1999` 改核内直答
+       (判定面进核：六发问序走判定族十枚 verb——compose-decision-inputs/read-ark-activity(注入缝)/
+       decide-ark/apply-ark-daily-intent×2/resolve-ark-farm-decision 与 read-r1999-activity/
+       decide-r1999/apply-r1999-daily-intent/r1999-instance/read-m9a-connection，data 形状逐字同 PS 臂)，
+       臂与名册同批摘；Resolve 钩子体与 decisions 三本暂留(摘臂不摘格，1eq.④ 先例)。
        ⚠ **`round-elevate` 刻意留在名册里**：它按拍板"全收编"走 `--relaunch-entry` 那枚**可选**入程参数，
        缺参数／文件读不动／形状坏 ⇒ 核答 `None` ⇒ 照旧出 ask(§11.66 那条"恒绿的判据就是没验过的判据"的正面用法：
        入程通道是新立的，必须留一条"没递到就退回老路"的落点，而不是把它升级成整轮拒跑)。
@@ -63,7 +68,6 @@ function Get-GdRoundOuterActs {
        ⚠ 不要把驱动档那十四枚白名单(lib\ark-daily.ps1)当这枚名册用，那是另一族的数(§11.64 ③ 倒数第二段)。 #>
     return @(
         'round-elevate', 'round-supervisor-start', 'round-supervisor-stop',
-        'round-resolve:ark', 'round-resolve:r1999',
         'updgate', 'audit'
     )
 }
@@ -431,38 +435,14 @@ function Invoke-GdDailyRoundRust {
                         #      直答(问法与落账形状逐字不动，data 恒 $true)，这里不再有"壳替核答"的那一截。
                         #      ⚠ **一次删两侧**：main.rs 的 `round_answer` 若还答 None 而这里留着臂，死臂会遮住
                         #      "收到不认识的动作"拒跑；反过来核先答了这里还问，ask 会走拒跑 ⇒ 整轮没跑(2)。
-                        #      这条对账由核内 --selftest 第 28 节的 S28_ROSTER（9 枚，与下面的名册同数）与
+                        #      这条对账由核内 --selftest 第 28 节的 S28_ROSTER（7→5，刀③ 起；与下面的名册同数）与
                         #      R-gate-call 格（门格的 set-* 直答消费）钉着，不靠人记得。
-                        'round-resolve:ark' {
-                            $o = @{}
-                            foreach ($pp in @($prm.opt.PSObject.Properties)) { if ($pp) { $o[[string]$pp.Name] = $pp.Value } }
-                            $o['Force'] = [bool]$prm.force
-                            $data = Invoke-GdModuleHook -Module (Get-GdModule -Id 'ark') -Hook Resolve -Params @{ S = $S; Opt = $o }
-                        }
-                        'round-resolve:r1999' {
-                            $o = @{}
-                            foreach ($pp in @($prm.opt.PSObject.Properties)) { if ($pp) { $o[[string]$pp.Name] = $pp.Value } }
-                            $o['Force'] = [bool]$prm.force
-                            $dec = Invoke-GdModuleHook -Module (Get-GdModule -Id 'r1999') -Hook Resolve -Params @{ S = $S; Opt = $o }
-                            $data = $dec
-                            # 判定层挑完实例，紧接着按实例派生 adb 落点 —— ctx 一轮一定稿补不进去，只能随这一格交出去
-                            # (核内 round_m9a_apply_decision 就地覆盖 scen 与 instance 槽)。
-                            # ⚠ 这一枚取数**不许抛**：真身那一版里"实例配置没写 AdbSerial"是 Run 钩子里的抛 ⇒
-                            #   崩那一路＋下一路照跑＋退出码 1；在这里抛会走段 5 的 Fail 通道＝"判定不出来"＝整轮拒跑(2)，
-                            #   那是把一款游戏的配置问题升级成两款都没跑。取不出来就不交 Conn 键，
-                            #   核内保持 ctx 那两枚回落值(adb 是 MuMu 的，serial 空)，让这一路自己按连不上的形状报错。
-                            if ($dec -and $dec.Instance) {
-                                try {
-                                    $cn = Get-M9AConnection -S $S -Instance $dec.Instance
-                                    $pl = [ordered]@{}
-                                    foreach ($pp in @($dec.PSObject.Properties)) { if ($pp) { $pl[[string]$pp.Name] = $pp.Value } }
-                                    $pl['Conn'] = [pscustomobject]@{ adb = [string]$cn.Adb; serial = [string]$cn.Serial }
-                                    $data = [pscustomobject]$pl
-                                } catch {
-                                    Write-GdLog "1999 的 adb 落点取不出来：$($_.Exception.Message) → 本轮按 ctx 回落档跑，这一路的探活会照实失败" -Level WARN
-                                }
-                            }
-                        }
+                        #      ⚠ **刀③(2026-11-03) 再摘 `round-resolve:<id>` 两臂**：判定面进核——两臂的
+                        #      六发问序（ark＝compose-decision-inputs→read-ark-activity(注入缝)→decide-ark→
+                        #      apply-ark-daily-intent×2 夹 resolve-ark-farm-decision；r1999＝compose→
+                        #      read-r1999-activity(paths 直答)→Ready 分档→apply-r1999-daily-intent→
+                        #      r1999-instance(planToInstance 前置核臂照做)→read-m9a-connection(不许抛)）
+                        #      与 Conn 平铺形状逐字搬进 main.rs，这里不再有"壳替核答"的那一截。
                         # ---- 刀② 收编(2026-11-03)：`round-preview:ark`／`round-preview:r1999` 两臂同批摘——
                         #      直答臂在核内问 apply-maa-daily-config(不给 apply ⇒ 预览档)／apply-m9a-instance(apply:false)
                         #      ＋ark-find-window／read-m9a-connection／mumu-state，日志面四段/三段逐字同 PS 臂形状；

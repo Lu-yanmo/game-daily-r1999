@@ -170,6 +170,8 @@ namespace GdPanel
                 else if (verb == "read-ark-activity") r = Decide(a, RoundData.ArkActivity);
                 else if (verb == "read-r1999-activity") r = Decide(a, RoundData.R1999Activity);
                 else if (verb == "read-decision-state") r = Decide(a, RoundData.DecisionState);
+                else if (verb == "compose-decision-inputs") r = Decide(a, RoundData.ComposeDecisionInputs);
+                else if (verb == "resolve-ark-farm-decision") r = Decide(a, Chain.ResolveArkFarmDecision);
                 else if (verb == "set-ark-shop-state") r = Decide(a, RoundData.ArkShopState);
                 else if (verb == "set-r1999-ack") r = Decide(a, RoundData.R1999Ack);
                 else if (verb == "set-r1999-shop-state") r = Decide(a, RoundData.R1999ShopState);

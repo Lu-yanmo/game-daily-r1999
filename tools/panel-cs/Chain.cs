@@ -1432,6 +1432,182 @@ namespace GdPanel
                 "Blocks", blocks.Length, "Plus", plus, "Unknown", unk.Count, "Lines", lines.ToArray());
         }
 
+        // ==================== verb: resolve-ark-farm-decision ====================
+        // Resolve-GdArkFarmDecision(lib\ark-farm.ps1:293-331) 的活层整段(转接刀·判定面进核 2026-11-03 随臂搬家，1ev.①)：
+        // 三道前置 + 取数 + 纯判定。纯判定真身是 Orchestration.FarmPlan(verb resolve-ark-farm-plan 的直身，
+        // 进程内直调——与 :1343 FarmDropText 的调用形同)，这里搬的是壳侧接线：
+        //   前置一(:299)  farmAppend 显式布尔 false 才关(PS 的 `-eq $false`：$null/字符串都不命中，别拿 Truthy 顶)；
+        //   前置二(:300)  非 dedicated 且本轮不是 idle 方案 → 不补(活动期理智金贵)；
+        //   前置三(:303)  非 dedicated 且今日已认栽(Test-GdArkFightSkipMarkToday :37-45：mark 文件不在/读坏都答 false，
+        //                 "宁可失效也不拦正常轮"；文件名 ark-fight-skip-mark.json 在 state 目录，Date==今天才红) → 那一句原话。
+        //   取数：item 表复用 ItemMapsNow、关卡表复用 StageTableNow(进程内缓存同源)；
+        //         两本账照 Read-GdArkFarmLedger(:93-123) 逐字(读坏的两句 WARN 原话同 UpdateFarmLedger :1286/:1306；
+        //         offset 那格不搬——它的消费面只在写账侧，归 update-ark-farm-ledger 真身)；
+        //         targets 归一照 Get-GdArkFarmTargetsNormalized(:242-251)，逐条进程内调 Orchestration.FarmTargetSpec
+        //         (verb parse-farm-target-spec 的直身＝PS Parse-GdArkFarmTargetSpec 的等值件，Bad 的留着让判定层去说)；
+        //         depot 纠偏照 Sync-GdArkFarmHaveFromDepot(:253-291) 逐字——"缓存比自家账本新才采信"那条规矩
+        //         (账本吃全量+增量，缓存比它旧时采信会反向多刷)，只改内存不写盘，纠偏说明走 INFO 行(真身 :312)。
+        // maxTimes 缺省 12(:315 TryParse)；!Active 档 dedicated 那句 WARN 原话 :322。
+        // 回执 Farm=farmOpt(Active)或 null——核臂把 Farm 原样挂进 decision(PS :87-88 挂原对象同形)。
+        internal static object ResolveArkFarmDecision(Dictionary<string, object> raw)
+        {
+            Dictionary<string, object> c = View(raw);
+            List<object> lines = new List<object>();
+            bool dedicated = OptBool(c, "dedicated");
+            Dictionary<string, object> dec = Gd.Map(Gd.Get(c, "decision")) ?? new Dictionary<string, object>();
+            Dictionary<string, object> ark = Gd.Map(Gd.Get(SettingsOf(c), "ark")) ?? new Dictionary<string, object>();
+
+            object farmAppend = Gd.Get(ark, "farmAppend");
+            if (!dedicated && farmAppend is bool && !(bool)farmAppend)
+                return Gd.Out("Farm", null, "Lines", lines.ToArray());
+            if (!dedicated && StrOf(Gd.Get(dec, "Mode"), "") != "idle")
+                return Gd.Out("Farm", null, "Lines", lines.ToArray());
+
+            string markPath = StateFile(c, "ark-fight-skip-mark.json");
+            if (!dedicated && File.Exists(markPath))
+            {
+                bool today = false;
+                try
+                {
+                    Dictionary<string, object> mk = Gd.Map(GdJson.Read(markPath));
+                    if (mk != null)
+                        today = StrOf(Gd.Get(mk, "Date"), "") == DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+                }
+                catch { today = false; }
+                if (today)
+                {
+                    Say(lines, "INFO", "补刷前置今日已认栽(MAA 判关卡全关) → 本轮不前置补刷关，按长草计划走");
+                    return Gd.Out("Farm", null, "Lines", lines.ToArray());
+                }
+            }
+
+            Dictionary<string, object> maps = ItemMapsNow(c, lines);
+            Dictionary<string, object> nameToId = Gd.Map(Gd.Get(maps, "NameToId")) ?? new Dictionary<string, object>();
+            Dictionary<string, object> idToName = Gd.Map(Gd.Get(maps, "IdToName")) ?? new Dictionary<string, object>();
+
+            // 两本账(Read-GdArkFarmLedger :93-123)：文件不在就是空账，不抛——首跑 Resolve 先于任何记账。
+            Dictionary<string, object> byId = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+            Dictionary<string, object> origin = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+            string invPath = StateFile(c, "ark-inventory.json");
+            if (File.Exists(invPath))
+            {
+                try
+                {
+                    Dictionary<string, object> j = Gd.Map(GdJson.Read(invPath));
+                    Dictionary<string, object> bb = j == null ? null : Gd.Map(Gd.Get(j, "byId"));
+                    if (bb != null)
+                        foreach (KeyValuePair<string, object> kv in bb)
+                        {
+                            byId[kv.Key] = Gd.Int(Gd.Get(kv.Value, "count"), 0);
+                            origin[kv.Key] = StrOf(Gd.Get(kv.Value, "origin"), "");
+                        }
+                }
+                catch (Exception ex) { Say(lines, "WARN", "ark-inventory.json 读不了(" + ex.Message + ")，按空账处理"); }
+            }
+            Dictionary<string, object> dt = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+            string dtPath = StateFile(c, "ark-droptable.json");
+            if (File.Exists(dtPath))
+            {
+                try
+                {
+                    Dictionary<string, object> root = Gd.Map(GdJson.Read(dtPath));
+                    if (root != null)
+                        foreach (KeyValuePair<string, object> kv in root)
+                        {
+                            Dictionary<string, object> one = new Dictionary<string, object>(StringComparer.Ordinal);
+                            Dictionary<string, object> src = Gd.Map(kv.Value);
+                            if (src != null)
+                                foreach (KeyValuePair<string, object> st in src)
+                                    one[st.Key] = Gd.Out("runs", Gd.Int(Gd.Get(st.Value, "runs"), 0),
+                                        "qty", Gd.Int(Gd.Get(st.Value, "qty"), 0));
+                            dt[kv.Key] = one;
+                        }
+                }
+                catch (Exception ex) { Say(lines, "WARN", "ark-droptable.json 读不了(" + ex.Message + ")，学习关系按空处理"); }
+            }
+
+            // targets 归一(Get-GdArkFarmTargetsNormalized :242-251)
+            List<object> targetsNorm = new List<object>();
+            foreach (object rawT in Gd.List(Gd.Get(ark, "farmTargets")))
+            {
+                Dictionary<string, object> spec = Gd.Map(Orchestration.FarmTargetSpec(Sub("raw", rawT)));
+                if (spec == null || !Gd.Truthy(Gd.Get(spec, "Found"))) continue;
+                targetsNorm.Add(Gd.Get(spec, "Spec"));
+            }
+
+            // depot 纠偏(Sync-GdArkFarmHaveFromDepot :253-291)：只认"缓存比账本新"。
+            List<string> wantIds = new List<string>();
+            foreach (object t0 in targetsNorm)
+            {
+                Dictionary<string, object> t = Gd.Map(t0);
+                if (t == null || StrOf(Gd.Get(t, "Bad"), "").Length > 0) continue;
+                string key = StrOf(Gd.Get(t, "Key"), "");
+                string id = "";
+                if (System.Text.RegularExpressions.Regex.IsMatch(key, @"^\d{3,8}$")) id = key;
+                else if (nameToId.ContainsKey(key)) id = StrOf(nameToId[key], "");
+                if (id.Length > 0 && !wantIds.Contains(id)) wantIds.Add(id);
+            }
+            if (wantIds.Count > 0)
+            {
+                string depot = GdEnv.JoinPath(StrOf(Gd.Get(PathsOf(c), "maaDir"), ""), new string[] { "data", "DepotData.json" });
+                if (GdEnv.PathReady(depot))
+                {
+                    DateTime depotM = DateTime.MinValue, invM = DateTime.MinValue;
+                    try { depotM = File.GetLastWriteTime(depot); } catch { }
+                    try { if (File.Exists(invPath)) invM = File.GetLastWriteTime(invPath); } catch { }
+                    bool invNewer = File.Exists(invPath) && depotM <= invM;
+                    if (!invNewer)
+                    {
+                        Dictionary<string, object> d = null;
+                        try { d = Gd.Map(GdJson.Read(depot)); } catch { d = null; }
+                        Dictionary<string, object> node = d == null ? null : Gd.Map(Gd.Get(d, "data"));
+                        if (node != null)
+                        {
+                            List<string> bits = new List<string>();
+                            foreach (string id in wantIds)
+                            {
+                                int cnt = 0;
+                                int.TryParse(StrOf(Gd.Get(node, id), ""), NumberStyles.Integer, CultureInfo.InvariantCulture, out cnt);
+                                int old = byId.ContainsKey(id) ? Gd.Int(byId[id], 0) : -1;
+                                if (old != cnt)
+                                {
+                                    byId[id] = cnt;
+                                    origin[id] = "depot";
+                                    bits.Add("id=" + id + " 现值 " + old + "→" + cnt);
+                                }
+                            }
+                            if (bits.Count > 0)
+                                Say(lines, "INFO", "补刷纠偏：库存缓存比账本新，已按实时读数纠偏：" + string.Join("；", bits.ToArray()));
+                        }
+                    }
+                }
+            }
+
+            Dictionary<string, object> known = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+            foreach (string k in StageTableNow(c, lines).Keys) known[k] = true;
+            // PS :315 逐字：$mt = 12 后 TryParse——解析失败时 .NET 把 out **清 0**(12 只是摆设)，钳 1 归 FarmPlan 内做。
+            // 别在这里把 0 救回 12：那不是真身。「缺键 ⇒ 单轮封顶 1」这格怪癖由自检钉住。
+            int mt = 12;
+            int.TryParse(StrOf(Gd.Get(ark, "farmMaxTimesPerRound"), ""), NumberStyles.Integer, CultureInfo.InvariantCulture, out mt);
+
+            Dictionary<string, object> fp = Gd.Map(Orchestration.FarmPlan(Sub(
+                "targets", targetsNorm.ToArray(),
+                "nameToId", nameToId,
+                "idToName", idToName,
+                "inventory", byId,
+                "origin", origin,
+                "dropTable", dt,
+                "knownStages", known,
+                "maxTimes", mt)));
+            if (fp == null || !Gd.Truthy(Gd.Get(fp, "Active")))
+            {
+                if (dedicated)
+                    Say(lines, "WARN", "专用材料轮没有可刷的目标：" + StrOf(Gd.Get(fp, "Reason"), ""));
+                return Gd.Out("Farm", null, "Lines", lines.ToArray());
+            }
+            return Gd.Out("Farm", fp, "Lines", lines.ToArray());
+        }
+
         // PS 的 `$keys | Sort-Object` 那一把尺：字符串按序排(账本里都是数字 id／英文关卡名，
         // Ordinal 与 CurrentCulture 在这两族上同结果)；unk 名单走的是 `-notcontains`(不分大小写)那一族，
         // 排序仍按 Ordinal，取前 3 的口径与 `Select-Object -First 3` 同形(枚举序 = 排序后的序)。

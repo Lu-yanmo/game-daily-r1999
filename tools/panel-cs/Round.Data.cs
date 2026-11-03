@@ -8,6 +8,9 @@
 //   read-r1999-activity   Get-R1999Event(lib\r1999-decisions.ps1:39) 的**取数半段**：读 M9A 自带活动数据 + 算 DataAge(天)。
 //   read-decision-state   "五本 state 读"一次取齐：<game>-event-ack.json / <game>-shop-done.json / ark-event-probe.json，
 //                         外加 Test-GdShopDoneEnabled(lib\decisions-common.ps1:127) 那把 flag 尺的**读值半段**。
+//   compose-decision-inputs Resolve-ArkPlan／Resolve-R1999Plan 的**组值半段**(转接刀·判定面进核 2026-11-03 新立)：
+//                         dow(周日=7)／now(毫秒)／ack／领空折好的 shopDone／probe／ark·re1999 块与 paths 块一次摆桌，
+//                         给核臂 round-resolve:* 组 decide-* 的 body 用。
 //   set-ark-shop-state    Set-GdArkShopState(lib\ark-daily.ps1:44)；
 //   set-r1999-ack         Set-GdR1999Ack(lib\r1999-daily.ps1:45)；
 //   set-r1999-shop-state  Set-GdR1999ShopState(lib\r1999-daily.ps1:56)。
@@ -455,6 +458,45 @@ namespace GdPanel
                 "Why", why,
                 "Reason", ready ? null : why + "，按长草处理",
                 "Path", path);
+        }
+
+        // ==================== verb: compose-decision-inputs ====================
+        // Resolve-ArkPlan(lib\ark-decisions.ps1:42-73)／Resolve-R1999Plan(lib\r1999-decisions.ps1:17-37) 的**组值半段**：
+        // 判定开跑之前把"一轮判定需要的值"组装好摆上桌 —— 核臂(round-resolve:*)手里没有 settings
+        // (核侧 settings 一律经 verb，main.rs round_answer 名册头注)，这里组的就是 decide-ark／decide-r1999
+        // 的 body 里除 data/source 外那几枚键，核臂取走后自己拼。
+        // 逐字真身：dow 周日=7(lib\ark-decisions.ps1:56-57 原样，老行为)；now=Get-GdNowMs 同形毫秒
+        // (lib\decisions-common.ps1:39 [DateTimeOffset]::Now.ToUnixTimeMilliseconds())；
+        // ack/shopDone 两本门表(ReadGateMap)；领空表"给不给"那一折(lib\ark-decisions.ps1:58-61 与
+        // lib\r1999-decisions.ps1:24-26 同形：Test-GdShopDoneEnabled 的读值半段＝Round.FlagEnabled(shopDoneStopsEvent)，
+        // 缺省即开启显式 false 才关；1ev.①：链内纯 PS 判据随臂搬家，坐标在此)——这里**折好**再交(照真身 $shopDone 变量)。
+        // probe 只喂 decide-ark(Resolve-R1999Plan 的 body 没有 probe 键)，这里统一回，谁用谁自己取。
+        internal static object ComposeDecisionInputs(Dictionary<string, object> raw)
+        {
+            Dictionary<string, object> c = View(raw);
+            string game = AssertGame(c);
+
+            Dictionary<string, object> block = BlockOf(c, game);
+            Dictionary<string, object> paths = PathsOf(c);
+
+            int dow = (int)DateTime.Now.DayOfWeek;
+            if (dow == 0) { dow = 7; }
+            long now = DateTimeOffset.Now.ToUnixTimeMilliseconds();
+
+            object ack = ReadGateMap(AckFile(game), "acked");
+            object shopDoneRead = ReadGateMap(ShopDoneFile(game), "done");
+            Dictionary<string, object> emptyMap = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+            object shopDone = Round.FlagEnabled(Gd.Get(block, "shopDoneStopsEvent")) ? (object)shopDoneRead : emptyMap;
+
+            return Gd.Out(
+                "Game", game,
+                "Block", block,
+                "Paths", paths,
+                "Dow", dow,
+                "Now", now,
+                "Ack", ack,
+                "ShopDone", shopDone,
+                "Probe", ReadProbe());
         }
 
         // ==================== verb: read-decision-state ====================

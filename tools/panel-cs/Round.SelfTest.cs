@@ -1105,6 +1105,37 @@ namespace GdPanel
                 return S(Key(d, "Game")) == "third" && Cnt(Key(d, "Ack")) == 0;
             });
 
+            // ==================== 15b) compose-decision-inputs：判定面进核的组值半段(1ev.①) ====================
+            b.Chk("六键齐摆：Dow 落在 1..7(周日=7 的归一区间)、Now 是毫秒、Ack/ShopDone 是空表(不是 null)、Probe 没探过=null(先把 r1999 那对盘账清空再读)", delegate
+            {
+                string ackF = Path.Combine(state, "r1999-event-ack.json");
+                string shopF = Path.Combine(state, "r1999-shop-done.json");
+                if (File.Exists(ackF)) File.Delete(ackF);
+                if (File.Exists(shopF)) File.Delete(shopF);
+                object d = RoundData.ComposeDecisionInputs(In("game", "r1999", "settings", In("re1999", In())));
+                return S(Key(d, "Game")) == "r1999" && I(Key(d, "Dow")) >= 1 && I(Key(d, "Dow")) <= 7
+                    && Dbl(Key(d, "Now")) > 0 && Cnt(Key(d, "Ack")) == 0 && Cnt(Key(d, "ShopDone")) == 0
+                    && Key(d, "Block") != null && Cnt(Key(d, "Paths")) >= 0 && Key(d, "Probe") == null;
+            });
+            b.Chk("领空折在这里**折好再交**：shopDoneStopsEvent=false ⇒ ShopDone 给空表(盘上有账也不交)；缺省开 ⇒ 交盘上读数且键不分大小写——judge 臂不用再懂这把尺", delegate
+            {
+                GdJson.Write(shopR1999, In("done", In("CE-5", "2026-10-13 06:05")));
+                object off = RoundData.ComposeDecisionInputs(In("game", "r1999",
+                    "settings", In("re1999", In("shopDoneStopsEvent", false))));
+                object on = RoundData.ComposeDecisionInputs(In("game", "r1999", "settings", In("re1999", In())));
+                Dictionary<string, object> map = Row(Key(on, "ShopDone"));
+                return Cnt(Key(off, "ShopDone")) == 0 && Cnt(Key(on, "ShopDone")) == 1
+                    && map != null && map.ContainsKey("ce-5") && S(map["CE-5"]) == "2026-10-13 06:05";
+            });
+            b.Chk("game 归一成写法名(ARK→ark)与认不得的当场挡——和 read-decision-state 共用 AssertGame 一处真身", delegate
+            {
+                object d = RoundData.ComposeDecisionInputs(In("game", "ARK", "settings", In("ark", In())));
+                return S(Key(d, "Game")) == "ark" && Thrown<GdRuleException>(delegate
+                {
+                    return RoundData.ComposeDecisionInputs(In("game", "__no_such__", "settings", In("ark", In())));
+                });
+            });
+
             // ==================== 16) set-ark-shop-state：四分支话术 + 真落盘(只落临时树) ====================
             b.Chk("没有进行中的活动(空 key)：只 WARN 那一句、Action=none、**盘上一个字都不写**", delegate
             {
@@ -1827,6 +1858,86 @@ namespace GdPanel
                 foreach (object o in Gd.List(Key(d, "Lines"))) if (S(o).Contains(tmp)) return false;
                 Dictionary<string, object> off = Row(Gd.Get(Row(GdJson.Read(Path.Combine(s, "ark-inventory.json"))), "offset"));
                 return !sum.Contains(tmp) && sum.Length > 0 && off != null && S(off["path"]) == gui;
+            });
+
+            // ==================== 30b) resolve-ark-farm-decision：三前置＋取数半段直身(判定面进核的 farm 通路) ====================
+            // 每格独占一份 stateDir(f0..f5)，材料表与关卡表一律显式喂(itemIndex/table 两枚夹具)——
+            // 现场读那两路会进程内缓存，别让任何一格把缓存下毒。
+            b.Chk("三前置·farmAppend 显式 false ⇒ 一句不吭直接 Farm=null(PS 的 -eq $false 形：缺省可不是 false)", delegate
+            {
+                object d = Chain.ResolveArkFarmDecision(In("settings", StArk(In("farmAppend", false)),
+                    "decision", In("Mode", "idle"), "itemIndex", ItemIdx(), "table", In("CE-5", 36),
+                    "stateDir", Path.Combine(ledgerDir, "f0")));
+                return Key(d, "Farm") == null && Len(Key(d, "Lines")) == 0;
+            });
+            b.Chk("三前置·decision 非 idle(活动轮已有主张) ⇒ Farm=null 一句不吭——补刷只在长草轮前置", delegate
+            {
+                object d = Chain.ResolveArkFarmDecision(In("settings", StArk(In()),
+                    "decision", In("Mode", "Annihilation"), "itemIndex", ItemIdx(), "table", In("CE-5", 36),
+                    "stateDir", Path.Combine(ledgerDir, "f1")));
+                return Key(d, "Farm") == null && Len(Key(d, "Lines")) == 0;
+            });
+            b.Chk("三前置·今日已认栽(MAA 判关卡全关的 mark 落着今天) ⇒ 那句 INFO 原话＋Farm=null", delegate
+            {
+                string s = Path.Combine(ledgerDir, "f2");
+                GdJson.Write(Path.Combine(s, "ark-fight-skip-mark.json"), In("Date", DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)));
+                object d = Chain.ResolveArkFarmDecision(In("settings", StArk(In()),
+                    "decision", In("Mode", "idle"), "itemIndex", ItemIdx(), "table", In("CE-5", 36),
+                    "stateDir", s));
+                return Key(d, "Farm") == null && Len(Key(d, "Lines")) == 1
+                    && Ln(Key(d, "Lines"), 0) == "补刷前置今日已认栽(MAA 判关卡全关) → 本轮不前置补刷关，按长草计划走";
+            });
+            b.Chk("真跑通：账本起底 0＋学习表 CE-5 每场 2 ⇒ Farm 活、Times=缺口 5、关从学习表挑、Reason 逐字报数", delegate
+            {
+                string s = Path.Combine(ledgerDir, "f3");
+                GdJson.Write(Path.Combine(s, "ark-inventory.json"), In("byId", In("30031", In("count", 0, "origin", ""))));
+                GdJson.Write(Path.Combine(s, "ark-droptable.json"), In("30031", In("CE-5", In("runs", 10, "qty", 20))));
+                object d = Chain.ResolveArkFarmDecision(In("settings",
+                    StArk(In("farmTargets", new object[] { "先锋封装芯片=5" }, "farmMaxTimesPerRound", 12)),
+                    "decision", In("Mode", "idle"), "itemIndex", ItemIdx(), "table", In("CE-5", 36),
+                    "stateDir", s));
+                Dictionary<string, object> fp = Row(Key(d, "Farm"));
+                return fp != null && B(fp["Active"]) && S(fp["ItemId"]) == "30031" && S(fp["ItemName"]) == "先锋封装芯片"
+                    && I(fp["Gap"]) == 5 && I(fp["Times"]) == 5 && Len(fp["Stages"]) == 1
+                    && S(Gd.List(fp["Stages"])[0]) == "CE-5"
+                    && S(fp["Reason"]) == "补刷 先锋封装芯片×5 @CE-5：目标 5，现有 0，还差 5，按每场掉 1 保守给次数、凑满目标为止(学习到的每场约 2)";
+            });
+            b.Chk("原样怪癖(PS :315)：farmMaxTimesPerRound 缺键 ⇒ TryParse 把 out 清 0 ⇒ FarmPlan 里 <1 钳 1 ⇒ Times=1、那格封顶话术在场——别在直身里救回 12", delegate
+            {
+                string s = Path.Combine(ledgerDir, "f4");
+                GdJson.Write(Path.Combine(s, "ark-inventory.json"), In("byId", In("30031", In("count", 0, "origin", ""))));
+                GdJson.Write(Path.Combine(s, "ark-droptable.json"), In("30031", In("CE-5", In("runs", 10, "qty", 20))));
+                object d = Chain.ResolveArkFarmDecision(In("settings",
+                    StArk(In("farmTargets", new object[] { "先锋封装芯片=5" })),
+                    "decision", In("Mode", "idle"), "itemIndex", ItemIdx(), "table", In("CE-5", 36),
+                    "stateDir", s));
+                Dictionary<string, object> fp = Row(Key(d, "Farm"));
+                return fp != null && B(fp["Active"]) && I(fp["Times"]) == 1
+                    && S(fp["Reason"]).EndsWith("(单轮封顶 1，剩下的明天接着刷)");
+            });
+            b.Chk("depot 纠偏：缓存比账本新才采信 ⇒ 账本 9 被实时读数 7 纠偏、那句 INFO 逐字；纠偏后已够 ⇒ 不再出 Farm", delegate
+            {
+                string s = Path.Combine(ledgerDir, "f5");
+                string maa2 = Path.Combine(tmp, "maa2");
+                string inv = Path.Combine(s, "ark-inventory.json");
+                GdJson.Write(inv, In("byId", In("30031", In("count", 9, "origin", ""))));
+                string depot = Wf(Path.Combine(maa2, "data"), "DepotData.json", @"{""data"":{""30031"":""7""}}");
+                File.SetLastWriteTime(inv, DateTime.Now.AddMinutes(-2));
+                File.SetLastWriteTime(depot, DateTime.Now);
+                object d = Chain.ResolveArkFarmDecision(In("settings",
+                    StArk(In("farmTargets", new object[] { "30031=3" })),
+                    "decision", In("Mode", "idle"), "itemIndex", ItemIdx(), "table", In("CE-5", 36),
+                    "stateDir", s, "paths", In("maaDir", maa2)));
+                return Key(d, "Farm") == null && Len(Key(d, "Lines")) == 1
+                    && Ln(Key(d, "Lines"), 0) == "补刷纠偏：库存缓存比账本新，已按实时读数纠偏：id=30031 现值 9→7";
+            });
+            b.Chk("dedicated 绕过三前置直进判定且 !Active 那句 WARN 原话(PS :322)——decision 空对象也走得到(专用轮不等 idle)", delegate
+            {
+                object d = Chain.ResolveArkFarmDecision(In("settings", StArk(In()),
+                    "decision", In(), "dedicated", true, "itemIndex", ItemIdx(), "table", In("CE-5", 36),
+                    "stateDir", Path.Combine(ledgerDir, "f6")));
+                return Key(d, "Farm") == null && Len(Key(d, "Lines")) == 1
+                    && Ln(Key(d, "Lines"), 0) == "专用材料轮没有可刷的目标：没配 ark.farmTargets → 材料补刷未启动";
             });
 
             // ==================== 31) CLI 接线：这十枚真的挂上了分发链(名册两处同批的自证) ====================

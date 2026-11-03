@@ -27,7 +27,9 @@
 // 批次 10(收官)：common.ps1 三段从未搬过的小纯规则——resolve-screensaver-who / resolve-screensaver-verdict
 // 两个 verb(见 Decisions.cs 屏保段：注册表读数由壳注入，屏保根因文案在这边拼)与 build-relaunch-args
 // (见 Processes.cs 提权段：-Force/-Omit/$Bound 分类全部由壳组装成值进来，只出参数数组)。
-// Get-GdScreensaverConfig(真读注册表)与 Get-GdElevateBatchLine(四行小拼接)留壳。
+// ⚠ 转接刀·屏保稳态族(2026-11-03，docs\rust-core-plan.md §11.215)改口：上面那句"注册表读数由壳注入"与这里的
+// Get-GdScreensaverConfig 留壳都已作废——屏保那三枚真身已出仓，注册表读数改由 read-screensaver-config 现答；
+// Get-GdElevateBatchLine(四行小拼接)仍在场。
 // B-2b(2026-10-08)：视觉兜底的**现场件**七枚(见 Live.cs 头注，切分 docs\rust-core-plan.md §11.34)——
 // resolve-rescue-context / ark-find-window / ark-window-shot / ark-window-click / ark-grab-foreground /
 // ark-desktop-state / vision-ask-model。这批和上面十批不一样：**它们要碰这台机器**(user32 拍窗口、枚举进程、

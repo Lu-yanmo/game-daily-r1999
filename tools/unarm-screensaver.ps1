@@ -30,10 +30,17 @@ $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $reg = 'HKCU:\Control Panel\Desktop'
 $backupFile = Join-Path (Get-GdDir 'State') 'screensaver.unarm.json'
 
+function Get-GdSaverVerdictOf {
+    <# 本工具内的现问薄壳(转接刀·屏保稳态族)：lib 侧那三枚同规则真身已出仓，四档判据与全部话术只住核内，
+       verb resolve-screensaver-verdict。Found:false(键开不了)在这里折成 cfg=null，让它说"判断不了"，
+       不许读成 none —— 与旧 Get-GdScreensaverConfig 那句 return $null 同形。 #>
+    param($Cfg)
+    return Invoke-GdCli -Verb 'resolve-screensaver-verdict' -Body ([pscustomobject]@{ cfg = $(if ($Cfg.Found) { $Cfg } else { $null }) })
+}
 function Show-GdScreensaverReading {
     param([string]$Label)
-    $cfg = Get-GdScreensaverConfig
-    $v = Get-GdScreensaverVerdict -Cfg $cfg
+    $cfg = Invoke-GdCli -Verb 'read-screensaver-config' -Body ([pscustomobject]@{})
+    $v = Get-GdSaverVerdictOf -Cfg $cfg
     Write-Host ("  {0}：{1}" -f $Label, $v.Detail) -ForegroundColor $(switch ($v.Kind) { 'armed' { 'Red' } 'none' { 'Green' } 'off' { 'Green' } default { 'Yellow' } })
     return $cfg
 }
@@ -85,12 +92,12 @@ if ($Restore) {
 }
 
 $cfg = Show-GdScreensaverReading '现值'
-if ($null -eq $cfg) {
+if (-not $cfg.Found) {
     Write-Host "  注册表读不到($reg) → 什么都不动。" -ForegroundColor Red
     exit 2
 }
 $planned = @()
-if ($cfg.Saver) { $planned += ('删除 SCRNSAVE.EXE（现在挂着 ' + (Get-GdScreensaverWho -Cfg $cfg) + '）') }
+if ($cfg.Saver) { $planned += ('删除 SCRNSAVE.EXE（现在挂着 ' + [string](Invoke-GdCli -Verb 'resolve-screensaver-who' -Body ([pscustomobject]@{ cfg = $cfg })).Text + '）') }
 if ($cfg.Active -ne '0') { $planned += 'ScreenSaveActive 置 0' }
 
 if (-not $planned.Count) {
@@ -104,8 +111,9 @@ if (-not $Apply) {
     Write-Host '  这次只读：加 -Apply 才真的写。' -ForegroundColor Yellow
     Write-Host '  (Windows 侧等价的点法：设置 → 个性化 → 锁屏界面 → 屏幕保护程序 → 下拉选「(无)」→ 确定。)'
     # 退出码照本工具的规矩走(0=已断根 / 1=还没断根)，不只读就一律 0 ——
-    # 这样它同时也是"别的脚本想知道屏保武装没有"的一道可判的闸(和 status.ps1 那一行同源：都是 Get-GdScreensaverVerdict)。
-    exit $(if ((Get-GdScreensaverVerdict -Cfg $cfg).Risk) { 1 } else { 0 })
+    # 这样它同时也是"别的脚本想知道屏保武装没有"的一道可判的闸(和 status.ps1 那一行同源：都是现问
+    # verb resolve-screensaver-verdict 的 Risk —— 旧名 Get-GdScreensaverVerdict 那枚壳已随转接刀出仓，别当活锚读)。
+    exit $(if ((Get-GdSaverVerdictOf -Cfg $cfg).Risk) { 1 } else { 0 })
 }
 
 # 写之前把三项原值落到备份里：-Restore 靠它，而且万一 Wallpaper Engine 那边还想要屏保，
@@ -126,7 +134,7 @@ try { [void](Set-GdScreensaverActive -Active $false) } catch { }
 [void](Set-GdSettingChangedBroadcast)
 
 $after = Show-GdScreensaverReading '解除后'
-$v = Get-GdScreensaverVerdict -Cfg $after
+$v = Get-GdSaverVerdictOf -Cfg $after
 if ($v.Kind -eq 'none') {
     Write-Host '  成了：系统里再没有到点会全屏接管的东西。日常那一路不再需要"关屏保"。' -ForegroundColor Green
 } else {

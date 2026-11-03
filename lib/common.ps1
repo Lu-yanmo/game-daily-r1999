@@ -356,49 +356,18 @@ function Add-GdSleepTypeDef {
     if ((Add-GdInterop) -ne 'live') { throw "interop 现编失败(GdPower 不可用)，状态=$script:GdInteropState" }
     $global:GdSleepHandle = $true
 }
-function Get-GdScreensaverConfig {
-    <# 只读注册表：这台机器的屏保"现在是怎么装的"。刻意不碰 SPI ——
-       SPI 现值在会话已被屏保接管时和注册表不一致(2026-09-26 06:00：日志「关闭屏保失败」，
-       注册表 ScreenSaveActive 仍是 1)，而体检要看的正是**下次到点会不会触发**那个稳态。
-       也正因为它是稳态：任何程序(实测 Wallpaper Engine 的 wpxscreensaver64.scr)把它改回去，这里当场看得见。
-       读不到返回 $null —— 调用方一律按"不知道"处理，绝不许据此判"没装屏保"。 #>
-    param([string]$RegPath = 'HKCU:\Control Panel\Desktop')
-    $dp = $null
-    try { $dp = Get-ItemProperty -LiteralPath $RegPath -ErrorAction Stop } catch { return $null }
-    if (-not $dp) { return $null }
-    $scr = ''
-    try { $scr = [string]$dp.'SCRNSAVE.EXE' } catch { $scr = '' }
-    $prod = ''
-    if ($scr) { try { $prod = [string](Get-Item -LiteralPath $scr -ErrorAction Stop).VersionInfo.ProductName } catch { } }
-    $to = 0
-    try { if ($dp.ScreenSaveTimeOut) { $to = [int]$dp.ScreenSaveTimeOut } } catch { }
-    $act = ''
-    try { $act = [string]$dp.ScreenSaveActive } catch { $act = '' }
-    return [pscustomobject]@{ Saver = $scr; Product = $prod; Active = $act; TimeoutSec = $to }
-}
-
-function Get-GdScreensaverWho {
-    <# 转发壳(批次 10)：归因规则(WE 代理名归一/产品名优先/回退 .scr 文件名)在 C# Decisions.cs，
-       verb resolve-screensaver-who。注册表读数仍是活：$Cfg 由 Get-GdScreensaverConfig(或 test-lib 假读数)喂进来。
-       改规则请改 C# 并跑 panel-cs --dectest 的屏保 14 档(期望串在 Decisions.SelfTest.cs)，不要在这里加规则。 #>
-    param($Cfg)
-    $d = Invoke-GdCli -Verb 'resolve-screensaver-who' -Body ([pscustomobject]@{ cfg = $Cfg })
-    return [string]$d.Text
-}
-
-function Get-GdScreensaverVerdict {
-    <# 转发壳(批次 10)：四档判据顺序(unknown→none→armed→off)与全部面板/体检话术在 C# Decisions.cs，
-       verb resolve-screensaver-verdict。参数名/默认值不许动(test-lib [t1g]、status.ps1、tools\panel.ps1(已于 10-23 刀③ 删除，此处留作历史钉家)、
-       tools\unarm-screensaver.ps1、lib\ark-daily.ps1 都按老签名调)；回 hashtable @{Kind;Risk;Text;Detail}
-       与旧形状逐字对齐。改文案请改 C# 并对拍 —— test-lib 三条硬约束(短话无箭头≤30、armed 点名
-       unarm-screensaver、off 说"不是终态")钉的就是这些串，改期望是禁手。 #>
-    param($Cfg, [int]$TimeoutFloorSec = 0)
-    $d = Invoke-GdCli -Verb 'resolve-screensaver-verdict' -Body ([pscustomobject]@{
-        cfg      = $Cfg
-        floorSec = $TimeoutFloorSec
-    })
-    return @{ Kind = [string]$d.Kind; Risk = [bool]$d.Risk; Text = [string]$d.Text; Detail = [string]$d.Detail }
-}
+# Get-GdScreensaverConfig 已删(转接刀·屏保稳态族，docs\rust-core-plan.md §11.215)：只读注册表那半段的真身在核内
+# tools\panel-cs\Round.cs::ScreensaverConfig，现问 verb read-screensaver-config(键开不了答 Found:false，不再返 $null)。
+# 旧那句"读不到返回 $null，调用方按不知道处理"的规矩自此搬到调用方折算：Found:false ⇒ 递 cfg=null，
+# 让 verdict 说"判断不了"，**绝不许读成"没装屏保"(none)** —— status.ps1／lib\ark-daily.ps1／
+# tools\unarm-screensaver.ps1／tools\test-lib.ps1 四处各自现折，这一句是语义闸不是风格问题。
+# Get-GdScreensaverWho 已删(同批)：归因规则(WE 代理名归一／产品名优先／回退 .scr 文件名)的唯一事实源在核内
+# tools\panel-cs\Decisions.cs::Decisions.ScreensaverWhoV，现问 verb resolve-screensaver-who，取回执 Text。
+# Get-GdScreensaverVerdict 已删(同批)：四档判据顺序(unknown→none→armed→off)与全部面板/体检话术的唯一事实源在核内
+# tools\panel-cs\Decisions.cs::Decisions.ScreensaverVerdict，现问 verb resolve-screensaver-verdict
+# (吃 cfg／floorSec，回 Kind/Risk/Text/Detail —— 回执形状就是原来的 hashtable 形状，属性访问同形)。
+# 改规则或文案请改 C# 并跑 panel-cs --dectest 的屏保档(期望串在 Decisions.SelfTest.cs)，不要在这里加回去；
+# 原头注点名的老调用方 tools\panel.ps1 已于 10-23 刀③ 删除，此处留作历史引文，别当活锚读。
 
 # Get-GdScreensaverStateFile 已删(丙档落码刀②，docs\rust-core-plan.md §11.118)：唯一调用方随 Enter-GdNoSleep 一起退役，screensaver.restore 那本 state 自此没有 PS 侧的读写者。
 function Get-GdInputDesktopName {

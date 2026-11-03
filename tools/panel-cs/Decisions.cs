@@ -432,8 +432,10 @@ namespace GdPanel
         }
 
         // ==================== resolve-screensaver-who / resolve-screensaver-verdict(批次 10，原 lib\common.ps1 屏保两档) ====================
-        // 基线真身 = common.ps1 Get-GdScreensaverWho / Get-GdScreensaverVerdict(钉 commit e269d13，从未搬过的一次性结论 verb)。
-        // 注册表读数(Get-GdScreensaverConfig，HKCU\Control Panel\Desktop)是"活"留壳；这里只吃喂进来的 $Cfg 字典。
+        // 基线真身 = 原 common.ps1 Get-GdScreensaverWho / Get-GdScreensaverVerdict(钉 commit e269d13；
+        // 转接刀·屏保稳态族 2026-11-03 已把那两枚壳连同 PS 侧真身一起摘掉，本处自此是唯一事实源)。
+        // 注册表读数(HKCU\Control Panel\Desktop)也不再由 PS 侧喂：现由 read-screensaver-config(Round.cs::ScreensaverConfig)
+        // 现答；Found:false 那一折归调用方(status.ps1／ark-daily／unarm-screensaver／test-lib 各自现折成 cfg=null)。
         // 四档判据顺序是认真的(test-lib [t1g] 逐档钉着)：unknown(读不到→不吓唬人也不说没事) → none(没挂 .scr) →
         // armed(挂且武装，唯一 Risk=true) → off(挂但解除 —— 不是终态，长话要把"会被重新武装"说明白)。
         // 文案与 test-lib 的三条硬约束：短话不带箭头且 ≤30 字装得进卡片；armed 长话必须点名 unarm-screensaver；

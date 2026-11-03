@@ -37,24 +37,67 @@ function Show-GdCommonScreensaverChecks {
     $none = [pscustomobject]@{ Saver = ''; Product = ''; Active = '0'; TimeoutSec = 0 }
     $armed = [pscustomobject]@{ Saver = 'C:\Windows\system32\wpxscreensaver64.scr'; Product = 'Wallpaper Engine Screensaver'; Active = '1'; TimeoutSec = 300 }
     $off = [pscustomobject]@{ Saver = 'C:\Windows\system32\some.scr'; Product = ''; Active = '0'; TimeoutSec = 600 }
-    $vNone = Get-GdScreensaverVerdict -Cfg $none
-    $vArmed = Get-GdScreensaverVerdict -Cfg $armed
-    $vOff = Get-GdScreensaverVerdict -Cfg $off
-    $vNull = Get-GdScreensaverVerdict -Cfg $null
+    # 门内现问薄壳(转接刀·屏保稳态族)：lib\common.ps1 那三枚同规则真身已出仓，唯一事实源在核内
+    # (Decisions.cs 的 ScreensaverWho／ScreensaverVerdict ＋ Round.cs 的 ScreensaverConfig)——
+    # 判据一格没动，只是取数那半段从"调 PS 壳"换成"问出口"。假读数不带 Found 键，直接递进去。
+    function GdSvVerdict { param($cfg) return Invoke-GdCli -Verb 'resolve-screensaver-verdict' -Body ([pscustomobject]@{ cfg = $cfg }) }
+    function GdSvWho { param($cfg) return [string](Invoke-GdCli -Verb 'resolve-screensaver-who' -Body ([pscustomobject]@{ cfg = $cfg })).Text }
+    # 本机真读数走的那半段：现问 read-screensaver-config，Found:false 必须折成 cfg=null(读不到那一档)，
+    # 否则核内会把"不知道"读成"没挂"—— 与 status.ps1／unarm-screensaver.ps1 同一句折算。
+    function GdSvLiveVerdict {
+        $d = Invoke-GdCli -Verb 'read-screensaver-config' -Body ([pscustomobject]@{})
+        return Invoke-GdCli -Verb 'resolve-screensaver-verdict' -Body ([pscustomobject]@{ cfg = $(if ($d.Found) { $d } else { $null }) })
+    }
+    $vNone = GdSvVerdict -cfg $none
+    $vArmed = GdSvVerdict -cfg $armed
+    $vOff = GdSvVerdict -cfg $off
+    $vNull = GdSvVerdict -cfg $null
     Check '没挂 .scr → none，且不算风险' ($vNone.Kind -eq 'none' -and -not $vNone.Risk) ($vNone.Text)
     Check '挂了且武装位=1 → armed，是唯一要标红的一档' ($vArmed.Kind -eq 'armed' -and $vArmed.Risk) ($vArmed.Kind)
     Check '挂了但武装位=0 → off，不吓人(日常"只关不复"就落这档)' ($vOff.Kind -eq 'off' -and -not $vOff.Risk) ($vOff.Kind)
     Check '注册表读不到 → 说的是"判断不了"，绝不显示成没事' ($vNull.Kind -eq 'unknown' -and $vNull.Text -match '读不到' -and -not $vNull.Risk) ($vNull.Text)
     Check 'armed 的长话里带得出解除命令(让人看完知道下一步敲什么)' ($vArmed.Detail -match 'unarm-screensaver') ($vArmed.Detail)
     Check 'off 的长话里说明它不是终态(会被重新武装)' ($vOff.Detail -match '不是终态')
-    Check '是谁挂的：ProductName 认 Wallpaper Engine' ((Get-GdScreensaverWho -Cfg $armed) -eq 'Wallpaper Engine')
-    Check '是谁挂的：读不到 ProductName 时退回文件名，不印 8.3 短名' ((Get-GdScreensaverWho -Cfg $off) -eq 'some')
+    Check '是谁挂的：ProductName 认 Wallpaper Engine' ((GdSvWho -cfg $armed) -eq 'Wallpaper Engine')
+    Check '是谁挂的：读不到 ProductName 时退回文件名，不印 8.3 短名' ((GdSvWho -cfg $off) -eq 'some')
     Check '面板那行(短话)不带箭头和路径，卡片装得下' ($vArmed.Text.Length -le 30 -and $vArmed.Text.IndexOf('→') -lt 0) ($vArmed.Text)
     # 本机真读数：只验"不许抛 + 落在四态里"，不押它此刻是哪一种(解除/没解除都该绿)
     $live = $null
     $threw = $false
-    try { $live = Get-GdScreensaverVerdict -Cfg (Get-GdScreensaverConfig) } catch { $threw = $true }
+    try { $live = GdSvLiveVerdict } catch { $threw = $true }
     Check '读本机注册表不抛，且结论落在 none/armed/off/unknown 四种之一' (-not $threw -and @('none','armed','off','unknown') -contains $live.Kind) ($live.Text)
+    # 语义闸的形状钉(转接刀·屏保稳态族)：三处生产消费面那句 Found:false ⇒ 递 cfg=null 必须还在**问那一枚 verb 的同一行**上。
+    # 为什么只能按形状钉：这台机器注册表恒能读到(Found 真)⇒ 把折算整句摘掉也不会有任何现读格变红，
+    # 而摘掉的后果是把"读不到"交给核内读成"没挂 .scr(没事)"—— 那一档话术正是体检要避免的假安心。
+    # 只数调用行(带 Invoke-GdCli 那句)，注释里同名的 verb 字面不算账；一行调用都没有／调用行里没那句折算都算这格红。
+    # 分路盲区改口(推仓74 出货面现红)：lib\ark-daily.ps1 是方舟专有件，1999 那棵导出树里本来就没有它，
+    #   旧的"不在即红"把分路差当成本格的罪(导出侧那一趟交回 182 通过／1 失败，主仓侧 183 通过／0 失败)。
+    #   处方照本件头注那套点库的形制(文件在就点、不在就少一侧能力)＋本件那句"有 lib\maa.ps1 才催 maaDir"＝路标分档，
+    #   松的只许是"判的对象"、不许是判据：docs\rust-core-plan.md 在场＝合体工作树，那件不在照样红(真身被删／改名不许静默放过)；
+    #   那本 plan 不在＝单游戏出货树，那一枚消费面本就不在这批货里，明印 [跳过] 而不是静默。
+    #   ⇒ 这一格自此在只带另一路的出货树上少量一枚消费面(方舟那棵树仍三枚全量)；工作树侧的射程一字未减，
+    #     非分路那两件(status.ps1／tools\unarm-screensaver.ps1)在任何一棵树里缺了都照样红。
+    $foldFiles = @('status.ps1', 'lib\ark-daily.ps1', 'tools\unarm-screensaver.ps1')
+    $foldPerGame = @('lib\ark-daily.ps1')
+    $foldMiss = @()
+    $foldSkip = @()
+    $foldWork = Test-Path -LiteralPath (Join-Path $root 'docs\rust-core-plan.md')
+    foreach ($foldFile in $foldFiles) {
+        $foldPath = Join-Path $root $foldFile
+        if (-not (Test-Path -LiteralPath $foldPath)) {
+            if ($foldWork -or -not ($foldPerGame -contains $foldFile)) { $foldMiss += ($foldFile + ' 不在') }
+            else { $foldSkip += $foldFile }
+            continue
+        }
+        $foldLines = @(Get-Content -LiteralPath $foldPath -Encoding utf8)
+        $foldCalls = @($foldLines | Select-String -SimpleMatch "Invoke-GdCli -Verb 'resolve-screensaver-verdict'")
+        if ($foldCalls.Count -lt 1) { $foldMiss += ($foldFile + ' 没问那一枚 verb'); continue }
+        $foldNoFold = @($foldCalls | Where-Object { $_.Line -notmatch '\.Found' })
+        if ($foldNoFold.Count -gt 0) { $foldMiss += ($foldFile + ':' + $foldNoFold[0].LineNumber) }
+    }
+    $foldNote = $foldMiss -join ' / '
+    if ($foldSkip.Count -gt 0) { $foldNote = ($foldNote + ' [跳过 分路专有] ' + ($foldSkip -join ',')) }
+    Check 'Found:false 折 cfg=null 那句语义闸在本树在场的生产消费面各自还在(与现问同一行)' ($foldMiss.Count -eq 0) $foldNote
     # 解除工具：默认只读这道规矩用行序钉死 —— 写注册表的调用一个都不许出现在两个显式分支闸门之前
     $toolPath = Join-Path $root 'tools\unarm-screensaver.ps1'
     if (Test-Path -LiteralPath $toolPath) {

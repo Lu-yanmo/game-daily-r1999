@@ -6777,11 +6777,12 @@ fn round_env_check(mods: &[&'static GdModule], env: &RoundEnv) -> (usize, Vec<St
 // "这格能不能直答"的 if：写了就是第二份事实源，而名册会随 b1/b2 的 verb 一颗一颗长。
 //
 // ⚠ 与 §11.52 ② 那份甲/乙/丙归属表的**一处实测改口**（本批落码时才看得见）：甲档那两枚里
-// `svdetail` 直答不了。`resolve-screensaver-verdict` 吃的是 `cfg`（= PS 侧 `Get-GdScreensaverConfig`
-// 对 `HKCU\Control Panel\Desktop` 的**活读**，见 lib\common.ps1:392 那枚转发壳），而注册表读数既不在
-// 这枚 verb 的射程、也没有任何一枚 verb 供它 —— b3 的题面是"核内骨架＋答手"、不含新立 verb（那是 b2 的
-// 射程），所以 `svdetail` 与 `updgate`／`audit` 同批留外发。`DRIVE_WHY_ROUND` 那句"屏保读数照 ask"
-// 写的正是这一格（当初按甲档判它可直答，落码时按现场改口，登记见 docs §11.55）。
+// `svdetail` 直答不了。`resolve-screensaver-verdict` 吃的是 `cfg`（= 当时 PS 侧 `Get-GdScreensaverConfig`
+// 对 `HKCU\Control Panel\Desktop` 的**活读**），而注册表读数既不在这枚 verb 的射程、也没有任何一枚 verb 供它 ——
+// b3 的题面是"核内骨架＋答手"、不含新立 verb（那是 b2 的射程），所以 `svdetail` 与 `updgate`／`audit` 同批留外发。
+// `DRIVE_WHY_ROUND` 那句"屏保读数照 ask"写的正是这一格（当初按甲档判它可直答，落码时按现场改口，登记见 docs §11.55）。
+// ⚠ 转接刀·屏保稳态族(2026-11-03，docs\rust-core-plan.md §11.215)之后上面那段只剩来历：那一族的 PS 真身与
+//   转发壳都已出仓，注册表读数由 `read-screensaver-config` 现答 ⇒ 这一格自此直答（见下面 ("ark", "svdetail") 那一臂）。
 
 /// 骨架自有格的动作名（journal 的 `action` 字面、ask 信封的 `action`、直答表的键 —— 三处同名只此一份）。
 const ROUND_SELECT_ACT: &str = "round-select";
@@ -7154,13 +7155,16 @@ fn round_answer(
         }
         ("ark", "svdetail") => {
             // R9-a 收编：这一格要的是"屏保当时装着什么"那枚**活读**（HKCU\Control Panel\Desktop 的稳态，
-            // 不是 SPI 现值 —— 新立的 `read-screensaver-config` 逐字照 Get-GdScreensaverConfig），
-            // 判据与四档话术**仍在那枚既有 verb** 里（`resolve-screensaver-verdict`／Decisions.cs:432-486）。
+            // 不是 SPI 现值 —— 新立的 `read-screensaver-config` 逐字照当时的 `Get-GdScreensaverConfig`；
+            // 那枚 PS 真身已随转接刀·屏保稳态族出仓(docs\rust-core-plan.md §11.215)，这句是来历说明不是活锚），
+            // 判据与四档话术**仍在那枚既有 verb** 里（`resolve-screensaver-verdict`／Decisions.cs 的
+            // `Decisions.ScreensaverVerdict`——按名不按行号，那一族上方刚插过 convert-utc8-to-ms 一节）。
             // ⚠ **恒返串**：真身那一整段是 `try { … } catch { $svTxt = '' }`（executor 的 `'svdetail'` 答臂，按坐标清账批口径不引行号），
             //   两枚 verb 任何一发起不来都不许把错冒泡成本轮崩，只答空串（早退原因少掉屏保那一行）。
             //   注册表读不到 ≠ 起不来：那一档 verb 返 `Found:false` ⇒ cfg 交 **Null** ⇒ 判定给出
             //   unknown 档那句"读不到 HKCU\Control Panel\Desktop，判断不了武装没有(不代表没事)"，
-            //   与真身"`Get-GdScreensaverConfig` 返 $null、判定照走 unknown 档"逐字同形。
+            //   与原真身"`Get-GdScreensaverConfig` 返 $null、判定照走 unknown 档"逐字同形（PS 侧那三枚出仓后，
+            //   同款折算由仓内四处调用方各自现做：status.ps1／lib\ark-daily.ps1／tools\unarm-screensaver.ps1／tools\test-lib.ps1）。
             let cfg = match (hooks.call)("read-screensaver-config", &JVal::O(Vec::new())) {
                 Ok(d) => {
                     if jv_truthy(&jv_get_ci(&d, "Found")) {

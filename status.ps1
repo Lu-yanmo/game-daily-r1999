@@ -85,7 +85,11 @@ foreach ($m in $mods) {
 Invoke-GdTolerant {
     # 屏保不属于任何一路，属于这台机器：06:00 / 18:00 方舟连败的根因就是它接管了输入桌面，
     # 所以它必须出现在体检第一段里，而不是藏在某一路的钩子后面。
-    $scv = Get-GdScreensaverVerdict -Cfg (Get-GdScreensaverConfig)
+    # 稳态读数与四档判据都只住核内(verb read-screensaver-config ／ resolve-screensaver-verdict)，
+    # 这里现问两枚出口；Found:false(键开不了)必须折成 cfg=null 交下去 —— 否则 unknown 档会被读成 none，
+    # 那是"读不到"冒充"没事"，与真身那句"绝不许据此判没装屏保"同源。
+    $sd = Invoke-GdCli -Verb 'read-screensaver-config' -Body ([pscustomobject]@{})
+    $scv = Invoke-GdCli -Verb 'resolve-screensaver-verdict' -Body ([pscustomobject]@{ cfg = $(if ($sd.Found) { $sd } else { $null }) })
     $col = switch ($scv.Kind) { 'armed' { 'Red' } 'none' { 'Green' } 'off' { 'Green' } default { 'Yellow' } }
     # 长话本身以「屏保：」开头，这一列的列名也叫"屏保" —— 把前缀剥掉，别让体检里念成「屏保  屏保：…」
     $txt = [string]$scv.Detail

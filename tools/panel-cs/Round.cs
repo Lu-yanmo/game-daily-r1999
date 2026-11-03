@@ -889,13 +889,15 @@ namespace GdPanel
         }
 
         // ==================== verb: read-screensaver-config(R9-a 收编 svdetail 的取数半段) ====================
-        // Get-GdScreensaverConfig(common.ps1:359-378) 的真身：只读注册表(HKCU\Control Panel\Desktop)，
-        // **刻意不碰 SPI** —— 那边 common.ps1:360-364 的头注写了理由(会话被屏保接管时 SPI 与注册表不一致，
+        // 原 Get-GdScreensaverConfig(common.ps1 旧 359-378，那是历史引文不是活锚)的真身：只读注册表(HKCU\Control Panel\Desktop)，
+        // **刻意不碰 SPI** —— 那边旧头注写了理由(会话被屏保接管时 SPI 与注册表不一致，
         // 而体检要看的正是"下次到点会不会触发"那个稳态)。这一格要的正是那枚稳态。
         // 三枚值逐枚 try 的形状照真身：`SCRNSAVE.EXE` 取不到算空串、`ScreenSaveTimeOut` 取不到算 0、
         // 产品名只在有 .scr 时才去取(FileVersionInfo 读不到回空)。
-        // 整块读不到(键开不了) ⇒ `Found:false` —— **调用方绝不许据此判"没装屏保"**(真身那句 return $null 同形)；
+        // 整块读不到(键开不了) ⇒ `Found:false` —— **调用方绝不许据此判"没装屏保"**(原真身那句 return $null 同形)；
         // 核内那一臂折成 cfg=Null 交给同装配的 `resolve-screensaver-verdict`，判定给 unknown 档那句"不代表没事"。
+        // ⚠ 转接刀·屏保稳态族(2026-11-03，§11.215)之后 PS 侧那三枚真身已出仓：这一折自此**归调用方自做**，
+        // 仓内四处(status.ps1／lib\ark-daily.ps1／tools\unarm-screensaver.ps1／tools\test-lib.ps1)都按 Found:false⇒cfg=null 写。
         internal static object ScreensaverConfig(Dictionary<string, object> raw)
         {
             Dictionary<string, object> c = View(raw);

@@ -612,7 +612,7 @@ namespace GdPanel
             return rows;
         }
 
-        // Get-GdScreensaverConfig(common.ps1:359-378) 的对面就是 R9-a 收编的 read-screensaver-config；
+        // 原 Get-GdScreensaverConfig(common.ps1 旧 359-378，历史引文非活锚)的对面就是 R9-a 收编的 read-screensaver-config；
         // 那一枚 verb 的 Found:false 等价于真身那句 return $null ⇒ 交给 verdict 当 unknown，不许当成"没装屏保"。
         static object ScreensaverConfigOrNull()
         {

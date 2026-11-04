@@ -30,7 +30,8 @@ try { $loaded = @(Import-GdModules -Quiet) } catch { $loadErr = $_.Exception.Mes
 Check 'Import-GdModules 全程不抛(清单体检通过)' ($loadErr -eq '') $loadErr
 Check '注册表非空' ($loaded.Count -gt 0) "$($loaded.Count) 款：$($loaded -join ' / ')"
 # 入口那三行的顺序也在这里演一遍：注册表只存清单，业务库要在顶层 dot 才留得下函数定义。
-# 少了这一步，[m4] 调 Resolve 钩子会报"…不会被识别为 cmdlet" —— 那正是钩子半夜炸的样子。
+# 少了这一步，下面那格"顶层点库后清单声明的 N 个函数全在"会红，而清单里任何一句业务调用(StatusPlan 问
+# Get-ArkEvent 那一类)会在夜里报"…不会被识别为 cmdlet" —— 那正是钩子半夜炸的样子。
 # 断言写法保持通用：从库文件本身扫出它定义的函数名，再问 Get-Command 认不认，不写死任何一款的函数名。
 foreach ($libPath in (Get-GdModuleLibPaths)) { . $libPath }
 foreach ($m in @(Get-GdModules -AvailableOnly)) {
@@ -88,13 +89,19 @@ foreach ($m in @(Get-GdModules)) {
     if ($m.RequiresAdmin) {
         Check "[$id] 要管理员 → 提权开关名(ElevationFlag)写了" ([bool][string]$m.ElevationFlag) "ElevationFlag=$($m.ElevationFlag)"
     }
-    foreach ($h in @('EnvProbes', 'Resolve', 'Preview', 'Run', 'Stop', 'Ack', 'ShopState')) {
-        Check "[$id] 必备钩子 $h 是 scriptblock" ($m.Hooks.$h -is [scriptblock])
+    # ⚠ 刀⑤(2026-11-04) 名册归一：这里原本逐字抄了 lib\modules.ps1:24 那串七枚必需钩子，下面另写一本八枚
+    #   可选名册 —— 同一套事实两处各写一遍正是 §11.186 点名的病灶(改一处忘一处，门还照绿)。本批两本名册都删，
+    #   判据换成通形＋负锚两格，必需格的事实源自此只剩 modules.ps1:24 一处(那格由 $script: 变量现问，不抄串)：
+    #     通形尺＝Hooks 里出现的每一格都必须是 scriptblock；
+    #     负锚＝除「modules.ps1 名册里点到的」与 status 一族(整段按在不在决定跳不跳，从来是可选格)之外，
+    #           清单再写别的键当场红。少写必需格由 Assert-GdModuleManifest 在装载期 throw(生产闸)，
+    #           多写一格却是静默的：它谁也不影响，只会让下一路清单跟着抄一枚没人走的壳。
+    foreach ($h in @($m.Hooks.PSObject.Properties.Name)) {
+        Check "[$id] 钩子 $h 是 scriptblock(通形尺：名册只在 lib\modules.ps1:24，这里不再抄第二遍)" ($m.Hooks.$h -is [scriptblock])
     }
-    foreach ($h in @('StatusRows', 'StatusVersion', 'StatusProcs', 'StatusProcExtra', 'StatusPlan', 'StatusSection', 'SupervisorEvidence', 'SupervisorRestart')) {
-        $v = $m.Hooks.$h
-        Check "[$id] 可选钩子 $h 要么没写、要么是 scriptblock" ($null -eq $v -or $v -is [scriptblock])
-    }
+    $knownHooks = @($script:GdModuleRequiredHooks)
+    $strayHooks = @($m.Hooks.PSObject.Properties.Name | Where-Object { $_ -notin $knownHooks -and $_ -notlike 'Status*' })
+    Check "[$id] Hooks 里没有名册外的键(刀⑤ 起判定/运行/收尾/门/监督六族不再占格，写了就是抄壳)" ($strayHooks.Count -eq 0) ($strayHooks -join ' / ')
     # status.ps1 那一段是 `if ($m.Hooks.StatusSection -and $m.StatusSectionTitle)` —— 少了标题，钩子永远不跑
     if ($m.Hooks.StatusSection) { Check "[$id] 有 StatusSection 钩子就得给 StatusSectionTitle(否则那段永远不印)" ([bool][string]$m.StatusSectionTitle) }
     Check "[$id] 短名适合印在汇总里(无空格无换行)" ([string]$m.ShortName -match '^\S+$') $m.ShortName
@@ -180,38 +187,37 @@ foreach ($m in @(Get-GdModules)) {
     }
 }
 
-Write-Host "`n[m4] 只读钩子真调得动(EnvProbes / Resolve / Preview)"
+Write-Host "`n[m4] 还活着的钩子真调得动(EnvProbes)＋面板取段的形状耦合格"
 foreach ($m in @(Get-GdModules -AvailableOnly)) {
     $id = [string]$m.Id
     $rows = $null
     $err = ''
     # 11-03 转接刀：这几格量的一直是 EnvProbes 钩子自己的返回形状，那枚薄壳只转发明再加一条 null→空表；
     # 壳已摘 ⇒ 这里直接点钩子，判语一字不动（生产侧没有 caller，null 那一档只在壳里，摘了就是少一档兜底）。
-    try { $rows = Invoke-GdModuleHook -Module $m -Hook EnvProbes -Params @{ S = $S } } catch { $err = $_.Exception.Message }
+    # ⚠ 刀⑤(2026-11-04)：上一句里那枚「薄壳」= Invoke-GdModuleHook，它的本体也随本批出仓 ⇒ 这里逐字直点钩子。
+    try { $rows = & $m.Hooks.EnvProbes $S } catch { $err = $_.Exception.Message }
     Check "[$id] EnvProbes 调得动" ($err -eq '') $err
     Check "[$id] 环境探测至少一项" (@($rows).Count -gt 0) "$(@($rows).Count) 项"
     $labels = @($rows.Keys)
     Check "[$id] 探测项标签非空" (@($labels | Where-Object { -not [string]$_ }).Count -eq 0) ($labels -join ' / ')
     Check "[$id] 探测结果是有序表(体检里那几行的先后不能变)" ($rows -is [System.Collections.Specialized.OrderedDictionary])
     Check "[$id] 探测项的值都落在 paths.* 上(框架不猜路径)" (@($labels).Count -eq @($rows.Values | Where-Object { $_ -is [string] -or $null -eq $_ }).Count)
-
-    $dec = $null
-    $err = ''
-    Save-GdTestState @("$id-event-ack", "$id-shop-done")
-    try {
-        $dec = Invoke-GdModuleHook -Module $m -Hook Resolve -Params @{ S = $S; Opt = @{ Force = $true } }
-    } catch { $err = $_.Exception.Message } finally { Restore-GdTestState }
-    Check "[$id] Resolve 调得动(-Force 也不抛)" ($err -eq '') $err
-    Check "[$id] 判定结果带 Mode(汇总/历史那一行要用)" ([bool][string]$dec.Mode) "Mode=$($dec.Mode)"
-    if ($dec) {
-        $pvErr = ''
-        try {
-            $sb = $m.Hooks.Preview
-            & $sb -S $S -Decision $dec 6>&1 | Out-Null
-        } catch { $pvErr = $_.Exception.Message }
-        Check "[$id] Preview 调得动(dry-run 就靠它)" ($pvErr -eq '') $pvErr
-    }
 }
+# 11-04 刀⑤ 作废登记：这一段原来还点了 Resolve(带 -Force，前后各存/还原一次 state)与 Preview 两发真调。
+# 对面不在本文件也不在本棵树：判定面＝tools\rustcore\src\main.rs 的 round-resolve 两枚直答臂(§11.225 刀③)，
+# 预览面＝同一文件的 round-preview 两枚直答臂(§11.222 刀②)，语义钉由 gdcore --selftest 的 S28 判定族消费证据格
+# 与 preview-crash 注入缝供数。PS 那两枚钩子块体随本批出仓 ⇒ 这两格作废，且不是"改弱"：
+# 把真调换成"钩子格还在"的形钉等于给壳续命(§11.186 那句"补齐＝给病因续命"的同一课)，所以直接删。
+#
+# 下面这格是"缝跟着答方走"的兑现，也是 EnvProbes 仍留在 modules.ps1:24 那本名册里的唯一理由：
+# 它的对面不是函数调用而是**源文本解析**——面板按一行正则去清单里抠那段 '标签' = 表达式。
+# 钉法只钉形状不钉结果(读 Panel.Summary.cs，问它认段的字面量还在不在)：
+#   本格红 ＝ 面板换了取段方式或整件退役 ⇒ 那一刻 EnvProbes 才真的没有对面，名册最后一枚自由了；
+#   反过来若名册先被删而本格没红 ⇒ 装载期不会炸、面板「环境」段却少几行且谁都不报错——那才是它要拦的那一档。
+$panelSrc = ''
+try { $panelSrc = [System.IO.File]::ReadAllText((Join-Path $root 'tools\panel-cs\Panel.Summary.cs')) } catch { }
+Check '面板仍按「^\s*EnvProbes\s*=\s*\{\s*$」在清单里取环境探测段(EnvProbes 唯一活着的对面)' (
+    $panelSrc.Contains('EnvProbes\s*=\s*\{\s*$')) $(if ($panelSrc.Length -eq 0) { 'tools\panel-cs\Panel.Summary.cs 不在场(尺没接到电)' } else { '那句字面量变了' })
 
 Write-Host "`n[m5] 选择与参数名"
 # 11-03 转接刀：这一段原本量的是 Select-GdModules 那枚 PS 真身(不传 Id ／ -Ids all ／ 只挑一款 ／
@@ -262,11 +268,12 @@ foreach ($m in @(Get-GdModules)) {
     foreach ($verb in $verbs) {
         if ($id -eq 'ark' -and $verb -eq 'Ack') {
             # 2026-10-12 第 1 刀：方舟的活动确认门从入口退场了(-AckArk 不再被 daily-clear.ps1 认识，
-            # 活动图改每轮机器自证)。但 EntryVerbs.Merged 的 Ack 键与 Hooks.Ack 那一格都还在——
-            # 前者是 Rust 链体那枚 entryverb("ark","Ack") 的 ask 名册位(返回值弃读，删键=形状变要升契约号)，
-            # 后者是 lib\modules.ps1 的七枚必需钩子名册。所以这一路反过来钉：入口**必须不认识** -AckArk。
+            # 活动图改每轮机器自证)。EntryVerbs.Merged 的 Ack 键仍在——那是 Rust 链体那枚
+            # entryverb("ark","Ack") 的 ask 名册位(返回值弃读，删键=形状变要升契约号)；
+            # 当年为它一并保留的 Hooks.Ack 占位格已随 11-04 刀⑤ 出仓(必需名册自此只剩 EnvProbes 一枚，
+            # 而那一格的话术自 10-12 起就不进任何文案)。所以这一路反过来钉：入口**必须不认识** -AckArk。
             # 谁哪天把参数加回来，这格就红，提醒他要么真装回人肉门、要么改这里。
-            $arkAckNote = '名册位与钩子仍在，值弃读'
+            $arkAckNote = 'ask 名册位仍在(钩子格已随刀⑤ 出仓)，值弃读'
             if ($dailyTable.ContainsKey('AckArk')) { $arkAckNote = 'daily-clear.ps1 又认识 AckArk 了' }
             Check '[ark] Ack 已退场：入口不再认识 -AckArk(活动图改每轮自证)' (-not $dailyTable.ContainsKey('AckArk')) $arkAckNote
             continue

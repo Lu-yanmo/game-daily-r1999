@@ -74,7 +74,7 @@ namespace GdPanel
                 List<Route> routes = PickRoutes(S, games);
                 if (routes.Count == 0)
                 {
-                    GdLog.Line("没有可监督的路线(Games=" + games + "，注册表里没有一路给 SupervisorEvidence 钩子，或那几路没装)", "ERROR");
+                    GdLog.Line("没有可监督的路线(Games=" + games + "，那几路没装——判据是助手库 lib\\maa.ps1／lib\\m9a.ps1 在不在；SupervisorEvidence 钩子已随 11-04 刀⑤ 出仓)", "ERROR");
                     return r;
                 }
                 int cap = CapDefault;
@@ -121,7 +121,7 @@ namespace GdPanel
             List<Route> routes = PickRoutes(S, games);
             if (routes.Count == 0)
             {
-                GdLog.Line("没有可监督的路线(Games=" + games + "，注册表里没有一路给 SupervisorEvidence 钩子，或那几路没装)", "ERROR");
+                GdLog.Line("没有可监督的路线(Games=" + games + "，那几路没装——判据是助手库 lib\\maa.ps1／lib\\m9a.ps1 在不在；SupervisorEvidence 钩子已随 11-04 刀⑤ 出仓)", "ERROR");
                 return 3;
             }
             Session ss = new Session();
@@ -580,7 +580,7 @@ namespace GdPanel
             return Gd.Out("Ok", true, "Blocking", Gd.Truthy(Gd.Get(v, "Blocking")), "What", Gd.Str(Gd.Get(v, "What")));
         }
 
-        // ==================== 重启(Restart-GdSupervisorAssistant + ark 那份 SupervisorRestart 钩子的直身) ====================
+        // ==================== 重启(Restart-GdSupervisorAssistant + ark 那份 SupervisorRestart 钩子的直身；钩子本体已随 11-04 刀⑤ 出仓) ====================
 
         static bool RestartAssistant(Dictionary<string, object> S, Route m)
         {
@@ -682,7 +682,7 @@ namespace GdPanel
             catch { }
         }
 
-        // ==================== 路线名册(Get-GdModules -AvailableOnly + SupervisorEvidence 钩子的直身) ====================
+        // ==================== 路线名册(Get-GdModules -AvailableOnly + SupervisorEvidence 钩子的直身；钩子本体已随 11-04 刀⑤ 出仓，判据自此只剩助手库在不在) ====================
         // "在不在"的尺与 modules.ps1 同一口径：那一路的助手库文件在才算装了它；注册顺序=文件名序(ark 先)。
 
         static List<Route> PickRoutes(Dictionary<string, object> S, string games)

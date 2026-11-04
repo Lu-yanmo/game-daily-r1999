@@ -6151,10 +6151,10 @@ fn run_drive_m9a_daily(
 // 这一整块是 `lib\ark-module.ps1` / `lib\r1999-module.ps1` 那两份**清单**里能被纯数据表达的格子
 // 的复刻（十段骨架要读的只有这些：短名、要不要管理员、三句提示、环境探测行、入口 verb 名册）。
 // ⚠ 双源登记（§11.52 ④ 第⑤条同族）：清单改这些字段必须同批改这里，否则宿主版读到的是旧话术。
-// 为什么不做成"从盘上现解析清单"：PS 清单的真身是 `[pscustomobject]` + 七枚 `scriptblock` 钩子，
+// 为什么不做成"从盘上现解析清单"：PS 清单的真身是 `[pscustomobject]` + `scriptblock` 钩子（11-04 刀⑤ 起只剩
+// EnvProbes 一枚必需＋Status 一族可选；Resolve/Preview/Ack/ShopState/Run/Stop 那六枚已随核内直答出仓），
 // 钩子搬不动（§11.50 ④-4 已定档），剩下这几格是纯数据 —— 抄进码面比"在 Rust 里解析 PS"诚实。
-// 清单的**钩子**该干什么，本块一概不管：Resolve/Preview/Ack/ShopState/Run/Stop 那六枚仍按 ask
-// 交给外侧执行（见 `daily_round_chain` 的 action 名册）。
+// 清单的**钩子**该干什么，本块一概不管：那六枚自 11-03 刀①~③ 起由核内直答（见 `daily_round_chain` 的 action 名册），PS 侧已不被问回来。
 
 /// 清单 `Hooks.EnvProbes` 返回的那本 `[ordered]@{ 标签 = 路径 }` 的一行，折成三格纯数据：
 /// - `rel_key` 为空 ⇒ 这一行就是 `paths.<base_key>` 本身（真身写 `$S.paths.maaDir`）；
@@ -6191,8 +6191,8 @@ struct GdEntryVerbRow {
 /// `&'a mut dyn FnMut<…>` 让它对 `'a` 不变、reborrow 也缩短不了生命周期），于是**骨架里不可能用
 /// `format!` 现造动作名** —— 想在第十段"按模块分派"又不能动态拼串，唯一诚实的去处就是把名字焊进静态清单。
 /// 先例是本结构原本的 `stop_act`；这五枚与它同一档，两枚模块各写一份字面 ⇒ 名册仍是闭合的、可现扫的。
-/// `probe_act` 只有 ark 有（`round-probe:ark` = 活动图每轮自证，真身在 `lib\ark-module.ps1` 的 Run 钩子里），
-/// r1999 那一路**这一格根本不存在**（清单的 Run 钩子没这一段），所以它置空串、骨架按空串跳过；
+/// `probe_act` 只有 ark 有（`round-probe:ark` = 活动图每轮自证；真身原在 `lib\ark-module.ps1` 的 Run 钩子里，11-04 刀⑤ 该钩子出仓、本段核内成唯一真身），
+/// r1999 那一路**这一格根本不存在**（清单钩子里从来没这一段），所以它置空串、骨架按空串跳过；
 /// 空串不是"名字待定"，是"这一路没这格"的显式读数。
 /// ⚠ 同一模块的门表两枚（Ack / ShopDone / ShopReset）共用 `round-gate:<id>`：靠 journal 里的
 /// **位置**＋`params` 里那枚 `verb` 区分。这是合法的 —— `params` 进 ask 信封、不进重放判据
@@ -6289,7 +6289,7 @@ const GD_MODULE_R1999: GdModule = GdModule {
     preview_act: "round-preview:r1999",
     gate_act: "round-gate:r1999",
     history_act: "round-history:r1999",
-    // 空串＝**这一路没有活动图自证那一格**（真身 `lib\r1999-module.ps1` 的 Run 钩子没这段），
+    // 空串＝**这一路没有活动图自证那一格**（清单 Run 钩子当年就没这段；钩子本体已随 11-04 刀⑤ 出仓），
     // 骨架读到空串就跳过；不是"名字待定"。r1999 侧的同类判据在 1999-event-audit 那一路，
     // 而它挂在 `audit` 那格（链体里、走 `gate`），与轮骨架的第十段无关。
     probe_act: "",
@@ -8203,7 +8203,7 @@ fn daily_round_chain(
             };
             match got {
                 Ok(o) => {
-                    // 清单 Run 钩子里那半段"每轮自证活动图"（lib\ark-module.ps1:59-76）：
+                    // "每轮自证活动图"（原清单 Run 钩子里那半段，钩子本体已随 11-04 刀⑤ 出仓；本段是唯一真身）：
                     // 只在这一路真跑到 MAA 关门前(ok)才采，抛任何错都只 WARN。r1999 那一路没这格（空串）。
                     if !m.probe_act.is_empty() && o.status == "ok" {
                         let p = fx.ans(

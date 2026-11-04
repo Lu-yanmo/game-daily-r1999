@@ -21,7 +21,7 @@ if (-not (Get-Variable -Name GdModules -Scope Global -ErrorAction SilentlyContin
 
 # 一个模块清单必须齐这些东西才算能用。少哪一项就报哪一项 —— 将来加模块的人只会看这一处。
 $script:GdModuleRequiredKeys = @('Id', 'Name', 'ShortName', 'AssistantLib', 'OrchestrationLib', 'RequiresAdmin', 'ElevationFlag', 'AdminWhy', 'AdminHint', 'AdminOkNote', 'SettingsBlock', 'PathKeys', 'EntryVerbs', 'Libs', 'Hooks')
-$script:GdModuleRequiredHooks = @('EnvProbes', 'Resolve', 'Preview', 'Run', 'Stop', 'Ack', 'ShopState')
+$script:GdModuleRequiredHooks = @('EnvProbes')   # 11-04 刀⑤ 七枚→一枚(判语见本文件末尾那段，此处一行不改行数是为了不掀漂 :88 那枚名册循环的表账锚)
 
 function Register-GdModule {
     <# 模块清单入库。同一棵树里同一个 Id 注册两次 = 有两份 <id>-module.ps1(或者入口多点了一次)，
@@ -151,19 +151,6 @@ function Get-GdModuleLibPaths {
     return @($out)
 }
 
-function Invoke-GdModuleHook {
-    <# 框架调模块的唯一入口。三步都写清楚是谁的锅：模块没注册 / 清单没给这个钩子 / 钩子自己抛。
-        钩子里面调的是各游戏原有的函数(Resolve-GdArkDecision / Start-GdArkDaily …)，本层不复制任何业务逻辑。 #>
-    param(
-        [Parameter(Mandatory)]$Module,
-        [Parameter(Mandatory)][string]$Hook,
-        [hashtable]$Params = @{}
-    )
-    $sb = $Module.Hooks.$Hook
-    if ($null -eq $sb) { throw "模块 $([string]$Module.Id) 没有 $Hook 钩子(清单少写了一项？)" }
-    return (& $sb @Params)
-}
-
 # —— "跑一轮"这一格现在不住在这里(2026-10-20 乙批②) ——
 # 十段的 PS 原身 Invoke-GdDailyRound 与它的逐路执行器 Invoke-GdModuleRuns 已一并划掉。带走后者用的判据
 # 与退役单元① 同形：删掉调用方之后，被删函数自己的唯一调用方同时消失，那才是"级联可削面"而不是"漏删"。
@@ -172,8 +159,10 @@ function Invoke-GdModuleHook {
 # 编排、话术、三档退出码的事实源是 tools\rustcore\src\main.rs 的 daily_round_chain(逐行复刻那份十段)。
 # 拿不到内置件、主闸被人拨关(GD_RUST_OFF=1 或 runtime.rustOff 含 gdcore)、轮上下文装配炸 ——
 # 这三种形状一律整轮拒跑(2)并落一句人话，不再有"换人跑"的第二条腿；代价与受影响的形态见转接层头注。
-# 本文件剩下的是**还被两头问回来**的零件：注册表与装载器(Register-GdModule / Import-GdModules)、
-# 钩子唯一收口(Invoke-GdModuleHook)。
+# 本文件剩下的是**还被两头问回来**的零件：注册表与装载器(Register-GdModule / Import-GdModules)。
+# ⚠ 刀⑤(2026-11-04) 追记：上一版这句末尾还挂着「钩子唯一收口(Invoke-GdModuleHook)」，本批它随臂一起出仓——
+#   §11.230 现读：全树对它只剩门内两发真调(tools\test-modules.ps1 的 [m4] EnvProbes／Resolve)，生产面 0 命中。
+#   「唯一收口」在摘臂之后是死陈述：它不量任何东西，只替一枚没有调用者的壳续命；那两发本批改成直点钩子。
 # ⚠ 刀①(2026-11-03) 追记：上一版名册里的「手动门分发(Set-GdModuleState)」已随 rust-round 四臂摘除
 #   (round-gate:<id> 两枚改核内直答)一并出仓——它的唯一消费面就是那两枚臂，臂摘了它就是零活；
 #   手动门真身自此只剩 panel-cs 那三枚 set-* verb(Round.Data.cs)与核内 round_answer 的直答臂。
@@ -186,3 +175,13 @@ function Invoke-GdModuleHook {
 #   要探的路径清单只剩那本文件里的两张静态表（ark 与 r1999 各一张，行文本「标签 → 展示值」由它供）。
 #   PS 侧自此没有「选哪几路／探哪几行」的出口，连自检也不点它们：tools\test-modules.ps1 的 [m4] 改成直接点 EnvProbes 钩子，
 #   [m5] 与 [m7] 里那几格量 PS 真身的钉随真身一并作废——那本门绿着的地方自此不再替这一路作证。
+# ⚠ 刀⑤(2026-11-04) 落码：必需钩子名册从七枚收成一枚(只剩 EnvProbes)，两本清单的其余非 Status 块体同日出仓。
+#   为什么这六枚(Resolve/Preview/Run/Stop/Ack/ShopState)还能被摘：它们的 round 消费面已随转接刀·运行面
+#   刀①(gate/stop)／刀②(preview)／刀③(resolve 判定面)逐枚改成核内直答，PS 侧一处调用点都不剩；
+#   留着"新模块必须写满七格"这条规矩，只会让下一路清单抄六枚没人走的壳。
+#   EnvProbes 为什么是唯一留下的必需格：它的对面**不是函数调用而是源文本解析**——
+#   tools\panel-cs\Panel.Summary.cs 的 ProbeSpecs 按 `^\s*EnvProbes\s*=\s*\{\s*$` 在清单里取那一段，
+#   删格＝面板"环境"段少几行、且装载校验与门都不会当场报错。摘它之前必须先换掉那把尺(已登记为下一刀候选)。
+#   名册归一(§11.186 那笔「多处名册先问能不能收成一处现问」的现役兑现)：tools\test-modules.ps1:91 原本
+#   逐字抄了同一串七枚，本批删掉那两本硬编码名册，自检改成"每一格必是 scriptblock"的通形尺＋负锚，
+#   事实源自此只有 :24 这一处。Status 一族从来是可选钩子(由 status.ps1 逐枚按在不在决定整段跳不跳)，不在这本名册里。

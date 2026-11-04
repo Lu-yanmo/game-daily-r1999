@@ -4,10 +4,21 @@
 # r1999-daily.ps1 / mumu.ps1 / r1999-status.ps1 里，本文件不复制任何实现。
 # ⚠ 改口(11-04 刀④)：上面那句里的 r1999-status.ps1 已整件出仓 —— 名册两枚改问核(见 ark-module.ps1
 #   同处注释，两枚 verb 两路共用)、展示四枚逐字内联进下面的钩子(实例列表那枚连"故意不套 try/catch"也照抄)。
+# ⚠ 改口(11-04 刀⑤)：Resolve／Preview／Run／Stop／Ack／ShopState／SupervisorEvidence 七枚块体同日出仓 ——
+#   六族的 round 消费面已随转接刀·运行面改成核内直答(gate/stop＝刀①、preview＝刀②、resolve 判定面＝刀③)，
+#   本清单不再在其上合成第三层答手。监督那枚的对面是 C# 宿主批(11-02 刀③ 起)，完成线规格已在
+#   tools\panel-cs\Supervisor.Host.cs 的 SpecOf 里同值另写(AssistantProc／AssistantLog／DonePattern／
+#   ProgressPattern 四格逐字在)，摘 PS 副本消灭的是双真身不是语义；这一路本来就**不给 SupervisorRestart**
+#   (MuMu 冷启动几分钟，误判代价远超多跑一轮)，这一条安排不因摘证据格而变。Stop 里那句
+#   "跑完关模拟器"也随刀① 进了核(stop:r1999 臂现拍 stop-m9a＋closeEmulatorAfter 真值再加 stop-mumu)。
+#   ⚠ EnvProbes 是唯一留下的必需格：它的对面不是函数调用而是**源文本解析**
+#   (tools\panel-cs\Panel.Summary.cs 的 ProbeSpecs 按一行正则去清单里抠这段)，判语全文在 lib\modules.ps1 末尾那段。
 #
 # 这一路和方舟在契约上的真实差别只有两处，都在这里吸收掉，框架不需要认识它们：
-#   ① 1999 的判定结果除了方案(Mode)还要带一个 M9A 实例对象 → Resolve 钩子把它平铺进返回对象；
-#   ② 1999 不需要管理员，但跑完可能要关 MuMu 虚拟机 → RequiresAdmin=$false，收尾钩子里带上那段。
+#   ① 1999 的判定结果除了方案(Mode)还要带一个 M9A 实例对象 → 原来靠 Resolve 钩子把它平铺进返回对象；
+#      ⚠ 刀⑤ 改口：这一层现由 round-resolve 核内直答臂承担(11-03 刀③)，本清单不再复写。
+#   ② 1999 不需要管理员，但跑完可能要关 MuMu 虚拟机 → RequiresAdmin=$false，那段原来挂在收尾钩子里；
+#      ⚠ 刀⑤ 改口：closeEmulatorAfter 现住核内 stop:r1999 臂(11-03 刀①)，本清单不再复写。
 
 Register-GdModule ([pscustomobject]@{
         Id               = 'r1999'
@@ -40,45 +51,6 @@ Register-GdModule ([pscustomobject]@{
                     'M9A 目录'        = $S.paths.m9aDir
                     'M9A appsettings' = (Join-GdPath $S.paths.m9aDir @($S.paths.m9aAppSettings))
                     'MuMu Manager'    = (Join-GdPath $S.paths.mumuDir @($S.paths.mumuManager))
-                }
-            }
-            Resolve   = {
-                param($S, $Opt)
-                # -Plan 没给就等于 auto：不能把 $null 直接递给 Resolve-GdR1999Decision，
-                # 它的 param 默认值只在"参数没出现"时才生效，递 $null 会让 $Plan -ne 'auto' 成立、
-                # 把这一轮判成"命令行指定 (空)"那种莫名其妙的方案。
-                $plan = if ($Opt.Plan) { [string]$Opt.Plan } else { 'auto' }
-                $r = Resolve-GdR1999Decision -S $S -Plan $plan -Force:([bool]$Opt.Force)
-                $d = $r.Decision
-                return [pscustomobject]@{ Mode = $d.Mode; Instance = $r.Instance; Decision = $d }
-            }
-            Preview   = { param($S, $Decision) Show-GdR1999Preview -S $S -Instance $Decision.Instance }
-            # B-2d④ 起 Start-GdR1999Daily 与核内驱动档执行器同名同签名；10-24 刀② 撤掉分流后它只剩一条臂：
-            # 直接 return Invoke-GdR1999DailyRust —— 链体在内置件 gdcore.exe 里，本路 executor 只代做现场七格。
-            # 回退臂 Invoke-GdR1999DailyLegacy 已随真身出仓(逐字在钉位 6157448:lib/r1999-daily.ps1)。这一行仍**不该加 if**。
-            Run       = { param($S, $Decision) return (Start-GdR1999Daily -S $S -Instance $Decision.Instance) }
-            Stop      = {
-                param($S)
-                # ⚠ 刀①(2026-11-03)：round 的 stop:r1999 已改核内直答(stop-m9a＋closeEmulatorAfter 真值开
-                # stop-mumu)，上面那层 PS 臂已摘 ⇒ 这一钩子格自此没有 round 消费面，体暂留(1eq.④)，去留归后续刀。
-                Stop-M9A -S $S
-                # "跑完关模拟器"是这一路自己的设置项，原来写在入口的 finally 里并按 -Games 判断；
-                # 挪进收尾钩子后，"这一路本轮到底跑没跑"就是天然的判据。
-                if ($S.runtime.closeEmulatorAfter) { Stop-GdMuMu -S $S }
-            }
-            Ack       = { param($S) Set-GdR1999Ack -S $S }
-            ShopState = { param($S, $Done) Set-GdR1999ShopState -S $S -Done:([bool]$Done) }
-
-            # ---- 监督一族的可选钩子(11-02 刀③ 起答方是 C# 宿主批，旧真身 lib\supervisor.ps1 已出仓)。这一路刻意**不给 SupervisorRestart**：
-            #      MuMu 冷启动要好几分钟，误判一次的代价远超"多跑一轮"，所以 1999 出了状况只发通知。----
-            SupervisorEvidence = {
-                param($S)
-                $P = Get-M9APaths -S $S
-                return @{
-                    AssistantProc   = $P.Name
-                    AssistantLog    = (Get-M9ADailyLog -P $P)     # M9A 每天一本 log-yyyyMMdd.log
-                    DonePattern     = '启动任务完成|任务已全部完成'
-                    ProgressPattern = '开始任务：|队列任务开始|用户操作：启动任务'   # 「启动任务完成」单独出现只等于连上了模拟器，要先见过进度线
                 }
             }
 

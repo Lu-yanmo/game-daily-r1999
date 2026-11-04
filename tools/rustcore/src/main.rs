@@ -5965,7 +5965,7 @@ fn drive_m9a_daily_envelope(
         Err(e) => return (1, fail(&format!("驱动协议坏了：ctx 的 m9aRun 读不动：{}", e))),
     };
     // 名册外那五格按真身给：state_dir 来自 --state（第六闸），game/target 是真身 m9a.ps1 里写死的
-    // 两个字母面，两枚可用性是装载期事实（lib\r1999-module.ps1:27 只带 vision-rescue.ps1）。
+    // 两个字母面，两枚可用性是装载期事实（lib\r1999-module.ps1:39 只带 vision-rescue.ps1；锚原写 :27，刀⑦ 笔(a) 摘掉清单里那枚编排键后现读真值 :39）。
     scen.state_dir = state.to_string();
     scen.game = "r1999".to_string();
     scen.target = "mumu".to_string();
@@ -6183,9 +6183,9 @@ struct GdEntryVerbRow {
 /// ⚠ 曾经配了对的 `run_act` 已删（§11.55 ③ 判定）：两路的 run 在 B-2c③／B-2d② 就变成**核内真做**，
 /// 骨架再也不会把"跑哪一路"外发 —— 留着它就是一份没人读的第二个事实源。
 /// `manifest_file` 判的是"这一路注册没注册"（真身 = `lib\*-module.ps1` 扫不扫得到），
-/// `assistant_lib` 判的是"这一路装没装"（`Get-GdModules -AvailableOnly` / `Test-GdModuleInstalled`），
-/// `orchestration_lib` 判的是"这棵树把几路当游戏在管"（`Test-GdMergedEntry` 的判据）—— 三枚**各自独立**，
-/// 合成一枚就把"注册／装载／合体"三种状态糊成一档了。
+/// `assistant_lib` 判的是"这一路装没装"（`Get-GdModules -AvailableOnly` / `Test-GdModuleInstalled`）——
+/// ⚠ 11-04 刀⑦ 笔(a) 换源：原本第三枚 `orchestration_lib`（数"编排文件在位"给 `Test-GdMergedEntry` 当选路判据）整枚退役，
+/// 合体判据自此由"助手库在位的枚数"派生，与 PS 侧同一把尺；剩两枚仍**各自独立**，合成一枚就把"注册／装载"两种状态糊成一档了。
 /// ⚠ 下面五枚 `*_act` 是 b3 落码时**新立的静态动作名**，不是清单里的字面，也不是可有可无的装饰：
 /// `DriveFx` 的断点格与 `ask`／`take_act` 的 `action` 形参是 `&'static str`（`DriveFx<'a>` 里的
 /// `&'a mut dyn FnMut<…>` 让它对 `'a` 不变、reborrow 也缩短不了生命周期），于是**骨架里不可能用
@@ -6202,7 +6202,6 @@ struct GdModule {
     id: &'static str,
     short_name: &'static str,
     assistant_lib: &'static str,
-    orchestration_lib: &'static str,
     manifest_file: &'static str,
     requires_admin: bool,
     elevation_flag: &'static str,
@@ -6251,7 +6250,6 @@ const GD_MODULE_ARK: GdModule = GdModule {
     id: "ark",
     short_name: "方舟",
     assistant_lib: "maa.ps1",
-    orchestration_lib: "ark-daily.ps1",
     manifest_file: "ark-module.ps1",
     requires_admin: true,
     elevation_flag: "arkRequiresElevation",
@@ -6275,7 +6273,6 @@ const GD_MODULE_R1999: GdModule = GdModule {
     id: "r1999",
     short_name: "1999",
     assistant_lib: "m9a.ps1",
-    orchestration_lib: "r1999-daily.ps1",
     manifest_file: "r1999-module.ps1",
     requires_admin: false,
     elevation_flag: "arkRequiresElevation",
@@ -6621,8 +6618,8 @@ fn round_ctx_parse(v: &JVal) -> Result<RoundCtx, String> {
 /// 旧句里引的 `lib\modules.ps1:179` 那枚坐标自此没有对面，按坐标清账批口径不再引行号）。
 /// **三句 throw 各是不同档**，不许合并：
 /// 树上一路都没有／命令行点了没注册的那一路／点了但没装的那一路，玩家看到的三句话完全不一样。
-/// 判据全在 `--root` 现问的三个文件上：`lib\<id>-module.ps1`（注册）、`lib\<AssistantLib>`（装了）、
-/// `lib\<OrchestrationLib>`（合体判据，`entryverb` 那格另读）。
+/// 判据全在 `--root` 现问的两个文件上：`lib\<id>-module.ps1`（注册）、`lib\<AssistantLib>`（装了；
+/// 11-04 刀⑦ 笔(a)：原本第三枚 `lib\<OrchestrationLib>` 随必需键退役，合体判据改由这一枚派生，`entryverb` 那格同一把尺）。
 /// 返回 Err 的两句是骨架里**唯一**在进十段之前就发生的失败 ⇒ 调用方一律按 Fail 信封出（rc=1），
 /// 真身那边它们是 terminating error，由入口的 catch 收尾，形状本来就不是"退出码 2"。
 /// ⚠ 11-03 转接刀 作废登记：上一句的"真身那边"已没有可对照的那块件——那句留在这里讲的是**这一路为什么
@@ -6710,19 +6707,19 @@ fn select_gd_module_warns(ctx: &RoundCtx, root: &str) -> Vec<String> {
 }
 
 /// `Test-GdMergedEntry`（lib\decisions-common.ps1）的宿主等价判据：
-/// "这棵树上把几路当一款游戏在管" —— 有注册表时数 `OrchestrationLib` 在位的枚数 >1，
-/// 注册表没装载时回落到"两份编排文件都在"。这里两档都在：清单在场，故按枚数算。
+/// "这棵树上把几路当一款游戏在管" —— 有注册表时数**助手库在位**的枚数 >1（11-04 刀⑦ 笔(a) 换源：原本数的是 `OrchestrationLib`，
+/// 那把尺随必需键一起退役；PS 侧 `Test-GdMergedEntry` 自此与这里同一把尺），注册表没装载时回落到"两份助手库都在"。这里两档都在：清单在场，故按枚数算。
 fn round_is_merged_entry(root: &str) -> bool {
     let lib_dir = std::path::Path::new(root).join("lib");
     GD_MODULES
         .iter()
         .filter(|m| lib_dir.join(m.manifest_file).exists())
-        .filter(|m| lib_dir.join(m.orchestration_lib).exists())
+        .filter(|m| lib_dir.join(m.assistant_lib).exists())
         .count()
         > 1
 }
 
-/// `Get-GdEntryVerb -Game <id> -Verb <verb>`（lib\decisions-common.ps1）的等价：合体闸 → 该路清单在位 → 名册里有这枚 verb，
+/// `Get-GdEntryVerb -Game <id> -Verb <verb>`（lib\decisions-common.ps1）的等价：合体闸 → 该路清单在位且助手库在位 → 名册里有这枚 verb，
 /// 三闸任一没过就回落 `'-' + $Verb` 这种短名。**回落那一档必须留着**（合体树上没注册的那一枚就是靠它拿到短名），
 /// 但名册在场时不许越过它去回短名 —— §11.50 ④-4 抓的就是"写成短名了事"。
 /// 11-01 丙形真转接（§11.176 ⑥）：PS 侧那层"入口运行时把长名盖进进程内的表"的覆盖件已退役，两侧自此同一把尺＝现问名册；原先引用的那枚同步件只作历史所指，不再有坐标可指。
@@ -6731,7 +6728,7 @@ fn round_entry_verb(game: &str, verb: &str, root: &str) -> String {
     if merged {
         if let Some(m) = gd_module_by_id(game) {
             let lib_dir = std::path::Path::new(root).join("lib");
-            if lib_dir.join(m.manifest_file).exists() && lib_dir.join(m.orchestration_lib).exists() {
+            if lib_dir.join(m.manifest_file).exists() && lib_dir.join(m.assistant_lib).exists() {
                 if let Some(row) = m.entry_verbs.iter().find(|r| r.verb.eq_ignore_ascii_case(verb)) {
                     return row.flag.to_string();
                 }
@@ -11197,8 +11194,8 @@ struct RealHost {
     /// 它与链体行同序落进同一文件，壳侧一次排空就照原级别回放整条链 —— 通道只有一条。
     log_sink: String,
     // 两枚可用性在真身世界不是问盘问出来的，而是问"这一路的模块清单里有没有那枚函数"：
-    // lib\ark-module.ps1:31 的 Libs 带 vision-rescue.ps1 + vision-ark.ps1 ⇒ 两枚都在场；
-    // lib\r1999-module.ps1:27 的 Libs 只带 vision-rescue.ps1（抢前台那枚是端游专用的，住 vision-ark.ps1）
+    // lib\ark-module.ps1:45 的 Libs 带 vision-rescue.ps1 + vision-ark.ps1 ⇒ 两枚都在场（锚原写 :31，刀⑦ 笔(a) 后现读真值 :45）；
+    // lib\r1999-module.ps1:39 的 Libs 只带 vision-rescue.ps1（抢前台那枚是端游专用的，住 vision-ark.ps1；锚原写 :27）
     // ⇒ rescue 在场、grab 不在场。这是**装载期就定了的事实**，不随现场变，所以按 game 给常量，
     // 不去现跑 `Get-Command`（问了也是同一个答案，还要多引一条"当前模块加载了哪些 lib"的现场依赖）。
     rescue_avail: bool,
@@ -11378,7 +11375,7 @@ fn drive_real_m9a_run(
     let mut sc2 = sc.clone();
     sc2.dry_run = false;
     // game 是名册外的常量（真身 m9a.ps1 三处写死 'r1999'），由 envelope 填好再进来；
-    // for_game 按它给两枚可用性：r1999 ⇒ rescue 在场、grab 不在场（lib\r1999-module.ps1:27 的清单事实）。
+    // for_game 按它给两枚可用性：r1999 ⇒ rescue 在场、grab 不在场（lib\r1999-module.ps1:39 的清单事实，锚原写 :27）。
     let mut h = RealHost::for_game(panel_cs, &sc2.game, log_sink);
     let r = m9a_run(&mut h, &sc2)?;
     Ok(M9aRunOut { status: r.status, detail: r.detail, duration: r.duration, rescued: r.rescued })
@@ -15833,7 +15830,7 @@ fn selftest() -> i32 {
         &mut fails,
         &mut total,
     );
-    // B-2b 把 B-2a 那两枚"恒 false"换成按模块清单给的常量（ark-module.ps1:31 / r1999-module.ps1:27）。
+    // B-2b 把 B-2a 那两枚"恒 false"换成按模块清单给的常量（ark-module.ps1:45 / r1999-module.ps1:39，锚原写 :31 / :27）。
     // 这里钉的是"两路各是什么"这一格本身 —— 树上有没有那枚函数的事实源在 lib 的 Libs 清单里，
     // 清单变了这里就得跟着变（跟着变是应当的，不是回归）。
     chk(
@@ -18457,17 +18454,19 @@ fn selftest() -> i32 {
             &mut total,
         );
 
-        // ---------- 24e 在位性现问：临时树上三档（全装 / 只装 ark / 什么都没装） ----------
+        // ---------- 24e 在位性现问：临时树上四档（全装 / 只装 ark / 什么都没装 / 两枚清单在场但只一枚助手库在场） ----------
         let root_all = t24("root-all");
         let root_ark = t24("root-ark");
         let root_none = t24("root-none");
+        let root_reg2 = t24("root-reg2");
         let trees: Vec<(String, Vec<&'static str>)> = vec![
             (
                 root_all.clone(),
-                vec!["ark-module.ps1", "r1999-module.ps1", "maa.ps1", "m9a.ps1", "ark-daily.ps1", "r1999-daily.ps1"],
+                vec!["ark-module.ps1", "r1999-module.ps1", "maa.ps1", "m9a.ps1"],
             ),
-            (root_ark.clone(), vec!["ark-module.ps1", "maa.ps1", "ark-daily.ps1"]),
+            (root_ark.clone(), vec!["ark-module.ps1", "maa.ps1"]),
             (root_none.clone(), vec![]),
+            (root_reg2.clone(), vec!["ark-module.ps1", "r1999-module.ps1", "maa.ps1"]),
         ];
         for (r, files) in trees.iter() {
             let _ = std::fs::create_dir_all(format!("{}\\lib", r));
@@ -18482,7 +18481,7 @@ fn selftest() -> i32 {
             pick_all.map_or(false, |v| v.iter().map(|m| m.id).collect::<Vec<_>>() == vec!["ark", "r1999"])
                 && pick_ark.map_or(false, |v| v.len() == 1 && v[0].id == "ark")
                 && pick_none.as_ref().err().map_or(false, |e| e.contains("没有可加载的游戏模块")),
-            "选路的三档读数不对：注册（*-module.ps1）／装了（助手库）／合体（编排库枚数）三枚判据各是各的，合成一枚就把三种状态糊成一档",
+            "选路的三档读数不对：注册（*-module.ps1）／装了（助手库）两枚判据各是各的，合体档 11-04 刀⑦ 笔(a) 起由「助手库在位的枚数 >1」派生（原数的是编排库枚数，那把尺随必需键退役），合成一枚就把两种状态糊成一档",
             &mut fails,
             &mut total,
         );
@@ -18522,6 +18521,16 @@ fn selftest() -> i32 {
                 && round_entry_verb("ark", "Ack", &root_ark) == "-Ack"
                 && round_entry_verb("r1999", "Ack", &root_ark) == "-Ack",
             "entryverb 的直答不等于真身那两档了：合体判据在场时越过名册去回短名，或该回落时没回落",
+            &mut fails,
+            &mut total,
+        );
+        // 换源正对照（11-04 刀⑦ 笔(a) 新立的一格）：两枚清单在场、助手库只一枚在场 —— 注册枚数=2、助手库枚数=1。
+        // 这一档分开的正是「数注册枚数」与「数助手库在位的枚数」两把尺：前者会把这棵树判成合体而给长名，新尺判非合体、回短名。
+        // （PS 侧同形：Test-GdMergedEntry 走 Get-GdModules -AvailableOnly，未装的那一路不计入枚数。）
+        chk(
+            !round_is_merged_entry(&root_reg2)
+                && round_entry_verb("ark", "Ack", &root_reg2) == "-Ack",
+            "合体判据换源没落地：注册枚数=2 而助手库枚数=1 那棵树被判成合体（给了长名）—— 判据必须数助手库在位的枚数 >1，不是数清单在位的枚数",
             &mut fails,
             &mut total,
         );
@@ -21697,7 +21706,7 @@ asst-failed|ev|2|asst|10000|TaskChainError|TaskChainError|task_chain|Error|local
                     }
                     w28(&format!("lib\\{}", f), "fake\n");
                 }
-                for f in ["maa.ps1", "m9a.ps1", "mumu.ps1", "ark-daily.ps1", "r1999-daily.ps1"] {
+                for f in ["maa.ps1", "m9a.ps1", "mumu.ps1"] {
                     if sc.missing.contains(&f) {
                         continue;
                     }

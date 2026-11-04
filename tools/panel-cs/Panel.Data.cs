@@ -80,7 +80,7 @@ namespace GdPanel
         // 顺带拆掉的隐患：老代码先 StandardOutput.ReadToEnd() 再 ReadToEnd()  stderr、最后才 WaitForExit(60000) ——
         // 这正是「同族管道雷」那条在册的形状(子进程 stderr 写满 4KB 管道缓冲区就互等，60 秒超时是唯一出口)。
         // 现在这一枚不起进程，也就没有管道；代价是面板第一次在自己的 UI 进程里做 Schedule.Service COM
-        // (TIME 行，见 Panel.Summary.cs:374 起那段的取证) —— 这几调用 Round.cs 的 read-task-state 已在 CLI 进程里做过，
+        // (TIME 行，见 Panel.Summary.cs:368 那段横幅起的取证；锚原写 :374，HEAD 帧横幅在 :367 本就漂 7 格，刀⑦ 笔(a) 那本头注 +1 行推到 :368) —— 这几调用 Round.cs 的 read-task-state 已在 CLI 进程里做过，
         // 全同步、毫秒级；真出现挂住，没有 60 秒超时兜着了，这一条登记为刀② 的已知未验面。
         // engine 为空不再在这条路上报 NoEngineHint：摘要这一路本来就不需要 pwsh —— 它要的引擎名字只是
         // 被转述的那一列读数(见 Panel.Summary.cs 的 HEADER／ENV 两行)。真要引擎的那一路(动作、打包、

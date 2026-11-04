@@ -12,8 +12,13 @@ $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 # 加了 ark-farm.ps1 之后：ark-daily 的掉落记账调用在自检里认不到函数、一路掉进 catch 打一句 WARN 就过了，
 # 全套件照样全绿 —— 那是假绿。现在名单由下面的 $GdTestDotLibs 交给 [m3] 逐条对账，漏一项当场变红。
 # 仍然带 Test-Path 守卫：单游戏导出仓里另一款的库不在，就少点一份、少一侧能力，不炸。
+# 11-04 转接刀·运行面刀⑦ 笔(c/d)：'ark-daily'／'r1999-daily' 两枚随编排岛整件出仓，本名单自此八枚。
+# 上面那句"名单＝两份清单声明的 Libs 的并集"仍然成立，只是两侧同时少两枚才闭合：只删这一份而清单没删
+# ＝少装载一路(那一路的库认不到函数)，只删清单而这一份没删＝多一个恒不命中的名字、谁也看不出。
+# 上面那条讲"当年 ark-daily 的调用在自检里认不到函数"的史注按仓内口径不改口——它说的那枚件现在在仓外，
+# 故事讲的是[为什么立这条对账]，不是[现在点的是谁]。
 $script:GdTestDotLibs = @('decisions', 'maa', 'm9a', 'mumu', 'vision-rescue', 'vision-ark', 'vision-mumu',
-                          'ark-farm', 'ark-daily', 'r1999-daily')
+                          'ark-farm')
 foreach ($lib in $script:GdTestDotLibs) {
     $libPath = Join-Path $root "lib\$lib.ps1"
     if (Test-Path -LiteralPath $libPath) { . $libPath }
@@ -77,8 +82,13 @@ function Show-GdCommonScreensaverChecks {
     #   那本 plan 不在＝单游戏出货树，那一枚消费面本就不在这批货里，明印 [跳过] 而不是静默。
     #   ⇒ 这一格自此在只带另一路的出货树上少量一枚消费面(方舟那棵树仍三枚全量)；工作树侧的射程一字未减，
     #     非分路那两件(status.ps1／tools\unarm-screensaver.ps1)在任何一棵树里缺了都照样红。
-    $foldFiles = @('status.ps1', 'lib\ark-daily.ps1', 'tools\unarm-screensaver.ps1')
-    $foldPerGame = @('lib\ark-daily.ps1')
+    # 11-04 转接刀·运行面刀⑦ 笔(c/d)：上面那枚分路件 lib\ark-daily.ps1 随编排岛整件出仓 ⇒ 本格的靶自三枚改两枚，
+    #   折算的**生产消费面 3→2**(status.ps1／tools\unarm-screensaver.ps1 两枚仍每棵树都在)。判据因此是**收紧**不是放宽：
+    #   $foldPerGame 空了＝分路豁免通道恒不开，任何一棵树里缺这两枚都当场红。那套 [跳过] 形制故意留着(见下面 $foldSkip
+    #   仍在打印)——以后若又长出只属于某一路的消费面，形制还在；把它整段删掉才是把这条路堵死。
+    #   ⚠ 上面那段"分路盲区改口(推仓74)"按史注读，不改口：它记的是当时那次出货面现红的处方，那枚件现在在仓外。
+    $foldFiles = @('status.ps1', 'tools\unarm-screensaver.ps1')
+    $foldPerGame = @()
     $foldMiss = @()
     $foldSkip = @()
     $foldWork = Test-Path -LiteralPath (Join-Path $root 'docs\rust-core-plan.md')

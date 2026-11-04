@@ -6,7 +6,7 @@
   活动期元数据(版本/起止/类型)，**没有任何玩家进度** —— 所以判据只有一条路：模拟器里的 1999 画面 +
   视觉模型(qwen3.8-flash，通道 tools\vision\ask.py)。三条硬纪律：
     1) 只问不点：不碰 vision-rescue 的点击通道，截屏只走 adb(Save-GdMuMuShot)；
-    2) 三态回答 yes / no / unknown —— 只有**画面证据明确的 yes** 才自动 Set-GdR1999Ack，
+    2) 三态回答 yes / no / unknown —— 只有**画面证据明确的 yes** 才自动落 ack(问核，不再叫编排岛里那枚壳)，
        no/unknown 维持 pending 照旧等人；宁可多问人一次，不许猜着 ack(ack 的下游是"放开自动刷活动方案")；
     3) 证据全留底：截图、模型原话、判定、有没有 ack，都落 state\1999-progress-audit\，事后可审计可回滚。
   一个时序事实决定了流程形态：M9A 任务队列的最后一项是「关闭游戏」，轮到收尾时游戏已经关了 ——
@@ -30,7 +30,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 . (Join-Path $root 'lib\common.ps1')
-. (Join-Path $root 'lib\decisions.ps1')      # 门面：Get-R1999Event/Set-GdAckKey 这条判定链由它点进来(daily-clear 同款顺序)
+. (Join-Path $root 'lib\decisions.ps1')      # 门面：Get-R1999Event 这条判定链由它点进来(daily-clear 同款顺序)
 . (Join-Path $root 'lib\modules.ps1')
 [void](Import-GdModules -Quiet)
 foreach ($libPath in (Get-GdModuleLibPaths)) { . $libPath }
@@ -163,7 +163,18 @@ try {
     }
     $acked = $false
     if ($verdict -eq 'yes' -and $Apply) {
-        Set-GdR1999Ack -S $S
+        # 11-04 刀⑦ 笔(b) 定档改口：确认那一步不再叫编排岛里那枚壳(它体内两句人话＋写盘那半段，
+        # 核里有一份逐字对面)，改问核。取数半段归调用方，与核头注「先取数后写盘」那句同一形制：
+        # 这里现取的那一发带「无视领空表」那一档 —— 岛里那枚壳原来就是这一档，旧壳的消费面不随领空改判。
+        # 形状差一处登记在側：核回的话术只有文字、不带日志档位，回放这一圈就少了原来那层着色，字没改。
+        # (上面 verdict 落 yes 那一档才走到这里；no/unknown 的闸在下面的分支，与本段无关。)
+        $ack = Get-R1999Event -S $S -IgnoreShopDone
+        $d = Invoke-GdCli -Verb 'set-r1999-ack' -Body ([pscustomobject]@{
+            eventKey = [string]$ack.EventKey
+            eventTip = [string]$ack.EventTip
+            reason   = [string]$ack.Reason
+        })
+        foreach ($l in @($d.Lines)) { Write-GdLog ([string]$l) }
         $acked = $true
         Write-Host "  判定 yes → 已自动确认活动(等价 daily-clear.ps1 $(Get-GdEntryVerb -Game 'r1999' -Verb 'Ack'))" -ForegroundColor Green
     } elseif ($verdict -eq 'yes') {

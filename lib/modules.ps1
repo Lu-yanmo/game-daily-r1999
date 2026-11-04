@@ -20,7 +20,7 @@ if (-not (Get-Variable -Name GdModules -Scope Global -ErrorAction SilentlyContin
 }
 
 # 一个模块清单必须齐这些东西才算能用。少哪一项就报哪一项 —— 将来加模块的人只会看这一处。
-$script:GdModuleRequiredKeys = @('Id', 'Name', 'ShortName', 'AssistantLib', 'OrchestrationLib', 'RequiresAdmin', 'ElevationFlag', 'AdminWhy', 'AdminHint', 'AdminOkNote', 'SettingsBlock', 'PathKeys', 'EntryVerbs', 'Libs', 'Hooks')
+$script:GdModuleRequiredKeys = @('Id', 'Name', 'ShortName', 'AssistantLib', 'RequiresAdmin', 'ElevationFlag', 'AdminWhy', 'AdminHint', 'AdminOkNote', 'SettingsBlock', 'PathKeys', 'EntryVerbs', 'Libs', 'Hooks')   # 11-04 刀⑦ 笔(a)：十五枚→十四枚，OrchestrationLib 随合体判据换源退役(判语见 lib\decisions-common.ps1 的 Test-GdMergedEntry 头注)
 $script:GdModuleRequiredHooks = @('EnvProbes')   # 11-04 刀⑤ 七枚→一枚(判语见本文件末尾那段，此处一行不改行数是为了不掀漂 :88 那枚名册循环的表账锚)
 
 function Register-GdModule {
@@ -39,12 +39,12 @@ function Register-GdModule {
 
 function Get-GdModules {
     <# 注册表里的模块，按注册顺序(= 文件名顺序)。-AvailableOnly 只要这棵树上真的装了的那几路：
-        判据是"那一路的助手库在不在"，和 Get-GdRequiredPathKeys / status.ps1 用的是同一个口径。 #>
+        判据现问 Test-GdModuleInstalled(唯一那把尺)——这里原本是"助手库在不在"的第二份 Test-Path 写法，
+        11-04 刀⑦ 笔(a) 收成一处(§11.186 那笔口径)，合体判据 Test-GdMergedEntry 自此也走这一处。 #>
     param([switch]$AvailableOnly)
     $all = @($global:GdModules.Values)
     if (-not $AvailableOnly) { return $all }
-    $lib = Join-Path (Get-GdRoot) 'lib'
-    return @($all | Where-Object { Test-Path -LiteralPath (Join-Path $lib ([string]$_.AssistantLib)) })
+    return @($all | Where-Object { Test-GdModuleInstalled -Module $_ })
 }
 
 function Get-GdModule {
@@ -59,13 +59,13 @@ function Get-GdModuleIds {
 }
 
 function Test-GdModuleInstalled {
-    <# 这一路"装没装在这棵树上"。-Key 选判据：
-        AssistantLib(默认) = 助手库在不在 → "这一路能不能跑"
-        OrchestrationLib   = 编排文件在不在 → "有没有入口把这一路当一款游戏来管"
+    <# 这一路"装没装在这棵树上"——唯一判据 = 助手库在不在(→ "这一路能不能跑")。
+        11-04 刀⑦ 笔(a)：-Key 那把「编排文件在不在」的第二尺随 OrchestrationLib 必需键同批退役，
+        合体判据 Test-GdMergedEntry 与 Get-GdModules -AvailableOnly 自此都现问这一处。
         注意：合体/单游戏的判据函数 Test-GdMergedEntry 住在 lib\decisions-common.ps1(老消费方都在那里用)，
         本文件不重复定义同名函数 —— 两份库先后 dot-source 时"后点的覆盖先点的"是顺序依赖坑，别踩。 #>
-    param([Parameter(Mandatory)]$Module, [ValidateSet('AssistantLib', 'OrchestrationLib')][string]$Key = 'AssistantLib')
-    $f = [string]$Module.$Key
+    param([Parameter(Mandatory)]$Module)
+    $f = [string]$Module.AssistantLib
     if (-not $f) { return $false }
     return (Test-Path -LiteralPath (Join-Path (Get-GdRoot) "lib\$f"))
 }

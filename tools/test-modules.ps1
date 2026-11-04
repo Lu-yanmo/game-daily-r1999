@@ -76,15 +76,15 @@ foreach ($m in @(Get-GdModules)) {
     $id = [string]$m.Id
     $bad = @(Assert-GdModuleManifest -Module $m)
     Check "[$id] 清单体检没有意见" ($bad.Count -eq 0) ($bad -join '；')
-    foreach ($k in @('Id', 'Name', 'ShortName', 'AssistantLib', 'OrchestrationLib', 'SettingsBlock')) {
+    foreach ($k in @('Id', 'Name', 'ShortName', 'AssistantLib', 'SettingsBlock')) {
         Check "[$id] $k 非空" ([bool][string]$m.$k)
     }
     Check "[$id] PathKeys 至少一项(这一路总要有要催的路径)" (@($m.PathKeys).Count -gt 0) (@($m.PathKeys) -join ',')
-    Check "[$id] Libs 至少两项(助手库 + 编排库)" (@($m.Libs).Count -ge 2) (@($m.Libs) -join ' ')
+    Check "[$id] Libs 至少两项(助手库 + 至少一枚业务库)" (@($m.Libs).Count -ge 2) (@($m.Libs) -join ' ')
     # 声明了却不在树上的库 = 半夜那句"无法将…识别为 cmdlet"
     $missing = @(Get-GdModuleLibPaths -MissingOnly)
     Check "[$id] 声明的业务库全在 lib\ 下" ($missing.Count -eq 0) ($missing -join ' / ')
-    Check "[$id] 助手库与编排库都在清单的 Libs 里" (($m.Libs -contains [string]$m.AssistantLib) -and ($m.Libs -contains [string]$m.OrchestrationLib))
+    Check "[$id] 助手库在清单的 Libs 里(顶层 dot-source 点得到它；编排键已随刀⑦ 笔(a) 退役)" ($m.Libs -contains [string]$m.AssistantLib)
     Check "[$id] RequiresAdmin 与 AdminWhy 搭配套(要提权就得说为什么)" $(-not $m.RequiresAdmin -or [string]$m.AdminWhy) "RequiresAdmin=$($m.RequiresAdmin)"
     if ($m.RequiresAdmin) {
         Check "[$id] 要管理员 → 提权开关名(ElevationFlag)写了" ([bool][string]$m.ElevationFlag) "ElevationFlag=$($m.ElevationFlag)"

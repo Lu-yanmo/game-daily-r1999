@@ -14,8 +14,8 @@
     0 = 已是最新(或 -Apply 已更新成功)
     1 = 只读模式发现新版没动手(想让轮子自动更的调用方请带 -Apply)
     2 = 拒了/失败(M9A 在跑、版本源读不出、网络或下载失败、校验失败 —— 校验失败时已回退，装包目录完好)
-  纪律：本工具**永不杀 M9A 进程** —— 在跑就退让，调用方先关它(lib\r1999-daily.ps1 的挂点在起跑前，
-  那时 M9A 必然没跑)。用户态(config、appsettings.json、data、logs 等)被覆盖步排除在外，
+  纪律：本工具**永不杀 M9A 进程** —— 在跑就退让，调用方先关它(lib\rust-round.ps1 的 updgate 臂把这一发挂在起跑前，
+  那时 M9A 必然没跑；11-04 刀⑦ 起旧调用方 lib\r1999-daily.ps1 整件出仓，本两行按等长改写不落行数)。用户态(config、appsettings.json、data、logs 等)被覆盖步排除在外，
   但 interface.json 必须跟着覆盖 —— 它是版本核，不覆盖就永远校不过。
 #>
 [CmdletBinding()]

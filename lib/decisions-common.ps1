@@ -162,14 +162,14 @@ function Show-GdGateState {
 function Get-GdEntryVerb {
     <# 现问，不落表：先判这棵树上把几路当一款游戏在管(合体才换长名)，是就现问该路清单自己声明的
         EntryVerbs.Merged；问不到(注册表没装载／这一路不在这棵树上／这一路没声明这枚 verb)就回落干净短名。
-        判据与 tools\rustcore\src\main.rs 的 round_entry_verb 逐条对齐：合体闸按"编排文件在位"数，
-        取长名前再核该路自己那两把在位尺，名册里没这枚 verb 才落到 '-' + verb。 #>
+        判据与 tools\rustcore\src\main.rs 的 round_entry_verb 逐条对齐：合体闸按"助手库在位"数，
+        取长名前再核该路自己在位(同一把尺)，名册里没这枚 verb 才落到 '-' + verb。 #>
     param([Parameter(Mandatory)][string]$Game,
           [Parameter(Mandatory)][ValidateSet('Ack', 'ShopDone', 'ShopReset', 'Farm')][string]$Verb)
     if ((Test-GdMergedEntry) -and (Get-Command Get-GdModules -ErrorAction SilentlyContinue)) {
         foreach ($m in @(Get-GdModules)) {
             if (([string]$m.Id) -ne $Game) { continue }
-            if (-not (Test-GdModuleInstalled -Module $m -Key 'OrchestrationLib')) { continue }
+            if (-not (Test-GdModuleInstalled -Module $m)) { continue }
             $v = $m.EntryVerbs.Merged
             if (-not $v) { continue }
             $name = [string]$v.$Verb
@@ -180,17 +180,24 @@ function Get-GdEntryVerb {
     return '-' + $Verb
 }
 function Test-GdMergedEntry {
-    <# 这棵树是不是"一个入口管两款"的合体工程：判据用两路的编排文件在不在，
+    <# 这棵树是不是"一个入口管两款"的合体工程：判据用两路的助手库在不在，
         跟 Get-GdRequiredPathKeys"按那路的助手库在不在决定该催哪些路径"是同一招 —— 导出仓库里不猜配置。
-        注册表装着时按模块清单数(加一款游戏不需要来改这里)；没装载时退回按两个文件名探测，
-        因为 status.ps1 / 自检这些老消费方本来就只点 common+decisions，不点 modules.ps1。 #>
+        注册表装着时按 Get-GdModules -AvailableOnly 数(加一款游戏不需要来改这里)；没装载时退回按两个文件名探测，
+        因为 status.ps1 / 自检这些老消费方本来就只点 common+decisions，不点 modules.ps1。
+        ⚠ 11-04 刀⑦ 笔(a) 换源：这一格的判据原本数的是两路的**编排文件**(lib\ark-daily.ps1 / lib\r1999-daily.ps1)，
+        那两件是"这棵树上有没有入口把这一路当一款游戏在管"的读数。运行面刀①~⑤ 之后，两路的游戏侧动作全部
+        由核内直答，那两枚件只剩 executor 的壳 ⇒ 再拿它当选路判据就是让一份要退役的件决定活着的判据(§11.235 判语①)。
+        自此人侧与核内 round_is_merged_entry 同一把尺 = 助手库在不在枚数 >1，OrchestrationLib 那枚必需键同批退役。
+        代价照登：回落那一支(下面 $lib 那两行)自此在全树**没有活消费方** —— Get-GdEntryVerb 那一路同闸要求
+        注册表在场，而唯一直接问这枚函数的 test-modules.ps1:285 又跑在装载了清单的进程里；
+        留着它是"老消费方只点两本库"那条契约的形状，不是"现在有人在按它选路"，账记在枚数不动那一侧。 #>
     if (Get-Command Get-GdModules -ErrorAction SilentlyContinue) {
         $all = @(Get-GdModules)
         if ($all.Count) {
-            $n = @($all | Where-Object { Test-GdModuleInstalled -Module $_ -Key 'OrchestrationLib' }).Count
+            $n = @(Get-GdModules -AvailableOnly).Count
             return ($n -gt 1)
         }
     }
     $lib = Join-Path $global:GD.Root 'lib'
-    return ((Test-Path -LiteralPath (Join-Path $lib 'ark-daily.ps1')) -and (Test-Path -LiteralPath (Join-Path $lib 'r1999-daily.ps1')))
+    return ((Test-Path -LiteralPath (Join-Path $lib 'maa.ps1')) -and (Test-Path -LiteralPath (Join-Path $lib 'm9a.ps1')))
 }

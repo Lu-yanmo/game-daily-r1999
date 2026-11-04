@@ -24,8 +24,7 @@ Register-GdModule ([pscustomobject]@{
         Id               = 'r1999'
         Name             = '重返未来：1999(MuMu + M9A)'
         ShortName        = '1999'
-        AssistantLib     = 'm9a.ps1'
-        OrchestrationLib = 'r1999-daily.ps1'
+        AssistantLib     = 'm9a.ps1'          # 这一路能不能跑(11-04 刀⑦ 笔(a) 起它同时是合体判据那一把尺的唯一读数)
         RequiresAdmin    = $false             # M9A 操作的是模拟器里的安卓，不提权也连得上
         ElevationFlag    = 'arkRequiresElevation'   # 本路没有这个开关(RequiresAdmin 已是 false，框架不会读到这里)
         # 这一路不要管理员，三句提示都用不上 —— 空串是"字段齐但没话要说"，Assert 认这个形状。
@@ -37,7 +36,15 @@ Register-GdModule ([pscustomobject]@{
         # 同 ark-module.ps1：入口在顶层点的业务库，r1999-decisions.ps1 由 lib\decisions.ps1 门面负责点。
         # 兜底那两份：vision-rescue.ps1 是两路共用的内核(ark 清单里也有它，按文件名去重只点一次)，
         # vision-mumu.ps1 是这一路自己的后端(adb 截屏 + adb input tap，即 New-GdVisionTarget-mumu 的出处)。
-        Libs             = @('m9a.ps1', 'mumu.ps1', 'vision-rescue.ps1', 'vision-mumu.ps1', 'r1999-daily.ps1')
+        Libs             = @('m9a.ps1', 'mumu.ps1', 'vision-rescue.ps1', 'vision-mumu.ps1')
+        # 11-04 转接刀·运行面刀⑦ 笔(c)：'r1999-daily.ps1' 整件出仓，故此处不再列它。前置现拍＝岛里逐枚点名
+        # (Set-GdR1999ShopState／Resolve-GdR1999Decision／Show-GdR1999Preview／Start-GdR1999Daily／
+        # Get-GdM9ADriveExe／Invoke-GdR1999DailyRust)岛外零活 PS 调用点逐枚现拍(§11.235)：判定/预览/收尾三门
+        # 已随运行面刀①~③ 进核直答，-RShopDone／-RShopReset 那两档走 gates 表→核内 verb，从不叫这枚壳；
+        # 起跑/收尾那两把闸(更新器与活动审计)的家在地板件 lib\rust-round.ps1，不随本件出仓。
+        # 文件头那句「业务逻辑仍留在 …r1999-daily.ps1… 里」自此按历史引文读(摘走真身不等于摘走语义，家逐枚点名)：
+        # 商店态/当日确认的写盘＋话术在 tools\panel-cs\Round.Data.cs，判定构造段在 Orchestration.cs，
+        # MuMu/M9A 拉起与收尾在 Chain.cs，链体在 tools\rustcore\src\main.rs——PS 侧不再有一份，"不复制任何实现"仍成立。
         # 这一路要管理员吗？清单这里答"No"，兜底那边也一样：NeedsAdmin=$false 写在 New-GdVisionTarget-mumu。
         # 两处不冲突 —— 前者管"跑这一路要不要提权"，后者管"点这一路的画面要不要提权"，1999 两样都不要。
         VisionKind       = 'mumu'             # 兜底对象是"模拟器屏幕"，不是"1999 这款游戏"，所以 kind 不叫 r1999

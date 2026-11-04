@@ -212,7 +212,8 @@ namespace GdPanel
             if (resolved.Length > 0) c.EngineTarget = resolved;
             else c.EngineTarget = c.Engine;
 
-            // 入口名三选一(原 panel.ps1 的入口探量那段，已随件删除)：顺序不许动，合体仓与两份导出仓就靠这三枚候选分家。
+            // 入口名三选一(原 panel.ps1 的入口探量那段，已随件删除)：顺序不许动，但那句"靠这三枚候选分家"自 11-04 刀⑦ 笔(a) 起按历史引文读——
+            // 三棵树(合体＋两棵导出)的根目录都有 publish-split 复制过去的 daily-clear.ps1，第一枚恒命中，后两枚从未生效(登记不代改：摘候选＝形状变)。
             foreach (string cand in new string[] { "daily-clear.ps1", "ark-daily.ps1", "r1999-daily.ps1" })
             {
                 if (File.Exists(Path.Combine(c.Root, cand))) { c.EntryName = cand; break; }

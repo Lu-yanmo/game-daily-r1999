@@ -299,31 +299,64 @@ Check '新版文案不认识时 Read-GdM9ALine 返回 $null(而不是硬凑一�
 # 整段出仓后这三格的桌子跟着换：跳过清单与 rescued 翻案的家在 tools\panel-cs\Orchestration.cs 的
 # DailyRetry r1999 支，"失败只 WARN"那句话术的家在 tools\rustcore\src\main.rs 的 updgate 分流，
 # lib\r1999-daily.ps1 只剩现场件(executor)。断言内容一个字没改——五枚状态名一枚不许少，改的只是到哪家去问。
-$r1999Daily = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\lib\r1999-daily.ps1') -Raw -Encoding utf8
+# 11-04 转接刀·运行面刀⑦ 笔(c/d) 作废登记＋搬靶：上面那段"lib\r1999-daily.ps1 只剩现场件(executor)"自本批
+# 按历史引文读——编排岛整件出仓(310 行／六枚真身)，PS 侧不再有那台驱动档 executor。逐格分档如下，
+# 判据一个字没改，改的是到哪家去问(搬靶)与哪家都没有(作废登记)：
+#   · 搬靶两格——更新闸那格与审计闸那格：那两发起子进程的活整个在 lib\rust-round.ps1 的 updgate／audit
+#     两枚 case 里(m9a-update.ps1 -Apply 与 1999-event-audit.ps1 -Apply，含那句"维持 event-pending"的挑行)，
+#     对面逐字在场 ⇒ 靶换成轮档件，语义不丢。
+#   · 作废三格——ask 白名单七枚／'run' case 不许复活／信封 role 字面 B2d-drive-m9a-daily：那是**驱动档**的数。
+#     轮档件现拍的 case 名册只有五枚(round-elevate／round-supervisor-start／round-supervisor-stop／updgate／audit)，
+#     而两件头注本来就明写「不要把驱动档那十四枚白名单当这枚名册用，那是另一族的数」——硬搬就是把轮档那本当
+#     驱动档那本用。run 那枚的真身在核内，家一字未动；驱动档信封自此没有 PS 侧的写信人，核内 --drive-m9a-daily
+#     成死出口候选(§11.235 已登记，账记在"名册枚数"那侧、不记在净行数)。
+#   · 行序那格**拆成两半**：旧形比的是"更新闸在 Invoke-GdTakeover 之前"。轮档件的代码面现拍没有 Invoke-GdTakeover
+#     (接管那一步在核内问序里，PS 侧不再执行它) ⇒ 那一半当场没有桌子，登记为漏钉(要钉就得在核内侧成格，归后续刀)；
+#     还能量的一半是两把闸的先后——更新闸在上、审计闸在下，同一台 executor 的 ask 序，这半搬靶成立。
+$r1999RoundPs = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\lib\rust-round.ps1') -Raw -Encoding utf8
 $orchCs = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'panel-cs\Orchestration.cs') -Raw -Encoding utf8
 $rustCore = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'rustcore\src\main.rs') -Raw -Encoding utf8
 $orchRetry = [regex]::Match($orchCs, '(?s)bool baseRetry(?<win>.*?)retryable = true').Groups['win'].Value
 Check '1999 重试会跳过 not-started/empty-queue/unknown-format/blocked' (($orchRetry -match '"ok"') -and ($orchRetry -match '"not-started"') -and ($orchRetry -match '"empty-queue"') -and ($orchRetry -match '"unknown-format"') -and ($orchRetry -match '"blocked"'))
 # M9A 自动更新闸(tools\m9a-update.ps1，2026-09-30 用户「检查到更新自己更就行了」)：这里只做静态锚，
 # 不联网、不起子进程 —— 实测链路当晚 12:40 人工 -Apply 走过一次(v4.10.0→v4.11.0)，测试不许依赖网络。
-Check '1999 起跑段挂了 M9A 自动更新闸(调 tools\m9a-update.ps1 -Apply，失败只 WARN)' (($r1999Daily -match 'm9a-update\.ps1') -and ($rustCore -match 'M9A 自动更新未完成'))
-Check '自动更新闸放在 Invoke-GdTakeover 之前(更新器见进程在跑就拒动，顺序就是正确性)' ($r1999Daily.IndexOf('m9a-update.ps1') -ge 0 -and $r1999Daily.IndexOf('m9a-update.ps1') -lt $r1999Daily.IndexOf('Invoke-GdTakeover'))
+Check '1999 起跑段挂了 M9A 自动更新闸(调 tools\m9a-update.ps1 -Apply，失败只 WARN；11-04 笔(c/d) 搬靶到轮档件)' (($r1999RoundPs -match 'm9a-update\.ps1') -and ($rustCore -match 'M9A 自动更新未完成'))
+Check '两把闸的先后还在：更新闸排在审计闸之前(11-04 笔(c/d) 拆半搬靶——旧形的"在 Invoke-GdTakeover 之前"那一半随接管步进核内作废，登记为漏钉)' ($r1999RoundPs.IndexOf('m9a-update.ps1') -ge 0 -and $r1999RoundPs.IndexOf('m9a-update.ps1') -lt $r1999RoundPs.IndexOf('1999-event-audit.ps1'))
 Check '更新器本体在位且退出码契约写在头注' ((Test-Path -LiteralPath (Join-Path $PSScriptRoot 'm9a-update.ps1')) -and ((Get-Content -LiteralPath (Join-Path $PSScriptRoot 'm9a-update.ps1') -Raw -Encoding utf8) -match '0 = 已是最新'))
 # 活动打完没打完的 agent 判定(tools\1999-event-audit.ps1，2026-09-30 用户「让agent判断」)：同样只做静态锚，
 # 不碰模拟器不联网 —— 真链路 09-30 用 -Image 旁路对着一张方舟截图实问过(模型如实答 unknown，保守纪律成立)。
 $r1999Audit = Get-Content -LiteralPath (Join-Path $PSScriptRoot '1999-event-audit.ps1') -Raw -Encoding utf8
-Check '1999 收尾段挂了活动审计(队列跑完才问、失败只 WARN 不挡轮)' (($r1999Daily -match '1999-event-audit\.ps1') -and ($r1999Daily -match '维持 event-pending'))
+Check '1999 收尾段挂了活动审计(队列跑完才问、失败只 WARN 不挡轮；11-04 笔(c/d) 搬靶到轮档件)' (($r1999RoundPs -match '1999-event-audit\.ps1') -and ($r1999RoundPs -match '维持 event-pending'))
 Check '审计工具的护栏语义在案：只有画面证据明确的 yes 才 ack，no/unknown 照旧等人' (($r1999Audit -match '只有画面上出现明确的"全部完成"证据才许答 yes') -and ($r1999Audit -match 'no/unknown 维持 pending'))
 Check '审计工具只问不点：点击通道一个字都不许出现' (($r1999Audit -notmatch 'input tap') -and ($r1999Audit -notmatch 'Invoke-GdVisionRescue') -and ($r1999Audit -match 'Save-GdMuMuShot'))
 # 18:21/19:10/19:20 三次实锤定下的现场自理三件：VM 自己起自己关(谁拉起谁关)、落点拿到后先显式 connect
 # (adb server 列表为空时 -s 序列号直接 device not found)、序列化拿不到时有界轮询而不是当场判死。
 Check '审计工具自己保虚拟机在场：起 VM、只有我们起的才关回去(对称还原)' (($r1999Audit -match 'Start-GdMuMu') -and ($r1999Audit -match 'Stop-GdMuMu') -and ($r1999Audit -match 'weBootedVm'))
 Check '审计工具拿到落点先 Connect-GdAdb 再走 -s(实锤 09-30 19:20 空列表 device not found)' ($r1999Audit -match 'Connect-GdAdb')
+# 11-04 刀⑦ 笔(b) 定档改口：审计工具的 ack 那一步不再叫编排岛里那枚壳，改问核(对面 tools\panel-cs\Round.Data.cs::R1999Ack)。
+# 两半都是钉：正向半抓"改指没落地"，反向半(锚翻负)抓"有人把那两句人话又抄回 PS 侧"——话术自此只有一处真身，PS 侧一个字都不许留。
+# 正向半必须**剥注释后按调用行字面**抓(m9a-update 两形照上面 $fnEv 那套，§「锚不是调用」那笔账)：
+# 本格第一版图省事只抓裸 verb 名，mutation 现拍当场自伤——把调用行整个换回旧壳，套件照样全绿，
+# 因为头注里那句指路的话把锚喂饱了。凡"正向锚＋同件注释也写了这个词"的格，从一开始就得剥注释。
+$r1999AuditCode = ($r1999Audit -replace '(?s)<\#.*?\#>', ' ') -replace '(?m)^\s*#.*$', ' '
+Check '审计的 ack 那一步问的是核，且件内不复写确认话术(11-04 刀⑦ 笔(b) 改指)' (
+    ($r1999AuditCode -match "Invoke-GdCli -Verb 'set-r1999-ack'") -and ($r1999Audit -notmatch '已确认 1999 活动'))
 # 2026-10-27 第十六刀：probe-m9adrive 等值门整件退役，门里 C-ps-whitelist 那格咬现树 executor 的三个字面，
 # 判据原样落到这里(与 [t16] 既有静态锚同形状)。三条都是从门里逐字搬的口径：白名单七枚、'run' case 不许复活、role 字面。
-Check 'PS executor 的 ask 白名单仍是七枚(与核内 DriveFx 动作名逐字同源，改一侧必改另一侧)' ($r1999Daily.Contains("@('updgate', 'takeover', 'mumu', 'cfg', 'sleep', 'stop', 'audit')"))
-Check "executor 里没有复活 'run' case(双删是回归抓器：run 是这一路唯一的真做动作，在核内)" (-not $r1999Daily.Contains("'run' {"))
-Check '信封 role 校验那枚字面仍在(executor 认账本是谁的)' ($r1999Daily.Contains('B2d-drive-m9a-daily'))
+# ↑ 11-04 转接刀·运行面刀⑦ 笔(c/d) 作废登记：上面这三格(ask 白名单七枚／'run' case 不许复活／role 字面
+# B2d-drive-m9a-daily)随编排岛整件出仓——它们量的是驱动档那台 PS executor 的源码形状，岛没了当场没有桌子。
+# 逐枚写下它们不再量什么，不静默删：白名单那本是**驱动档**的数(轮档件是另一族的五枚，见上面分档那句)；
+# 'run' 的真身在核内，家没变；role 字面随信封一起出仓，核内 --drive-m9a-daily 成死出口候选。
+# ⚠ 这里**不新立**一枚"轮档五枚名册"的正格：那五枚的账在核内 S28_ROSTER 已经逐枚点名，PS 侧再抄一遍就是
+# 本主线一直在删的那本双账(两处各写一遍)。要立只立"一处现问"那种形，射程归后续刀，不在本批。
+# 同一批留一枚「退役不回潮」负锚，形状照 test-ark 那两形(拉起族三枚真身／编排岛真身)：岛上那批真身
+# (枚数由下面 foreach 的名册供数，注释不写数——写死的枚数会被下一次扩名册变成陈旧账；含 11-04 笔(b) 出仓的 Set-GdR1999Ack)若被人搬回 PS 侧，最可能落的两件就是轮档件与清单件。
+$r1999ModulePs = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\lib\r1999-module.ps1') -Raw -Encoding utf8
+$r1999IslandBad = @()
+foreach ($r1999IslandFn in @('Set-GdR1999ShopState', 'Resolve-GdR1999Decision', 'Show-GdR1999Preview', 'Start-GdR1999Daily', 'Get-GdM9ADriveExe', 'Invoke-GdR1999DailyRust', 'Set-GdR1999Ack')) {
+    if ($r1999RoundPs.Contains('function ' + $r1999IslandFn + ' ') -or $r1999ModulePs.Contains('function ' + $r1999IslandFn + ' ')) { $r1999IslandBad += $r1999IslandFn }
+}
+Check '编排岛真身(含笔(b) 那枚 ack 壳)的定义不在轮档件与清单件里(名册逐枚现扫；回潮＝核内一份＋PS 一份那本双账复活)' ($r1999IslandBad.Count -eq 0) ($r1999IslandBad -join ',')
 
 Write-Host "`n[t17] 单任务识别失败 / 版本落后 / 连不上模拟器 —— 09-25 19:24 那一轮的复盘"
 <#

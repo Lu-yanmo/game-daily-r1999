@@ -374,6 +374,69 @@ namespace GdPanel
                     var data = Gd.Map(Gd.Get(env, "data"));
                     return code == 0 && data != null && data.Count == 1 && !Gd.Truthy(data["Found"]);
                 });
+                // ---- 刀④ status 族接线(2026-11-04)：体检链问核的两枚纯数据出口(两本 lib\*-status.ps1 四枚写死名册的直身) ----
+                // 期望串逐字抄自出仓前的 lib\ark-status.ps1／lib\r1999-status.ps1 与 status.ps1 外壳那把三态尺——
+                // 「换答方不换问法」的牙：行集/标签/行序/三态语义任一漂移，这里当场红。
+                b.Chk("resolve-status-env-rows：ark 三行的标签与行序逐字(MAA／MAA 配置／方舟端游)", delegate
+                {
+                    var rr = Gd.Map(Detect.StatusEnvRows(Gd.Map(Gd.Out("id", "ark",
+                        "maaDir", "Z:\\gd_no_such_dir_zzz", "maaConfig", "configuration.json", "arknightsExe", ""))));
+                    var rows = Gd.List(Gd.Get(rr, "rows"));
+                    if (rows.Length != 3) return false;
+                    return Gd.Str(Gd.Get(Gd.Map(rows[0]), "label")) == "MAA"
+                        && Gd.Str(Gd.Get(Gd.Map(rows[1]), "label")) == "MAA 配置"
+                        && Gd.Str(Gd.Get(Gd.Map(rows[2]), "label")) == "方舟端游";
+                });
+                b.Chk("resolve-status-env-rows：三态齐拍(在场文件=ok／不存在路径=missing／空串=empty)", delegate
+                {
+                    string hit = Path.Combine(baseDir, "env-row-hit.txt");
+                    File.WriteAllText(hit, "x");
+                    var rr = Gd.Map(Detect.StatusEnvRows(Gd.Map(Gd.Out("id", "ark",
+                        "maaDir", hit, "maaConfig", "", "arknightsExe", "Z:\\gd_no_such_exe_zzz"))));
+                    var rows = Gd.List(Gd.Get(rr, "rows"));
+                    if (rows.Length != 3) return false;
+                    string s0 = Gd.Str(Gd.Get(Gd.Map(rows[0]), "state"));   // base 在场文件 → ok
+                    string s1 = Gd.Str(Gd.Get(Gd.Map(rows[1]), "state"));   // rel 没填 → 只出 base(=在场文件) → ok
+                    string s2 = Gd.Str(Gd.Get(Gd.Map(rows[2]), "state"));   // 填了但不存在 → missing
+                    var e = Gd.Map(Detect.StatusEnvRows(Gd.Map(Gd.Out("id", "ark", "maaDir", ""))));
+                    string s3 = Gd.Str(Gd.Get(Gd.Map(Gd.List(Gd.Get(e, "rows"))[0]), "state"));  // 没填 → empty
+                    return s0 == "ok" && s1 == "ok" && s2 == "missing" && s3 == "empty";
+                });
+                b.Chk("resolve-status-env-rows：base 没填时 rel 不许单独成立(Join-GdPath 语义·shown 出空串)", delegate
+                {
+                    var rr = Gd.Map(Detect.StatusEnvRows(Gd.Map(Gd.Out("id", "ark",
+                        "maaDir", "", "maaConfig", "configuration.json", "arknightsExe", ""))));
+                    var rows = Gd.List(Gd.Get(rr, "rows"));
+                    var row1 = Gd.Map(rows[1]);
+                    return Gd.Str(Gd.Get(row1, "shown")) == "" && Gd.Str(Gd.Get(row1, "state")) == "empty";
+                });
+                b.Chk("resolve-status-env-rows：r1999 三行的标签与行序逐字(M9A／M9A 实例／MuMu)", delegate
+                {
+                    var rr = Gd.Map(Detect.StatusEnvRows(Gd.Map(Gd.Out("id", "r1999",
+                        "m9aDir", "Z:\\gd_no_such_dir_zzz", "m9aInstancesDir", "instances", "mumuDir", "", "mumuManager", "MuMuManager.exe"))));
+                    var rows = Gd.List(Gd.Get(rr, "rows"));
+                    if (rows.Length != 3) return false;
+                    return Gd.Str(Gd.Get(Gd.Map(rows[0]), "label")) == "M9A"
+                        && Gd.Str(Gd.Get(Gd.Map(rows[1]), "label")) == "M9A 实例"
+                        && Gd.Str(Gd.Get(Gd.Map(rows[2]), "label")) == "MuMu"
+                        && Gd.Str(Gd.Get(Gd.Map(rows[2]), "shown")) == "";   // mumuDir 没填 → MuMu 行整行空
+                });
+                b.Chk("resolve-status-proc-names：两路名册逐字(ark：MAA／Arknights·r1999：m9a)", delegate
+                {
+                    var a = Gd.List(Gd.Get(Gd.Map(Detect.StatusProcNames(Gd.Map(Gd.Out("id", "ark")))), "names"));
+                    var r = Gd.List(Gd.Get(Gd.Map(Detect.StatusProcNames(Gd.Map(Gd.Out("id", "r1999")))), "names"));
+                    return a.Length == 2 && Gd.Str(a[0]) == "MAA" && Gd.Str(a[1]) == "Arknights"
+                        && r.Length == 1 && Gd.Str(r[0]) == "m9a";
+                });
+                b.Chk("接线：resolve-status-env-rows 的未知 id 走退出码 2＋ok:false(GdRuleException 判拒、原话给壳 throw，不吞成空名册)", delegate
+                {
+                    string ip = Path.Combine(baseDir, "se.in.json");
+                    string op = Path.Combine(baseDir, "se.out.json");
+                    GdJson.Write(ip, Gd.Out("id", "nosuch"));
+                    int code = GdCli.Run("resolve-status-env-rows", new string[] { "--in=" + ip, "--out=" + op });
+                    var env = GdJson.ReadEnvelope(op);
+                    return code == 2 && !(bool)Gd.Get(env, "ok") && Gd.Str(Gd.Get(env, "error")).Contains("不认识 id");
+                });
             }
             finally
             {

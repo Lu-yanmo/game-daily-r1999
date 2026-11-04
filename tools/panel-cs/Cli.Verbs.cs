@@ -27,7 +27,10 @@ namespace GdPanel
         // 刀③ round-resolve 判定面进核(2026-11-03)：97 → 99，链尾再加 compose-decision-inputs／resolve-ark-farm-decision
         //   (Resolve-ArkPlan／Resolve-R1999Plan 的组值半段与 Resolve-GdArkFarmDecision 的活层——
         //   核臂组 decide-* body 缺的 settings 通路与 farm 半段的取数四件；既有 verb 的回执形状一枚没动)。
-        public const int ExpectedCount = 99;
+        // 刀④ status 族接线(2026-11-04)：99 → 101，链尾再加 resolve-status-env-rows／resolve-status-proc-names
+        //   (lib\ark-status.ps1＋lib\r1999-status.ps1 两整件里四枚纯数据名册——EnvRows 行集三态与 ProcNames 写死名单——的直身；
+        //   status.ps1 体检链自此问这两枚与屏保两枚核出口，那两本 lib 件随批出仓。既有 verb 的回执形状一枚没动)。
+        public const int ExpectedCount = 101;
 
         // 顺序＝Cli.cs 分派链里的出现顺序（自检只比集合，不比顺序；顺序留着是为了肉眼对照分派链方便）。
         public static readonly string[] Names = new string[]
@@ -145,7 +148,11 @@ namespace GdPanel
             //      now 毫秒／ack／领空折好的 shopDone／probe／ark·re1999 块与 paths 块)；resolve-ark-farm-decision
             //      是 Resolve-GdArkFarmDecision 的活层(三前置＋取数＋进程内调 FarmPlan) ----
             "compose-decision-inputs",
-            "resolve-ark-farm-decision"
+            "resolve-ark-farm-decision",
+            // ---- 刀④ status 族接线(2026-11-04)：status 体检链问核的两枚纯数据出口(Detect.cs 直身)，
+            //      两本 lib\*-status.ps1 的四枚写死名册随这两枚出仓 ----
+            "resolve-status-env-rows",
+            "resolve-status-proc-names"
         };
 
         // "未知子命令"那句报错用的名册串：逐枚全名，不再有通配与纯计数。

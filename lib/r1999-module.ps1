@@ -2,6 +2,8 @@
 #
 # 和 lib\ark-module.ps1 同一套形状，业务逻辑仍留在 lib\m9a.ps1 / r1999-decisions.ps1 /
 # r1999-daily.ps1 / mumu.ps1 / r1999-status.ps1 里，本文件不复制任何实现。
+# ⚠ 改口(11-04 刀④)：上面那句里的 r1999-status.ps1 已整件出仓 —— 名册两枚改问核(见 ark-module.ps1
+#   同处注释，两枚 verb 两路共用)、展示四枚逐字内联进下面的钩子(实例列表那枚连"故意不套 try/catch"也照抄)。
 #
 # 这一路和方舟在契约上的真实差别只有两处，都在这里吸收掉，框架不需要认识它们：
 #   ① 1999 的判定结果除了方案(Mode)还要带一个 M9A 实例对象 → Resolve 钩子把它平铺进返回对象；
@@ -80,14 +82,55 @@ Register-GdModule ([pscustomobject]@{
                 }
             }
 
-            # ---- status.ps1 那套只读体检的可选钩子，形状和 ark-module.ps1 里那组完全一致 ----
-            StatusRows      = { param($S) Get-GdR1999EnvRows -S $S }
-            StatusVersion   = { param($S) Show-GdR1999StatusVersion -S $S }
-            StatusProcs     = { param($S) Get-GdR1999ProcNames }
+            # ---- status.ps1 那套只读体检的可选钩子，形状和 ark-module.ps1 里那组完全一致
+            #      (11-04 刀④：lib\r1999-status.ps1 整件出仓，名册问核、话术内联)。----
+            StatusRows      = {
+                param($S)
+                $d = Invoke-GdCli -Verb 'resolve-status-env-rows' -Body ([pscustomobject]@{
+                    id = 'r1999'; m9aDir = $S.paths.m9aDir; m9aInstancesDir = $S.paths.m9aInstancesDir;
+                    mumuDir = $S.paths.mumuDir; mumuManager = $S.paths.mumuManager
+                })
+                return @($d.rows)   # 三行 label/shown/state：M9A／M9A 实例／MuMu
+            }
+            StatusVersion   = { param($S) Show-GdVersionFile -Label 'M9A' -Dir $S.paths.m9aDir -File 'interface.json' }
+            StatusProcs     = {
+                param($S)
+                # MuMu 的虚拟机状态是另一行(下面 StatusProcExtra)，不混在这枚名册里 —— 照拆分前口径。
+                $d = Invoke-GdCli -Verb 'resolve-status-proc-names' -Body ([pscustomobject]@{ id = 'r1999' })
+                return @($d.names)
+            }
             # 进程段后面还要补一行模拟器状态：方舟那边没有这一行，所以它是独立钩子而不是塞进 StatusProcs。
-            StatusProcExtra = { param($S) Show-GdR1999MuMuState -S $S }
-            StatusPlan      = { param($S, $Offline) Show-GdR1999StatusPlan -S $S }   # 1999 的判定不联网，$Offline 忽略
-            StatusSection   = { param($S) Show-GdR1999InstanceList -S $S }
+            StatusProcExtra = {
+                param($S)
+                try {
+                    $st = Get-GdMuMuState -S $S
+                    # 读不到就说读不到、并把原因带上(没填 MuMu 目录 / MuMuManager 报错)，别把"没探到"粉饰成"未运行"
+                    if (-not $st.Available) { Write-Host "  MuMu：读不到($($st.Raw))" -ForegroundColor Yellow; return }
+                    Write-Host "  MuMu VM $($S.mumu.vmIndex)：$(if ($st.AndroidStarted) { '安卓已启动' } elseif ($st.ProcessStarted) { '进程在但安卓未就绪' } else { '未运行' })($($st.Name))"
+                } catch { Write-Host "  MuMu 状态读取失败：$($_.Exception.Message)" -ForegroundColor Yellow }
+            }
+            StatusPlan      = {
+                param($S, $Offline)   # 1999 的判定不联网，$Offline 忽略(签名与 ark 那枚对齐)
+                $r = Get-R1999Event -S $S
+                try {
+                    $inst = Resolve-R1999Instance -S $S -PlanKey $r.Instance
+                    Write-Host "  1999：$($r.Mode) → 实例[$($inst.Name)]  ← $($r.Reason)" -ForegroundColor $(if ($r.Mode -eq 'event-pending') { 'Yellow' } else { 'Gray' })
+                    Write-Host "        任务链：$($inst.Tasks -join ' → ')"
+                } catch { Write-Host "  1999：$($r.Reason)；实例解析失败：$($_.Exception.Message)" -ForegroundColor Red }
+            }
+            StatusSection   = {
+                param($S)
+                # 扫 config\instances + 行式的本体在 C#(m9a-instance-lines)。
+                # 注意没保护 try/catch 是故意的：旧实现读 app 设置失败就直接往上抛，展示层不吞(外壳的 Invoke-GdTolerant 接)。
+                $dir = Join-GdPath $S.paths.m9aDir @($S.paths.m9aInstancesDir)
+                # 同 ark 那枚 StatusSection：路径没填就讲清是"还没 setup"，别抛一句看不懂的绑定错误
+                if (-not (Test-GdPathReady $dir)) { Write-Host "  读不到 M9A 实例目录：$dir(助手目录还没填 → 先跑 setup.ps1)" -ForegroundColor Yellow; return }
+                $d = Invoke-GdCli -Verb 'm9a-instance-lines' -Body ([pscustomobject]@{
+                    dir     = $dir
+                    appFile = (Join-GdPath $S.paths.m9aDir @($S.paths.m9aAppSettings))
+                })
+                foreach ($l in @($d.Lines)) { Write-Host $l }
+            }
         }
         StatusSectionTitle = 'M9A 实例现状'
     })

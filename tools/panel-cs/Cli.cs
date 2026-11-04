@@ -207,6 +207,11 @@ namespace GdPanel
                 //   read-m9a-connection ＝ Get-M9AConnection 的同形(探活只读实例自己的 json，appsettings 归 apply-m9a-instance)。
                 else if (verb == "mumu-state") r = Decide(a, Chain.MuMuState);
                 else if (verb == "read-m9a-connection") r = Decide(a, Chain.ReadM9AConnection);
+                // ---- 刀④(2026-11-04)：status 体检链改问核的两枚新出口，照 stop-mumu／mumu-state 先例排链尾 ----
+                //   resolve-status-env-rows ＝ 两枚 EnvRows 的名册＋三态判尺直身(染色话术留 PS 壳)；
+                //   resolve-status-proc-names ＝ 两枚 ProcNames 的写死名册直身。两枚都不读配置、不写盘。
+                else if (verb == "resolve-status-env-rows") r = Decide(a, Detect.StatusEnvRows);
+                else if (verb == "resolve-status-proc-names") r = Decide(a, Detect.StatusProcNames);
                 else throw new GdUsageException("未知子命令：" + verb + "(现有：" + GdCliVerbs.Roster() + "；后续批次见 docs\\ps-migration-batch0.md 与 docs\\ps-migration-live-caliber.md)");
             }
             catch (GdUsageException ex)

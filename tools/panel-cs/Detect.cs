@@ -2,6 +2,8 @@
 //
 // 单一事实源纪律：自本批起 lib\detect.ps1 的 Resolve-GdCandidate、lib\ark-status.ps1 的 Show-GdArkQueueState、
 // lib\r1999-status.ps1 的 Show-GdR1999InstanceList 的**解析/探测本体**住这里，PS 侧只剩薄转发壳。
+// ⚠ 转接刀·运行面刀④(2026-11-04)：后两枚壳连壳带件出仓(那两本 lib\*-status.ps1 整件退役)，
+//   转发面自此住在两本 *-module.ps1 的 StatusSection 钩子里，直身仍只有这里一份。
 // 文案(Value/Source/行式)必须与 PS 原话逐字符一致 —— `--statetest` 逐字钉住(原对拍门甲档第十刀退役)，禁止放宽。
 //
 // 三个 verb 的输入形状(全是 --in JSON，值由 PS 壳组装)：
@@ -474,6 +476,70 @@ namespace GdPanel
                 lines.Add("  " + instName + "(" + Path.GetFileNameWithoutExtension(f) + ")" + mark + " — " + string.Join("/", tasks.ToArray()));
             }
             return Gd.Out("Lines", lines.ToArray());
+        }
+
+        // ==================== verb: resolve-status-env-rows ／ resolve-status-proc-names(转接刀·运行面刀④ 2026-11-04) ====================
+        // 直身来源：lib\ark-status.ps1 的 Get-GdArkEnvRows／Get-GdArkProcNames 与 lib\r1999-status.ps1 的
+        // Get-GdR1999EnvRows／Get-GdR1999ProcNames —— 这四枚全是**写死的名册与路径拼接**，没判定面；随刀④ 两文件整件出仓，
+        // 名册自此住这里(单一事实源纪律同一手：批次 2 那句「PS 侧只剩薄转发壳」现在连壳都不剩，钩子直接问核)。
+        // 换答方不换问法：行集、标签、顺序与 PS 原写死逐字同形(ark：MAA／MAA 配置／方舟端游；r1999：M9A／M9A 实例／MuMu；
+        // 进程名 ark：MAA／Arknights，r1999：m9a)。三态(empty／ok／missing)就是原 PS 外壳 Show-GdEnvRows 那把尺
+        // (没填／Test-Path 在／不在)，染色话术留在 PS 壳(I/O 面)——`--statetest` 逐字钉住(见 Detect.SelfTest.cs 刀④ 格)。
+        // ⚠ 这张 status 名册与 Rust 侧 GD_ENV_ARK／GD_ENV_R1999(tools\rustcore\src\main.rs，轮骨架的环境探测)是**两张册**：
+        //   标签与键集都不同(MAA 目录 vs MAA、M9A appsettings vs M9A 实例)，ps-map 旧行的「Rust有名册status未接」自陈属实——
+        //   本批只把 PS 写死那份搬进 C#，**不**归并 rs 那张，也不许顺着这枚 verb 去删 GD_ENV_*。
+
+        // Join-GdPath 语义：base 没填 → 空串(体检要把这一项显示成「未填」，不是抛绑定错误)；rel 没填 → 只出 base。
+        static string StatusJoinRel(string baseDir, string rel)
+        {
+            if (string.IsNullOrEmpty(baseDir)) return "";
+            if (string.IsNullOrEmpty(rel)) return baseDir;
+            return Path.Combine(baseDir, rel);
+        }
+
+        // 三态判尺与 PS 原尺同轴：空串=empty；Directory.Exists 或 File.Exists=ok(对应 Test-Path 对目录/文件都真)；其余=missing。
+        static Dictionary<string, object> StatusEnvRow(string label, string value)
+        {
+            string state;
+            if (string.IsNullOrEmpty(value)) state = "empty";
+            else if (Directory.Exists(value) || File.Exists(value)) state = "ok";
+            else state = "missing";
+            return Gd.Map(Gd.Out("label", label, "shown", value, "state", state));
+        }
+
+        public static object StatusEnvRows(Dictionary<string, object> inp)
+        {
+            string id = Gd.Str(Gd.Get(inp, "id"));
+            List<object> rows = new List<object>();
+            if (string.Equals(id, "ark", StringComparison.OrdinalIgnoreCase))
+            {
+                string maaDir = Gd.Str(Gd.Get(inp, "maaDir"));
+                rows.Add(StatusEnvRow("MAA", maaDir));
+                rows.Add(StatusEnvRow("MAA 配置", StatusJoinRel(maaDir, Gd.Str(Gd.Get(inp, "maaConfig")))));
+                rows.Add(StatusEnvRow("方舟端游", Gd.Str(Gd.Get(inp, "arknightsExe"))));
+            }
+            else if (string.Equals(id, "r1999", StringComparison.OrdinalIgnoreCase))
+            {
+                string m9aDir = Gd.Str(Gd.Get(inp, "m9aDir"));
+                string mumuDir = Gd.Str(Gd.Get(inp, "mumuDir"));
+                rows.Add(StatusEnvRow("M9A", m9aDir));
+                rows.Add(StatusEnvRow("M9A 实例", StatusJoinRel(m9aDir, Gd.Str(Gd.Get(inp, "m9aInstancesDir")))));
+                rows.Add(StatusEnvRow("MuMu", StatusJoinRel(mumuDir, Gd.Str(Gd.Get(inp, "mumuManager")))));
+            }
+            // 未知 id 走 GdRuleException(exit 2，原话给 PS 壳继续 throw)——GdUsageException(exit 1) 是 GdCli 的嵌套私有类，
+            // 核外代码抛不了；Chain.cs 那族"不认识"的判拒先例就是这一形(见 Chain.cs:517 注)。
+            else throw new GdRuleException("resolve-status-env-rows 不认识 id：" + id + "(体检名册只认 ark / r1999)");
+            return Gd.Out("rows", rows.ToArray());
+        }
+
+        public static object StatusProcNames(Dictionary<string, object> inp)
+        {
+            string id = Gd.Str(Gd.Get(inp, "id"));
+            string[] names;
+            if (string.Equals(id, "ark", StringComparison.OrdinalIgnoreCase)) names = new string[] { "MAA", "Arknights" };
+            else if (string.Equals(id, "r1999", StringComparison.OrdinalIgnoreCase)) names = new string[] { "m9a" };
+            else throw new GdRuleException("resolve-status-proc-names 不认识 id：" + id + "(体检名册只认 ark / r1999)");   // 同上：判拒走 exit 2
+            return Gd.Out("names", names);
         }
     }
 }

@@ -30,7 +30,11 @@ namespace GdPanel
         // 刀④ status 族接线(2026-11-04)：99 → 101，链尾再加 resolve-status-env-rows／resolve-status-proc-names
         //   (lib\ark-status.ps1＋lib\r1999-status.ps1 两整件里四枚纯数据名册——EnvRows 行集三态与 ProcNames 写死名单——的直身；
         //   status.ps1 体检链自此问这两枚与屏保两枚核出口，那两本 lib 件随批出仓。既有 verb 的回执形状一枚没动)。
-        public const int ExpectedCount = 101;
+        // 刀⑧ 两把闸臂进核(2026-11-04)：101 → 103，链尾再加 run-m9a-update／run-1999-event-audit
+        //   (lib\rust-round.ps1 外发名册 'updgate'／'audit' 两臂那 23 行壳的 C# 直身，判据全住 Gate.Host.cs；
+        //   两本工具本体共 404 行、按表账三枚「不许动」永久留壳 ⇒ 这一批 .ps1 侧净 −23，不是「退役那两本工具」。
+        //   既有 verb 的回执形状一枚没动)。
+        public const int ExpectedCount = 103;
 
         // 顺序＝Cli.cs 分派链里的出现顺序（自检只比集合，不比顺序；顺序留着是为了肉眼对照分派链方便）。
         public static readonly string[] Names = new string[]
@@ -152,7 +156,12 @@ namespace GdPanel
             // ---- 刀④ status 族接线(2026-11-04)：status 体检链问核的两枚纯数据出口(Detect.cs 直身)，
             //      两本 lib\*-status.ps1 的四枚写死名册随这两枚出仓 ----
             "resolve-status-env-rows",
-            "resolve-status-proc-names"
+            "resolve-status-proc-names",
+            // ---- 刀⑧ 运行面两把闸臂进核(2026-11-04)：run-m9a-update／run-1999-event-audit 是 rust-round
+            //      外发名册 'updgate'／'audit' 两臂的直身出口(Gate.Host.cs)，起 pwsh 跑那两本工具并收
+            //      Code／Line／Joined 三格；那两本工具本体(共 404 行)按表账"不许动"照旧留壳，搬的只是 23 行臂 ----
+            "run-m9a-update",
+            "run-1999-event-audit"
         };
 
         // "未知子命令"那句报错用的名册串：逐枚全名，不再有通配与纯计数。

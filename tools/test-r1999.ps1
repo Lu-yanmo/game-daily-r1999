@@ -305,28 +305,42 @@ Check '新版文案不认识时 Read-GdM9ALine 返回 $null(而不是硬凑一�
 #   · 搬靶两格——更新闸那格与审计闸那格：那两发起子进程的活整个在 lib\rust-round.ps1 的 updgate／audit
 #     两枚 case 里(m9a-update.ps1 -Apply 与 1999-event-audit.ps1 -Apply，含那句"维持 event-pending"的挑行)，
 #     对面逐字在场 ⇒ 靶换成轮档件，语义不丢。
+#     ⚠ 刀⑧(2026-11-04) 再搬一回靶：那两枚 case 已从轮档件摘净(臂与名册同批)，起子进程＋挑行＋拼串的直身
+#     现在 tools\panel-cs\Gate.Host.cs(verb run-m9a-update／run-1999-event-audit)，"谁先跑"这一条的真身在
+#     核内链体的 fx.updgate()／fx.audit() 两处调用点 ⇒ 下面三格的靶逐格换成"$gateCs 抓调用行字面 ＋
+#     $rustCore 抓链体话术与先后"。判据一个字没改，改的还是到哪家去问。
 #   · 作废三格——ask 白名单七枚／'run' case 不许复活／信封 role 字面 B2d-drive-m9a-daily：那是**驱动档**的数。
-#     轮档件现拍的 case 名册只有五枚(round-elevate／round-supervisor-start／round-supervisor-stop／updgate／audit)，
+#     轮档件现拍的 case 名册自刀⑧ 起是三枚(round-elevate／round-supervisor-start／round-supervisor-stop；
+#     刀⑦ 那帧写的是五枚，updgate／audit 两枚本批出册)，
 #     而两件头注本来就明写「不要把驱动档那十四枚白名单当这枚名册用，那是另一族的数」——硬搬就是把轮档那本当
 #     驱动档那本用。run 那枚的真身在核内，家一字未动；驱动档信封自此没有 PS 侧的写信人，核内 --drive-m9a-daily
 #     成死出口候选(§11.235 已登记，账记在"名册枚数"那侧、不记在净行数)。
 #   · 行序那格**拆成两半**：旧形比的是"更新闸在 Invoke-GdTakeover 之前"。轮档件的代码面现拍没有 Invoke-GdTakeover
 #     (接管那一步在核内问序里，PS 侧不再执行它) ⇒ 那一半当场没有桌子，登记为漏钉(要钉就得在核内侧成格，归后续刀)；
 #     还能量的一半是两把闸的先后——更新闸在上、审计闸在下，同一台 executor 的 ask 序，这半搬靶成立。
+#     ⚠ 刀⑧ 起"同一台 executor 的 ask 序"这半也换了家：两枚闸不再出 ask，先后由核内链体的两处调用点决定
+#     ⇒ 这一格的靶从轮档件的文本序换成 $rustCore 里 fx.updgate()／fx.audit() 的文本序(Gate.Host.cs 里那两枚
+#     臂的定义序不算判据——定义谁先谁后不决定跑谁先跑)。
 $r1999RoundPs = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\lib\rust-round.ps1') -Raw -Encoding utf8
+$gateCs = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'panel-cs\Gate.Host.cs') -Raw -Encoding utf8
 $orchCs = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'panel-cs\Orchestration.cs') -Raw -Encoding utf8
 $rustCore = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'rustcore\src\main.rs') -Raw -Encoding utf8
 $orchRetry = [regex]::Match($orchCs, '(?s)bool baseRetry(?<win>.*?)retryable = true').Groups['win'].Value
 Check '1999 重试会跳过 not-started/empty-queue/unknown-format/blocked' (($orchRetry -match '"ok"') -and ($orchRetry -match '"not-started"') -and ($orchRetry -match '"empty-queue"') -and ($orchRetry -match '"unknown-format"') -and ($orchRetry -match '"blocked"'))
 # M9A 自动更新闸(tools\m9a-update.ps1，2026-09-30 用户「检查到更新自己更就行了」)：这里只做静态锚，
 # 不联网、不起子进程 —— 实测链路当晚 12:40 人工 -Apply 走过一次(v4.10.0→v4.11.0)，测试不许依赖网络。
-Check '1999 起跑段挂了 M9A 自动更新闸(调 tools\m9a-update.ps1 -Apply，失败只 WARN；11-04 笔(c/d) 搬靶到轮档件)' (($r1999RoundPs -match 'm9a-update\.ps1') -and ($rustCore -match 'M9A 自动更新未完成'))
-Check '两把闸的先后还在：更新闸排在审计闸之前(11-04 笔(c/d) 拆半搬靶——旧形的"在 Invoke-GdTakeover 之前"那一半随接管步进核内作废，登记为漏钉)' ($r1999RoundPs.IndexOf('m9a-update.ps1') -ge 0 -and $r1999RoundPs.IndexOf('m9a-update.ps1') -lt $r1999RoundPs.IndexOf('1999-event-audit.ps1'))
+Check '1999 起跑段挂了 M9A 自动更新闸(调 tools\m9a-update.ps1 -Apply，失败只 WARN；11-04 笔(c/d) 搬靶到轮档件，刀⑧ 再搬进 Gate.Host.cs)' (
+    ($gateCs -match 'GateRun\(raw, @"tools\\m9a-update\.ps1"') -and ($gateCs -match '-Apply') -and ($rustCore -match 'M9A 自动更新未完成'))
+Check '两把闸的先后还在：更新闸排在审计闸之前(刀⑧ 起靶＝核内链体两处调用点的文本序；Gate.Host.cs 里那两枚臂的定义序不决定跑谁先跑，不当判据)' (
+    $rustCore.IndexOf('fx.updgate()') -ge 0 -and $rustCore.IndexOf('fx.audit()') -ge 0 -and
+    $rustCore.IndexOf('fx.updgate()') -lt $rustCore.IndexOf('fx.audit()'))
 Check '更新器本体在位且退出码契约写在头注' ((Test-Path -LiteralPath (Join-Path $PSScriptRoot 'm9a-update.ps1')) -and ((Get-Content -LiteralPath (Join-Path $PSScriptRoot 'm9a-update.ps1') -Raw -Encoding utf8) -match '0 = 已是最新'))
 # 活动打完没打完的 agent 判定(tools\1999-event-audit.ps1，2026-09-30 用户「让agent判断」)：同样只做静态锚，
 # 不碰模拟器不联网 —— 真链路 09-30 用 -Image 旁路对着一张方舟截图实问过(模型如实答 unknown，保守纪律成立)。
 $r1999Audit = Get-Content -LiteralPath (Join-Path $PSScriptRoot '1999-event-audit.ps1') -Raw -Encoding utf8
-Check '1999 收尾段挂了活动审计(队列跑完才问、失败只 WARN 不挡轮；11-04 笔(c/d) 搬靶到轮档件)' (($r1999RoundPs -match '1999-event-audit\.ps1') -and ($r1999RoundPs -match '维持 event-pending'))
+Check '1999 收尾段挂了活动审计(队列跑完才问、失败只 WARN 不挡轮；11-04 笔(c/d) 搬靶到轮档件，刀⑧ 再搬进 Gate.Host.cs)' (
+    ($gateCs -match 'GateRun\(raw, @"tools\\1999-event-audit\.ps1"') -and ($gateCs -match '审计结论\|无事发生\|维持 event-pending') -and
+    ($rustCore -match '1999 活动审计没审成'))
 Check '审计工具的护栏语义在案：只有画面证据明确的 yes 才 ack，no/unknown 照旧等人' (($r1999Audit -match '只有画面上出现明确的"全部完成"证据才许答 yes') -and ($r1999Audit -match 'no/unknown 维持 pending'))
 Check '审计工具只问不点：点击通道一个字都不许出现' (($r1999Audit -notmatch 'input tap') -and ($r1999Audit -notmatch 'Invoke-GdVisionRescue') -and ($r1999Audit -match 'Save-GdMuMuShot'))
 # 18:21/19:10/19:20 三次实锤定下的现场自理三件：VM 自己起自己关(谁拉起谁关)、落点拿到后先显式 connect
@@ -345,10 +359,11 @@ Check '审计的 ack 那一步问的是核，且件内不复写确认话术(11-0
 # 判据原样落到这里(与 [t16] 既有静态锚同形状)。三条都是从门里逐字搬的口径：白名单七枚、'run' case 不许复活、role 字面。
 # ↑ 11-04 转接刀·运行面刀⑦ 笔(c/d) 作废登记：上面这三格(ask 白名单七枚／'run' case 不许复活／role 字面
 # B2d-drive-m9a-daily)随编排岛整件出仓——它们量的是驱动档那台 PS executor 的源码形状，岛没了当场没有桌子。
-# 逐枚写下它们不再量什么，不静默删：白名单那本是**驱动档**的数(轮档件是另一族的五枚，见上面分档那句)；
+# 逐枚写下它们不再量什么，不静默删：白名单那本是**驱动档**的数(轮档件是另一族的名册，见上面分档那句)；
 # 'run' 的真身在核内，家没变；role 字面随信封一起出仓，核内 --drive-m9a-daily 成死出口候选。
-# ⚠ 这里**不新立**一枚"轮档五枚名册"的正格：那五枚的账在核内 S28_ROSTER 已经逐枚点名，PS 侧再抄一遍就是
-# 本主线一直在删的那本双账(两处各写一遍)。要立只立"一处现问"那种形，射程归后续刀，不在本批。
+# ⚠ 这里**不新立**一枚"轮档名册"的正格：那一族的账在核内 S28_ROSTER 与 PS 侧 Get-GdRoundOuterActs 两处已逐枚点名
+# (刀⑧ 起两侧同为三枚)，PS 侧再抄一遍就是本主线一直在删的那本双账(三处各写一遍)。
+# 要立只立"一处现问"那种形，射程归后续刀，不在本批。
 # 同一批留一枚「退役不回潮」负锚，形状照 test-ark 那两形(拉起族三枚真身／编排岛真身)：岛上那批真身
 # (枚数由下面 foreach 的名册供数，注释不写数——写死的枚数会被下一次扩名册变成陈旧账；含 11-04 笔(b) 出仓的 Set-GdR1999Ack)若被人搬回 PS 侧，最可能落的两件就是轮档件与清单件。
 $r1999ModulePs = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\lib\r1999-module.ps1') -Raw -Encoding utf8

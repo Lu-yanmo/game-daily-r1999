@@ -493,6 +493,104 @@ namespace GdPanel
                 return Occ(code, "ark") == 0 && Occ(code, "r1999") == 0 && Occ(code, "Maa") == 0 &&
                        Occ(code, "MAA") == 0 && Occ(code, "MuMu") == 0 && Occ(code, "端游") == 0;
             });
+
+            // ---- 刀⑧(2026-11-04) 两把闸臂进核：Gate.Host.cs 那两枚直身的锚 ----
+            // 这一组同样不起进程：闸直身里"起 pwsh"那一步只能靠 noSpawn 绕开，所以钉的是
+            // 三格读数的形状(挑行取末条／joined 拼全部／Code 透传)、两枚臂的常量没串台、合流与内层上限各只一把尺，
+            // 以及回执键名与核内答手折进 journal 的那三枚小写字面对得平。
+            // 正向锚一律**剥注释后**扫：本件头注与函数注释里写着两本工具的名字与那句挑行正则，
+            // 不剥就会重演"把调用行整个换回旧壳、套件照样全绿"那笔账(test-r1999 的在册教训)。
+            string gateSrc = File.ReadAllText(Path.Combine(dir, "Gate.Host.cs"), Encoding.UTF8);
+            string gate = StripLineComments(gateSrc);
+            string verbsSrc = StripLineComments(File.ReadAllText(Path.Combine(dir, "Cli.Verbs.cs"), Encoding.UTF8));
+            string roundSrc = StripLineComments(File.ReadAllText(Path.Combine(dir, "Round.cs"), Encoding.UTF8));
+
+            // 靶缩到函数体：两枚臂只差"脚本名＋正则"两枚常量，整文件扫两枚字面都在场 ⇒ 把两条臂对调也照旧绿。
+            // 区间取"本枚签名 → 下一枚签名"，切不到就交回假(空串里不含针)，宁红不假绿。
+            string updB = GateBody(gate, "internal static object M9aUpdgate", "internal static object EventAudit");
+            string audB = GateBody(gate, "internal static object EventAudit", "static object GateRun");
+            b.Chk("两枚臂的脚本名与挑行正则各归各的函数体(对调两枚常量当场红)", () =>
+                updB.Contains(@"tools\m9a-update.ps1") && updB.Contains("已是最新|更新完成") &&
+                !updB.Contains(@"tools\1999-event-audit.ps1") &&
+                audB.Contains(@"tools\1999-event-audit.ps1") && audB.Contains("审计结论|无事发生|维持 event-pending") &&
+                !audB.Contains(@"tools\m9a-update.ps1"));
+
+            // 两端同名(与 supervise-loop 那格同形)：分派链与名册两处都得有，少一处就是"verb 存在但没人能调"。
+            b.Chk("出口两端同名：Cli.cs 分派链与 Cli.Verbs.cs 名册都认这两枚闸 verb", () =>
+                cli.IndexOf("verb == \"run-m9a-update\"", StringComparison.Ordinal) >= 0 &&
+                cli.IndexOf("verb == \"run-1999-event-audit\"", StringComparison.Ordinal) >= 0 &&
+                verbsSrc.IndexOf("\"run-m9a-update\"", StringComparison.Ordinal) >= 0 &&
+                verbsSrc.IndexOf("\"run-1999-event-audit\"", StringComparison.Ordinal) >= 0);
+
+            // 内层上限只有一把尺(照 CapDefault 那格的形制)：把秒数抄进第二处，改默认值时必漏一处。
+            b.Chk("内层上限只有一把尺：GateRunBoundSeconds 定义一次，除定义外不许出现裸秒数", () =>
+                Occ(gate, "const int GateRunBoundSeconds") == 1 && Occ(gate, "2400") == 1);
+
+            // 合流那一步是这一批的行为差本体：PS 臂是 2>&1 一桶，两桶各扫会把 joined 的行序换成"全部 stdout 后接全部 stderr"。
+            b.Chk("闸那一发按合流收(merge=true 只此一处)，其余几枚老 RunProc 调用仍走两桶", () =>
+                Occ(gate, "GateRunBoundSeconds, true)") == 1 && Occ(gate, "merge ? so : new StringBuilder()") == 1);
+
+            // 回执键名：C# 侧交 PascalCase，核内答手 jv_get_ci 折成 PS 臂当年的 code/line/joined 三枚小写。
+            // 这一格量的是"三枚都在且只一次且按这个序"——多一枚少一枚换一枚，journal 两侧就对不平。
+            int kAt = gate.IndexOf("\"Code\",", StringComparison.Ordinal);
+            int kStart = kAt < 0 ? -1 : gate.LastIndexOf("Gd.Out(", kAt, StringComparison.Ordinal);
+            int kEnd = kAt < 0 ? -1 : gate.IndexOf(';', kAt);
+            b.Chk("闸回执只交 Code/Line/Joined 三枚键且顺序对(与核内答手折的小写三枚同集合)", () =>
+            {
+                if (kStart < 0 || kEnd <= kStart) return false;
+                string stmt = gate.Substring(kStart, kEnd - kStart);
+                if (Occ(stmt, "\"Code\"") != 1 || Occ(stmt, "\"Line\"") != 1 || Occ(stmt, "\"Joined\"") != 1) return false;
+                int iCode = stmt.IndexOf("\"Code\"", StringComparison.Ordinal);
+                int iLine = stmt.IndexOf("\"Line\"", StringComparison.Ordinal);
+                int iJoi = stmt.IndexOf("\"Joined\"", StringComparison.Ordinal);
+                return iCode < iLine && iLine < iJoi;
+            });
+
+            // 引擎候选序按用途分档：提权面(Round.cs 的 Elevate)仍旧 false，闸面 true。
+            // 为什么两形都要钉：把 false 一起放开 = 悄悄改掉"商店版 runas 提不了"那条真身判据；
+            // 把 true 收回 false = 本机一枚引擎都找不到(实测 PSHOME 不继承、Program Files 没有 7)，两枚闸恒抛＝回归。
+            b.Chk("商店版命中按用途分档：提权面仍传 false，-File 直跑面传 true(两形各一次)", () =>
+                Occ(roundSrc, "LocalPwsh(OptStr(c, \"pshome\", null), false)") == 1 &&
+                Occ(roundSrc, "FindOnPath(\"pwsh.exe\", false)") == 1 &&
+                Occ(gate, "Round.LocalPwsh(Round.OptStr(c, \"pshome\", null), true)") == 1 &&
+                Occ(gate, "Round.FindOnPath(\"pwsh.exe\", true)") == 1);
+
+            // ---- 三格功能面(全走 noSpawn 夹具，不起进程、不碰盘) ----
+            object g1 = GateHost.M9aUpdgate(Inp(
+                "noSpawn", true, "fakeCode", 3,
+                "fakeLines", new object[] { "开头一句", "已是最新", "中间一句", "更新完成 v4.12.0" }));
+            b.Chk("noSpawn 夹具下三格齐：Code 透传假码、Line 取最后一条命中、Joined 按 ' / ' 拼全部行", () =>
+                Gd.Lng(Gd.Get(D(g1), "Code")) == 3 &&
+                Gd.Str(Gd.Get(D(g1), "Line")) == "更新完成 v4.12.0" &&
+                Gd.Str(Gd.Get(D(g1), "Joined")) == "开头一句 / 已是最新 / 中间一句 / 更新完成 v4.12.0");
+
+            object g2 = GateHost.M9aUpdgate(Inp("noSpawn", true, "fakeCode", 0, "fakeLines", new object[] { "啥也没中" }));
+            b.Chk("挑不中时 Line 回空串而不是 null(链体那句 INFO 拼出来是空，与 PS 臂 [string]$null 同形)", () =>
+                Gd.Get(D(g2), "Line") is string && Gd.Str(Gd.Get(D(g2), "Line")).Length == 0 &&
+                Gd.Str(Gd.Get(D(g2), "Joined")) == "啥也没中");
+
+            object g3 = GateHost.EventAudit(Inp(
+                "noSpawn", true, "fakeCode", 0,
+                "fakeLines", new object[] { "维持 event-pending", "审计结论 yes" }));
+            b.Chk("审计臂吃自己那条正则(同一份行集里两条都命中时各挑自己那条的末行)", () =>
+                Gd.Str(Gd.Get(D(g3), "Line")) == "审计结论 yes" &&
+                Gd.Str(Gd.Get(D(g1), "Line")) != Gd.Str(Gd.Get(D(g3), "Line")));
+
+            // 末位幻影空元素：读手逐行 AppendLine，尾部必然多一枚空元素；不剥 ⇒ joined 末尾多个 ' / '、
+            // 与 PS 臂 $gOut 的枚数不同轴。中间与真正末尾的空行必须保留(那是另一种坏)。
+            b.Chk("合流文本拆行：只剥末位那一枚幻影空元素，中间的与真正末尾的空行照旧保留", () =>
+                GateHost.SplitLines("a\r\nb\r\n").Count == 2 &&
+                GateHost.SplitLines("a\r\n\r\n").Count == 2 && GateHost.SplitLines("a\r\n\r\n")[1].Length == 0 &&
+                GateHost.SplitLines("a\r\nb").Count == 2 && GateHost.SplitLines("").Count == 0);
+        }
+
+        // 刀⑧：取"本枚签名 → 下一枚签名"那一截源码(锚缩进函数体用)。切不到起点交空串，让那一格当场红。
+        static string GateBody(string src, string from, string until)
+        {
+            int a = src.IndexOf(from, StringComparison.Ordinal);
+            if (a < 0) return "";
+            int b = src.IndexOf(until, a, StringComparison.Ordinal);
+            return b < 0 ? src.Substring(a) : src.Substring(a, b - a);
         }
 
         // 剥注释只处理 // 两形(整行与行尾)：Supervisor.cs 里没有 /* */ 块注释，也没有跨行字符串，

@@ -4001,6 +4001,8 @@ trait ArkDailyFx {
 //   ⑤ 判定多吃一枚 `rescued`（`decide-daily-retry` 的 r1999 支靠它翻案，ark 支根本不读这格）；
 //   另有一整段 ark 没有的：起跑前的**更新闸**与收尾的**审计闸**。
 // 八格动作 = updgate/takeover/mumu/cfg/run/sleep/stop/audit，其中**真做只有 run**，其余照旧 ask。
+// ⚠ 刀⑧(2026-11-04) 之后上面那句只对**两枚现出口**（`--drive-ark-daily`／`--drive-m9a-daily`，直答闭包为空）
+//   成立：轮骨架档里 `updgate`／`audit` 两格改由答手答（问两枚新 verb，见 `round_answer` 的 r1999 段末）。
 
 /// 更新闸/审计闸共用的回执三格：子进程退出码 + 挑出来那一句 + 全量输出并串。
 /// 真身那两处 try/catch 的形状是同一把（tools\m9a-update.ps1 / tools\1999-event-audit.ps1 都是
@@ -4048,7 +4050,8 @@ struct R1999DInput {
 /// 无 catch 的调用点直接 `?` 冒泡（等价真身"整函数异常上抛"，换头后落成 fail 信封）。
 trait R1999DailyFx {
     fn log(&mut self, level: &str, text: &str);
-    /// 更新闸：`& $selfEngine -File tools\m9a-update.ps1 -Apply 2>&1` 那整段（落点是 executor 的 'updgate' 动作臂；旧回退段逐字在钉位 6157448:lib/r1999-daily.ps1，按坐标清账批口径不引行号）。
+    /// 更新闸：`& $selfEngine -File tools\m9a-update.ps1 -Apply 2>&1` 那整段（旧落点＝executor 的 'updgate' 动作臂，
+    /// 刀⑧ 起轮骨架档改由 `round_answer` 直答、问 `run-m9a-update`；两枚现出口的 ask 档照旧。旧回退段逐字在钉位 6157448:lib/r1999-daily.ps1，按坐标清账批口径不引行号）。
     /// Ok = 子进程起来了（退出码非 0 也算 Ok，那一档在真身里是 WARN 不是异常）；
     /// Err(Fail) = 真身 catch 到的那句"闸本身抛错"。
     fn updgate(&mut self) -> Result<M9aGateOut, ArkAbort>;
@@ -4064,7 +4067,8 @@ trait R1999DailyFx {
     fn stop(&mut self) -> Result<(), ArkAbort>;
     /// Start-Sleep -Seconds（真身重试前那枚 20）。
     fn sleep(&mut self, seconds: u32) -> Result<(), ArkAbort>;
-    /// 审计闸：`& $selfEngine -File tools\1999-event-audit.ps1 -Apply 2>&1` 那整段（落点是 executor 的 'audit' 动作臂；旧回退段逐字在钉位 6157448:lib/r1999-daily.ps1）。
+    /// 审计闸：`& $selfEngine -File tools\1999-event-audit.ps1 -Apply 2>&1` 那整段（旧落点＝executor 的 'audit' 动作臂，
+    /// 刀⑧ 起轮骨架档改由 `round_answer` 直答、问 `run-1999-event-audit`；两枚现出口的 ask 档照旧。旧回退段逐字在钉位 6157448:lib/r1999-daily.ps1）。
     /// 只在 status ∈ {ok, empty-queue} 时链体才会调它。
     fn audit(&mut self) -> Result<M9aGateOut, ArkAbort>;
 }
@@ -4226,12 +4230,33 @@ impl ArkDailyFx for FixtureFx<'_> {
 /// 也不能把整轮钉死到被砍班 —— 现场教训见 `call_panel_verb` 里 10-20 那段。
 const GD_VERB_WAIT_BOUND_MS: u64 = 900_000;
 
+/// 刀⑧(2026-11-04) 起的第二档上限：两枚闸 verb（`run-m9a-update`／`run-1999-event-audit`）走这一档。
+/// 判据与上面那格同一条（外层必须比最慢一枚 verb 自己的**内层**超时更宽），只是这两枚的内层上限
+/// 不住在这里，住 C# 侧 `Gate.Host.cs` 的 `GateRunBoundSeconds` —— 那一枚覆盖的是「M9A 整包更新最坏
+/// 十几分钟」这一档，比 900s 更宽。**这里故意不抄那枚的读数**：抄一份就是双账，改内层必须重判外层，
+/// 反过来也一样（同 `GD_VERB_WAIT_BOUND_MS` 那条"活账不许钉进注释"的纪律）。
+/// ⚠ 语义差登记（本刀唯一一处改"后果"而不是改"谁来答"的地方）：这两枚 verb 等满上限 ⇒ 落 err 行、
+///   经 `ans` 成 `ArkAbort::Fail` ⇒ 链体那三态消费走的是「闸本身抛错，跳过它照常跑」那一档，
+///   **当日轮照跑**。旧 PS 臂那一路是 executor 子进程，900s 外闸压根不作用在它身上（它自己无内层上限），
+///   等满只可能出现在轮级 PT3H 那一层 ⇒ 整轮被收尸。所以这一格换的是"放弃之后谁承担后果"。
+const GD_GATE_VERB_WAIT_BOUND_MS: u64 = 2_700_000;
+
+/// per-verb 上限选择器（本批唯一一处"这一枚 verb 该等多久"的判据）。默认档取 `GD_VERB_WAIT_BOUND_MS`，
+/// 只有闸那一族换宽档 —— 不许在这里加任何按退出码／回执的判定。
+fn gd_verb_wait_bound_ms(verb: &str) -> u64 {
+    if verb == "run-m9a-update" || verb == "run-1999-event-audit" {
+        GD_GATE_VERB_WAIT_BOUND_MS
+    } else {
+        GD_VERB_WAIT_BOUND_MS
+    }
+}
+
 /// 按 Invoke-GdCli 的同一条协议真跑一枚 verb：Body 写 --in 信封、读回 --out 信封、
 /// 校验 verb / 退出码 / ok —— 任一环对不上就 Err（不带着半截结论往下跑）。临时文件成败都删。
 /// 错误文案里"C# 侧(…)"的句式照 Invoke-GdCli 原话，verb 名参数化后逐字不变；
 /// 起不来（exe 不在）这句是本档自己的补充。B-2a 起 --arkskip 与 --maa-run 两档共用这一处。
-/// ⚠ 10-20 起这一枚**不等管道、只等退出**（原因与现场读数在函数体里那段注释），等满 `GD_VERB_WAIT_BOUND_MS`
-/// 就 kill 并 Err —— 判据一律不变：信封还是从 `--out` 文件读，两路兜底文本本来就没参与过任何判定。
+/// ⚠ 10-20 起这一枚**不等管道、只等退出**（原因与现场读数在函数体里那段注释），等满 `gd_verb_wait_bound_ms(verb)`
+/// 给这一枚 verb 选出的上限就 kill 并 Err —— 判据一律不变：信封还是从 `--out` 文件读，两路兜底文本本来就没参与过任何判定。
 fn call_panel_verb(panel_cs: &str, verb: &str, body: &JVal) -> Result<JVal, String> {
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -4260,9 +4285,10 @@ fn call_panel_verb(panel_cs: &str, verb: &str, body: &JVal) -> Result<JVal, Stri
             .stderr(std::process::Stdio::null())
             .spawn()
             .map_err(|e| format!("{} 起不来（{}）：{}", verb, panel_cs, e))?;
-        // 等退出而不是等管道 ⇒ `try_wait` 轮询，硬上限见 GD_VERB_WAIT_BOUND_MS 那条注释。
+        // 等退出而不是等管道 ⇒ `try_wait` 轮询，硬上限见 `gd_verb_wait_bound_ms`（默认档那格注释）。
         // 等满就是"它压根没答"，与"答了但答错"必须分两档话术(卡住／被放弃／真的没输出是三种病)。
-        let bound = std::time::Instant::now() + std::time::Duration::from_millis(GD_VERB_WAIT_BOUND_MS);
+        let bound_ms = gd_verb_wait_bound_ms(verb);
+        let bound = std::time::Instant::now() + std::time::Duration::from_millis(bound_ms);
         let code = loop {
             match child.try_wait() {
                 Ok(Some(st)) => break st.code().unwrap_or(-1),
@@ -4273,7 +4299,7 @@ fn call_panel_verb(panel_cs: &str, verb: &str, body: &JVal) -> Result<JVal, Stri
                         return Err(format!(
                             "C# 侧({})等满 {}s 仍没退出，已放弃并结束它(它压根没答，不是答错)",
                             verb,
-                            GD_VERB_WAIT_BOUND_MS / 1000
+                            bound_ms / 1000
                         ));
                     }
                     std::thread::sleep(std::time::Duration::from_millis(50));
@@ -4771,10 +4797,11 @@ const DRIVE_WHY_M9A: &str = "驱动档是换头专用口：本进程只推 1999 
 /// 各自要调的东西（ark 一路 + r1999 一路挂在一本账上）。
 /// ⚠ **名册句不带枚数**（§11.55 ② 定档）：这一档"哪些格直答、哪些格外发"按**族**点名就够，
 /// 写成数字就变成第二份事实源 —— 直答面随 b1/b2 的 verb 一颗一颗长，话术每改一次就要重数一遍，
-/// 数错的那一句还会被当成判据。链体可直答的那些格由 `round_direct` 一家说了算，
-/// `updgate`／`audit` 两格在射程外（真身是再起一个 pwsh 子进程，见 §11.52 ②）。
+/// 数错的那一句还会被当成判据。链体可直答的那些格由 `round_direct` 一家说了算，两枚闸动作
+/// （`updgate`／`audit`）刀⑧(2026-11-04) 起也在射程内 —— 改的仍是"谁来答"：核内问两枚新 verb
+/// （`run-m9a-update`／`run-1999-event-audit`），落账三枚键名逐字照 PS 臂当年写进 res 的那副小写形。
 /// 话术里不许吹"全自动"：外发那几格此刻仍由外侧照 ask 办，本批 `lib\*.ps1` 一行未动（②-d 才转接）；
-/// 也不许吹"完全不经 PS"：`updgate`／`audit` 那两格的工具子进程照旧是 pwsh（§11.52 的降级话术）。
+/// 也不许吹"完全不经 PS"：那两枚闸 verb 的**内层**仍是 pwsh 起工具子进程（C# 侧 Gate.Host.cs，§11.52 的降级话术）。
 const DRIVE_WHY_ROUND: &str = "轮骨架档是换头专用口：本进程逐段走十段轮骨架（选路/环境/提权闸/门表/判定/锁/监督/睡眠屏蔽/逐路链体/收尾汇总通知），链体现场件与本轮的提权读态·通知在本进程内直答，门表·判定·预览·收尾·监督·历史·提权与屏保读数照 ask 的 seq/action 由外侧执行后写 --res 回执再重入（缺 --i-round 直接拒跑）";
 
 /// 七道拒跑闸（顺序即优先级）。七句都点名所缺旗标 —— 自检逐句咬字。
@@ -5047,9 +5074,11 @@ struct DriveFx<'a> {
     /// - 新区且闭包答 `None`（**或闭包压根为空**＝`--drive-ark-daily` / `--drive-m9a-daily` 两枚现出口）
     ///   → 退回 `ask`，**两枚现出口逐字节不变**：这一刀改的是"谁来答"，不是"问什么"。
     /// 为什么把"不答"做成闭包的返回值而不是只靠 `Option<闭包>`：哪些格有直答件这件事必须有**一份来源**
-    /// （答手自己那张名册），在两枚现出口里它恒为空、在轮骨架里它在场但对**骨架自己外发的那些格**与
-    /// **链体射程外那两格**（`updgate`／`audit`，真身是再起 pwsh 子进程）答 `None` ——
+    /// （答手自己那张名册），在两枚现出口里它恒为空、在轮骨架里它在场但对**骨架自己外发的那些格**
+    /// （`round-elevate`＋监督两枚）答 `None` ——
     /// 若"不答"只能靠"闭包为空"表达，轮骨架就得为每枚不同 role 各造一枚闭包，名册反而散成两份。
+    /// ⚠ 刀⑧(2026-11-04) 之前这一句还写着「…与**链体射程外那两格**（`updgate`／`audit`）答 `None`」：
+    ///   那两枚现在由这张名册答（见 `round_answer` 的 r1999 段末两臂），来历留在这里。
     direct: Option<&'a mut dyn FnMut(&str, &str, &JVal) -> Result<Option<DirectOut>, String>>,
 }
 
@@ -5150,20 +5179,16 @@ impl<'a> DriveFx<'a> {
     /// 两枚闸动作同形（回执三格 code/line/joined），共用这一把；ask 无参（子进程怎么起是 executor 的事）。
     /// **不是 trait 方法**：`R1999DailyFx` 里只声明 `updgate`/`audit` 两格，本枚住固有 impl ——
     /// trait impl 块里只能出现 trait 声明过的方法，把共用件放这儿是协议层，不是话术层。
+    /// 刀⑧(2026-11-04)：这枚整件委托 `ans` —— 三档分派（check_io → 重放段 take_act → 直答闭包）
+    /// 与 decode 那把尺全族共用一份，这里再写一份就是双账。**等价性逐字可查**：`ans` 在闭包为空
+    /// 或答手不答时落回同一句 `self.ask(action, params)`，所以两枚现出口（`--drive-ark-daily`／
+    /// `--drive-m9a-daily`，`direct` 恒 `None`）的 ask 信封形状一字未动；只有轮骨架档新增了直答去路。
     fn gate(&mut self, action: &'static str) -> Result<M9aGateOut, ArkAbort> {
-        self.check_io()?;
-        if self.replaying() {
-            match self.take_act(action)? {
-                DriveTake::Data(d) => Ok(M9aGateOut {
-                    code: jv_int(&jv_get_ci(&d, "code"), 0),
-                    line: jv_str(&jv_get_ci(&d, "line")),
-                    joined: jv_str(&jv_get_ci(&d, "joined")),
-                }),
-                DriveTake::Fail(m) => Err(ArkAbort::Fail(m)),
-            }
-        } else {
-            self.ask(action, JVal::Null)
-        }
+        self.ans("r1999", action, JVal::Null, |d| M9aGateOut {
+            code: jv_int(&jv_get_ci(d, "code"), 0),
+            line: jv_str(&jv_get_ci(d, "line")),
+            joined: jv_str(&jv_get_ci(d, "joined")),
+        })
     }
     fn check_io(&mut self) -> Result<(), ArkAbort> {
         match &self.io_err {
@@ -5253,10 +5278,12 @@ impl<'a> DriveFx<'a> {
             None => Ok(None),
         };
         match out {
-            // 答手不答这一格（轮骨架外发那十三格）⇒ 与闭包为空走同一句 `ask`：
+            // 答手不答这一格（轮骨架外发那三格：`round-elevate`＋监督两枚）⇒ 与闭包为空走同一句 `ask`：
             // 问法、信封形状、重放依据全部照旧，这一刀改的只是"谁来答"。
-            // ⚠ 链体射程外那两格（`updgate`／`audit`）**根本不进这一枚** —— 它们走 `gate`，
-            // 那里没有答手；"直答件答不了"与"直答件选择不答"是两件事，名册别混。
+            // （这一句从 B-3②-b3 的「十三格」一路漂到刀①②③⑧ 的「三格」，中间三批只登记在册子没改这里
+            //   ⇒ 本批改齐；枚数的事实源是 `Get-GdRoundOuterActs` 与 §28 的 S28_ROSTER，两册对平。）
+            // ⚠ 刀⑧ 之前那句「`updgate`／`audit` 根本不进这一枚」已作废：那两枚的 `gate` 现在整件
+            // 委托这里，所以**全族只有一把三档尺**。"直答件答不了"与"直答件选择不答"仍是两件事，名册别混。
             Ok(None) => self.ask(action, params),
             Ok(Some(o)) => {
                 // Lines 只进侧信道（不进账）。写侧信道失败落 io_err，与 fx_log 同一把语义。
@@ -6782,6 +6809,9 @@ fn round_env_check(mods: &[&'static GdModule], env: &RoundEnv) -> (usize, Vec<St
 // `DRIVE_WHY_ROUND` 那句"屏保读数照 ask"写的正是这一格（当初按甲档判它可直答，落码时按现场改口，登记见 docs §11.55）。
 // ⚠ 转接刀·屏保稳态族(2026-11-03，docs\rust-core-plan.md §11.215)之后上面那段只剩来历：那一族的 PS 真身与
 //   转发壳都已出仓，注册表读数由 `read-screensaver-config` 现答 ⇒ 这一格自此直答（见下面 ("ark", "svdetail") 那一臂）。
+// ⚠ 转接刀·运行面刀⑧(2026-11-04) 之后「`updgate`／`audit` 同批留外发」那半句也只剩来历：两枚闸的起子进程＋
+//   挑行＋拼串改住 C#（`Gate.Host.cs`），核内问 `run-m9a-update`／`run-1999-event-audit` 两枚 verb 直答
+//   （见 ("r1999", "updgate")／("r1999", "audit") 两臂）；工具本体那两把 .ps1 按表账「不许动」永久留壳。
 
 /// 骨架自有格的动作名（journal 的 `action` 字面、ask 信封的 `action`、直答表的键 —— 三处同名只此一份）。
 const ROUND_SELECT_ACT: &str = "round-select";
@@ -7337,6 +7367,35 @@ fn round_answer(
             (hooks.nap)(secs);
             DirectOut::only(JVal::B(true))
         }
+        // ==================== 刀⑧ 收编(2026-11-04)：两枚闸动作进直答 ====================
+        // `gate` 整件委托 `ans` 之后，这两臂才是那两枚的"谁来答"落点（PS 臂 lib\rust-round.ps1:462-484
+        // 随刀⑧ 笔(c) 同批摘臂 —— 一次删两侧，判据在 §28 的 R-outer 白名单与 R-outer-seg9 反空集）。
+        // 落账三枚键名**照 PS 臂那副小写形**（当年 `$data = [pscustomobject]@{ code; line; joined }`，
+        // 键序也是这三枚这一序）：链体消费面与 §23 的账行钉读的都是小写，这里改成 PascalCase 就是双账。
+        // C# 侧回执是 PascalCase（Gate.Host.cs 的 Gd.Out 出 Code/Line/Joined），这一臂只做键名换算，
+        // **不在这条道上加任何判定**：code 三态的话术全在链体，挑行与拼串两个口径全在 C#。
+        // ⚠ 侧信道**一行不带**（DirectOut::only）：PS 臂只把子进程输出收进 `$gOut` 拼串，一句日志不写，
+        //   日志全由链体按 code 三态自己发；这里塞 Lines 会让同一轮"换头前／换头后"的日志对不上。
+        ("r1999", "updgate") => {
+            let d = (hooks.call)("run-m9a-update", &JVal::O(Vec::new()))?;
+            let line = jv_str(&jv_get_ci(&d, "Line"));
+            let joined = jv_str(&jv_get_ci(&d, "Joined"));
+            DirectOut::only(jv_o(vec![
+                ("code", JVal::I(jv_int(&jv_get_ci(&d, "Code"), 0))),
+                ("line", jv_s(&line)),
+                ("joined", jv_s(&joined)),
+            ]))
+        }
+        ("r1999", "audit") => {
+            let d = (hooks.call)("run-1999-event-audit", &JVal::O(Vec::new()))?;
+            let line = jv_str(&jv_get_ci(&d, "Line"));
+            let joined = jv_str(&jv_get_ci(&d, "Joined"));
+            DirectOut::only(jv_o(vec![
+                ("code", JVal::I(jv_int(&jv_get_ci(&d, "Code"), 0))),
+                ("line", jv_s(&line)),
+                ("joined", jv_s(&joined)),
+            ]))
+        }
         // ==================== 刀① 收编：门表两枚＋收尾钩子两枚 ====================
         ("round", a) if a == GD_MODULE_ARK.gate_act || a == GD_MODULE_R1999.gate_act => {
             // 刀① 收编(2026-11-03)：`round-gate:<id>` 两臂改核内直答 —— 换的是"谁来答"，问法与落账
@@ -7745,8 +7804,10 @@ fn round_answer(
             DirectOut::with_lines(data, lines)
         }
         // ==================== 其余一律外发 ====================
-        // 名单（刀③ 收编之后）：`round-elevate`＋监督两枚，加上链体里
-        // `updgate`／`audit`（那两枚走 `gate`、根本不进这里）。
+        // 名单（刀⑧ 收编之后）：`round-elevate`＋监督两枚。
+        // ⚠ 这一句到上一行都在改**现量**：刀③ 起的旧账写的是「…加上链体里 `updgate`／`audit`
+        //   （那两枚走 `gate`、根本不进这里）」——刀⑧ 之后 `gate` 整件委托 `ans`，那两枚**进的正是这里**，
+        //   两臂住在上面 r1999 链体格那一段的末尾。来历留在这一句里，不另起一段。
         // 这里**不写任何判据**：外发那一族的真身动作在 PS 侧，转接层（B-4②）答它们。
         // ⚠ R10 时代这份名单里还有六枚（`round-history:*` 两枚／`round-probe:ark`／`round-screensaver`／
         //   `svdetail`／`round-elevate`），R9-a 把它们改成了核内直答；刀① 又收编四枚（`round-gate:*` 两枚／
@@ -18328,6 +18389,19 @@ fn selftest() -> i32 {
                     ("Toast", jv_s("sent")),
                     ("Lines", JVal::A(Vec::new())),
                 ]),
+                // ---- 刀⑧(2026-11-04) 两枚闸 verb：回执三枚键名照 C# 侧 Gd.Out 的 PascalCase 摆，
+                //   三枚值**各不相同**（Line 是挑出来的那一句、Joined 是全量并串）——取错键或两枚值写成
+                //   同一句都会让下面 data_of 那两格当场红；靠 `_ => {Done}` 兜底则是"永远答得对"的死锚。
+                "run-m9a-update" => jv_o(vec![
+                    ("Code", JVal::I(0)),
+                    ("Line", jv_s("已是最新，无需更新")),
+                    ("Joined", jv_s("已是最新，无需更新 / 更新器退出码 0")),
+                ]),
+                "run-1999-event-audit" => jv_o(vec![
+                    ("Code", JVal::I(3)),
+                    ("Line", jv_s("审计结论：无事发生")),
+                    ("Joined", jv_s("审计结论：无事发生 / FAKE-尾行")),
+                ]),
                 _ => jv_o(vec![("Done", JVal::B(true))]),
             }
         }
@@ -18733,6 +18807,11 @@ fn selftest() -> i32 {
                 // opt/force 都给 Null ⇒ Plan 缺省 auto、Farm 缺省 false、Stage/FarmOpt 走夹具值。
                 ("round", GD_MODULE_ARK.resolve_act, JVal::Null),
                 ("round", GD_MODULE_R1999.resolve_act, JVal::Null),
+                // ---- 刀⑧ 收编两发（原来在外发那一族，下面那段逐枚点名已把它们摘出去）----
+                // 两枚闸动作无参（body 空对象）⇒ proj24 那两格钉的是 `verb|` 空键名册，
+                // data_of 那两格钉的是"落账三枚小写键、键序 code→line→joined"（PS 臂当年同形）。
+                ("r1999", "updgate", JVal::Null),
+                ("r1999", "audit", JVal::Null),
             ]
             .iter()
             {
@@ -18742,7 +18821,7 @@ fn selftest() -> i32 {
                     Err(m) => ask_none.push(format!("{}:{}→Err({})", role, action, m)),
                 }
             }
-            // 外发那一族逐枚点名（答 None = 协议没删）：判定/预览/监督/提权 + updgate/audit。
+            // 外发那一族逐枚点名（答 None = 协议没删）：监督两枚 + 提权。
             // ⚠ R9-a 把上一族的四枚（svdetail／round-screensaver／history 两枚／round-probe）摘走了，
             //   但 `ROUND_ELEVATE_ACT` **必须留在这一族**：env24.relaunch 是 Null ⇒ 缺 `--relaunch-entry`
             //   那一发答 None ⇒ 照旧外发。这一格同时就是 elevate 的**负对照**——收编不许把旧调用方
@@ -18754,12 +18833,13 @@ fn selftest() -> i32 {
             //   名册里留着它就是让这一格永远答 None 的死锚（壳侧名册同批 9→7）。
             // ⚠ 刀③(2026-11-03) 再摘 `round-resolve:ark`／`round-resolve:r1999`（直答点名族两发）：
             //   判定面进核后同形——壳侧名册同批 7→5（笔(c)）。
+            // ⚠ 刀⑧(2026-11-04) 再摘 `updgate`／`audit`（直答点名族两发）：这一格头注原来写的是
+            //   "判定/预览/监督/提权 + updgate/audit"，两枚摘走后只剩三枚——留在这一族就是死锚
+            //   （Some 会让下面那句 `本该外发` 当场红）；壳侧名册同批 5→3（笔(c)）。
             for (role, action, params) in [
                 ("round", ROUND_SUPERVISOR_START_ACT, JVal::Null),
                 ("round", ROUND_SUPERVISOR_STOP_ACT, JVal::Null),
                 ("round", ROUND_ELEVATE_ACT, JVal::Null),
-                ("r1999", "updgate", JVal::Null),
-                ("r1999", "audit", JVal::Null),
             ]
             .iter()
             {
@@ -18842,7 +18922,14 @@ fn selftest() -> i32 {
                 //   {Mode,Instance,Decision,Conn?}）——Mode 位照旧排头，假值「farm」与 run-crash
                 //   那几行 S|round-history|…|farm|… 的 mode 位同源。 ----
                 && data_of.iter().any(|l| l.starts_with("round:round-resolve:ark:{\"Mode\":\"farm\""))
-                && data_of.iter().any(|l| l.starts_with("round:round-resolve:r1999:{\"Mode\":\"farm\"")),
+                && data_of.iter().any(|l| l.starts_with("round:round-resolve:r1999:{\"Mode\":\"farm\""))
+                // ---- 刀⑧ 收编两发：落账三枚**小写键**、键序 code→line→joined（PS 臂 `$data=[pscustomobject]@{code;line;joined}`
+                //   当年写进 res 的逐字同形；C# 侧那三枚是 PascalCase，换算只发生在 round_answer 那两臂里）。
+                //   值全量钉死：取错键／键序换／把 PascalCase 直接落账都会当场红，不靠"看起来差不多"。----
+                && data_of.iter().any(|l| l
+                    == "r1999:updgate:{\"code\":0,\"line\":\"已是最新，无需更新\",\"joined\":\"已是最新，无需更新 / 更新器退出码 0\"}")
+                && data_of.iter().any(|l| l
+                    == "r1999:audit:{\"code\":3,\"line\":\"审计结论：无事发生\",\"joined\":\"审计结论：无事发生 / FAKE-尾行\"}"),
             &format!(
                 "直答那一族的账行形状变了（PS executor 当年写进 res 的 data 是这个形状，改了②-b 的门就没法逐字节比）：{}",
                 data_of.join(" § ")
@@ -18878,6 +18965,12 @@ fn selftest() -> i32 {
                 && proj24.iter().filter(|p| *p == "set-ark-shop-state|done").count() == 1
                 && proj24.iter().any(|p| p == "stop-maa-and-game|")
                 && proj24.iter().any(|p| p == "stop-m9a|")
+                // ---- 刀⑧ 收编两发的消费证据：两枚闸动作**无参**（臂里交的是空对象 `JVal::O(Vec::new())`，
+                //   与 PS 臂 `& $selfEngine ... -File tools\m9a-update.ps1 -Apply` 那个"键一个不带给工具"同形：
+                //   子进程怎么起是工具本体的事，核只问verb、不塞 paths/log 之类整块 runtime）。
+                //   投影渲染成 `verb|` 空键串——这里出现任何键名就是核替工具决定了它的起法。----
+                && proj24.iter().any(|p| p == "run-m9a-update|")
+                && proj24.iter().any(|p| p == "run-1999-event-audit|")
                 // 「缺键算关」的反向钉：env24 的 runtime 没这枚键 ⇒ stop:r1999 直答臂只许调 stop-m9a，
                 //   一次 stop-mumu 都不许冒出来（正例在下面刀① 专块）。
                 && proj24.iter().filter(|p| *p == "stop-mumu|").count() == 0,
@@ -20784,26 +20877,26 @@ asst-failed|ev|2|asst|10000|TaskChainError|TaskChainError|task_chain|Error|local
         // R9-a 提权入参那枚唯一针（门 $ElevNeedle 逐字）：只许住在 start-elevated-round 的转交 body 里，
         // journal／侧信道／ask 信封／done 结果一枚都不许见（A-elev-noleak）。
         const S28_ELEV_NEEDLE: &str = "FIXTURE-ELEV-ENTRY-NEEDLE";
-        // 白名单冻签名册 5 枚（R-outer 的 B 面：Get-GdRoundOuterActs 的冻结；ASCII 序）。
+        // 白名单冻签名册 3 枚（R-outer 的 B 面：Get-GdRoundOuterActs 的冻结；ASCII 序）。
         // 刀①(2026-11-03)：round-gate:ark/r1999 与 stop:ark/r1999 四枚改核内直答后不再问出去 ⇒ 出册；
         // PS 侧 Get-GdRoundOuterActs 随本刀笔(c) 同步缩到 9，最终帧两册同为 9。
         // 刀②(2026-11-03)：round-preview:ark/r1999 两枚同形出册，PS 侧同步缩到 7，最终帧两册同为 7。
         // 刀③(2026-11-03)：round-resolve:ark/r1999 两枚同形出册（判定面进核），PS 侧同步缩到 5，
         // 最终帧两册同为 5；fail_resolve 的缝随臂搬进替身的 compose-decision-inputs（见函数头注）。
+        // 刀⑧(2026-11-04)：`updgate`／`audit` 两枚同形出册（两枚闸的"谁来答"改核内直答，问
+        // run-m9a-update／run-1999-event-audit），PS 侧同步缩到 3，最终帧两册同为 3。
         const S28_ROSTER: &[&str] = &[
-            "audit",
             "round-elevate",
             "round-supervisor-start",
             "round-supervisor-stop",
-            "updgate",
         ];
-        // 段 9 那四枚的硬期望（门 $Seg9Want 逐字；事实源＝核内骨架的段序与链体那两枚闸，不是本节的读数）。
+        // 段 9 那两枚的硬期望（门 $Seg9Want 逐字；事实源＝核内骨架的段序与链体那两枚闸，不是本节的读数）。
         // 刀①(2026-11-03)：stop 两枚直答后不进 ask 序 ⇒ 出册；账面那两条 S|stop| 行由场景册 must_have 继续钉。
+        // 刀⑧(2026-11-04)：updgate／audit 同因出册——这一格的反空集语义不变（A⊆B 只剩监督两枚，
+        // 照样不许恒绿）；那两枚的落账证明改由 §24 的 data_of／proj24 两格钉（小写三枚键全等＋空键名册）。
         const S28_SEG9: &[&str] = &[
             "round-supervisor-start",
             "round-supervisor-stop",
-            "updgate",
-            "audit",
         ];
 
         #[derive(Clone, Copy)]
@@ -21197,6 +21290,26 @@ asst-failed|ev|2|asst|10000|TaskChainError|TaskChainError|task_chain|Error|local
                     ("Code", JVal::I(elev_code)),
                     ("Carrier", jv_s("fixture")),
                     ("BatchLine", jv_s("fixture")),
+                ]));
+            }
+            // 刀⑧(2026-11-04)：两枚闸直答臂问的正是这两 verb——回执三枚**PascalCase**（C# 侧
+            // Gate.Host.cs 的 Gd.Out 出 Code/Line/Joined），核臂只做键名换算、落账成小写三枚。
+            // 这里给的 Code 一律 0（走链体 INFO 那一档），与本节旧 ask 册里那两枚 `{"Done":true}`
+            // 的等效读数同档：缺 code ⇒ jv_int 默认 0 ⇒ 同一句「不挡当日轮」的正路。
+            // ⚠ 不给 Line/Joined 的真值就让这两格恒绿是另一种双账：链体那句 INFO 拼的是 `g.line`，
+            //   夹具交空串等于把「挑出来的行有没有走到位」这一件事测没了。
+            if verb == "run-m9a-update" {
+                return Ok(jv_o(vec![
+                    ("Code", JVal::I(0)),
+                    ("Line", jv_s("夹具：已是最新")),
+                    ("Joined", jv_s("夹具：已是最新 / 更新器退出码 0")),
+                ]));
+            }
+            if verb == "run-1999-event-audit" {
+                return Ok(jv_o(vec![
+                    ("Code", JVal::I(0)),
+                    ("Line", jv_s("夹具：审计结论 无待审活动")),
+                    ("Joined", jv_s("夹具：审计结论 无待审活动 / FAKE-尾行")),
                 ]));
             }
             let r = match verb {
@@ -21925,6 +22038,9 @@ asst-failed|ev|2|asst|10000|TaskChainError|TaskChainError|task_chain|Error|local
                 // 刀③(2026-11-03)：round-resolve 两枚同形出册——判定面进核后不再问出去，resolve 的注入缝
                 // 搬到 s28_verb_reply 的 fail_resolve（挂在直答臂第一发 compose-decision-inputs 上，
                 // S28_MSG_RESOLVE 常量留在缝里继续冒；判定族九枚 verb 的假回执也归那册子）。
+                // 刀⑧(2026-11-04)：`updgate`／`audit` 两枚同形出册——两枚闸改核内直答后不再问出去，
+                // 那两枚假 verb 册里新立 run-m9a-update／run-1999-event-audit 两分支接住（不接就当场
+                // 落一条 err 账行、链体吞成 WARN 继续跑：会话照样 done，但 data_of／S 级账形全变＝死锚）。
                 let mut ask_tbl: Vec<(String, bool, JVal)> = Vec::new();
                 ask_tbl.push((
                     "round-supervisor-start".to_string(),
@@ -21937,8 +22053,6 @@ asst-failed|ev|2|asst|10000|TaskChainError|TaskChainError|task_chain|Error|local
                     jv_o(vec![("Available", JVal::B(true)), ("Err", jv_s(""))]),
                 ));
                 ask_tbl.push(("round-elevate".to_string(), false, jv_o(vec![("Code", JVal::I(sc.elev_code))])));
-                ask_tbl.push(("updgate".to_string(), false, jv_o(vec![("Done", JVal::B(true))])));
-                ask_tbl.push(("audit".to_string(), false, jv_o(vec![("Done", JVal::B(true))])));
                 // 假 verb 册闭包（逐次调用记 body，回执走 s28_verb_reply）。
                 let calls_cell = std::rc::Rc::new(std::cell::RefCell::new(Vec::<(String, String)>::new()));
                 let calls_fx = calls_cell.clone();
@@ -22333,11 +22447,12 @@ asst-failed|ev|2|asst|10000|TaskChainError|TaskChainError|task_chain|Error|local
                 }
             }
         }
-        // R-outer-seg9：段 9 那四枚必须真在 ask 序里出现过 ⇒ 否则 A⊆B 是空集恒绿。
+        // R-outer-seg9：段 9 那两枚必须真在 ask 序里出现过 ⇒ 否则 A⊆B 是空集恒绿。
+        // （刀⑧ 起这一族只剩监督两枚；两枚闸的落账证明改由 §24 的 data_of／proj24 钉，不在这格重复。）
         chk(
             S28_SEG9.iter().all(|s| outer_seen28.iter().any(|a| a == s)),
             &format!(
-                "§28 R-outer-seg9：段 9 那四枚没真被问出去过，缺={}",
+                "§28 R-outer-seg9：段 9 那两枚没真被问出去过，缺={}",
                 S28_SEG9
                     .iter()
                     .filter(|s| !outer_seen28.iter().any(|a| a == *s))
@@ -23355,7 +23470,8 @@ fn usage() -> ! {
          \t  本机路径只作参数喂进来，不进 ask 信封、不进日志（环境缺失那行的全路径是唯一在册例外，见 plan §11.55）。\n\
          \t  与上面两档同理**不加载任何 DLL**；睡眠屏蔽是本进程自己的 Win32 句柄语义（外发给壳等于没设），所以核内自设并同进程复验。\n\
          \t  ⚠ 本档此刻**零调用方**：PS 侧入口仍在 lib\\modules.ps1，转接归 ②-d；话术里不许吹「完全不经 PS」\n\
-         \t  （updgate / audit 那两格的工具子进程照旧是 pwsh，§11.52 ② 那条降级口径）。\n\
+         \t  （updgate / audit 那两格的工具子进程照旧是 pwsh，§11.52 ② 那条降级口径；刀⑧(2026-11-04) 起\n\
+         \t  这内层由 C# 侧 Gate.Host.cs 起，「谁起」换了、「仍是 pwsh 起工具 .ps1」这件事一字未变）。\n\
          \n\
          运行面回放档（B-2a，只给对拍门用）：gdcore --maa-run --script <剧本文件> --panel-cs <判定 exe 路径> [--out <文件>]\n\
          \t  与上面五档同理**不加载任何 DLL、不碰任何现场**，所以也不需要 --kind / --dir；生产不接线（这一档不是换头入口）。\n\

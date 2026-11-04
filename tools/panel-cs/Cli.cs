@@ -212,6 +212,11 @@ namespace GdPanel
                 //   resolve-status-proc-names ＝ 两枚 ProcNames 的写死名册直身。两枚都不读配置、不写盘。
                 else if (verb == "resolve-status-env-rows") r = Decide(a, Detect.StatusEnvRows);
                 else if (verb == "resolve-status-proc-names") r = Decide(a, Detect.StatusProcNames);
+                // ---- 刀⑧(2026-11-04)：rust-round 外发名册两枚闸臂(updgate／audit)的直身，照先例排链尾 ----
+                //   run-m9a-update／run-1999-event-audit：判据(脚本名、-Apply、挑行正则、内层上限)全在 Gate.Host.cs，
+                //   入参只有自检夹具三枚旋钮；这两枚是**会起子进程**的出口，与 status 那两枚纯数据形不同档。
+                else if (verb == "run-m9a-update") r = Decide(a, GateHost.M9aUpdgate);
+                else if (verb == "run-1999-event-audit") r = Decide(a, GateHost.EventAudit);
                 else throw new GdUsageException("未知子命令：" + verb + "(现有：" + GdCliVerbs.Roster() + "；后续批次见 docs\\ps-migration-batch0.md 与 docs\\ps-migration-live-caliber.md)");
             }
             catch (GdUsageException ex)

@@ -52,7 +52,7 @@ function Get-GdRoundCoreExe {
 }
 
 function Get-GdRoundOuterActs {
-    <# **外发 5 格的名册(唯一口径)**。尺子的出处＝§11.64 ③：按"码面动作字面量 × 两路"展开，
+    <# **外发 3 格的名册(唯一口径)**。尺子的出处＝§11.64 ③：按"码面动作字面量 × 两路"展开，
        与核内 round_answer 那个 `_ => return Ok(None)` 的注释名单同源；直答那一族不在这里(核内自己答)，
        take_act 那三格(mark/obsrec/admin)不发 ask 因此也不在。
        ⚠ **R9-a(10-17) 把这一族从 18 收成 13**：`round-history:ark`／`round-history:r1999`／`round-probe:ark`／
@@ -69,6 +69,11 @@ function Get-GdRoundOuterActs {
        decide-ark/apply-ark-daily-intent×2/resolve-ark-farm-decision 与 read-r1999-activity/
        decide-r1999/apply-r1999-daily-intent/r1999-instance/read-m9a-connection，data 形状逐字同 PS 臂)，
        臂与名册同批摘；Resolve 钩子体与 decisions 三本暂留(摘臂不摘格，1eq.④ 先例)。
+       ⚠ **刀⑧(2026-11-04) 再收两枚，5→3**：`updgate`／`audit` 改核内直答(两枚闸的"起工具子进程＋挑行＋
+       全量拼串"整段搬进 panel-cs 的 Gate.Host.cs，问 run-m9a-update／run-1999-event-audit 两枚 verb，
+       落账仍是小写三枚 {code,line,joined})，臂与名册同批摘；
+       tools\m9a-update.ps1／tools\1999-event-audit.ps1 两把**工具本体**按表账「不许动」永久留壳——
+       这一刀搬的是壳里那 23 行起子进程的写法，不是那 404 行的工具真身。
        ⚠ **`round-elevate` 刻意留在名册里**：它按拍板"全收编"走 `--relaunch-entry` 那枚**可选**入程参数，
        缺参数／文件读不动／形状坏 ⇒ 核答 `None` ⇒ 照旧出 ask(§11.66 那条"恒绿的判据就是没验过的判据"的正面用法：
        入程通道是新立的，必须留一条"没递到就退回老路"的落点，而不是把它升级成整轮拒跑)。
@@ -76,8 +81,7 @@ function Get-GdRoundOuterActs {
        两侧有一边漏改，宁可这一轮没跑，也不许把不认识的动作当成成功回执吞掉。
        ⚠ 不要把驱动档那十四枚白名单(lib\ark-daily.ps1)当这枚名册用，那是另一族的数(§11.64 ③ 倒数第二段)。 #>
     return @(
-        'round-elevate', 'round-supervisor-start', 'round-supervisor-stop',
-        'updgate', 'audit'
+        'round-elevate', 'round-supervisor-start', 'round-supervisor-stop'
     )
 }
 
@@ -269,7 +273,7 @@ function Invoke-GdDailyRoundRust {
     if (-not $CoreExe -or -not $PanelCs) { Stop-GdBeforeRun '转接层装配漏了内置件或判定 exe 的落点(内部错，非现场问题)' }
     $exe = $CoreExe
     $panel = $PanelCs
-    $selfEngine = (Get-Process -Id $PID).Path    # 两处外挂子进程(更新闸/审计闸)共用当前引擎自己，与两枚现出口同一句
+    # 刀⑧(2026-11-04) 起这里不再有"外挂子进程"：曾有的 `$selfEngine`（引擎自路径）随两枚闸臂同批出册。
 
     # 一次日常 = 一本账：ctx 换了 journal 就不能复用(内核按 init 与 ctx 全等校验)，每次开头清场重起。
     $journal = Join-Path $global:GD.State 'rust-round-journal.ndjson'
@@ -440,48 +444,15 @@ function Invoke-GdDailyRoundRust {
                                 $data = [pscustomobject]@{ Available = $false; Err = '' }
                             }
                         }
-                        # ---- 刀① 收编(2026-11-03)：`round-gate:<id>`／`stop:<id>` 四枚臂已摘——核内 round_answer
-                        #      直答(问法与落账形状逐字不动，data 恒 $true)，这里不再有"壳替核答"的那一截。
-                        #      ⚠ **一次删两侧**：main.rs 的 `round_answer` 若还答 None 而这里留着臂，死臂会遮住
-                        #      "收到不认识的动作"拒跑；反过来核先答了这里还问，ask 会走拒跑 ⇒ 整轮没跑(2)。
-                        #      这条对账由核内 --selftest 第 28 节的 S28_ROSTER（7→5，刀③ 起；与下面的名册同数）与
-                        #      R-gate-call 格（门格的 set-* 直答消费）钉着，不靠人记得。
-                        #      ⚠ **刀③(2026-11-03) 再摘 `round-resolve:<id>` 两臂**：判定面进核——两臂的
-                        #      六发问序（ark＝compose-decision-inputs→read-ark-activity(注入缝)→decide-ark→
-                        #      apply-ark-daily-intent×2 夹 resolve-ark-farm-decision；r1999＝compose→
-                        #      read-r1999-activity(paths 直答)→Ready 分档→apply-r1999-daily-intent→
-                        #      r1999-instance(planToInstance 前置核臂照做)→read-m9a-connection(不许抛)）
-                        #      与 Conn 平铺形状逐字搬进 main.rs，这里不再有"壳替核答"的那一截。
-                        # ---- 刀② 收编(2026-11-03)：`round-preview:ark`／`round-preview:r1999` 两臂同批摘——
-                        #      直答臂在核内问 apply-maa-daily-config(不给 apply ⇒ 预览档)／apply-m9a-instance(apply:false)
-                        #      ＋ark-find-window／read-m9a-connection／mumu-state，日志面四段/三段逐字同 PS 臂形状；
-                        #      模块清单的 Preview 钩子体暂留(摘臂不摘格，去留归后续刀)。
-                        # ---- 刀① 收编(2026-11-03)：`stop:ark`／`stop:r1999` 两臂同批摘——直答臂在核内问
-                        #      stop-maa-and-game／stop-m9a(+stop-mumu)，Lines 回放与 data 恒 true 同 PS 臂形状；
-                        #      模块清单的 Stop 钩子体暂留(1eq.④ 摘臂不摘格，去留归后续刀)。
-                        'updgate' {
-                            # 回退段那一段的"活"(起更新器子进程)原样搬来，两句闸话由链体按 code 三态决定；
-                            # 挑行与全量拼串两个口径照回退段逐字同形，否则同一轮换头前后日志对不上。
-                            $gOut = @(& $selfEngine -NoProfile -ExecutionPolicy Bypass -File (Join-Path $global:GD.Root 'tools\m9a-update.ps1') -Apply 2>&1)
-                            $gCode = $LASTEXITCODE
-                            $gLine = (@($gOut | Where-Object { [string]$_ -match '已是最新|更新完成' }) | Select-Object -Last 1)
-                            $data = [pscustomobject]@{
-                                code   = [int]$gCode
-                                line   = [string]$gLine
-                                joined = ((@($gOut | ForEach-Object { [string]$_ })) -join ' / ')
-                            }
-                        }
-                        'audit' {
-                            # 核内已按状态名册判过"只在 ok/empty-queue 才问"，这里只管起工具与读数。
-                            $gOut = @(& $selfEngine -NoProfile -ExecutionPolicy Bypass -File (Join-Path $global:GD.Root 'tools\1999-event-audit.ps1') -Apply 2>&1)
-                            $gCode = $LASTEXITCODE
-                            $gLine = (@($gOut | ForEach-Object { [string]$_ }) | Where-Object { $_ -match '审计结论|无事发生|维持 event-pending' } | Select-Object -Last 1)
-                            $data = [pscustomobject]@{
-                                code   = [int]$gCode
-                                line   = [string]$gLine
-                                joined = ((@($gOut | ForEach-Object { [string]$_ })) -join ' / ')
-                            }
-                        }
+                        # ---- 刀⑧ 收编(2026-11-04)：`updgate`／`audit` 两臂摘净——两枚闸的"起工具子进程＋
+                        #      挑行＋全量拼串"整段搬进 tools\panel-cs\Gate.Host.cs，核内 round_answer 问
+                        #      run-m9a-update／run-1999-event-audit 两枚 verb 直答，落账仍是小写三枚
+                        #      {code,line,joined}(键名与键序照本文件当年那两臂逐字同形)。
+                        #      ⚠ **一次删两侧**：核若还答 None 而这里留着臂，死臂会遮住"收到不认识的动作"拒跑；
+                        #      反过来核先答了这里还留名册，ask 会走拒跑 ⇒ 整轮没跑(2)。这条对账由核内 --selftest
+                        #      §28 的 S28_ROSTER(3 枚，与下面的名册同数)＋R-outer 白名单钉着，不靠人记得。
+                        #      刀①②③⑧ 各摘了哪几臂、账为什么这样落——那份史注在 main.rs 的 round_answer 尾部
+                        #      「其余一律外发」那一段(一源)与 docs 各帧；本文件不另存一份副本(19 行死臂史注随批摘)。
                     }
                 } catch {
                     $ok = $false

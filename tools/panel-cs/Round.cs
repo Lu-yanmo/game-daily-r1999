@@ -80,8 +80,10 @@ namespace GdPanel
     static class Round
     {
         // ==================== 入参取数：缺键=自己现读(现场)，有键=用夹具(与 Live.cs 同一套) ====================
+        // ⚠ 2026-11-04 刀⑧：这一族六枚由 private 改 internal —— Gate.Host.cs 的两枚闸臂直身吃同一套入参形状。
+        //   改的是可见性，判据一个字没动；另起一份"只给闸用"的取数件就是本主线一直在删的那本双账。
 
-        static Dictionary<string, object> View(Dictionary<string, object> raw)
+        internal static Dictionary<string, object> View(Dictionary<string, object> raw)
         {
             Dictionary<string, object> d = Gd.Ci(raw);
             if (d == null) d = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
@@ -94,28 +96,28 @@ namespace GdPanel
             return c.TryGetValue(k, out v) && v != null;
         }
 
-        static string OptStr(Dictionary<string, object> c, string k, Func<string> def)
+        internal static string OptStr(Dictionary<string, object> c, string k, Func<string> def)
         {
             object v;
             if (c.TryGetValue(k, out v) && v != null) return Gd.Str(v);
             return def == null ? "" : def();
         }
 
-        static bool OptFlag(Dictionary<string, object> c, string k, Func<bool> def)
+        internal static bool OptFlag(Dictionary<string, object> c, string k, Func<bool> def)
         {
             object v;
             if (c.TryGetValue(k, out v)) return Gd.Truthy(v);
             return def == null ? false : def();
         }
 
-        static long OptLng(Dictionary<string, object> c, string k, long def)
+        internal static long OptLng(Dictionary<string, object> c, string k, long def)
         {
             object v;
             if (!c.TryGetValue(k, out v) || v == null) return def;
             try { return Convert.ToInt64(v, CultureInfo.InvariantCulture); } catch { return def; }
         }
 
-        static List<string> OptList(Dictionary<string, object> c, string k)
+        internal static List<string> OptList(Dictionary<string, object> c, string k)
         {
             object v;
             if (!c.TryGetValue(k, out v)) return new List<string>();
@@ -350,7 +352,7 @@ namespace GdPanel
                 try { return Path.GetDirectoryName(Path.GetFullPath(script)) ?? ""; } catch { return ""; }
             });
 
-            string local = OptStr(c, "localPwsh", delegate { return LocalPwsh(OptStr(c, "pshome", null)); });
+            string local = OptStr(c, "localPwsh", delegate { return LocalPwsh(OptStr(c, "pshome", null), false); });
             bool noSpawn = OptFlag(c, "noSpawn", delegate { return false; });
             int fakeCode = (int)OptLng(c, "fakeCode", 0);
             List<object> lines = new List<object>();
@@ -365,7 +367,7 @@ namespace GdPanel
                 // 于是 exe 宿主把三级顺序折成两级：Get-GdLocalPwsh 那枚 → 按 PATH 找 pwsh.exe(Get-Command 的同形)，
                 // 都没有就照 common.ps1:802 那句原话抛(退出码 2，原话给壳继续 throw)。
                 if (local.Length > 0) return local;
-                string onPath = FindOnPath("pwsh.exe");
+                string onPath = FindOnPath("pwsh.exe", false);
                 if (onPath.Length > 0) return onPath;
                 throw new GdRuleException("找不到 pwsh.exe，无法提权重跑");
             });
@@ -423,8 +425,16 @@ namespace GdPanel
         }
 
         // Get-GdLocalPwsh 的同一条顺序：调用引擎那一版优先(由 pshome 喂进来，exe 宿主没有这一层就不喂)，
-        // 其次 Program Files 的 7；WindowsApps(商店版)一律跳过——它 runas 提不了，正是 cmd 载体存在的理由。
-        static string LocalPwsh(string pshome)
+        // 其次 Program Files 的 7。
+        // ⚠ 2026-11-04 转接刀·运行面刀⑧：这一枚自此带 allowStore 参数，**不再只管提权那一路**。
+        //   allowStore=false(提权面，一字未改的老规矩)：WindowsApps(商店版)一律跳过——它 runas 提不了，
+        //     正是 cmd 载体存在的理由。
+        //   allowStore=true(不起进程的 -File 直跑面，两枚闸臂用)：商店版**算命中**。判据变更的现拍依据：
+        //     本机 PSHOME 不随子进程继承(实测 ENV_PSHOME 为空)，而本机唯一在场的 pwsh 7 就是商店版
+        //     (%LOCALAPPDATA%\Microsoft\WindowsApps\pwsh.exe 那枚执行别名，实测 -NoProfile -File 起得来、
+        //     退出码回传正常)。若照搬 false 那一档，两枚闸在这台机器上一枚引擎都找不到 ⇒ 恒落
+        //     "闸本身抛错"WARN ＝行为回归。这两枚闸不提权，商店版对 -File 完全合法，所以这一岔按用途分档。
+        internal static string LocalPwsh(string pshome, bool allowStore)
         {
             List<string> cands = new List<string>();
             if (!string.IsNullOrEmpty(pshome)) cands.Add(Path.Combine(pshome, "pwsh.exe"));
@@ -436,7 +446,7 @@ namespace GdPanel
                 try
                 {
                     if (cand.Length == 0 || !File.Exists(cand)) continue;
-                    if (Regex.IsMatch(cand, @"\\WindowsApps\\", RegexOptions.IgnoreCase)) continue;
+                    if (!allowStore && Regex.IsMatch(cand, @"\\WindowsApps\\", RegexOptions.IgnoreCase)) continue;
                     return cand;
                 }
                 catch { }
@@ -445,8 +455,9 @@ namespace GdPanel
         }
 
         // (Get-Command pwsh.exe -ErrorAction SilentlyContinue).Source 的同形：按 PATH 逐目录找那枚 exe，
-        // 找不到回空串(由调用方决定照旧抛)。商店版 WindowsApps 不许算命中——理由与 LocalPwsh 同一条。
-        static string FindOnPath(string exeName)
+        // 找不到回空串(由调用方决定照旧抛)。商店版 WindowsApps 允不允许命中由 allowStore 决定，
+        // 理由与 LocalPwsh 同一条(提权面不许，-File 直跑面许)。
+        internal static string FindOnPath(string exeName, bool allowStore)
         {
             string path = Environment.GetEnvironmentVariable("PATH");
             if (string.IsNullOrEmpty(path)) return "";
@@ -458,7 +469,7 @@ namespace GdPanel
                 try
                 {
                     if (!File.Exists(cand)) continue;
-                    if (Regex.IsMatch(cand, @"\\WindowsApps\\", RegexOptions.IgnoreCase)) continue;
+                    if (!allowStore && Regex.IsMatch(cand, @"\\WindowsApps\\", RegexOptions.IgnoreCase)) continue;
                     return cand;
                 }
                 catch { }

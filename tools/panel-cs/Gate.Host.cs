@@ -11,9 +11,13 @@
 // ③ 只在恰好一台时才认：挑错设备会把点击打进另一台模拟器实例，宁可不认。
 // 绝不写死 16384/7555 这类端口 —— 换了 MuMu 版本或实例编号就错，本机专属值也不许进源码。
 //
-// ⚠ 本件只放端点与探活两枚。外发名册里 `updgate`／`audit` 两臂的直身**不在这里**：它们各自的真身
-//   (tools\m9a-update.ps1／tools\1999-event-audit.ps1)仍在生产面上有人直接起，宿主批还没接到那一臂，
-//   先把名字占在这里等于登记一个没有实现的出口。
+// ⚠ 2026-11-04 转接刀·运行面刀⑧ 兑现并改口：下面这段是原话，登记的是"先把名字占在这里等于登记一个
+//   没有实现的出口"——本批把那一臂的直身真的写进来了，所以这三行按新形状重写：
+// 本件放三样：端点与探活两枚(老账)、外发名册里 `updgate`／`audit` 两臂的直身(本批新立，出口＝
+// verb run-m9a-update／run-1999-event-audit)、以及它们共用的那半段起进程＋挑行＋拼串。
+// 两把闸的**本体**仍在 tools\m9a-update.ps1／tools\1999-event-audit.ps1(共 404 行，表账三枚"不许动")，
+// 搬进 C# 的只有 lib\rust-round.ps1 那 23 行**壳**(起引擎、挑行、拼 joined、包 data)——把"摘臂"报成
+// "退役那两本工具"就是把减法记成加法。
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -27,6 +31,13 @@ namespace GdPanel
     static class GateHost
     {
         static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
+
+        // 两枚闸的内层上限(秒)。判据：更新闸走的是 M9A 整包下载，链体注释写着"整段最坏十几分钟"，
+        // 所以这一档必须明显高于十几分钟；但它**必须低于**核侧 call_panel_verb 给这两枚 verb 配的等待上限，
+        // 让"放弃这一枚闸"由内层先判出、归因清楚(外层掐是"verb 没回话"，内层掐是"闸自己跑到上限")。
+        // 语义变更如实登记：老形里外层硬闸收尸整轮，新形里闸自己放弃、当日轮照跑 —— 与链体
+        // "任何失败只 WARN 不挡当日轮"同向。具体秒数是本机现量，不是判据，改动请按链体那句"十几分钟"重估。
+        const int GateRunBoundSeconds = 2400;
 
         sealed class ProcResult
         {
@@ -89,6 +100,109 @@ namespace GdPanel
             return c.Code == 0 && (c.Out ?? "").IndexOf("connected", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
+        // ==================== 两把闸的臂直身(转接刀·运行面刀⑧) ====================
+
+        // verb: run-m9a-update —— lib\rust-round.ps1 外发名册 'updgate' 那臂的 C# 直身。
+        // 判据全部留在这里(脚本相对名、-Apply、挑行正则、内层上限)，**不从入参给**：
+        // 入参一旦能改脚本名，"闸跑的是哪本工具"就不再是代码里的常量而是现场量，那正是这一族要删的东西。
+        // 入参面只剩自检夹具三枚旋钮 noSpawn／fakeCode／fakeLines(身份同 Cli.cs 的 --garbage，真跑一侧不许送)。
+        // 回执三枚键 Code／Line／Joined 用 PascalCase(与全工程其它 verb 同形)，核内答手按 jv_get_ci
+        // 折成 PS 臂当年写进 res 的那三枚小写字面(code／line／joined)，journal 才两侧对得平 —— 键名一改，
+        // 对拍当场分歧，不许"顺手统一"。
+        internal static object M9aUpdgate(Dictionary<string, object> raw)
+        {
+            return GateRun(raw, @"tools\m9a-update.ps1", "已是最新|更新完成");
+        }
+
+        // verb: run-1999-event-audit —— 同臂的 'audit' 那一路，只换脚本名与挑行正则两枚常量。
+        internal static object EventAudit(Dictionary<string, object> raw)
+        {
+            return GateRun(raw, @"tools\1999-event-audit.ps1", "审计结论|无事发生|维持 event-pending");
+        }
+
+        // 两枚臂共用的那半段：起引擎跑 -File <script> -Apply 并把 2>&1 的合流读数收成三格。
+        // 与 PS 臂逐字对齐的四条：参数串(-NoProfile -ExecutionPolicy Bypass -File … -Apply)、
+        // 挑行(在全部行里找**最后**一条命中正则的，挑不中回空串)、joined(全部行按 ' / ' 拼)、
+        // 退出码($LASTEXITCODE 的同位：进程码，超时那一支不进这里而是抛)。
+        // 分档照 PS 臂的 try/catch：引擎找不到／跑到内层上限 ⇒ 抛(GdRuleException ⇒ 退出码 2 ⇒
+        //   核侧 call_panel_verb Err ⇒ 链体"闸本身抛错，跳过它照常跑"WARN)；
+        //   脚本不在 ⇒ **不挡**，让子进程自己非 0 退出(PS 臂也没做 File.Exists 闸门)，走"退出码非 0"那条 WARN。
+        static object GateRun(Dictionary<string, object> raw, string scriptRel, string pickPattern)
+        {
+            Dictionary<string, object> c = Round.View(raw);
+            List<string> lines = new List<string>();
+            int code = 0;
+            if (Round.OptFlag(c, "noSpawn", delegate { return false; }))
+            {
+                code = (int)Round.OptLng(c, "fakeCode", 0);
+                lines = Round.OptList(c, "fakeLines");
+            }
+            else
+            {
+                string engine = GateEngine(c);
+                if (engine.Length == 0)
+                    throw new GdRuleException("找不到 pwsh 引擎，这一枚闸不起(" + scriptRel + ")");
+                string script = GdEnv.JoinPath(GdEnv.Root, scriptRel);
+                ProcResult p = RunProc(engine, new string[]
+                {
+                    "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, "-Apply"
+                }, GateRunBoundSeconds, true);
+                if (p.TimedOut)
+                    throw new GdRuleException("闸跑到内层上限仍未退出，放弃它照常跑：" + scriptRel);
+                code = p.Code;
+                lines = SplitLines(p.Out);
+            }
+            return Gd.Out(
+                "Code", code,
+                "Line", PickLine(lines, pickPattern),
+                "Joined", string.Join(" / ", lines.ToArray()));
+        }
+
+        // 引擎候选序。真身那臂用的是 `(Get-Process -Id $PID).Path` —— PS 宿主里那就是"跑这一轮的引擎"，
+        // 而本件住在 panel-cs.exe 里，自路径是面板那枚 exe(与 Round.cs:362-366 那条警示同一件事)，
+        // 且本机实测 PSHOME 不随子进程继承 ⇒ 调用方引擎这一级在 exe 宿主里根本取不到。
+        // 于是这一枚按"不起进程只 -File"的用途另立候选序，且**允许商店版命中**(判据与形状差登记在
+        // Round.LocalPwsh 的头注里：提权面仍旧跳商店版，这一面不跳，否则本机一枚都找不到 ⇒ 两枚闸恒抛＝回归)：
+        //   ① 入参 pshome 喂的那一版(留给调用方与自检) → ② Program Files 的 7 →
+        //   ③ %LOCALAPPDATA%\Microsoft\WindowsApps\pwsh.exe(商店版执行别名，本机实测在场且 -File 起得来) →
+        //   ④ PATH 逐目录(与 Get-Command pwsh.exe 同形，允许商店版)。
+        // 全都落空回空串，由调用方决定抛(照 Round.cs 那句"找不到 pwsh.exe"的先例)。
+        static string GateEngine(Dictionary<string, object> c)
+        {
+            string eng = Round.LocalPwsh(Round.OptStr(c, "pshome", null), true);
+            if (eng.Length > 0) return eng;
+            string la = Environment.GetEnvironmentVariable("LOCALAPPDATA");
+            if (!string.IsNullOrEmpty(la))
+            {
+                string alias = Path.Combine(la, @"Microsoft\WindowsApps\pwsh.exe");
+                try { if (File.Exists(alias)) return alias; } catch { }
+            }
+            return Round.FindOnPath("pwsh.exe", true);
+        }
+
+        // 合流文本按行拆。RunProc 的读手是逐行 AppendLine，所以尾部必然多出一枚幻影空元素
+        // (line-count-split-trailing-empty 那条在册坑)——不剥，joined 末尾就多一个 ' / '、
+        // 与 PS 臂 $gOut 的枚数不同轴。只剥末位这一枚：中间与真正末尾的空行照旧保留。
+        // internal 只为 --svtest 能直接喂合流文本钉这一枚(纯函数、不起进程)，不是给生产面用的第二个出口。
+        internal static List<string> SplitLines(string text)
+        {
+            List<string> outList = new List<string>();
+            if (string.IsNullOrEmpty(text)) return outList;
+            foreach (string s in text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n')) outList.Add(s);
+            if (outList.Count > 0 && outList[outList.Count - 1].Length == 0) outList.RemoveAt(outList.Count - 1);
+            return outList;
+        }
+
+        // PS 臂那句 `... | Select-Object -Last 1` 的同形：最后一条命中，挑不中回空串(不是 null)。
+        // -match 不分大小写 ⇒ RegexOptions.IgnoreCase；正则字面与 PS 臂逐字相同，改一处就是改判据。
+        static string PickLine(List<string> lines, string pattern)
+        {
+            string hit = "";
+            Regex rx = new Regex(pattern, RegexOptions.IgnoreCase);
+            foreach (string s in lines) if (rx.IsMatch(s)) hit = s;
+            return hit;
+        }
+
         // ==================== 取数段 ====================
 
         // Get-GdMuMu(lib\mumu.ps1)的直身：四条算术，不起任何进程。
@@ -135,6 +249,15 @@ namespace GdPanel
         // 否则输出满了管道就是死锁 —— PS 侧那两枚现出口防的是同一件事，这里不靠超时侥幸。
         static ProcResult RunProc(string file, string[] args, int timeoutSeconds)
         {
+            return RunProc(file, args, timeoutSeconds, false);
+        }
+
+        // merge=true：stderr 与 stdout 收进**同一根**缓冲(同一把锁、按到达次序追加)，
+        // 对回 PS 臂那句 `… 2>&1` 的交织序；此时 res.Err 恒空串，行全在 res.Out 里。
+        // 不要默认合流：老那几格(adb devices/connect、MuMuManager adb -v)读的是分开的两桶
+        // (MuMuManagerSerial 就是 stdout+Err 拼起来再抠的)，合了会把"两桶各扫"变成"一桶扫"。
+        static ProcResult RunProc(string file, string[] args, int timeoutSeconds, bool merge)
+        {
             ProcResult res = new ProcResult();
             try
             {
@@ -158,7 +281,7 @@ namespace GdPanel
                 {
                     p.StartInfo = psi;
                     StringBuilder so = new StringBuilder();
-                    StringBuilder se = new StringBuilder();
+                    StringBuilder se = merge ? so : new StringBuilder();
                     object gate = new object();
                     p.OutputDataReceived += delegate (object s, DataReceivedEventArgs e)
                     {

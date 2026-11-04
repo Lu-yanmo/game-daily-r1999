@@ -4,13 +4,13 @@
 //  §11.50 ②-1 那条判据不因 b 系列放松，需要动既有 verb 回执的，当场停手登记，不"顺手加键"。)
 //
 // 这一份管的是"链体那十一枚 ask 里，必须由这台机器亲手干的那一半"：
-//   takeover-processes         Invoke-GdTakeover(lib\common.ps1:665)：接管关闭，先判 takeOverAssistant。
+//   takeover-processes         Invoke-GdTakeover(lib\common.ps1:665；⚠ 11-05 转接刀·运行面刀⑨ 该真身已自 PS 侧出仓，这枚坐标自此按历史引文读、不换算)：接管关闭，先判 takeOverAssistant。
 //   stop-maa-and-game          Stop-MaaAndGame(旧 lib\maa.ps1 真身，11-03 转接刀·方舟拉起族整枚出仓；这一路的唯一事实源自此是本件)。
 //   stop-m9a                   Stop-M9A(lib\m9a.ps1:289)。⚠ 10-26 甲档第五刀刀② 换算：两枚转发壳出仓(本文件净 −49 行)后本族锚再改口；⚠ 11-01 坐标清账刀再换算：原写 :288 实拍是空行，定义在 :289
 //                              (历史三值 530→337→288；那句"已关闭 M9A($n 个进程)"现读 :293，行号取自摘件+话术随动后的现树实拍)。
-//   read-maa-fight-skip        Get-GdMaaFightSkip(lib\maa.ps1:60 起)的**读日志尾那半**：gui.log 全量 → 递给已在场的
+//   read-maa-fight-skip        Get-GdMaaFightSkip(lib\maa.ps1:60 起；⚠ 11-05 转接刀·运行面刀⑨ 那枚壳已出仓，坐标按历史引文读)的**读日志尾那半**：gui.log 全量 → 递给已在场的
 //                              detect-maa-fight-skip(Orchestration.cs 批次 5)，判据一枚都不在这儿重写。
-//   read-maa-stage-observation Get-GdMaaStageObservation(lib\maa.ps1:83 起)的同一半：asst.log 尾 16MB + gui.log 全量
+//   read-maa-stage-observation Get-GdMaaStageObservation(lib\maa.ps1:83 起；⚠ 11-05 转接刀·运行面刀⑨ 那枚壳已出仓，坐标按历史引文读)的同一半：asst.log 尾 16MB + gui.log 全量
 //                              + 当天日期 → 递给 observe-maa-stage-open。
 //   —— 起进程／写盘侧(start-ark-client／start-mumu／apply-maa-daily-config／apply-m9a-instance／
 //      update-ark-farm-ledger)在同一份文件的**第二笔**里落码；落码分两笔、**入库记一笔**
@@ -37,11 +37,11 @@
 //
 // 双源登记(改一句要两侧同改；生产接线(②-d)之前 lib 那两个壳仍是事实源)：
 //   * "…正在运行；要么手动关掉再跑，要么把 settings.runtime.takeOverAssistant 设为 true"、
-//     "$Label 正在运行 → 先关掉再改配置(避免它退出时把配置写回旧值)" ↔ lib\common.ps1:676-678；
+//     "$Label 正在运行 → 先关掉再改配置(避免它退出时把配置写回旧值)" ↔ lib\common.ps1:676-678(⚠ 11-05 转接刀·运行面刀⑨：Invoke-GdTakeover 出仓，那两句话术随之离开 PS 侧；本锚在原写 HEAD 帧就指错了段落——真句在 HEAD:616／618，不换算也追不上，双源自此只剩本件一源)；
 //   * "已关闭 MAA($n 个进程)"、"已关闭明日方舟端游($n 个进程)" ↔ lib\maa.ps1:744／748；
 //     "已关闭 M9A($n 个进程)" ↔ lib\m9a.ps1:293(10-26 第五刀刀② 换算、原写 342) —— 三句的括号里都带进程数、都不带句号，逐字照抄；
 //   * gui.log／asst.log 两枚路径与 `debug\asst.log` 那条兜底、asst.log 只取尾 16MB(16777216) 那把尺
-//     ↔ lib\maa.ps1:47-53(11-03 转接刀·方舟拉起族换算：摘件批给那本头注加了一行，整本自 13 行起推一格；原写 46-52) 与 Get-GdMaaStageObservation 的注释(「asst.log 连日不轮转能涨到几十 MB」)。
+//     ↔ lib\maa.ps1:47-53(11-03 转接刀·方舟拉起族换算：摘件批给那本头注加了一行，整本自 13 行起推一格；原写 46-52) 与 Get-GdMaaStageObservation 的注释(「asst.log 连日不轮转能涨到几十 MB」；⚠ 11-05 转接刀·运行面刀⑨ 那枚壳连同这句注释已自 lib\maa.ps1 出仓，这句话如今只在本文件 :447 那条注释里活着)。
 //
 // 原样怪癖(照抄，不许"顺手修")：
 //   1. **`-not $S.runtime.takeOverAssistant` 与 `-ne $false` 不是同一把尺**：前者"没填"就算**关**(缺键 ⇒ $null ⇒ 抛)，
@@ -72,13 +72,13 @@
 //
 // ==================== 第二笔(同一批的后五枚，2026-10-14)：起进程与写盘那五枚 ====================
 //  ① `start-ark-client`   Start-GdArkClient＋Wait-GdArkLauncherReady(旧 maa.ps1 真身两枚，11-03 转接刀·方舟拉起族整枚出仓；那两枚坐标 702／622 自此按历史引文读)＋
-//                          Wait-GdCondition(common.ps1:979)＋Get-GdWindowByTitle(common.ps1:1012)：
+//                          Wait-GdCondition(common.ps1:979)＋Get-GdWindowByTitle(common.ps1:1012；⚠ 11-05 转接刀·运行面刀⑨ 该真身已自 lib\common.ps1 出仓，坐标按历史引文读)：
 //                          路径闸 → 窗口名册 → 起进程 → 等窗口 → 暖身 → 更新页那一段真点击。
 //  ② `start-mumu`         Start-GdMuMu(mumu.ps1:38)＋Get-GdMuMuState(mumu.ps1:21)＋Invoke-GdNative(common.ps1:493)：
 //                          info 读数 → 已在跑就吭一声 → control launch → 轮询到 AndroidStarted。
 //  ③ `apply-maa-daily-config` Set-MaaDailyConfig(maa.ps1:116，11-03 拉起族摘件后现读、原写 115)：现场检查＋读盘＋递给 plan-maa-queue＋
 //                          备份／写盘／回读逐队列比 IsEnable。规则段一枚都不在这儿( Processes.cs 第 3 批)。
-//  ④ `apply-m9a-instance` Set-M9AInstance(m9a.ps1:73，10-26 第五刀刀② 后现读、原写 93；10-25 那趟写 83；⚠ 11-01 坐标清账刀再换算：那一格实拍是空行)：点号字面键那两格＋三句原话＋回读校验。
+//  ④ `apply-m9a-instance` Set-M9AInstance(m9a.ps1:73，10-26 第五刀刀② 后现读、原写 93；10-25 那趟写 83；⚠ 11-01 坐标清账刀再换算：那一格实拍是空行；⚠ 11-05 转接刀·运行面刀⑨ 该真身已自 lib\m9a.ps1 出仓，以上坐标全按历史引文读)：点号字面键那两格＋三句原话＋回读校验。
 //  ⑤ `update-ark-farm-ledger` Update-GdArkFarmLedger(ark-farm.ps1:125)＋Get-GdArkItemMaps(:53)＋
 //                          Read-GdArkFarmLedger(lib\ark-farm.ps1:93)：首跑按 DepotData 标定、offset 续读、记两本账、
 //                          回一句总结(链体那句 `[string](Update-GdArkFarmLedger)` 要的就是 bare string)。
@@ -95,7 +95,7 @@
 //   * "MAA 正在运行，请先关闭再改配置"、"MAA 配置不存在：…"、"MAA 配置回读不一致：…(备份：leaf)"、
 //     "MAA 配置已更新并校验通过(备份：leaf)"、"(无需改动)" ↔ lib\maa.ps1:116-194(11-03 拉起族摘件后现读、原写 115-193)；
 //   * "M9A 正在运行，请先关闭再改实例"、"M9A appsettings 不存在：…"、"M9A 实例切换回读失败(备份：leaf)"、
-//     "M9A 实例已切到[Name](备份：leaf)"、"(M9A 在跑，交给命令行 -i 转发)"、"(已是 Name，无需改动)" ↔ lib\m9a.ps1:72-102(10-26 第五刀刀② 后现读、原写 93-123)；
+//     "M9A 实例已切到[Name](备份：leaf)"、"(M9A 在跑，交给命令行 -i 转发)"、"(已是 Name，无需改动)" ↔ lib\m9a.ps1:72-102(10-26 第五刀刀② 后现读、原写 93-123；⚠ 11-05 转接刀·运行面刀⑨ 那三十一行整段出仓，这三句话术自此只在本件的 ApplyM9AInstance 里活着，双源登记自此只剩一源)；
 //   * "stages.json 解析失败：…"、"未能建立 MAA 关卡表，理智计划不会被校验" ↔ lib\ark-decisions.ps1:14-40；
 //     "item_index.json 解析失败：…"、ark-inventory／ark-droptable 那两句读不懂的话、
 //     首跑标定那三句、"记了 N 场掉落、入账 +P"、"N 个名字没在材料表认出来(前 3 以 / 连)" ↔ lib\ark-farm.ps1:53-216；
@@ -340,7 +340,7 @@ namespace GdPanel
         }
 
         // ==================== verb: takeover-processes ====================
-        // Invoke-GdTakeover(common.ps1:665) 逐字：空名 continue、没在跑 continue、没开接管就当场抛原话、
+        // Invoke-GdTakeover(common.ps1:665，⚠ 11-05 转接刀·运行面刀⑨ 该真身已自 lib\common.ps1 出仓——HEAD 帧实拍在 :605-622，那枚 :665 本就指错段落) 逐字：空名 continue、没在跑 continue、没开接管就当场抛原话、
         // 否则 WARN 一句 → Stop-GdProcessTree → **Start-Sleep 4**(第 3 笔那条硬编码)。
         // 为什么要接管：真身那句注释说的是"MAA/M9A 只有在自己退出时才会写配置，运行中改配置会被覆盖"。
         // 回执比真身多的 Done／Stopped 只给自检与答手读(定档第 2 条)；链体那一侧要的只是 $data=$true。
@@ -424,7 +424,7 @@ namespace GdPanel
         }
 
         // ==================== verb: read-maa-fight-skip ====================
-        // Get-GdMaaFightSkip(maa.ps1:60 起)的现场半段：gui.log **全量**(真身 -Offset 0 就是这个意思)、
+        // Get-GdMaaFightSkip(maa.ps1:60 起，⚠ 11-05 转接刀·运行面刀⑨ 那枚壳已自 lib\maa.ps1 出仓，坐标按历史引文读)的现场半段：gui.log **全量**(真身 -Offset 0 就是这个意思)、
         // 文件不在或读到空 ⇒ Found=false(答手据此发 JVal::Null，定档第 3 条)；否则整段文本递给已在场的
         // detect-maa-fight-skip，回执四键原样摆出来。判据("最后一次 GUI started 之后""关卡计划内没有当日开放的关卡"
         // ""任务跳过"计数、以及加载期修剪成空计划那第二档)一枚都不在这儿重写。
@@ -444,7 +444,7 @@ namespace GdPanel
         }
 
         // ==================== verb: read-maa-stage-observation ====================
-        // Get-GdMaaStageObservation(maa.ps1:83 起)的现场半段：asst.log 只取**尾 16MB**(真身那句注释：
+        // Get-GdMaaStageObservation(maa.ps1:83 起，⚠ 11-05 转接刀·运行面刀⑨ 那枚壳已自 lib\maa.ps1 出仓，坐标按历史引文读)的现场半段：asst.log 只取**尾 16MB**(真身那句注释：
         // asst.log 连日不轮转能涨到几十 MB，整份喂 CLI 不划算)、gui.log 全量、日期由壳侧注入(nowText 夹具)；
         // 两本都读不到才算 Found=false(旧身返 $null 那一档)；观测七键全由 observe-maa-stage-open 判，这里不加 if。
         // LogsRead 那一格见定档第 3 条：把"两本日志都没读到"与"读到了但本轮没递 Fight 任务"分开。
@@ -543,7 +543,7 @@ namespace GdPanel
             }
         }
 
-        // Get-GdWindowByTitle(common.ps1:1012) 的同形：只看有主窗口的进程，给了进程名就按名过滤(不分大小写)，
+        // Get-GdWindowByTitle(common.ps1:1012，⚠ 11-05 转接刀·运行面刀⑨ 该真身已自 lib\common.ps1 出仓，坐标按历史引文读) 的同形：只看有主窗口的进程，给了进程名就按名过滤(不分大小写)，
         // 标题走 -match(也不分大小写)，命中回第一枚 {Name;Id;Title}。整段在逐颗进程的 try/catch 里
         // —— 坏正则／取不到的窗口在真身就是被静默吞掉，这里同形(不抛)。
         // 夹具 `windows` = [{Name;Id;Title}]；给了就只按名册判(--roundtest 一律走这一路，不碰真窗口)。
@@ -1100,7 +1100,7 @@ namespace GdPanel
         }
 
         // ==================== verb: apply-m9a-instance ====================
-        // Set-M9AInstance(m9a.ps1:73，10-26 第五刀刀② 后现读、原写 93；⚠ 11-01 坐标清账刀再换算：原写 :72 是空行)：点号字面键('Instances.LastActive')是 M9A 自己 appsettings 的形状，
+        // Set-M9AInstance(m9a.ps1:73，10-26 第五刀刀② 后现读、原写 93；⚠ 11-01 坐标清账刀再换算：原写 :72 是空行；⚠ 11-05 转接刀·运行面刀⑨ 该真身已自 lib\m9a.ps1 出仓，以上坐标全按历史引文读)：点号字面键('Instances.LastActive')是 M9A 自己 appsettings 的形状，
         // Gd.Get 不做点号拆分 ⇒ 直接当字面键取，这一格与 PS 的 $cfg.'Instances.LastActive' 同效。
         // 命令行入口那枚开关(m9aCliArgs)的语义是"没写就是开着"(null ⇒ true)，与 takeover 那一路的
         // 真值判同族、与 arkAutoUpdateClick 的 `-ne $false` 又一族 —— 三族各照各的，不许统一。

@@ -8,7 +8,7 @@
 #   Resolve-M9AStatus  → verb resolve-m9a-status(所有结论文案/优先级在 C#；
 #                        本壳把 $State.lastLog 换算成 quietSeconds 递进去，Found:false 翻译回 $null)
 # 所以：改日志解析/结论话术请改 Processes.cs 并跑 panel-cs --proctest 对真值，不要在这里加规则。
-# 故意留在 PS 侧的：Get-M9APaths/Get-GdM9ACliEnabled(读配置)、Set-M9AInstance(写 appsettings+回读)、
+# 故意留在 PS 侧的：Get-M9APaths/Get-GdM9ACliEnabled(读配置)、Set-M9AInstance(写 appsettings+回读；⚠ 11-05 转接刀·运行面刀⑨ 该枚已出仓，本名单自此按史注读、不换算)、
 # Get-M9AConnection(读实例 JSON)、Get-M9ADailyLog/Register-M9AEvent(状态累计+日志染色)、
 # Invoke-M9ARun(起进程与轮询，归批次 5 编排层)。
 #   ⚠ 10-25 甲档刀②：上面名单里只有这一枚不成立了——Invoke-M9ARun 整段出仓(原 319-528 共 210 行)，"故意留在 PS 侧"
@@ -70,38 +70,9 @@ function Get-GdM9ACliEnabled {
     return [bool]$S.runtime.m9aCliArgs
 }
 
-function Set-M9AInstance {
-    <# 把 M9A 的"当前实例"切到指定 id(命令行 -i 之外的第二道保险：人工打开 M9A 时也能看到对的实例) #>
-    param([Parameter(Mandatory)]$S, [Parameter(Mandatory)]$Instance, [switch]$Apply)
-
-    $P = Get-M9APaths -S $S
-    if (Test-GdProcessRunning -Name $P.Name) {
-        if (-not (Get-GdM9ACliEnabled -S $S)) { throw 'M9A 正在运行，请先关闭再改实例' }
-        Write-GdLog 'M9A 正在运行：改实例这一步跳过，启动时由命令行 -i/-f 接管(会转发给正在跑的实例)' -Level WARN
-        return [pscustomobject]@{ Changes = @('(M9A 在跑，交给命令行 -i 转发)'); Instance = $Instance; Applied = $false }
-    }
-    if (-not (Test-Path -LiteralPath $P.AppSettings)) { throw "M9A appsettings 不存在：$P.AppSettings" }
-
-    $cfg = Read-GdJson -Path $P.AppSettings
-    $cur = [string]$cfg.'Instances.LastActive'
-    $changes = @()
-    if ($cur -ne $Instance.Id) { $changes += "Instances.LastActive: $cur → $($Instance.Id)($($Instance.Name))" }
-    if ([string]$cfg.'NoAutoStart' -ne 'False') { $changes += "NoAutoStart: $($cfg.'NoAutoStart') → False(启动即自动开始)" }
-
-    if ($Apply -and $changes.Count -gt 0) {
-        $bak = Backup-GdFile -Path $P.AppSettings
-        $cfg | Add-Member -NotePropertyName 'Instances.LastActive' -NotePropertyValue $Instance.Id -Force
-        $cfg | Add-Member -NotePropertyName 'Instances.LastActiveName' -NotePropertyValue $Instance.Name -Force
-        $cfg | Add-Member -NotePropertyName 'NoAutoStart' -NotePropertyValue 'False' -Force
-        Write-GdJson -Path $P.AppSettings -Object $cfg -Depth 10
-        $verify = Read-GdJson -Path $P.AppSettings
-        if ([string]$verify.'Instances.LastActive' -ne $Instance.Id) { throw "M9A 实例切换回读失败(备份：$(Split-Path -Leaf $bak))" }
-        Write-GdLog "M9A 实例已切到[$($Instance.Name)](备份：$(Split-Path -Leaf $bak))" -Level OK
-    }
-    if ($changes.Count -eq 0) { $changes = @("(已是 $($Instance.Name)，无需改动)") }
-    return [pscustomobject]@{ Changes = $changes; Instance = $Instance; Applied = [bool]$Apply }
-}
-
+# Set-M9AInstance 已删(11-05 转接刀·运行面刀⑨)：全仓 AST 零调用点(k853 正则尺＋k854/k855 名册尺同帧对平)，
+# 对面在 tools/panel-cs/Chain.cs::ApplyM9AInstance(verb apply-m9a-instance，Round.SelfTest 第 29 节有格)，
+# 表账档位词「已承接」；本文件头注那份"故意留在 PS 侧"的名单自此少一枚，按史注读不换算。
 function Get-M9AConnection {
     <# 从实例配置里取 adb 路径 + 序列号，避免把端口写死 #>
     param([Parameter(Mandatory)]$S, [Parameter(Mandatory)]$Instance)

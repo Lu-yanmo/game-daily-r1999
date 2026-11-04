@@ -3938,7 +3938,7 @@ struct ArkRunOut {
     duration: Option<f64>,
 }
 
-/// Get-GdMaaFightSkip 的读数：None 支 = 真身 $skip=$null（gui.log 不在/空时读数函数给 $null，
+/// Get-GdMaaFightSkip 的读数〔⚠ 11-05 转接刀·运行面刀⑨：那枚 PS 壳已自 lib\maa.ps1 出仓，本注释按历史引文读〕：None 支 = 真身 $skip=$null（gui.log 不在/空时读数函数给 $null，
 /// `$skip -and $skip.Skipped` 整条短路——R3② 转写漏了这支，这刀补上）。
 struct ArkSkipData {
     skipped: bool,
@@ -3962,7 +3962,7 @@ trait ArkDailyFx {
     fn desk(&mut self) -> Result<String, ArkAbort>;
     /// 屏保读数（真身那截 try/catch 全吞的注册表读法；吞的工作照旧住 executor）。
     fn svdetail(&mut self) -> Result<String, ArkAbort>;
-    /// Invoke-GdTakeover（names 由 executor 现算：MAA 进程名 + 端游 exe 名）。
+    /// Invoke-GdTakeover〔⚠ 11-05 转接刀·运行面刀⑨：该真身已自 lib\common.ps1 出仓〕（names 由 executor 现算：MAA 进程名 + 端游 exe 名）。
     fn takeover(&mut self) -> Result<(), ArkAbort>;
     /// Set-MaaDailyConfig -Apply。
     fn cfg(&mut self, kind: ArkCfgKind) -> Result<ArkCfgOut, ArkAbort>;
@@ -3976,13 +3976,13 @@ trait ArkDailyFx {
     fn stop(&mut self) -> Result<(), ArkAbort>;
     /// Start-Sleep -Seconds（秒数进参数面；夹具世界不进投影）。
     fn sleep(&mut self, seconds: u32) -> Result<(), ArkAbort>;
-    /// Get-GdMaaFightSkip（Err=真身 catch 到的那侧；Ok(None)=$null 支）。
+    /// Get-GdMaaFightSkip〔⚠ 11-05 转接刀·运行面刀⑨：该壳已自 lib\maa.ps1 出仓〕（Err=真身 catch 到的那侧；Ok(None)=$null 支）。
     fn skip(&mut self) -> Result<Option<ArkSkipData>, ArkAbort>;
     /// Set-GdArkFightSkipMark；返回 Date 串（夹具世界是固定桩值）。
     fn mark(&mut self, stages: &[String], reason: &str) -> Result<String, ArkAbort>;
     /// Update-GdArkFarmLedger（空串=没记账）。
     fn ledger(&mut self) -> Result<String, ArkAbort>;
-    /// Get-GdMaaStageObservation（可为 null）。
+    /// Get-GdMaaStageObservation〔⚠ 11-05 转接刀·运行面刀⑨：该壳已自 lib\maa.ps1 出仓〕（可为 null）。
     fn obs(&mut self) -> Result<JVal, ArkAbort>;
     /// Update-GdArkStageObs；None=读数函数没给计数。
     fn obsrec(&mut self, obs: &JVal) -> Result<Option<i64>, ArkAbort>;
@@ -4017,7 +4017,7 @@ struct M9aGateOut {
     joined: String,
 }
 
-/// Set-M9AInstance -Apply 的返回里链体要的那一格（ark 侧同款结构还多带 chains 给 run 用；
+/// Set-M9AInstance -Apply 的返回里链体要的那一格〔⚠ 11-05 转接刀·运行面刀⑨：那枚 PS 真身已自 lib\m9a.ps1 出仓，本注释按历史引文读〕（ark 侧同款结构还多带 chains 给 run 用；
 /// m9a 的 run 不吃 chains ⇒ 这里只有一格，不为了"看起来对称"补一枚死字段）。
 struct M9aCfgOut {
     changes: Vec<String>,
@@ -4055,11 +4055,11 @@ trait R1999DailyFx {
     /// Ok = 子进程起来了（退出码非 0 也算 Ok，那一档在真身里是 WARN 不是异常）；
     /// Err(Fail) = 真身 catch 到的那句"闸本身抛错"。
     fn updgate(&mut self) -> Result<M9aGateOut, ArkAbort>;
-    /// Invoke-GdTakeover（names 由 executor 现算：`(Get-M9APaths -S $S).Name`，ark 那路是两枚）。
+    /// Invoke-GdTakeover〔⚠ 11-05 转接刀·运行面刀⑨：该真身已自 lib\common.ps1 出仓〕（names 由 executor 现算：`(Get-M9APaths -S $S).Name`，ark 那路是两枚）。
     fn takeover(&mut self) -> Result<(), ArkAbort>;
     /// Start-GdMuMu 的裸 bool（"未能确认启动"那句 WARN 住在链体，不在 executor）。
     fn mumu(&mut self) -> Result<bool, ArkAbort>;
-    /// Set-M9AInstance -S -Instance -Apply。
+    /// Set-M9AInstance -S -Instance -Apply〔⚠ 11-05 转接刀·运行面刀⑨：该真身已自 lib\m9a.ps1 出仓，对面现只住 panel-cs 的 apply-m9a-instance〕。
     fn cfg(&mut self) -> Result<M9aCfgOut, ArkAbort>;
     /// Invoke-M9ARun -S -Instance —— 本档**唯一真做**的动作，不吃 chains。
     fn run(&mut self) -> Result<M9aRunOut, ArkAbort>;
@@ -6916,13 +6916,13 @@ fn round_lean_decision(dec: &JVal, stage: &str) -> JVal {
 
 /// 现采一枚"本轮关卡开放观测"（`read-maa-stage-observation` 的七键对象，读不到 = `JVal::Null`）。
 /// 两枚答手共用这一把：`("ark","obs")`（记账那格）与 R9-a 新收编的 `round-probe:ark`（活动图自证）——
-/// 真身那两侧调的都是同一枚 `Get-GdMaaStageObservation -S $S`，分成两处写迟早漂一处键名。
+/// 真身那两侧调的都是同一枚 `Get-GdMaaStageObservation -S $S`（⚠ 11-05 转接刀·运行面刀⑨：那枚壳已自 lib\maa.ps1 出仓，本句按历史引文读），分成两处写迟早漂一处键名。
 /// ⚠ `Found:false` ⇒ **Null**，不是空对象：旧身返的是 `$null`，账上/判据那头都按"没有观测"读
 /// （`Orchestration.ArkEventProbe` 对 `obs==null` 那一档的原话是"采集段没做起来"，给它一份空对象
 ///   会把这句换成"名单被剪空"，那是判据翻案）。
 /// ⚠ `nowText` 这一枚**只能给日期，不许带钟点**（10-17 18:00 那班守一轮当场咬到）：verb 侧的契约是
 ///   `Chain.cs:465` 那句默认值 `DateTime.Now.ToString("yyyy-MM-dd")`，而 PS 真身从不注入这一枚
-///   （`Get-GdMaaStageObservation -S $S` 只给两份日志尾）⇒ 注入面一旦塞进本轮钟点串（`NowText` 是
+///   （`Get-GdMaaStageObservation -S $S` 只给两份日志尾；⚠ 11-05 转接刀·运行面刀⑨ 该壳已自 lib\maa.ps1 出仓，读盘那半的对面在 panel-cs 的 Chain.cs::ReadStageObservation／verb read-maa-stage-observation，本句按历史引文读）⇒ 注入面一旦塞进本轮钟点串（`NowText` 是
 ///   `yyyy-MM-dd HH:mm:ss`），观测对象的 `Date` 就跟着带时间，`obsrec` 那格只认三段横线日期
 ///   （`gd_dow_from_date` 按 `-` 切三段，第三段解不动 i64）⇒ 每轮恒 Err、
 ///   「关卡开放观测没做起来」那句 WARN 变成 核内轮的常驻话术，那本按星期聚合的账也再进不去新行。
@@ -7229,7 +7229,7 @@ fn round_answer(
                 "takeover-processes",
                 &jv_o(vec![("names", JVal::A(names)), ("label", jv_s("方舟/MAA"))]),
             )?;
-            // PS 那侧 `$data = $true`（Invoke-GdTakeover 不返东西，executor 补的一枚）⇒ 账行同形。
+            // PS 那侧 `$data = $true`（Invoke-GdTakeover 不返东西，executor 补的一枚；⚠ 11-05 转接刀·运行面刀⑨ 该真身已自 lib\common.ps1 出仓，本句按历史引文读）⇒ 账行同形。
             let mut lines: Vec<String> = Vec::new();
             lines.extend(jv_list(&jv_get_ci(&d, "Lines")).into_iter().map(jv_str));
             DirectOut::with_lines(JVal::B(true), lines)
@@ -7478,7 +7478,7 @@ fn round_answer(
                 ));
             }
             // 窗口行的答手是 ark-find-window —— 换答方带**一档语义差**，如实登记：
-            // 真身 Get-GdWindowByTitle 是「标题 pattern＋进程名」双闸，ark-find-window 只认进程名单闸；
+            // 真身 Get-GdWindowByTitle 是「标题 pattern＋进程名」双闸（⚠ 11-05 转接刀·运行面刀⑨ 该真身已自 lib\common.ps1 出仓，本句按历史引文读），ark-find-window 只认进程名单闸；
             // 浏览器标签页冒充面两把都挡得住(进程名闸在场)，差的那档只在"该进程有窗口、标题不匹配
             // pattern"时读数会翻。号牌 [Name#Id] 里的 Id＝回执 ProcId(同一枚 p.Id，键名两源)。
             // procName 由核内从 env 现算递去(与链体 takeover 递 names 同一路数)，不靠 verb 回读它自己的 settings。

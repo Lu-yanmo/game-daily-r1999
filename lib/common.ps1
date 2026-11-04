@@ -601,25 +601,10 @@ function Install-GdPythonEmbeddable {
     }
 }
 
-# --- 日常编排通用两件：接管关闭 / 单步包异常(2026-09-23 从 daily-clear.ps1 搬来，两边行为一致) ---
-function Invoke-GdTakeover {
-    <# MAA/M9A 只有在自己退出时才会写配置，运行中改配置会被覆盖 -> 先接管关闭 #>
-    param(
-        [Parameter(Mandatory)]$S,
-        [Parameter(Mandatory)][string[]]$Names,
-        [Parameter(Mandatory)][string]$Label
-    )
-    foreach ($n in $Names) {
-        if (-not $n) { continue }
-        if (-not (Test-GdProcessRunning -Name $n)) { continue }
-        if (-not $S.runtime.takeOverAssistant) {
-            throw "$Label($n) 正在运行；要么手动关掉再跑，要么把 settings.runtime.takeOverAssistant 设为 true"
-        }
-        Write-GdLog "$Label 正在运行 → 先关掉再改配置(避免它退出时把配置写回旧值)" -Level WARN
-        [void](Stop-GdProcessTree -Name $n)
-        Start-Sleep -Seconds 4
-    }
-}
+# Invoke-GdTakeover 已删(11-05 转接刀·运行面刀⑨)：原段头那句"日常编排通用两件：接管关闭 / 单步包异常"里两件
+# 都已出仓(单步那枚见下面那段 10-25 史注，接管这枚在本行)。对面在
+# tools/panel-cs/Chain.cs::Takeover(verb takeover-processes，Round.SelfTest 第 20 节有格)，表账档位词「已承接」，
+# 全仓 AST 零调用点(k853 正则尺＋k854/k855 名册尺同帧对平)。
 
 # Invoke-GdStep 已删(10-25 甲档摘件，docs\rust-core-plan.md §11.132)：生产面自 10-24 刀③ 起整词 0 命中；
 # 三座等值门那八发调用(probe-live-golden ⑥路 3／probe-arkskip 老侧 3／probe-m9adrive 旧侧 2，第三发在钉位
@@ -900,19 +885,9 @@ function Get-GdFileTail {
     } finally { $fs.Dispose() }
 }
 
-function Get-GdWindowByTitle {
-    <# 按主窗口标题找进程(MAA 就是靠窗口标题认端游的)。
-       -ProcessName 给定时只认该进程名：端游窗口在进程(Arknights)上，浏览器标签页标题
-       带"明日方舟"字样也会撞上标题正则(2026-09-26 msedge 误报，真端游没起却被判"已存在")。 #>
-    param([Parameter(Mandatory)][string]$Pattern, [string]$ProcessName)
-    foreach ($p in @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 })) {
-        if ($ProcessName -and $p.ProcessName -ne $ProcessName) { continue }
-        try { if ($p.MainWindowTitle -match $Pattern) {
-            return [pscustomobject]@{ Name = $p.ProcessName; Id = $p.Id; Title = [string]$p.MainWindowTitle }
-        } } catch { }
-    }
-    return $null
-}
+# Get-GdWindowByTitle 已删(11-05 转接刀·运行面刀⑨)：按主窗口标题找进程那把闸的对面在
+# tools/panel-cs/Chain.cs::FindByTitle(start-ark-client 链体内用，含 msedge 误报那道进程名过滤)，表账档位词「已承接」，
+# 全仓 AST 零调用点(k853／k854／k855 三把尺同帧)。
 
 # --- 计划任务(免 UAC 的管理员通道) ---
 function Get-GdTaskState {

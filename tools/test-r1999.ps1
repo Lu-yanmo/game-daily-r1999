@@ -310,8 +310,8 @@ Check '新版文案不认识时 Read-GdM9ALine 返回 $null(而不是硬凑一�
 #     核内链体的 fx.updgate()／fx.audit() 两处调用点 ⇒ 下面三格的靶逐格换成"$gateCs 抓调用行字面 ＋
 #     $rustCore 抓链体话术与先后"。判据一个字没改，改的还是到哪家去问。
 #   · 作废三格——ask 白名单七枚／'run' case 不许复活／信封 role 字面 B2d-drive-m9a-daily：那是**驱动档**的数。
-#     轮档件现拍的 case 名册自刀⑧ 起是三枚(round-elevate／round-supervisor-start／round-supervisor-stop；
-#     刀⑦ 那帧写的是五枚，updgate／audit 两枚本批出册)，
+#     轮档件现拍的 case 名册刀⑧ 那帧是三枚、刀⑩(2026-11-05) 起是一枚(只剩 round-elevate，
+#     round-supervisor-start／-stop 随臂出册；再往前刀⑦ 那帧是五枚，updgate／audit 两枚那批出册)，
 #     而两件头注本来就明写「不要把驱动档那十四枚白名单当这枚名册用，那是另一族的数」——硬搬就是把轮档那本当
 #     驱动档那本用。run 那枚的真身在核内，家一字未动；驱动档信封自此没有 PS 侧的写信人，核内 --drive-m9a-daily
 #     成死出口候选(§11.235 已登记，账记在"名册枚数"那侧、不记在净行数)。

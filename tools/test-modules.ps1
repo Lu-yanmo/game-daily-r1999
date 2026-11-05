@@ -426,7 +426,7 @@ Write-Host "`n[sv] 监督 agent(11-02 刀③ 后只剩轮档静态锚，PS 两�
 # 为什么这段注释留在 [sv] 段头而不另起一节：下面的静态锚仍活在这一棵树上，日后有人想给 PS 侧"补回"监督断言，
 # 先在这里撞见判语，比在 git 里考古便宜。
 
-# ---- 监督族刀①(11-02 接线)静态锚：轮档那一臂"接上了" ＋ 刀③(同日)的"回落臂摘净" ----
+# ---- 监督族刀①(11-02 接线)静态锚 → 刀⑩(11-05 进核)按新轴翻形：轮档件不再答监督，钉的是"确实不再答" ----
 # 为什么这几格不受 [sv] 段那批行为级断言出仓的影响(刀③ 已把门内整段摘净)：它们钉的是 lib\rust-round.ps1 的形状，而那枚
 # 文件不属监督族、那两件 PS 件出仓后它照旧在场。当年把钉落在那道 Test-Path 门**之外**，为的就是"摘件那一笔不许把接线的
 # 证据一起带走"；门本身出局后这层理由原样成立 —— "把钉做在会被拆的那面墙上"这一课不许反过来教(不该因此把锚也拆了)。
@@ -436,26 +436,39 @@ Write-Host "`n[sv] 监督 agent(11-02 刀③ 后只剩轮档静态锚，PS 两�
 # 刀③ 改口两处(旧句活的只有判据，指的东西换了)：①"两臂都在"这句作废 —— PS 兜底真身退役后只剩一枚臂，
 #   ①那两格量的是"这一枚接上了"；②原来那两格"回落臂在(逐字＝接线前原样)"翻成负锚，它们不再量兜底路是否完好，
 #   改量兜底路是否真的没了(留着一枚调不到人的调用点，比没有更坏：它把"核不可达"这一档交给不在场的命令去答)。
+# 刀⑩ 再改口(2026-11-05 监督两臂进核)：那"只剩一枚臂"也没了——ask 名册里 round-supervisor-start／-stop 两枚
+#   自此不出场，所以"①臂在"那两格**当场没有对面**，按在册规矩不许静默删，逐格写下它们不再量什么并翻成新轴：
+#   正向锚不留旧形(旧形量的是"臂接上了"，如今那件事的家在核内)，改钉"码面确实不再答这一族"＋"段 8 触发点换了轴
+#   且两侧同源"。核内那两臂真办过事的证据不在这里(归 --selftest §28 的 R-sup-direct)，本段只钉 PS 侧不再有人答。
 $rrSrc = ''
 try { $rrSrc = [System.IO.File]::ReadAllText((Join-Path $root 'lib\rust-round.ps1')) } catch { }
 $rrSrc = ($rrSrc -replace '(?s)<\#.*?\#>', ' ') -replace '(?m)^\s*#.*$', ' '
-Check '①臂在(start)：round-supervisor-start 现问宿主批的 start-supervisor' (
-    $rrSrc.Contains("Invoke-GdCli -Verb 'start-supervisor'")) $(
+$coreRsForSv = ''
+try { $coreRsForSv = [System.IO.File]::ReadAllText((Join-Path $root 'tools\rustcore\src\main.rs')) } catch { }
+Check '⑩臂出册(start)：轮档码面不再问 start-supervisor(监督那一档的家已进核，留臂就是死臂)' (
+    -not $rrSrc.Contains("Invoke-GdCli -Verb 'start-supervisor'")) $(
     if ($rrSrc.Length -eq 0) { 'lib\rust-round.ps1 不在场(尺没接到电)' } else { "len=$($rrSrc.Length)" })
-Check '①臂在(stop)：round-supervisor-stop 现问同一批的 stop-supervisor' (
-    $rrSrc.Contains("Invoke-GdCli -Verb 'stop-supervisor'"))
+Check '⑩臂出册(stop)：轮档码面不再问 stop-supervisor(同上)' (
+    -not $rrSrc.Contains("Invoke-GdCli -Verb 'stop-supervisor'"))
+Check '⑩名册只剩提权那一枚：外发名册里不再有 round-supervisor-* 的动作字面(一次删两侧，名册与臂同批)' (
+    -not $rrSrc.Contains('round-supervisor-start') -and -not $rrSrc.Contains('round-supervisor-stop'))
 Check '③回落臂摘净(start)：轮档码面不再有 Start-GdSupervisor 那枚 PS 真身(原"回落臂在"翻负，它不再量兜底路完好)' (
     -not $rrSrc.Contains('Start-GdSupervisor'))
 Check '③回落臂摘净(stop)：轮档码面不再有 Stop-GdSupervisor 那枚 PS 真身(同上)' (
     -not $rrSrc.Contains('Stop-GdSupervisor'))
-Check '①交回执同形：start／stop 两枚 verb 都按 Available/Err 两枚键交回执(与 Supervisor.SelfTest.cs 钉的核侧键名同形)' (
-    ([regex]::Matches($rrSrc, 'Available = \[bool\]\$core\.Available; Err = \[string\]\$core\.Err')).Count -eq 2) $(
+Check '⑩回执键形随臂出册：Available/Err 那枚拼串在轮档码面归零(键形的事实源改由核内 §28 R-sup-direct 钉)' (
+    ([regex]::Matches($rrSrc, 'Available = \[bool\]\$core\.Available; Err = \[string\]\$core\.Err')).Count -eq 0) $(
     'hits=' + ([regex]::Matches($rrSrc, 'Available = \[bool\]\$core\.Available')).Count)
-Check '①语义边界：信封里只喂四枚 runtime 原始值，整枚 settings 不往下传(「取键逐枚点名」那把尺也管这条通道)' (
-    $rrSrc.Contains('settings = [pscustomobject]@{ runtime = [pscustomobject]@{') -and
+Check '⑩语义边界换了家：轮档码面不再喂 runtime 四键的 body，整枚 settings 更不许往下传(四键的现读归 C# 侧)' (
+    -not $rrSrc.Contains('settings = [pscustomobject]@{ runtime = [pscustomobject]@{') -and
     -not [regex]::IsMatch($rrSrc, 'settings\s*=\s*\$S\b'))
-Check '①顺序锚在：监督起来 → 设睡眠屏蔽 那一发仍在(start 臂末尾)，接线不许把顺序挪' (
-    $rrSrc.Contains('if (-not $esHeld) { $esHeld = Start-GdRoundHostNoSleep -S $S }'))
+Check '⑩顺序锚换轴：段 8 睡眠屏蔽改由侧信道回调补位，且仍"只设一次＋按 $esHeld 撤位"(旧 ask 臂末尾那形不许复活)' (
+    $rrSrc.Contains('$esBox.Value = Start-GdRoundHostNoSleep -S $S') -and
+    $rrSrc.Contains('Stop-GdRoundHostNoSleep -WasSet $esHeld') -and
+    -not $rrSrc.Contains('if (-not $esHeld) {'))
+Check '⑩触发串两侧同源：轮档件那根针与核内段 8 那句人话是同一段字面(改一侧的措辞当场红，屏蔽不许静默失效)' (
+    $rrSrc.Contains(".Contains('已临时禁止系统睡眠')") -and $coreRsForSv.Contains('"已临时禁止系统睡眠')) $(
+    'rr=' + $rrSrc.Contains(".Contains('已临时禁止系统睡眠')") + ' core=' + $coreRsForSv.Contains('"已临时禁止系统睡眠'))
 
 # settings 模板覆盖：supervisor 四键在每份 example 里都要有(publish-split 的键覆盖检查兜运行时引用，这里先钉静态)
 # 为什么这几格一直在那道 Test-Path 门之外(11-02 刀②，那道门刀③ 已连墙拆掉)：这三格量的是三本 settings.example.json，

@@ -52,7 +52,7 @@ function Get-GdRoundCoreExe {
 }
 
 function Get-GdRoundOuterActs {
-    <# **外发 3 格的名册(唯一口径)**。尺子的出处＝§11.64 ③：按"码面动作字面量 × 两路"展开，
+    <# **外发 1 格的名册(唯一口径)**。尺子的出处＝§11.64 ③：按"码面动作字面量 × 两路"展开，
        与核内 round_answer 那个 `_ => return Ok(None)` 的注释名单同源；直答那一族不在这里(核内自己答)，
        take_act 那三格(mark/obsrec/admin)不发 ask 因此也不在。
        ⚠ **R9-a(10-17) 把这一族从 18 收成 13**：`round-history:ark`／`round-history:r1999`／`round-probe:ark`／
@@ -74,14 +74,22 @@ function Get-GdRoundOuterActs {
        落账仍是小写三枚 {code,line,joined})，臂与名册同批摘；
        tools\m9a-update.ps1／tools\1999-event-audit.ps1 两把**工具本体**按表账「不许动」永久留壳——
        这一刀搬的是壳里那 23 行起子进程的写法，不是那 404 行的工具真身。
+       ⚠ **刀⑩(2026-11-05) 再收两枚，3→1**：`round-supervisor-start`／`round-supervisor-stop` 改核内直答
+       (问 start-supervisor／stop-supervisor 两枚 verb，真身 tools\panel-cs\Supervisor.Host.cs 一字未动；
+       回执仍是 Available/Err 两枚键，段 7 的读法与那句"Available 缺席按在处理"照旧)，臂与名册同批摘；
+       失败档不冒泡：hooks.call 抛 Err 时核内交 `Available=false/Err=""`(与刀③ 摘回落臂那档同形)。
+       ⚠ 摘这两臂**顺带走了段 8 睡眠屏蔽的触发点**：它原来钉在"看到 round-supervisor-start 那一发 ask"上，
+       那一发自此不再问出去 ⇒ 屏蔽改由侧信道那句「已临时禁止系统睡眠(跑完自动恢复)」驱动(见枚函数头注)。
        ⚠ **`round-elevate` 刻意留在名册里**：它按拍板"全收编"走 `--relaunch-entry` 那枚**可选**入程参数，
        缺参数／文件读不动／形状坏 ⇒ 核答 `None` ⇒ 照旧出 ask(§11.66 那条"恒绿的判据就是没验过的判据"的正面用法：
        入程通道是新立的，必须留一条"没递到就退回老路"的落点，而不是把它升级成整轮拒跑)。
+       刀⑩ 之后它是名册上**仅存**的一枚：这一档问的是"这一轮要不要另起一台提升过的宿主"，核内起不了自己
+       ——留着是设计，不是漏摘(同一句判定在核内 §28 的 S28_ROSTER 头注里，两册同数)。
        白名单之外收到的一律当场拒跑("先改 main.rs 再改这里，不许放行"——两枚现出口那条老规矩)：
        两侧有一边漏改，宁可这一轮没跑，也不许把不认识的动作当成成功回执吞掉。
        ⚠ 不要把驱动档那十四枚白名单(lib\ark-daily.ps1)当这枚名册用，那是另一族的数(§11.64 ③ 倒数第二段)。 #>
     return @(
-        'round-elevate', 'round-supervisor-start', 'round-supervisor-stop'
+        'round-elevate'
     )
 }
 
@@ -232,9 +240,11 @@ function Start-GdRoundHostNoSleep {
        为什么必须有这一枚：SetThreadExecutionState 的有效期是**调用进程活着的那段时间**，而驱动协议一 ask 一进程 ——
        核内段 8 那次直答设的位在 gdcore 退出时就散了。真身那一版里设位的是 daily-clear 自己这个进程，
        它整轮都在 ⇒ 屏蔽真的生效。转接之后这个"谁在设"的事实变了，只能在壳侧补回来，否则 -BlockSleep 变成一句空话。
-       落点选在**看到 round-supervisor-start 那一发 ask 之后**：真身的顺序正是段 7 监督 → 段 8 屏蔽，
-       而段 1-7 之前会出结果的三档(env 不完整／门只记录／判定炸／提权重启)在真身里都不设位 ⇒ 用名册里
-       这一段唯一的锚当触发点，dry-run 与门那一档就自然不会被误设。 #>
+       落点(刀⑩ 2026-11-05 换代)：**侧信道里核内那句「已临时禁止系统睡眠」落地的那一刻**。
+       它原来钉在"看到 round-supervisor-start 那一发 ask 之后"——那是真身顺序(段 7 监督 → 段 8 屏蔽)留在
+       转接层里的最后一个形状痕迹；监督两臂改核内直答后那一发不再问出去 ⇒ 触发点跟着换轴，判据不放宽：
+       那句人话只在核内段 8 **真设过位并自证过**时才印，所以"看到这句"与"该补位"仍是同一件事。
+       dry-run／门只记录／判定炸／提权重启那几档段 8 根本不出场 ⇒ 这句不落地 ⇒ 不误设(与换代前同读数)。 #>
     param([Parameter(Mandatory)]$S)
     try {
         if (-not $S.runtime.blockSleep) { return $false }
@@ -314,6 +324,10 @@ function Invoke-GdDailyRoundRust {
     $hardMs = ($hardMin + 15) * 60000
     $outer = @(Get-GdRoundOuterActs)
     $esHeld = $false
+    # 刀⑩(2026-11-05)：屏蔽的触发点从 ask 搬进侧信道回调(见 Start-GdRoundHostNoSleep 头注)，
+    # 回调里要写回外层那枚 $esHeld —— 闭包**读**外层变量靠动态作用域链(实测成立)，**写**只会写进
+    # 回调自己的作用域(当场丢)，所以走 [ref] 框：与下面 `-SinkOffset ([ref]$sinkOffset)` 同一形制。
+    $esBox = [ref]$esHeld
     $round = 0
     try {
         while ($true) {
@@ -334,6 +348,10 @@ function Invoke-GdDailyRoundRust {
                     $lvl = [string]$r.Level
                     $txt = [string]$r.Text
                     if ($lvl -and ($lvl -ne 'INFO')) { Write-GdLog $txt -Level $lvl } else { Write-GdLog $txt }
+                    # 刀⑩：段 8 睡眠屏蔽的触发点。核内那句「已临时禁止系统睡眠(跑完自动恢复)」是**段 8 自己
+                    # 设位并自证过**才印的(main.rs 段 8)，侧信道按字节实时排空 ⇒ 这一行落地的那一刻就是补位的时刻。
+                    # 只补一次($esBox.Value 已真就不再问)；dry-run／门只记录那几档段 8 根本不出场 ⇒ 那句不落地 ⇒ 不误设。
+                    if (-not $esBox.Value -and ([string]$r.Text).Contains('已临时禁止系统睡眠')) { $esBox.Value = Start-GdRoundHostNoSleep -S $S }
                 } -HardWaitMs $hardMs
                 $envText = ''
                 if ([int]$cap.StreamTimeouts -gt 0) {
@@ -382,7 +400,8 @@ function Invoke-GdDailyRoundRust {
 
                 $seq = [int]$envelope.seq
                 $act = [string]$envelope.action
-                $prm = $envelope.params
+                # 刀⑩：信封的 params 面在壳侧**再无消费者**(唯一活着的 round-elevate 只回 Code，监督臂那枚
+                # games／ownerPid 的入程键随臂一起进核) ⇒ 读它的那行同批摘净，不留一枚没人读的赋值。
                 if ($act -notin $outer) {
                     # 白名单之外走拒跑通道而不是 throw：不认识的动作＝协议不同源，既不许被当成"动作失败"吞掉，
                     # 也不该给敲日常的人一屏内部报错(§11.64 ⑦：转接之后答错的典型形状就是"整轮拒跑")。
@@ -400,58 +419,23 @@ function Invoke-GdDailyRoundRust {
                             $ec = Start-GdElevatedSelf -Script $ElevateScript -Bound $BoundParams -Force @('-NoElevate')
                             $data = [pscustomobject]@{ Code = [int]$ec }
                         }
-                        'round-supervisor-start' {
-                            # ── 监督族刀①(2026-11-02 接线)：这一臂现问宿主批的 start-supervisor(真身 tools\panel-cs\Supervisor.Host.cs::Start)──
-                            # 刀③(同日)把回落臂摘净：它调的 Start-GdSupervisor 真身随 lib\supervisor.ps1 退役，那三段自此是死臂 ——
-                            #   留着不叫兜底，是把"核不可达"这一档悄悄交给一枚已经不在场的 PS 命令去答。
-                            # 回执形状一字未变：还是 Available/Err 两枚键，核侧段 7 的读法照旧(main.rs 那句「Available 缺席按在处理」不动)。
-                            # Available=false 那一档换了答方：改指前答的是"PS 命令在不在场"，现在答的是"核不可达 ⇒ 这一轮没有监督"。
-                            #   两档读数在人面上同形 —— 核段 7 只在 Available 为真且 Err 非空时补一句 WARN，而这两档的 Err 都恒空，
-                            #   所以那句人话仍由写手侧落盘，读数以盘上那条为准(这条判语从刀① 继承，不随臂一起摘)。
-                            # 信封仍只喂四枚 runtime 原始值(与退役前 Get-GdSupervisorSettingsEval 同一把名册)，
-                            #   整枚 settings 不进信封——「取键逐枚点名、visionApiKey 不许进核」那条判据也管这条通道。
-                            $core = $null
-                            try {
-                                $core = Invoke-GdCli -Verb 'start-supervisor' -Body ([pscustomobject]@{
-                                    settings = [pscustomobject]@{ runtime = [pscustomobject]@{
-                                        supervisor                 = $S.runtime.supervisor
-                                        supervisorIntervalSeconds  = $S.runtime.supervisorIntervalSeconds
-                                        supervisorQuietMinutes     = $S.runtime.supervisorQuietMinutes
-                                        supervisorMaxInterventions = $S.runtime.supervisorMaxInterventions
-                                    } }
-                                    games    = [string]$prm.games
-                                    ownerPid = [int]$PID
-                                })
-                            } catch { $core = $null }
-                            if ($null -ne $core) {
-                                $data = [pscustomobject]@{ Available = [bool]$core.Available; Err = [string]$core.Err }
-                            } else {
-                                $data = [pscustomobject]@{ Available = $false; Err = '' }
-                            }
-                            # 段 7 是段 8 的唯一锚：真身的顺序就是"监督起来 → 设睡眠屏蔽"。
-                            if (-not $esHeld) { $esHeld = Start-GdRoundHostNoSleep -S $S }
-                        }
-                        'round-supervisor-stop' {
-                            # 这一臂现问 stop-supervisor(真身 Supervisor.Host.cs::Stop，宽限 75 秒与退役前 Stop-GdSupervisor 的默认值同尺)；
-                            # 回落臂同刀③ 摘净，Available=false 那一档的语义差同 start 那一臂的注释。这一枚两档都没有"开关"那一说。
-                            $core = $null
-                            try {
-                                $core = Invoke-GdCli -Verb 'stop-supervisor' -Body ([pscustomobject]@{})
-                            } catch { $core = $null }
-                            if ($null -ne $core) {
-                                $data = [pscustomobject]@{ Available = [bool]$core.Available; Err = [string]$core.Err }
-                            } else {
-                                $data = [pscustomobject]@{ Available = $false; Err = '' }
-                            }
-                        }
+                        # ---- 刀⑩ 收编(2026-11-05)：`round-supervisor-start`／`round-supervisor-stop` 两臂摘净——
+                        #      监督那一族的"谁来答"改核内直答：main.rs 段 7 问 start-supervisor／stop-supervisor
+                        #      两枚 verb(真身 tools\panel-cs\Supervisor.Host.cs 一字未动)，回执两枚键 Available/Err
+                        #      与段 7 的读法照旧；信封仍只喂四枚 runtime 原始值，那条取键裁决随臂一起进核。
+                        #      ⚠ Available=false 那一档的语义又换了一次答方：刀① 之前答"PS 命令在不在场"、
+                        #      刀① 之后答"核不可达"、现在答"panel-cs 那两枚 verb 没办成"——三档读数在人面上同形，
+                        #      那句 WARN 仍由写手侧落盘(判语随臂进核，不在这里复读)。
+                        #      ⚠ 段 8 的睡眠屏蔽原本钉在"看到 round-supervisor-start 那一发 ask"上，随臂一起改指
+                        #      侧信道那句「已临时禁止系统睡眠(跑完自动恢复)」(见 Start-GdRoundHostNoSleep 头注)。
                         # ---- 刀⑧ 收编(2026-11-04)：`updgate`／`audit` 两臂摘净——两枚闸的"起工具子进程＋
                         #      挑行＋全量拼串"整段搬进 tools\panel-cs\Gate.Host.cs，核内 round_answer 问
                         #      run-m9a-update／run-1999-event-audit 两枚 verb 直答，落账仍是小写三枚
                         #      {code,line,joined}(键名与键序照本文件当年那两臂逐字同形)。
                         #      ⚠ **一次删两侧**：核若还答 None 而这里留着臂，死臂会遮住"收到不认识的动作"拒跑；
                         #      反过来核先答了这里还留名册，ask 会走拒跑 ⇒ 整轮没跑(2)。这条对账由核内 --selftest
-                        #      §28 的 S28_ROSTER(3 枚，与下面的名册同数)＋R-outer 白名单钉着，不靠人记得。
-                        #      刀①②③⑧ 各摘了哪几臂、账为什么这样落——那份史注在 main.rs 的 round_answer 尾部
+                        #      §28 的 S28_ROSTER(与本文件那枚名册同数，数不在这里抄)＋R-outer 白名单钉着，不靠人记得。
+                        #      刀①②③⑧⑩ 各摘了哪几臂、账为什么这样落——那份史注在 main.rs 的 round_answer 尾部
                         #      「其余一律外发」那一段(一源)与 docs 各帧；本文件不另存一份副本(19 行死臂史注随批摘)。
                     }
                 } catch {

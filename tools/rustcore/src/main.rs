@@ -5278,10 +5278,10 @@ impl<'a> DriveFx<'a> {
             None => Ok(None),
         };
         match out {
-            // 答手不答这一格（轮骨架外发那三格：`round-elevate`＋监督两枚）⇒ 与闭包为空走同一句 `ask`：
+            // 答手不答这一格（轮骨架外发那一格：`round-elevate`）⇒ 与闭包为空走同一句 `ask`：
             // 问法、信封形状、重放依据全部照旧，这一刀改的只是"谁来答"。
-            // （这一句从 B-3②-b3 的「十三格」一路漂到刀①②③⑧ 的「三格」，中间三批只登记在册子没改这里
-            //   ⇒ 本批改齐；枚数的事实源是 `Get-GdRoundOuterActs` 与 §28 的 S28_ROSTER，两册对平。）
+            // （这一句从 B-3②-b3 的「十三格」一路漂到刀①②③⑧ 的「三格」、刀⑩ 的「一格」，中间三批只登记在册子没改这里
+            //   ⇒ 每次改这里都靠现读对平；枚数的事实源是 `Get-GdRoundOuterActs` 与 §28 的 S28_ROSTER，两册对平。）
             // ⚠ 刀⑧ 之前那句「`updgate`／`audit` 根本不进这一枚」已作废：那两枚的 `gate` 现在整件
             // 委托这里，所以**全族只有一把三档尺**。"直答件答不了"与"直答件选择不答"仍是两件事，名册别混。
             Ok(None) => self.ask(action, params),
@@ -7396,6 +7396,45 @@ fn round_answer(
                 ("joined", jv_s(&joined)),
             ]))
         }
+        // ==================== 刀⑩ 收编(2026-11-05)：监督两臂进核 ====================
+        // 摘的是 lib\rust-round.ps1 那两臂（随本批笔(b) 同批摘净——一次删两侧，判据在 §28 的
+        // R-outer 白名单与 R-sup-direct 反空集两格）。换的只有"谁来答"：verb 名（start-supervisor／
+        // stop-supervisor，真身 tools\panel-cs\Supervisor.Host.cs）与回执那两枚键 Available/Err 逐字不动
+        // ⇒ 骨架段 7／段 10 那两句 WARN 的话术一字未改，§28 场景册的 `S|round-supervisor-*` 账行也一字未改。
+        // ⚠ settings 一整块**不进 body**：那半是 C# 侧 `SupervisorHost.Start` 自己的事（S==null 时它按
+        //   GdSettings.Load 现读盘，`SettingsOf` 只认 runtime 那四枚键、`PickRoutes` 根本不看 S）。
+        //   PS 臂当年喂的是壳里那份 settings 的四个原始值；改成核内之后由 C# 现读同一块盘——
+        //   省掉的不是判据，是"本机那份配置要穿过信封"这一跳（配置路径进核与「整块 runtime 不许进信封」同一条）。
+        // ⚠ **失败档不许冒泡**：hooks.call 抛 Err 时这一臂交的是 `Available=false/Err=""`（＝"这一轮没有监督"），
+        //   不是 `?`。真身那一档是 `Get-Command` 守卫不成立 ⇒ 整段跳过、连"没起来"那句 WARN 都不该有；
+        //   写成 `?` 等于把"核问不动 verb"升级成本轮崩（先例：段 8 屏保格那句「这一格的 Fail 不许冒泡」、svdetail 臂同形）。
+        // ⚠ Available 只是把回执**原样折成布尔**（jv_truthy），这条道上不加任何判定：开关／路线／起不来的判据
+        //   全在 C# 那侧，骨架只按 `round_answer_available` 决定那一句 WARN 发不发。
+        ("round", ROUND_SUPERVISOR_START_ACT) => {
+            let games = jv_str(&jv_get_ci(params, "games"));
+            let owner = jv_int(&jv_get_ci(params, "ownerPid"), 0);
+            match (hooks.call)(
+                "start-supervisor",
+                &jv_o(vec![("games", jv_s(&games)), ("ownerPid", JVal::I(owner))]),
+            ) {
+                Ok(d) => DirectOut::only(jv_o(vec![
+                    ("Available", JVal::B(jv_truthy(&jv_get_ci(&d, "Available")))),
+                    ("Err", jv_s(&jv_str(&jv_get_ci(&d, "Err")))),
+                ])),
+                Err(_) => DirectOut::only(jv_o(vec![("Available", JVal::B(false)), ("Err", jv_s(""))])),
+            }
+        }
+        ("round", ROUND_SUPERVISOR_STOP_ACT) => {
+            // 与 start 同折法，body 是**空对象**（退役前 PS 臂那枚 `-Body @{}` 逐字同形：这一枚不吃任何入程键，
+            // 宽限 75 秒住在 C# 那侧）。Err 非空那一档的话术仍由段 10 落，这一臂只负责把两枚键交回去。
+            match (hooks.call)("stop-supervisor", &JVal::O(Vec::new())) {
+                Ok(d) => DirectOut::only(jv_o(vec![
+                    ("Available", JVal::B(jv_truthy(&jv_get_ci(&d, "Available")))),
+                    ("Err", jv_s(&jv_str(&jv_get_ci(&d, "Err")))),
+                ])),
+                Err(_) => DirectOut::only(jv_o(vec![("Available", JVal::B(false)), ("Err", jv_s(""))])),
+            }
+        }
         // ==================== 刀① 收编：门表两枚＋收尾钩子两枚 ====================
         ("round", a) if a == GD_MODULE_ARK.gate_act || a == GD_MODULE_R1999.gate_act => {
             // 刀① 收编(2026-11-03)：`round-gate:<id>` 两臂改核内直答 —— 换的是"谁来答"，问法与落账
@@ -7804,7 +7843,8 @@ fn round_answer(
             DirectOut::with_lines(data, lines)
         }
         // ==================== 其余一律外发 ====================
-        // 名单（刀⑧ 收编之后）：`round-elevate`＋监督两枚。
+        // 名单（刀⑩ 收编之后）：只剩 `round-elevate` 一枚——那枚的真身动作在 PS 侧且**必须**在 PS 侧
+        //   （提权那一档是"这一轮要不要另起一台提升过的宿主"的决策，核内起不了自己），是本族**刻意保留**的外发。
         // ⚠ 这一句到上一行都在改**现量**：刀③ 起的旧账写的是「…加上链体里 `updgate`／`audit`
         //   （那两枚走 `gate`、根本不进这里）」——刀⑧ 之后 `gate` 整件委托 `ans`，那两枚**进的正是这里**，
         //   两臂住在上面 r1999 链体格那一段的末尾。来历留在这一句里，不另起一段。
@@ -8130,14 +8170,19 @@ fn daily_round_chain(
 
     // ---------- 段 7 监督 agent ----------
     // 真身用 `Get-Command` 守卫（自检的假环境不点这一枚），且起不来只少一份旁观、绝不影响主流程。
-    // 换头以后这一格外发，于是"命令在不在"变成回执里那一枚 `Available`：**没这枚命令那一档是真身的一句
-    // 都不吭**（守卫不成立 ⇒ 整段跳过，连"没起来"那句 WARN 都不该有）。骨架自己不许决定要不要监督，
-    // 那是把旁观层的开关搬进编排层。`Available` 这一格缺席时按"在"处理 —— 外侧答手没义务凭空多给一格，
-    // 而真身里"命令在但起挂了"那一档本来就是走 catch 出 WARN。
+    // 换头以后这一格先外发、刀⑩(2026-11-05) 起改核内直答，于是"命令在不在"变成回执里那一枚 `Available`：
+    // **没这枚命令那一档是真身的一句都不吭**（守卫不成立 ⇒ 整段跳过，连"没起来"那句 WARN 都不该有）。
+    // 骨架自己不许决定要不要监督，那是把旁观层的开关搬进编排层。`Available` 这一格缺席时按"在"处理
+    // —— 这一条从外发时代继承：直答臂恒交显式布尔（三档：可用／开关关或核不可达／起挂了带 Err），
+    // 而没给这枚键的那一档如今只剩外侧答手（协议没删，回落通道照旧在位）。
     let sup = fx.ans(
         "round",
         ROUND_SUPERVISOR_START_ACT,
-        jv_o(vec![("games", jv_s(&games))]),
+        // 刀⑩(2026-11-05) 起这一格外发改核内直答 ⇒ params 多带一枚 `ownerPid`：真身那一臂喂的
+        // 是 PS 壳自己的 `$PID`（子进程靠它做"owner 消失自退"），而 rc.pid 正是壳写进 ctx 的那一枚
+        // ⇒ 同一个数换了来路，语义没动。**不许**在这里回落 `std::process::id()`——那会让监督进程
+        // 盯上核自己而不是整轮的主人，壳退出后监督就成了孤儿。
+        jv_o(vec![("games", jv_s(&games)), ("ownerPid", JVal::I(rc.pid))]),
         |d| d.clone(),
     );
     match sup {
@@ -18402,6 +18447,12 @@ fn selftest() -> i32 {
                     ("Line", jv_s("审计结论：无事发生")),
                     ("Joined", jv_s("审计结论：无事发生 / FAKE-尾行")),
                 ]),
+                // ---- 刀⑩(2026-11-05) 两枚监督 verb：回执两枚键名照 C# 侧 `SupervisorHost` 的
+                //   `HostResult{Available,Err}` 原样摆。这里给的是**可用且没起挂**那一档
+                //   （Err 空串＝不响）；三档里的另两档（Available=false 静默／Err 非空响两句）
+                //   由 24l 的注入档逐档现拍，不在这册子里写死。----
+                "start-supervisor" => jv_o(vec![("Available", JVal::B(true)), ("Err", jv_s(""))]),
+                "stop-supervisor" => jv_o(vec![("Available", JVal::B(true)), ("Err", jv_s(""))]),
                 _ => jv_o(vec![("Done", JVal::B(true))]),
             }
         }
@@ -18812,6 +18863,16 @@ fn selftest() -> i32 {
                 // data_of 那两格钉的是"落账三枚小写键、键序 code→line→joined"（PS 臂当年同形）。
                 ("r1999", "updgate", JVal::Null),
                 ("r1999", "audit", JVal::Null),
+                // ---- 刀⑩ 收编两发（原来在外发那一族，下面那段逐枚点名已把它们摘出去）----
+                // start 那发必须带段 7 的 params 形（games＋ownerPid）：臂是**按枚**取键的，
+                // 喂 Null 会把 ownerPid 折成 0、games 折成空串——那是"监督进程盯上一个不存在的
+                // 主人"那档，不是这格要钉的形状。stop 那发段 10 本来就没参 ⇒ 喂 Null。
+                (
+                    "round",
+                    ROUND_SUPERVISOR_START_ACT,
+                    jv_o(vec![("games", jv_s("ark+r1999")), ("ownerPid", JVal::I(4242))]),
+                ),
+                ("round", ROUND_SUPERVISOR_STOP_ACT, JVal::Null),
             ]
             .iter()
             {
@@ -18821,7 +18882,7 @@ fn selftest() -> i32 {
                     Err(m) => ask_none.push(format!("{}:{}→Err({})", role, action, m)),
                 }
             }
-            // 外发那一族逐枚点名（答 None = 协议没删）：监督两枚 + 提权。
+            // 外发那一族逐枚点名（答 None = 协议没删）：**只剩提权一枚**。
             // ⚠ R9-a 把上一族的四枚（svdetail／round-screensaver／history 两枚／round-probe）摘走了，
             //   但 `ROUND_ELEVATE_ACT` **必须留在这一族**：env24.relaunch 是 Null ⇒ 缺 `--relaunch-entry`
             //   那一发答 None ⇒ 照旧外发。这一格同时就是 elevate 的**负对照**——收编不许把旧调用方
@@ -18836,13 +18897,11 @@ fn selftest() -> i32 {
             // ⚠ 刀⑧(2026-11-04) 再摘 `updgate`／`audit`（直答点名族两发）：这一格头注原来写的是
             //   "判定/预览/监督/提权 + updgate/audit"，两枚摘走后只剩三枚——留在这一族就是死锚
             //   （Some 会让下面那句 `本该外发` 当场红）；壳侧名册同批 5→3（笔(c)）。
-            for (role, action, params) in [
-                ("round", ROUND_SUPERVISOR_START_ACT, JVal::Null),
-                ("round", ROUND_SUPERVISOR_STOP_ACT, JVal::Null),
-                ("round", ROUND_ELEVATE_ACT, JVal::Null),
-            ]
-            .iter()
-            {
+            // ⚠ 刀⑩(2026-11-05) 再摘 `round-supervisor-start`／`round-supervisor-stop`（直答点名族两发）：
+            //   摘走后**只剩提权这一枚**，而且它是**刻意保留**的——提权那一档要"另起一台提升过的宿主"，
+            //   核在自己进程里起不了自己，这一族到这一批才算收干净（壳侧名册同批 3→1，笔(b)）。
+            //   这两枚留在这一族同样是死锚：直答臂在场 ⇒ 答 Some ⇒ 下面那句 `本该外发` 当场红。
+            for (role, action, params) in [("round", ROUND_ELEVATE_ACT, JVal::Null)].iter() {
                 if one(role, action, params.clone()).map_or(true, |x| x.is_some()) {
                     ask_none.push(format!("{}:{} 本该外发", role, action));
                 }
@@ -18929,7 +18988,12 @@ fn selftest() -> i32 {
                 && data_of.iter().any(|l| l
                     == "r1999:updgate:{\"code\":0,\"line\":\"已是最新，无需更新\",\"joined\":\"已是最新，无需更新 / 更新器退出码 0\"}")
                 && data_of.iter().any(|l| l
-                    == "r1999:audit:{\"code\":3,\"line\":\"审计结论：无事发生\",\"joined\":\"审计结论：无事发生 / FAKE-尾行\"}"),
+                    == "r1999:audit:{\"code\":3,\"line\":\"审计结论：无事发生\",\"joined\":\"审计结论：无事发生 / FAKE-尾行\"}")
+                // ---- 刀⑩ 收编两发：账上只有臂里折出来的那两枚键（Available 折成布尔、Err 折成字符串）。
+                //   C# 侧 `HostResult` 还有别的格子，把回执整块落账会在这里当场红；钉死两枚值也钉住
+                //   「臂只折算键形、不做判定」——那一句 WARN 发不发住在骨架段 7／段 10，不在这枚账里。----
+                && data_of.iter().any(|l| l == "round:round-supervisor-start:{\"Available\":true,\"Err\":\"\"}")
+                && data_of.iter().any(|l| l == "round:round-supervisor-stop:{\"Available\":true,\"Err\":\"\"}"),
             &format!(
                 "直答那一族的账行形状变了（PS executor 当年写进 res 的 data 是这个形状，改了②-b 的门就没法逐字节比）：{}",
                 data_of.join(" § ")
@@ -18971,6 +19035,13 @@ fn selftest() -> i32 {
                 //   投影渲染成 `verb|` 空键串——这里出现任何键名就是核替工具决定了它的起法。----
                 && proj24.iter().any(|p| p == "run-m9a-update|")
                 && proj24.iter().any(|p| p == "run-1999-event-audit|")
+                // ---- 刀⑩ 收编两发的消费证据：start 只带**段 7 那两枚**（games／ownerPid）——settings
+                //   整块不许进 body（C# 那侧 S==null 时自己 GdSettings.Load 现读同一块盘，`PickRoutes`
+                //   根本不看 S）；ownerPid 从 rc.pid 来，回落 `std::process::id()` 会让监督盯上核自己。
+                //   stop 是**空键名册**（臂交空对象，与 PS 臂当年那枚 `-Body @{}` 逐字同形：宽限 75 秒
+                //   住在 C# 那侧，核一个键都不塞）。----
+                && proj24.iter().any(|p| p == "start-supervisor|games,ownerPid")
+                && proj24.iter().any(|p| p == "stop-supervisor|")
                 // 「缺键算关」的反向钉：env24 的 runtime 没这枚键 ⇒ stop:r1999 直答臂只许调 stop-m9a，
                 //   一次 stop-mumu 都不许冒出来（正例在下面刀① 专块）。
                 && proj24.iter().filter(|p| *p == "stop-mumu|").count() == 0,
@@ -19346,12 +19417,48 @@ fn selftest() -> i32 {
         //   ⚠ 刀③(2026-11-03) 再收 round-resolve:ark：外发名册头一枚也没了（判定面进核），
         //   判定的消费证据在 proj24 刀③ 专块与 data_of 两行 starts_with。
         //   这一段只钉"段与段之间的先后"，外发那一族的**完整名册**由 24g 那一段逐枚钉。
+        //   ⚠ 刀⑩(2026-11-05) 收编监督两枚之后**这一档从头到尾一枚 ask 都不再问出去** ⇒ `acts24` 为空。
+        //   空读数不能当哑格（§11.242 那条「合法空读数与哑格是两种病」）⇒ 段序证明搬进账本：
+        //   直答照样 `append_soft` 落 journal，六枚段名之间的先后仍从**账上读数**取——判据没换轴，
+        //   只是不再有 ask 信封。上面那格已同帧钉了 rc==0 与 kinds 末位 done ⇒ 这里的空集有牙：
+        //   臂摘回外发时 acts24 非空，账行的形状也会跟着变（ask 那一路的 data 由假 executor 给）。
+        let jacts24: Vec<String> = jrows
+            .iter()
+            .filter_map(|l| jv_parse(l).ok().map(|v| jv_str(&jv_get(&v, "action"))))
+            .collect();
+        let mut seg_cur24 = 0usize;
+        let mut seg_order24 = true;
+        for want24 in [
+            ROUND_LOCK_ACT,
+            ROUND_SUPERVISOR_START_ACT,
+            ROUND_NOSLEEP_ACT,
+            ROUND_SUPERVISOR_STOP_ACT,
+            ROUND_NOSLEEP_OFF_ACT,
+            ROUND_UNLOCK_ACT,
+        ] {
+            let mut hit24 = false;
+            while seg_cur24 < jacts24.len() {
+                let got24 = jacts24[seg_cur24].as_str();
+                seg_cur24 += 1;
+                if got24 == want24 {
+                    hit24 = true;
+                    break;
+                }
+            }
+            if !hit24 {
+                seg_order24 = false;
+                break;
+            }
+        }
         chk(
-            acts24 == vec![
-                "round-supervisor-start".to_string(),
-                "round-supervisor-stop".to_string(),
-            ],
-            &format!("外发那一族的**顺序或枚数**变了（骨架的段序就是判据：锁在前、监督先停再收尾、历史排在通知之前）：{:?}", acts24),
+            acts24.is_empty()
+                && seg_order24
+                && jrows.iter().any(|l| l.contains("\"action\":\"round-supervisor-start\"") && l.contains("\"Available\":true"))
+                && jrows.iter().any(|l| l.contains("\"action\":\"round-supervisor-stop\"") && l.contains("\"Available\":true")),
+            &format!(
+                "外发那一族的**顺序或枚数**变了（刀⑩ 起这一档不该再问出任何东西，且锁→监督→屏蔽→停监督→撤位→撤锁那段先后必须还在账上）：ask 序={:?} 账上动作={:?}",
+                acts24, jacts24
+            ),
             &mut fails,
             &mut total,
         );
@@ -19619,19 +19726,22 @@ fn selftest() -> i32 {
             &mut total,
         );
 
-        // ---------- 24l 段 7／段 8 的四档现场形状（守卫档一句不吭、屏保崩只 WARN 不崩本轮、自证失明只补一行）----------
-        // 监督那一族还在**外发**，故走 ask/res；屏保那一格 R9-a 起改由核内直答 ⇒ 它的"答不动"只能从
-        // **verb 那一发起**（末位 `fail_verb`）。以前那一档是拿 ask_act 去拦 `round-screensaver`
-        // 这条 ask，收编之后这条 ask 根本不再发生 ⇒ 拦它等于拦一只不再响的表 ——
-        // 这正是 §11.66 ⑩「眼镜接错边」的同一形状，本批改的是注入通道，四档话术一字没动。
+        // ---------- 24l 段 7／段 8 的五档现场形状（守卫档一句不吭、问不动也不崩本轮、屏保崩只 WARN 不崩本轮、自证失明只补一行）----------
+        // 刀⑩(2026-11-05) 起监督两枚也在**核内直答** ⇒ 这一族"答不动"的那一档也只能从 **verb 那一发起**
+        // （`sup_avail`／`sup_err`／`sup_unreachable` 三枚旋钮，与屏保那一格的 `fail_verb` 同一条注入通道）。
+        // 以前这两档是拿 ask/res 喂回执，收编之后这条 ask 根本不再发生 ⇒ 拦它等于拦一只不再响的表 ——
+        // 这正是 §11.66 ⑩「眼镜接错边」的同一形状，本批改的是注入通道，**四档话术一字没动**，
+        // 只多请出第五档 `sv-unreachable`：钩子问不动那一发时臂折成 `Available=false`／`Err=""`，
+        // 既不许冒泡成本轮崩、也不许替真身那句「Get-Command 守卫不成立」编出一句"没起来"。
         // blockSleep=true + keepScreenOn=true 是把段 8 整段请出场的唯一办法（`es` 由假钩子接，绝不碰真 API）。
-        // 第五枚 `es_nai`＝自证那一发答不动（10-17 换读数通道时立的负对照，判据不许自己推自己）：
-        // 前四档按实测语义回前值 ⇒ 那句 WARN 一声不响；es-blind 档第二发起一律回 0 ⇒ WARN 逐字出现、本轮照跑完。
-        for (scen24l, ask_available, es_nai, fail_verb) in [
-            ("sv-missing", false, false, ""),
-            ("sv-error", true, false, ""),
-            ("screen-fail", true, false, "disable-screensaver-for-round"),
-            ("es-blind", true, true, ""),
+        // `es_nai`＝自证那一发答不动（10-17 换读数通道时立的负对照，判据不许自己推自己）：
+        // 其余四档按实测语义回前值 ⇒ 那句 WARN 一声不响；es-blind 档第二发起一律回 0 ⇒ WARN 逐字出现、本轮照跑完。
+        for (scen24l, sup_avail, sup_err, sup_unreachable, es_nai, fail_verb) in [
+            ("sv-missing", false, "这棵树上没有 Start-GdSupervisor", false, false, ""),
+            ("sv-unreachable", false, "", true, false, ""),
+            ("sv-error", true, "起挂了（夹具）", false, false, ""),
+            ("screen-fail", true, "", false, false, "disable-screensaver-for-round"),
+            ("es-blind", true, "", false, true, ""),
         ]
         .iter()
         {
@@ -19652,6 +19762,14 @@ fn selftest() -> i32 {
                     let mut call_l = |v: &str, _b: &JVal| -> Result<JVal, String> {
                         if !fail_verb.is_empty() && v == *fail_verb {
                             return Err("屏保读数拿不到（夹具）".to_string());
+                        }
+                        // 刀⑩ 注入缝：监督两枚的回执由上面那三枚旋钮摆。这一段**只有核内直答臂**会走到，
+                        // ask/res 那一路已经不再发生 ⇒ 这三枚旋钮就是段 7／段 10 那两句 WARN 的唯一来路。
+                        if v == "start-supervisor" || v == "stop-supervisor" {
+                            if *sup_unreachable {
+                                return Err("panel-cs 那侧问不动（夹具）".to_string());
+                            }
+                            return Ok(jv_o(vec![("Available", JVal::B(*sup_avail)), ("Err", jv_s(*sup_err))]));
                         }
                         if v == "resolve-round-context" {
                             let mut d = r24_reply(v, &paths_ok24);
@@ -19714,18 +19832,11 @@ fn selftest() -> i32 {
                 }
                 let seq_l = jv_int(&jv_get(&evl, "seq"), 0);
                 let act_l = jv_str(&jv_get(&evl, "action"));
-                let is_sup = act_l == ROUND_SUPERVISOR_START_ACT || act_l == ROUND_SUPERVISOR_STOP_ACT;
-                let rf = if is_sup {
-                    format!(
-                        "{{\"seq\":{},\"action\":{},\"ok\":true,\"data\":{{\"Available\":{},\"Err\":{}}}}}",
-                        seq_l,
-                        jstr(&act_l),
-                        if *ask_available { "true" } else { "false" },
-                        jstr(if *ask_available { "起挂了（夹具）" } else { "这棵树上没有 Start-GdSupervisor" })
-                    )
-                } else {
-                    format!("{{\"seq\":{},\"action\":{},\"ok\":true,\"data\":{{\"Done\":true}}}}", seq_l, jstr(&act_l))
-                };
+                // 刀⑩ 起监督两枚不再走这里（外发只剩提权一枚，而这一族五档里没有提权那一发）：
+                // 残留 ask 一律按 `{Done:true}` 回——**协议没删**，回落通道还得答得动。
+                // 以前这里有一枚 `is_sup` 分支专门给监督摆回执，收编之后那条 ask 根本不再发生，
+                // 留着它等于给一只不再响的表上弦（§11.66 ⑩ 同形），随批摘净。
+                let rf = format!("{{\"seq\":{},\"action\":{},\"ok\":true,\"data\":{{\"Done\":true}}}}", seq_l, jstr(&act_l));
                 let _ = std::fs::write(&rl, rf);
             }
             let sinkl: Vec<String> = std::fs::read_to_string(&kl)
@@ -19743,6 +19854,38 @@ fn selftest() -> i32 {
                     &format!(
                         "回执里 Available=false 那一档没接住（真身是 Get-Command 守卫不成立 ⇒ 整段一句不吭，骨架不许替旁观层决定要不要监督）：done={} 侧行={:?}",
                         reached_done,
+                        sinkl.iter().filter(|l| l.contains("监督")).collect::<Vec<_>>()
+                    ),
+                    &mut fails,
+                    &mut total,
+                );
+            } else if *scen24l == "sv-unreachable" {
+                // 钩子问不动那一发：臂把它折成 `Available=false`／`Err=""`（＝"这一轮没有监督"），
+                // 于是段 7 与段 10 **两句都不该响**——这正是真身 `Get-Command` 守卫不成立那一档的形状。
+                // 写成 `?` 冒泡就会在这里多出一句"没起来"、甚至把本轮带崩；不折键而把回执整块落账
+                // 也会让下面那两枚账行格当场红（本批那一发 mutation 的靶就在这条边上）。
+                let jl_u: Vec<String> = std::fs::read_to_string(&jl)
+                    .unwrap_or_default()
+                    .lines()
+                    .filter(|l| !l.trim().is_empty())
+                    .map(|l| l.to_string())
+                    .collect();
+                chk(
+                    reached_done
+                        && done_l.0 == 0
+                        && !sinkl.iter().any(|l| l.contains("监督 agent 没起来"))
+                        && !sinkl.iter().any(|l| l.contains("监督 agent 没停干净"))
+                        && jl_u
+                            .iter()
+                            .any(|l| l.contains("\"action\":\"round-supervisor-start\"") && l.contains("\"Available\":false"))
+                        && jl_u
+                            .iter()
+                            .any(|l| l.contains("\"action\":\"round-supervisor-stop\"") && l.contains("\"Available\":false")),
+                    &format!(
+                        "问不动那一档没折成「这一轮没有监督」（冒泡成本轮崩／编出一句真身没有的「没起来」／折出来的两枚键没落进账）：done={} rc={} 监督账行数={} 侧行={:?}",
+                        reached_done,
+                        done_l.0,
+                        jl_u.iter().filter(|l| l.contains("supervisor")).count(),
                         sinkl.iter().filter(|l| l.contains("监督")).collect::<Vec<_>>()
                     ),
                     &mut fails,
@@ -20866,7 +21009,9 @@ asst-failed|ev|2|asst|10000|TaskChainError|TaskChainError|task_chain|Error|local
     //   ⑴ 20 档段级句子话术（X3/X4 的 rust 半边；AdmDep 三档跑 adm/plain 两遍，IsAdmin 由假 verb 回执给）
     //   ⑵ 段 9 折叠 X-collapse／X-nocollapse  ⑶ X-sink-superset（账行按序 ⊆ 侧信道）
     //   ⑷ A-elev 三本账＋入程参数针泄漏面  ⑸ R3-order-hard 差集（ask 序／kind 序／done result 键集）
-    //   ⑹ R-obsdate（现采观测喂 verb 的 nowText 只许纯日期）  ⑺ 白名单冻签名册 13 枚＋seg9 六枚真出现。
+    //   ⑹ R-obsdate（现采观测喂 verb 的 nowText 只许纯日期）  ⑺ 外发白名单 R-outer＋反空集一格
+    //     （册子的枚数随刀次一直缩，到刀⑩ 只剩提权一枚；所以⑺ 的反空集从「ask 序里真出现过」
+    //      改立在「核内直答那一族的 verb 真被消费过」——提权那枚随现场提权态分档，拿它当反空集就是要求机器现场状态）。
     // 夹具形状逐字照门（场景册／verb 册／ctx／entry.json／应答册 FIFO／投影／折叠），不引门文件、不引行号。
     {
         const S28_MSG_RUN: &str = "夹具让 Run 抛";
@@ -20877,7 +21022,7 @@ asst-failed|ev|2|asst|10000|TaskChainError|TaskChainError|task_chain|Error|local
         // R9-a 提权入参那枚唯一针（门 $ElevNeedle 逐字）：只许住在 start-elevated-round 的转交 body 里，
         // journal／侧信道／ask 信封／done 结果一枚都不许见（A-elev-noleak）。
         const S28_ELEV_NEEDLE: &str = "FIXTURE-ELEV-ENTRY-NEEDLE";
-        // 白名单冻签名册 3 枚（R-outer 的 B 面：Get-GdRoundOuterActs 的冻结；ASCII 序）。
+        // 白名单冻签名册 1 枚（R-outer 的 B 面：Get-GdRoundOuterActs 的冻结；ASCII 序）。
         // 刀①(2026-11-03)：round-gate:ark/r1999 与 stop:ark/r1999 四枚改核内直答后不再问出去 ⇒ 出册；
         // PS 侧 Get-GdRoundOuterActs 随本刀笔(c) 同步缩到 9，最终帧两册同为 9。
         // 刀②(2026-11-03)：round-preview:ark/r1999 两枚同形出册，PS 侧同步缩到 7，最终帧两册同为 7。
@@ -20885,18 +21030,21 @@ asst-failed|ev|2|asst|10000|TaskChainError|TaskChainError|task_chain|Error|local
         // 最终帧两册同为 5；fail_resolve 的缝随臂搬进替身的 compose-decision-inputs（见函数头注）。
         // 刀⑧(2026-11-04)：`updgate`／`audit` 两枚同形出册（两枚闸的"谁来答"改核内直答，问
         // run-m9a-update／run-1999-event-audit），PS 侧同步缩到 3，最终帧两册同为 3。
-        const S28_ROSTER: &[&str] = &[
-            "round-elevate",
-            "round-supervisor-start",
-            "round-supervisor-stop",
-        ];
-        // 段 9 那两枚的硬期望（门 $Seg9Want 逐字；事实源＝核内骨架的段序与链体那两枚闸，不是本节的读数）。
+        // 刀⑩(2026-11-05)：`round-supervisor-start`／`round-supervisor-stop` 两枚同形出册（监督两臂进核，
+        // 问 start-supervisor／stop-supervisor），PS 侧同步缩到 1，最终帧两册同为 1。
+        // ⇒ 这一册从此只剩**刻意保留**的那一枚：提权那一档是"这一轮要不要另起一台提升过的宿主"的决策，
+        //   核内起不了自己，所以它从 B-3②-b3 的十三格一路走到今天仍是外发（不是漏摘，是设计）。
+        const S28_ROSTER: &[&str] = &["round-elevate"];
+        // 反空集那枚名册（门 $Seg9Want 的换代：刀⑩ 之前它钉的是**ask 序**里段 9 那两枚动作，
+        // 刀⑩ 之后监督改核内直答 ⇒ ask 序里从此不该再有它们，A⊆B 若还立在 ask 序上就当场死锚。
+        // 判据换轴不放宽：这一格仍要证明「这一族的两个动作真的办过」，只是证据从 ask 信封搬到
+        // 假 panel-cs 的 verb 调用账（calls28v）上——名字也按新轴改成动词名 start-/stop-supervisor。）
         // 刀①(2026-11-03)：stop 两枚直答后不进 ask 序 ⇒ 出册；账面那两条 S|stop| 行由场景册 must_have 继续钉。
         // 刀⑧(2026-11-04)：updgate／audit 同因出册——这一格的反空集语义不变（A⊆B 只剩监督两枚，
         // 照样不许恒绿）；那两枚的落账证明改由 §24 的 data_of／proj24 两格钉（小写三枚键全等＋空键名册）。
-        const S28_SEG9: &[&str] = &[
-            "round-supervisor-start",
-            "round-supervisor-stop",
+        const S28_SUP_DIRECT: &[&str] = &[
+            "start-supervisor",
+            "stop-supervisor",
         ];
 
         #[derive(Clone, Copy)]
@@ -21036,12 +21184,14 @@ asst-failed|ev|2|asst|10000|TaskChainError|TaskChainError|task_chain|Error|local
             (keep, n, k)
         }
 
-        // 投影尺（门 Build-RustLines 复刻）：账行（含 W| 与 S| 的真序）＋假 verb body 回填＋ask params 回填。
+        // 投影尺（门 Build-RustLines 复刻）：账行（含 W| 与 S| 的真序）＋假 verb body 回填。
         // 链体内侧的格（desk/cfg/run/sleep/…）一律不进投影；崩路 fail 信封＝头部插一句 ERROR＋Z|1|。
+        // 刀⑩(2026-11-05)：**ask 参数从投影面退场** —— 唯一还读 `params` 的分支是监督那格，它改从
+        // 假 panel-cs 记下的 verb body 取 games 之后，这一枚形参在本节再无消费者 ⇒ 形参与实参一起摘净
+        // （`seq` 同批：它只为那枚回填闭包而存在）。留在签名里当死参＝给下一刀留一块假账。
         fn s28_proj(
             journal_text: &str,
             calls: &[(String, String)],
-            params: &[(i64, JVal)],
             env_text: &str,
             proc_rc: i32,
         ) -> Vec<String> {
@@ -21069,15 +21219,6 @@ asst-failed|ev|2|asst|10000|TaskChainError|TaskChainError|task_chain|Error|local
                     continue;
                 }
                 let act = jv_str(&jv_get_ci(&row, "action"));
-                let seq = jv_int(&jv_get_ci(&row, "seq"), 0);
-                let pp = |key: &str| -> String {
-                    for (s, p) in params {
-                        if *s == seq {
-                            return jv_str(&jv_get_ci(p, key));
-                        }
-                    }
-                    String::new()
-                };
                 if act == "log" {
                     let d = jv_get_ci(&row, "data");
                     out.push(format!(
@@ -21127,10 +21268,21 @@ asst-failed|ev|2|asst|10000|TaskChainError|TaskChainError|task_chain|Error|local
                     continue;
                 }
                 if act == "round-supervisor-start" {
-                    out.push(format!("S|round-supervisor-start|games={}", pp("games")));
+                    // 刀⑩(2026-11-05)：直答后这一格不进 ask 序 ⇒ games 从假 panel-cs 记下的 body 取
+                    // （body 是 {games, ownerPid} 两枚，投影只认 games——**投影串一字不改**，
+                    //   ownerPid 不进账面，与当年 ask params 只有 games 那一格同读数）。
+                    // 取不到 body 时交一句响亮的话：这一档在绿帧里不可能出现，出现了就要让它把
+                    // 场景册的 must_have 顶红，不许静默退化成 `games=`。
+                    let b = s28_pop(&mut bk, "start-supervisor");
+                    if matches!(b, JVal::Null) {
+                        out.push("S|round-supervisor-start|games=<假 panel-cs 没接到 start-supervisor 的那一发>".to_string());
+                    } else {
+                        out.push(format!("S|round-supervisor-start|games={}", jv_str(&jv_get_ci(&b, "games"))));
+                    }
                     continue;
                 }
                 if act == "round-supervisor-stop" {
+                    let _ = s28_pop(&mut bk, "stop-supervisor");
                     out.push("S|round-supervisor-stop".to_string());
                     continue;
                 }
@@ -21311,6 +21463,14 @@ asst-failed|ev|2|asst|10000|TaskChainError|TaskChainError|task_chain|Error|local
                     ("Line", jv_s("夹具：审计结论 无待审活动")),
                     ("Joined", jv_s("夹具：审计结论 无待审活动 / FAKE-尾行")),
                 ]));
+            }
+            // 刀⑩(2026-11-05)：监督两臂直答后问的就是这两枚 verb（真身 tools\panel-cs\Cli.cs 的
+            // StartSupervisor/StopSupervisor，回执两枚键 Available/Err）。本节**不**给"没这枚命令"
+            // 那一档的注入缝（S28Scen 没这枚旋钮，造一档要动 20 档场景册的逐字期望）：
+            // 三档（可用／不可达／起挂了带 Err）的判定面归 §24 的 24l 五档，那里有现成的三枚旋钮。
+            // 这里只交恒 true 的正档——它是 R-sup-direct「回执真被折进账」那半的唯一供证。
+            if verb == "start-supervisor" || verb == "stop-supervisor" {
+                return Ok(jv_o(vec![("Available", JVal::B(true)), ("Err", jv_s(""))]));
             }
             let r = match verb {
                 "takeover-processes" => jv_o(vec![
@@ -21790,7 +21950,13 @@ asst-failed|ev|2|asst|10000|TaskChainError|TaskChainError|task_chain|Error|local
         // remove_dir_all 会把前一趟正在写的目录端走，17 枚 §28 格当场红（第二十刀实测）。
         let d28 = std::env::temp_dir().join(format!("gd-selftest-s28-round-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d28);
-        let mut outer_seen28: Vec<String> = Vec::new();
+        // 刀⑩(2026-11-05)：ask 序那半的反空集（outer_seen28）随监督出册一起摘净 —— 册子只剩提权一枚，
+        // 而提权那一发只在非提权会话里问得出（真提权会话整段跳过，门当年同款），拿它当反空集
+        // ＝要求机器现场状态。反空集改立在**verb 消费面**：监督两枚真被假 panel-cs 接到过，
+        // 且至少一档把回执的 `Available:true` 折进了账行（只记调用不记回执会成哑格：
+        // 夹具册子漏了分支时核内交 Available=false、账照样圆）。
+        let mut sup_seen28: Vec<String> = Vec::new();
+        let mut sup_replied28 = 0usize;
         let mut obs_total28 = 0usize;
         let mut obs_bad28 = 0usize;
         for sc in scens28.iter() {
@@ -22041,17 +22207,14 @@ asst-failed|ev|2|asst|10000|TaskChainError|TaskChainError|task_chain|Error|local
                 // 刀⑧(2026-11-04)：`updgate`／`audit` 两枚同形出册——两枚闸改核内直答后不再问出去，
                 // 那两枚假 verb 册里新立 run-m9a-update／run-1999-event-audit 两分支接住（不接就当场
                 // 落一条 err 账行、链体吞成 WARN 继续跑：会话照样 done，但 data_of／S 级账形全变＝死锚）。
+                // 刀⑩(2026-11-05)：监督两枚同形出册——册子只剩提权那一枚（应答册的形状与"问出去才
+                // 要应答"这条协议不变；真身 PS 臂随本批笔(b) 摘净）。假 verb 册里同样新立
+                // start-supervisor／stop-supervisor 两分支接住。⚠ 漏接的读数**不是**「当场一条 err 账行」
+                // 那一族：核内那两臂把 Err 折成 `Available=false/Err=""`（失败档不许冒泡的既定形制），
+                // body 也照样记进 calls28v ⇒ 投影串与 S 级账形全不变，只剩账上那枚回执从 true 变 false。
+                // 这一档由 R-sup-direct 的第二半（`sup_replied28`：至少一档把 Available:true 折进账行）咬，
+                // 拿它当唯一落点就是因为投影面看不见它。
                 let mut ask_tbl: Vec<(String, bool, JVal)> = Vec::new();
-                ask_tbl.push((
-                    "round-supervisor-start".to_string(),
-                    false,
-                    jv_o(vec![("Available", JVal::B(true)), ("Err", jv_s(""))]),
-                ));
-                ask_tbl.push((
-                    "round-supervisor-stop".to_string(),
-                    false,
-                    jv_o(vec![("Available", JVal::B(true)), ("Err", jv_s(""))]),
-                ));
                 ask_tbl.push(("round-elevate".to_string(), false, jv_o(vec![("Code", JVal::I(sc.elev_code))])));
                 // 假 verb 册闭包（逐次调用记 body，回执走 s28_verb_reply）。
                 let calls_cell = std::rc::Rc::new(std::cell::RefCell::new(Vec::<(String, String)>::new()));
@@ -22155,7 +22318,7 @@ asst-failed|ev|2|asst|10000|TaskChainError|TaskChainError|task_chain|Error|local
                 let calls28v = calls_cell.borrow().clone();
                 let journal28 = std::fs::read_to_string(&jf28).unwrap_or_default();
                 let sink28 = std::fs::read_to_string(&kf28).unwrap_or_default();
-                let proj28 = s28_proj(&journal28, &calls28v, &params28v, &env28, rc28);
+                let proj28 = s28_proj(&journal28, &calls28v, &env28, rc28);
                 let (col28, ncol28, nkept28) = s28_collapse(&proj28);
                 let body28 = col28.join("\n");
                 let last28 = kinds28v.last().map(|s| s.as_str()).unwrap_or("");
@@ -22293,7 +22456,19 @@ asst-failed|ev|2|asst|10000|TaskChainError|TaskChainError|task_chain|Error|local
                         unk28.push(a.clone());
                     }
                 }
-                outer_seen28.extend(asked28v.iter().cloned());
+                // R-sup-direct 的供证面（刀⑩ 换代，声明处有理由）：本档真接到的监督 verb 记账、
+                // 以及本档账上有没有把回执的 Available:true 折进那一行。
+                for v in S28_SUP_DIRECT {
+                    if calls28v.iter().any(|(cv, _)| cv == v) {
+                        sup_seen28.push(v.to_string());
+                    }
+                }
+                if journal28
+                    .lines()
+                    .any(|l| l.contains("\"action\":\"round-supervisor-start\"") && l.contains("\"Available\":true"))
+                {
+                    sup_replied28 += 1;
+                }
                 chk(
                     unk28.is_empty(),
                     &format!(
@@ -22447,18 +22622,22 @@ asst-failed|ev|2|asst|10000|TaskChainError|TaskChainError|task_chain|Error|local
                 }
             }
         }
-        // R-outer-seg9：段 9 那两枚必须真在 ask 序里出现过 ⇒ 否则 A⊆B 是空集恒绿。
-        // （刀⑧ 起这一族只剩监督两枚；两枚闸的落账证明改由 §24 的 data_of／proj24 钉，不在这格重复。）
+        // R-sup-direct：监督这一族的两个动作必须真在核内直答过（verb 消费面）且至少一档把回执
+        // `Available:true` 折进账行 ⇒ 否则 R-outer 的 A⊆B 是空集恒绿。
+        // （刀⑩ 换代：旧格名 R-outer-seg9、证据在 ask 序；监督出册后那条轴永远为空，判据搬到
+        //   calls28v＋journal 回执两格。"核内那两臂整个不答了"由 R-outer 咬（问出去⇒白名单不认识），
+        //   "答了却没真办"由本格咬（verb 没被消费／回执没被折进账）。两枚闸的落账证明仍归 §24 的 data_of／proj24，不在这格重复。）
         chk(
-            S28_SEG9.iter().all(|s| outer_seen28.iter().any(|a| a == s)),
+            S28_SUP_DIRECT.iter().all(|s| sup_seen28.iter().any(|a| a == s)) && sup_replied28 >= 1,
             &format!(
-                "§28 R-outer-seg9：段 9 那两枚没真被问出去过，缺={}",
-                S28_SEG9
+                "§28 R-sup-direct：监督两枚没真在核内直答过，缺={} 折进账的档数={}",
+                S28_SUP_DIRECT
                     .iter()
-                    .filter(|s| !outer_seen28.iter().any(|a| a == *s))
+                    .filter(|s| !sup_seen28.iter().any(|a| a == *s))
                     .cloned()
                     .collect::<Vec<_>>()
-                    .join(",")
+                    .join(","),
+                sup_replied28
             ),
             &mut fails,
             &mut total,

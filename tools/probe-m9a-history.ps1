@@ -1,11 +1,10 @@
 ﻿# tools/probe-m9a-history.ps1 — 只读：统计历史日志里各实例真正开始过多少任务(定位"队列没开始")
 param([string]$LogDir = '')     # 不传就用 config\settings.json 里 paths.m9aDir 下的 logs
 $ErrorActionPreference = 'Stop'
-. (Join-Path (Split-Path -Parent $PSScriptRoot) 'lib\common.ps1')
-. (Join-Path (Split-Path -Parent $PSScriptRoot) 'lib\m9a.ps1')
+. (Join-Path (Split-Path -Parent $PSScriptRoot) 'lib\common.ps1')   # 11-06 刀⑫ 笔(c)：本件不再 dot-source lib\m9a.ps1，只按 settings 直读日志目录
 
 if (-not $LogDir) {
-    $LogDir = (Get-M9APaths -S (Get-GdSettings -Quiet)).LogDir
+    $pv = Get-GdSettings -Quiet; $LogDir = Join-GdPath $pv.paths.m9aDir @($pv.paths.m9aLogDir)
     Write-Host "日志目录取自 settings.json：$LogDir" -ForegroundColor DarkGray
 }
 if (-not (Test-Path -LiteralPath $LogDir)) { Write-Host "日志目录不存在：$LogDir(用 -LogDir 指定)" -ForegroundColor Yellow; exit 1 }

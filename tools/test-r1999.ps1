@@ -179,7 +179,7 @@ Check '关掉 force-start 时只留三项' (($a3 -join ' ') -eq '--instance dead
 $a4 = @(Get-GdM9ALaunchArgsFromDesk -Instance $inst12 -CliArgs $false)
 Check '关掉命令行入口时不加任何参数(回退老路子)' ($a4.Count -eq 0)
 Check 'settings 里三个 M9A 开关都在' ($null -ne $S.runtime.m9aCliArgs -and $null -ne $S.runtime.m9aInstanceArg -and $null -ne $S.runtime.m9aForceStart)
-Check '默认走命令行入口' ((Get-GdM9ACliEnabled -S $S) -eq $true)
+# 「默认走命令行入口」那格的行为判据随 Get-GdM9ACliEnabled 出仓(11-06 刀⑫ 笔(b))，改指下面 [t16] 段 $rustCore 那张活桌
 
 # 真实日志行(09-23 17:30 用 --autostart 成功提交队列那一段)
 Check '能识别"用户操作：启动任务"' ((Read-GdM9ALine -Line '[2026-09-23 17:30:40.048][INF] [cfg=Default][inst=日常-长草/deadbeef][src=UI][op=StartTask] 用户操作：启动任务 | controller=Adb, resource=官服, device=<none>, selectedTasks=10').Kind -eq 'ui-start')
@@ -325,6 +325,9 @@ $r1999RoundPs = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\lib\rust-r
 $gateCs = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'panel-cs\Gate.Host.cs') -Raw -Encoding utf8
 $orchCs = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'panel-cs\Orchestration.cs') -Raw -Encoding utf8
 $rustCore = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'rustcore\src\main.rs') -Raw -Encoding utf8
+# 11-06 刀⑫ 笔(b)：m9a.ps1 那枚三态壳出仓后，「没写就算开」这一档全仓只有一处会答，格就打核内那张活桌(不联网、不起进程)
+Check '命令行入口三态判据住在核内 --selftest 第 21 节(壳摘后 PS 侧没有第二份答案；回潮＝两份各答一档)' (
+    ($rustCore.Contains('let cli21 = |extra: &str|')) -and ($rustCore.Contains('runtime.m9aCliArgs 的三态塌成一态')))
 $orchRetry = [regex]::Match($orchCs, '(?s)bool baseRetry(?<win>.*?)retryable = true').Groups['win'].Value
 Check '1999 重试会跳过 not-started/empty-queue/unknown-format/blocked' (($orchRetry -match '"ok"') -and ($orchRetry -match '"not-started"') -and ($orchRetry -match '"empty-queue"') -and ($orchRetry -match '"unknown-format"') -and ($orchRetry -match '"blocked"'))
 # M9A 自动更新闸(tools\m9a-update.ps1，2026-09-30 用户「检查到更新自己更就行了」)：这里只做静态锚，
@@ -378,6 +381,18 @@ Check '编排岛真身(含笔(b) 那枚 ack 壳)的定义不在轮档件与清�
 $cut9M9APs = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\lib\m9a.ps1') -Raw -Encoding utf8
 Check '刀⑨ 那枚 Set-M9AInstance 的定义不在 m9a.ps1(写实例配置只住核内 Chain.cs 一处；回潮＝PS 一份＋核内一份那本双账复活)' (
     -not $cut9M9APs.Contains('function Set-M9AInstance '))
+# 转接刀·运行面刀⑫ 的「退役不回潮」负锚（形状照上面 刀⑨ 那格，同一本 $cut9M9APs 现读的原文）：笔(a) 那批发
+# 的是批次 9 冻结段那 71 行逐行 # 的旧本体与 Stop-M9A 那 8 行 PS 壳，笔(b)(c) 又添三枚读配置壳的定义行。
+# 针一律不取件名裸串或「批次 9 冻结段」那种散文串——史注里就写着它名，把散文当命中会造出一格恒红；
+# 走的针只活在被摘本体里('function 名 ' 那形)，名册由下面 foreach 供数(注释不写枚数——写死的数会被下一次
+# 扩名册变成陈旧账)。⚠ 这些针按原文逐字命中(含注释面)，所以它们自此不许出现在本件或 m9a.ps1 的散文里，
+#   将来谁要在史注里引那几串，先把针换成只活在本体里的形，别把红格留成假警。
+$cut12M9ABad = @()
+foreach ($cut12Needle in @('function Stop-M9A ', 'switch ($Event.Kind)', 'function Get-M9APaths ', 'function Get-GdM9ACliEnabled ', 'function Get-M9ADailyLog ')) {
+    if ($cut9M9APs.Contains($cut12Needle)) { $cut12M9ABad += $cut12Needle }
+}
+Check '刀⑫ 笔(a)(b)(c) 出仓的 Stop-M9A 壳、冻结段体特征串与三枚读配置壳的定义行都不在 m9a.ps1(verb stop-m9a 与 paths／三态各只住一处；回潮＝史注之外再多一具身体)' (
+    $cut12M9ABad.Count -eq 0) ($cut12M9ABad -join ' | ')
 
 Write-Host "`n[t17] 单任务识别失败 / 版本落后 / 连不上模拟器 —— 09-25 19:24 那一轮的复盘"
 <#

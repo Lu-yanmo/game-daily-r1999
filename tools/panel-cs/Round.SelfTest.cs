@@ -28,7 +28,7 @@
 // Invoke-GdDailyRound(通知标题那两句 —— 那枚十段真身已于 2026-10-20 乙批② 划掉，本件这几句是**抄定即冻结**的
 // 转写体，不随工作树改口，原文只剩轮骨架门钉住的那份 blob)，以及 ②-b1 的六份真身(Get-ArkEvent / Get-R1999Event /
 // Set-GdArkShopState / Set-GdR1999Ack / Set-GdR1999ShopState / Get-Gd{Ack,ShopDone}Map)、
-// ②-b2 的十份真身(Invoke-GdTakeover / Stop-MaaAndGame / Stop-M9A / Get-GdMaa{FightSkip,StageObservation}／其中 Invoke-GdTakeover 与 Get-GdMaa{FightSkip,StageObservation} 三枚已于 11-05 转接刀·运行面刀⑨ 从 lib\common.ps1／lib\maa.ps1 删除，去向见 docs\rust-core-plan.md §11.241 /
+// ②-b2 的十份真身(Invoke-GdTakeover / Stop-MaaAndGame / Stop-M9A(已于 11-06 转接刀·运行面刀⑫ 笔(a) 从 lib\m9a.ps1 删除，去向见 docs\rust-core-plan.md §11.252) / Get-GdMaa{FightSkip,StageObservation}／其中 Invoke-GdTakeover 与 Get-GdMaa{FightSkip,StageObservation} 三枚已于 11-05 转接刀·运行面刀⑨ 从 lib\common.ps1／lib\maa.ps1 删除，去向见 docs\rust-core-plan.md §11.241 /
 // Start-GdArkClient＋Wait-GdArkLauncherReady(这两枚与上一行的 Stop-MaaAndGame 已于 11-03 转接刀·方舟拉起族从 lib\maa.ps1 删除，去向见 docs\rust-core-plan.md §11.217) / Start-GdMuMu / Set-MaaDailyConfig / Set-M9AInstance(已于 11-05 转接刀·运行面刀⑨ 从 lib\m9a.ps1 删除，去向见同一本 §11.241) /
 // Update-GdArkFarmLedger —— 逐条出处见 Chain.cs 头注的两段双源登记)、
 // R9-a 那四枚的对应真身(Get-GdScreensaverConfig(common.ps1 旧 359-378；该真身已于转接刀·屏保稳态族从 lib\common.ps1 删除，去向见 docs\rust-core-plan.md §11.215) / Enter-GdNoSleep 的 keepScreenOn 半段

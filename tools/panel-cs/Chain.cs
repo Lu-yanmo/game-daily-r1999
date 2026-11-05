@@ -6,8 +6,8 @@
 // 这一份管的是"链体那十一枚 ask 里，必须由这台机器亲手干的那一半"：
 //   takeover-processes         Invoke-GdTakeover(lib\common.ps1:665；⚠ 11-05 转接刀·运行面刀⑨ 该真身已自 PS 侧出仓，这枚坐标自此按历史引文读、不换算)：接管关闭，先判 takeOverAssistant。
 //   stop-maa-and-game          Stop-MaaAndGame(旧 lib\maa.ps1 真身，11-03 转接刀·方舟拉起族整枚出仓；这一路的唯一事实源自此是本件)。
-//   stop-m9a                   Stop-M9A(lib\m9a.ps1:289)。⚠ 10-26 甲档第五刀刀② 换算：两枚转发壳出仓(本文件净 −49 行)后本族锚再改口；⚠ 11-01 坐标清账刀再换算：原写 :288 实拍是空行，定义在 :289
-//                              (历史三值 530→337→288；那句"已关闭 M9A($n 个进程)"现读 :293，行号取自摘件+话术随动后的现树实拍)。
+//   stop-m9a                   Stop-M9A(旧 lib\m9a.ps1:289 的 PS 壳；⚠ 11-06 转接刀·运行面刀⑫ 笔(a) 整枚出仓，这一路的唯一事实源自此是本件——本族坐标(历史 :289／话术 :293)自此按历史引文读、不换算)。
+//                              (⚠ 10-26 第五刀刀②、11-01 坐标清账刀两趟换算留档；那句"已关闭 M9A($n 个进程)"的真身现只在本件 StopM9A 一处活着，双源登记自此只剩一源)。
 //   read-maa-fight-skip        Get-GdMaaFightSkip(lib\maa.ps1:60 起；⚠ 11-05 转接刀·运行面刀⑨ 那枚壳已出仓，坐标按历史引文读)的**读日志尾那半**：gui.log 全量 → 递给已在场的
 //                              detect-maa-fight-skip(Orchestration.cs 批次 5)，判据一枚都不在这儿重写。
 //   read-maa-stage-observation Get-GdMaaStageObservation(lib\maa.ps1:83 起；⚠ 11-05 转接刀·运行面刀⑨ 那枚壳已出仓，坐标按历史引文读)的同一半：asst.log 尾 16MB + gui.log 全量
@@ -39,7 +39,7 @@
 //   * "…正在运行；要么手动关掉再跑，要么把 settings.runtime.takeOverAssistant 设为 true"、
 //     "$Label 正在运行 → 先关掉再改配置(避免它退出时把配置写回旧值)" ↔ lib\common.ps1:676-678(⚠ 11-05 转接刀·运行面刀⑨：Invoke-GdTakeover 出仓，那两句话术随之离开 PS 侧；本锚在原写 HEAD 帧就指错了段落——真句在 HEAD:616／618，不换算也追不上，双源自此只剩本件一源)；
 //   * "已关闭 MAA($n 个进程)"、"已关闭明日方舟端游($n 个进程)" ↔ lib\maa.ps1:744／748；
-//     "已关闭 M9A($n 个进程)" ↔ lib\m9a.ps1:293(10-26 第五刀刀② 换算、原写 342) —— 三句的括号里都带进程数、都不带句号，逐字照抄；
+//     "已关闭 M9A($n 个进程)" ↔ 旧 lib\m9a.ps1:293(⚠ 11-06 刀⑫ 笔(a) 该 PS 壳整枚出仓，坐标按历史引文读、不换算；10-26 第五刀刀② 换算、原写 342 留档) —— 三句的括号里都带进程数、都不带句号，逐字照抄；
 //   * gui.log／asst.log 两枚路径与 `debug\asst.log` 那条兜底、asst.log 只取尾 16MB(16777216) 那把尺
 //     ↔ lib\maa.ps1:47-53(11-03 转接刀·方舟拉起族换算：摘件批给那本头注加了一行，整本自 13 行起推一格；原写 46-52) 与 Get-GdMaaStageObservation 的注释(「asst.log 连日不轮转能涨到几十 MB」；⚠ 11-05 转接刀·运行面刀⑨ 那枚壳连同这句注释已自 lib\maa.ps1 出仓，这句话如今只在本文件 :447 那条注释里活着)。
 //
@@ -407,7 +407,7 @@ namespace GdPanel
         }
 
         // ==================== verb: stop-m9a ====================
-        // Stop-M9A(m9a.ps1:289，10-26 第五刀刀② 换算、原写 337；⚠ 11-01 坐标清账刀再换算：原写 :288 是空行)：**只有一档** quitAssistantAfter，话术是"M9A"不是"MAA"
+        // Stop-M9A(旧 m9a.ps1:289；⚠ 11-06 刀⑫ 笔(a) 该 PS 壳整枚出仓，坐标按历史引文读、不换算——本件 StopM9A 是唯一事实源)：**只有一档** quitAssistantAfter，话术是"M9A"不是"MAA"
         // (两侧话术不许统一，②-a 那条纪律在这儿同样成立)。
 
         internal static object StopM9A(Dictionary<string, object> raw)

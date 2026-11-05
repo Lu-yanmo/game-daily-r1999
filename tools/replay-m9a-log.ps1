@@ -23,7 +23,7 @@ $Root = (Resolve-Path $Root).Path
 . (Join-Path $Root 'lib\common.ps1')
 . (Join-Path $Root 'lib\m9a.ps1')
 $S = Get-GdSettings -Quiet
-if (-not $Log) { $Log = Get-M9ADailyLog -P (Get-M9APaths -S $S) }
+if (-not $Log) { $Log = Join-Path (Join-GdPath $S.paths.m9aDir @($S.paths.m9aLogDir)) ('log-' + (Get-Date -Format 'yyyyMMdd') + '.log') } # 11-06 刀⑫ 笔(c)：两枚壳已出仓，settings 直读
 if (-not (Test-Path -LiteralPath $Log)) { throw "日志不存在：$Log" }
 
 function Convert-GdReplayTime {

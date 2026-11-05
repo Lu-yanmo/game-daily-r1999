@@ -8,9 +8,9 @@
 #   Resolve-M9AStatus  → verb resolve-m9a-status(所有结论文案/优先级在 C#；
 #                        本壳把 $State.lastLog 换算成 quietSeconds 递进去，Found:false 翻译回 $null)
 # 所以：改日志解析/结论话术请改 Processes.cs 并跑 panel-cs --proctest 对真值，不要在这里加规则。
-# 故意留在 PS 侧的：Get-M9APaths/Get-GdM9ACliEnabled(读配置)、Set-M9AInstance(写 appsettings+回读；⚠ 11-05 转接刀·运行面刀⑨ 该枚已出仓，本名单自此按史注读、不换算)、
-# Get-M9AConnection(读实例 JSON)、Get-M9ADailyLog/Register-M9AEvent(状态累计+日志染色)、
-# Invoke-M9ARun(起进程与轮询，归批次 5 编排层)。
+# 故意留在 PS 侧的：Get-M9AConnection(读实例 JSON)、Register-M9AEvent(状态累计+日志染色)、
+# Invoke-M9ARun(起进程与轮询，归批次 5 编排层)。⚠ 本名单自此按史注读、不换算：Set-M9AInstance(11-05 刀⑨)、
+# Get-M9APaths/Get-GdM9ACliEnabled/Get-M9ADailyLog(11-06 刀⑫ 笔(b)(c))、Invoke-M9ARun(10-25 甲档刀②)都已出仓。
 #   ⚠ 10-25 甲档刀②：上面名单里只有这一枚不成立了——Invoke-M9ARun 整段出仓(原 319-528 共 210 行)，"故意留在 PS 侧"
 #   的名单自此只剩前两行那些壳。生产面唯一真做入口 = 核内 m9a_run；逐字副本原钉 probe-m9arun 门，
 #   ⚠ 10-26 甲档第十五刀：该门整件退役(等值面搬进 gdprobe --selftest 第 26 节，§11.151)，副本随门出仓。
@@ -28,7 +28,7 @@
 #     ① 逐行冻结段(原 378-399/483-527)随真身一起出仓，本文件已无该段；
 #     ② 那句"test-r1999 按那些字面钉锚(预算扣数写法、'判因'、$state.lastLog、Rescued、收尾拼串)"现读已不实——
 #        那九格正向文本锚于刀①-b(本仓 0ac6dcb)改打 tools\panel-cs\RunLoops.cs ＋ tools\rustcore\src\main.rs 两张活桌，
-#        现树 lib\m9a.ps1 只剩 test-r1999:480 那一枚**否定式**($m9aLib -notmatch)还在读。
+#        现树 lib\m9a.ps1 只剩 test-r1999:471 读面 + :590 那一枚**否定式**($m9aLib -notmatch)还在读。
 #     ⇒ "别删别改字"因此不再是本段约束：两刀制的第二刀就是"先让门不需要真身，再摘真身"，本笔即第二刀。
 # 改判据/话术请改 RunLoops.cs 并复拍对拍门，不要在这里加 if。
 # (批 3 头注"Invoke-M9ARun(起进程与轮询，归批次 5 编排层)"到批 8 作废一半(轮询里的判据已走，骨架还在)；
@@ -46,29 +46,17 @@
 #     ⚠ 10-25 甲档刀②：那句里"Invoke-M9ARun 轮询"这个读者已随真身出仓。本枚批量入口现读只剩两处在调——
 #     本文件 :169 那发单事件壳转发(表账 ps-map 第六列 1:0 就是它；⚠ 10-26 第五刀刀② 现读：原写 :216 本就漂了两格，摘件后同段再 −49)。门内那枚逐字副本已随 10-26 甲档第十五刀摘门出仓。
 # (批 3 头注里"故意留在 PS 侧的 Register-M9AEvent(状态累计+日志染色)"到本批作废：状态累计本体已走，
-#  壳只剩转发与染色。旧十三档逐行 # 仍冻在原位(那一段没随刀② 出仓)；⚠ 但原句"test-r1999 的 `$state.lastLog = Get-Date`、
+#  壳只剩转发与染色。旧十三档逐行 # 段已于 11-06 刀⑫ 笔(a) 整段出仓(见原位四行史注)；⚠ 但原句"test-r1999 的 `$state.lastLog = Get-Date`、
 #  各档话术字面锚在冻结行里 substring 照命中，别删别改字"已于刀①-b(本仓 0ac6dcb)作废——正向锚九格改打 RunLoops.cs／main.rs
-#  两张活桌，本段不再是任何门的钉家(现读全仓读现树本文件的只剩 test-r1999:480 那枚否定式；probe-m9arun 的 dot-source 已随 10-26 甲档第十五刀摘门消失)。)
+#  两张活桌，本段不再是任何门的钉家(现读全仓读现树本文件的只剩 test-r1999:590 那枚否定式(读面 :471)；probe-m9arun 的 dot-source 已随 10-26 甲档第十五刀摘门消失)。)
 # ──────────────────────────────────────────────────────────────────────────────
 
-function Get-M9APaths {
-    param([Parameter(Mandatory)]$S)
-    return [pscustomobject]@{
-        Dir        = $S.paths.m9aDir
-        Exe        = (Join-GdPath $S.paths.m9aDir @($S.paths.m9aExe))
-        AppSettings= (Join-GdPath $S.paths.m9aDir @($S.paths.m9aAppSettings))
-        FrameLog   = (Join-GdPath $S.paths.m9aDir @($S.paths.m9aFrameworkLog))
-        LogDir     = (Join-GdPath $S.paths.m9aDir @($S.paths.m9aLogDir))
-        Name       = [System.IO.Path]::GetFileNameWithoutExtension($S.paths.m9aExe)
-    }
-}
-
-function Get-GdM9ACliEnabled {
-    <# 默认走命令行入口；settings 里显式写 false 才回退裸启动 #>
-    param([Parameter(Mandatory)]$S)
-    if ($null -eq $S.runtime.m9aCliArgs) { return $true }
-    return [bool]$S.runtime.m9aCliArgs
-}
+# ===== Get-M9APaths 与 Get-GdM9ACliEnabled 已删(11-06 转接刀·运行面刀⑫ 笔(b)(c)) =====
+#   paths 六格的家在 tools\rustcore\src\main.rs 的 M9aPaths::of(核内注释逐格点名：循环只吃 Dir/Exe/LogDir/
+#   Name 那四格，Name 由 Exe 去扩展名自算)；m9aCliArgs 三态的家在核内 m9a_scen 的 Option<bool>＋unwrap_or(true)
+#   ——「没写就算开」那一档在 --selftest 第 21 节有格，落成 bool 会把缺键读成 false 那本账写在 docs\r0-adrs.md
+#   的门档 14。PS 侧两枚消费面(tools\probe-m9a-history.ps1／tools\replay-m9a-log.ps1)本批改指 settings 直读，
+#   那两件是诊断面、不进生产链；表账三行随之整行划除、不留墓碑(见 tools\ps-map\ps-map.tsv 头注本批那一段)。
 
 # Set-M9AInstance 已删(11-05 转接刀·运行面刀⑨)：全仓 AST 零调用点(k853 正则尺＋k854/k855 名册尺同帧对平)，
 # 对面在 tools/panel-cs/Chain.cs::ApplyM9AInstance(verb apply-m9a-instance，Round.SelfTest 第 29 节有格)，
@@ -84,11 +72,9 @@ function Get-M9AConnection {
     return [pscustomobject]@{ Adb = $adb; Serial = [string]$dev.AdbSerial; Name = [string]$dev.Name }
 }
 
-function Get-M9ADailyLog {
-    <# M9A 每天一个日志：logs\log-yyyyMMdd.log(运行中可能跨天，每次轮询重算) #>
-    param([Parameter(Mandatory)]$P)
-    return Join-Path $P.LogDir "log-$(Get-Date -Format 'yyyyMMdd').log"
-}
+# ===== Get-M9ADailyLog 已删(11-06 转接刀·运行面刀⑫ 笔(c))：家在同件 main.rs 的 m9a_daily_path =====
+#   那句裸 Join-Path(不是宽容的 Join-GdPath)核内注释逐字登记着；唯一 PS 消费面 tools\replay-m9a-log.ps1:26
+#   本批改指 settings 直读＝诊断面副本一份，与核内那份没有自动对平尺(挂账：日志名公式两处，生产面只认核内)。
 
 function Read-GdM9ALine {
     <#
@@ -133,7 +119,7 @@ function Register-M9AEvents {
 function Register-M9AEvent {
     <#
       单事件转发壳(test-r1999 钉着签名：$State hashtable 原地更新、无返回值)。
-      旧十三档本体在下方逐行 # 冻结(PS 块注释不可嵌套)——
+      旧十三档本体曾在下方逐行 # 冻结(11-06 刀⑫ 笔(a) 已出仓)——
       ⚠ 10-25 甲档刀①-b(本仓 0ac6dcb)改口：原句"test 锚 `$state.lastLog = Get-Date` 与各档话术字面在冻结行里
       substring 照命中，别删别改字"已不实，那九格正向锚改打 RunLoops.cs／main.rs 两张活桌，本段不再被任何门逐字比。
     #>
@@ -141,77 +127,11 @@ function Register-M9AEvent {
     Register-M9AEvents -State $State -Events $Event
 }
 
-    # ===== 批次 9 冻结段：旧 Register-M9AEvent 十三档(c498da0 原位备查) =====
-# function Register-M9AEvent {
-#     <# 把一个事件累计进状态包(纯状态更新，方便进程退出后再补读一次) #>
-#     param([Parameter(Mandatory)][hashtable]$State, [Parameter(Mandatory)][hashtable]$Event)
-#     # 只要读进来一个"认识"的事件就计数：eventCount 一直是 0 = 日志压根看不懂了(见 Resolve-M9AStatus 的 unknown-format)
-#     $State.eventCount = [int]$State.eventCount + 1
-#     switch ($Event.Kind) {
-#         'task' {
-#             $State.chainStarted = $true
-#             $State.tasks = @($State.tasks) + $Event.Text
-#             Write-GdLog "M9A 进行中[$(@($State.tasks).Count)] $($Event.Text)"
-#             $State.lastLog = Get-Date
-#         }
-#         'chain-start' { $State.chainStarted = $true; $State.lastLog = Get-Date }
-#         'chain-done'  { $State.chainDone = $true; $State.lastLog = Get-Date }
-#         'queue-prepared' {
-#             $State.queueCount = [int]$Event.Text
-#             if ([int]$Event.Text -gt 0) { $State.chainStarted = $true }
-#             Write-GdLog "M9A 已提交任务队列：任务数量=$($Event.Text)"
-#             $State.lastLog = Get-Date
-#         }
-#         'ui-start' { $State.startRequested = $true; $State.lastLog = Get-Date }
-#         'connect-start' { $State.connectPhase = 'started'; $State.lastLog = Get-Date }
-#         'finish' {
-#             <#
-#               「启动任务完成」有两种含义，靠上下文区分：
-#                 已经看到过任务/队列 → 这就是整条链路跑完(--quit-after-run 模式下唯一的完成信号)
-#                 什么都没看到        → 只完成了连接，M9A 自己也没开始任务队列
-#             #>
-#             if ($State.chainStarted -or (@($State.tasks).Count -gt 0)) { $State.chainDone = $true }
-#             else { $State.connectPhase = 'done' }
-#             $State.lastLog = Get-Date
-#         }
-#         'fail' { if (-not $State.failed) { $State.failed = $Event.Text }; $State.lastLog = Get-Date }
-#         'task-fail' {
-#             <#
-#               「任务失败：<中文名>」是 M9A 对单个任务的判失败，一轮里可能连着打好几条。
-#               只把第一条塞进 $State.failed 是不够的：真正决定这轮可信度的是
-#               「第一个任务(启动游戏)有没有失败」——它失败说明后面全是空转，见 Resolve-M9AStatus 的 blocked。
-#             #>
-#             <#
-#               两个坑叠在这段上，写成 "$ft = if(...){@()}else{...}; $State.x = $ft + $t" 会静默退化成字符串拼接：
-#                 1) 空数组经 if/管道赋给变量会塌成 $null，而 $null + 'a' 是**字符串** 'a'(它的 Count 永远是 1)；
-#                 2) @($null) 的长度又是 1，键没初始化时不能直接 @(...) 包。
-#               两条分支都用"直接赋值 + 数组字面量"，不经过管道。
-#             #>
-#             $t = [string]$Event.Text
-#             if ($null -eq $State.failedTasks) { $State.failedTasks = @($t) }
-#             else { $State.failedTasks = @($State.failedTasks) + $t }
-#             Write-GdLog "M9A 任务失败：$($Event.Text)(累计 $($State.failedTasks.Count) 个)" -Level WARN
-#             if (-not $State.failed) { $State.failed = "任务失败：$($Event.Text)" }
-#             $State.lastLog = Get-Date
-#         }
-#         'res-current' { $State.resCurrent = $Event.Text; $State.lastLog = Get-Date }
-#         'res-latest' {
-#             $State.resLatest = $Event.Text
-#             if ($State.resCurrent -and ($State.resLatest -ne $State.resCurrent)) {
-#                 Write-GdLog "M9A 资源/程序有新版：当前 $($State.resCurrent) → 最新 $($State.resLatest)(整包更新，命令行没有更新入口，需在 M9A 界面点『更新』)" -Level WARN
-#             }
-#             $State.lastLog = Get-Date
-#         }
-#         'connect-fail' {
-#             if (-not $State.connectFail) {
-#                 $State.connectFail = $Event.Text
-#                 Write-GdLog "M9A 连不上模拟器：$($Event.Text)" -Level WARN
-#             }
-#             $State.lastLog = Get-Date
-#         }
-#         'noise' { $State.lastLog = Get-Date }
-#     }
-# }
+# ===== 批次 9 冻结段已出仓(11-06 转接刀·运行面刀⑫ 笔(a))：旧 Register-M9AEvent 十三档 =====
+#   原 144-214 那 71 行逐行 # 冻结的旧本体(c498da0 原位备查)随本笔出仓；对面在
+#   tools\panel-cs\RunLoops.cs 的 apply-m9a-events(基线真身 = lib\m9a.ps1 十三档 switch)，
+#   正向文本锚九格早于刀①-b(本仓 0ac6dcb)改打 RunLoops.cs／main.rs 两张活桌，现树读本件的只剩
+#   test-r1999:590 那枚否定式($m9aLib -notmatch，删内容只会更满足)，无正向锚咬这段。
 
 function Resolve-M9AStatus {
     <#
@@ -256,12 +176,7 @@ function Resolve-M9AStatus {
 #   只转发不判据"已被 10-26 甲档第五刀刀② 推翻：Get-M9ALaunchArgs(原 72-91)与 Read-M9ALogEvents(原 156-182)生产面零调用，随真身同批出仓，逐字副本住进两扇 golden 门的 child。
 #   逐字副本原钉在 probe-m9arun 门(两扇 golden 门都已退役：events 门甲档第十四刀、m9arun 门第十五刀 10-26 摘件，
 #   28 档等值面搬进 gdprobe --selftest 第 26 节，§11.151)；test-r1999 [t18] 那九格文本锚已于刀①-b 搬去两张活桌，不再咬这里。
-
-function Stop-M9A {
-    param([Parameter(Mandatory)]$S)
-    $P = Get-M9APaths -S $S
-    if ($S.runtime.quitAssistantAfter) {
-        $n = Stop-GdProcessTree -Name $P.Name
-        if ($n) { Write-GdLog "已关闭 M9A($n 个进程)" }
-    }
-}
+# 11-06 转接刀·运行面刀⑫ 笔(a) 摘件：Stop-M9A 的 PS 壳(原 260-267 共 8 行)整段出仓。
+#   生产面本来没经过它——verb stop-m9a 的唯一事实源在 tools\panel-cs\Chain.cs::StopM9A(只一档
+#   quitAssistantAfter，话术"M9A"不是"MAA")；test-modules.ps1:122 只判 modules.ps1 代码里不含
+#   "Stop-M9A" 字面量(扫另一件)，与本件在不在场无关。此名单自此按史注读、不换算。

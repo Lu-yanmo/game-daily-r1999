@@ -217,6 +217,10 @@ namespace GdPanel
                 //   入参只有自检夹具三枚旋钮；这两枚是**会起子进程**的出口，与 status 那两枚纯数据形不同档。
                 else if (verb == "run-m9a-update") r = Decide(a, GateHost.M9aUpdgate);
                 else if (verb == "run-1999-event-audit") r = Decide(a, GateHost.EventAudit);
+                // ---- 刀⑪(2026-11-05)：lib\rust-round.ps1 的 ctx 三枚(装配＋maaRun＋m9aRun)直身，照先例排链尾 ----
+                //   build-round-ctx：壳给旋钮(ids/gates/opt/四开关/nameField/noticeOwner/tag/logPath/ownerPid)，
+                //   settings 由本件现读——整块 settings 不进 body(runtime 里住着 visionApiKey)。判据在 Round.Host.cs。
+                else if (verb == "build-round-ctx") r = Decide(a, RoundHost.BuildCtx);
                 else throw new GdUsageException("未知子命令：" + verb + "(现有：" + GdCliVerbs.Roster() + "；后续批次见 docs\\ps-migration-batch0.md 与 docs\\ps-migration-live-caliber.md)");
             }
             catch (GdUsageException ex)

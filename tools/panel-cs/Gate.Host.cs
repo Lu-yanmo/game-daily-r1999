@@ -206,7 +206,9 @@ namespace GdPanel
         // ==================== 取数段 ====================
 
         // Get-GdMuMu(lib\mumu.ps1)的直身：四条算术，不起任何进程。
-        static Dictionary<string, object> MuMuPaths(Dictionary<string, object> S)
+        // ⚠ 2026-11-05 转接刀·运行面刀⑪：由 private 改 internal —— ctx 的 m9aRun.conn.adb 回落档要的就是
+        //   这一格的 Adb(纯路径算术)。改的是可见性，四格算术一个字没动；另抄一份路径算术就是双账。
+        internal static Dictionary<string, object> MuMuPaths(Dictionary<string, object> S)
         {
             Dictionary<string, object> paths = Gd.Map(Gd.Get(S, "paths")) ?? new Dictionary<string, object>();
             Dictionary<string, object> mumu = Gd.Map(Gd.Get(S, "mumu")) ?? new Dictionary<string, object>();

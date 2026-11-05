@@ -179,6 +179,59 @@ namespace GdPanel
             catch (Exception ex) { return ex is T; }
         }
 
+        // ==================== 刀⑪(build-round-ctx)的夹具两本＋一把键序尺 ====================
+        // 声明序即协议(journal 的 init 与 ctx 做全等校验)，所以比键必须按序比，不能只比格数。
+        static string KeysOf(object v)
+        {
+            Dictionary<string, object> d = v as Dictionary<string, object>;
+            if (d == null) return "(not-dict)";
+            StringBuilder sb = new StringBuilder();
+            foreach (string k in d.Keys) { if (sb.Length > 0) sb.Append(","); sb.Append(k); }
+            return sb.ToString();
+        }
+
+        // CtxSettings：只放 BuildCtx **逐枚点名**要的那几枚 paths/runtime/re1999。三件事各钉一处：
+        //   * visionApiKey 故意住在 runtime 整块里 —— 它是"整块 settings 绝不进 ctx"那条硬约束的哨兵靶；
+        //   * stallTimeoutMinutes 给串形 "8"、abortOnMaaStallWarning 给串形 "false" —— 钉 [int]／[bool]
+        //     两枚强转在 PS 口径下怎么折(settings 里这两形都真实存在，不是臆造的夹具)；
+        //   * paths.mumuDir／mumuAdb 给假路径 —— MuMuPaths 是纯路径算术(不起进程、不读实例配置)，
+        //     adb 回落档那格要的只是"算术有没有走到"，不是本机装没装 MuMu(只读自检不许要求现场状态)。
+        static Dictionary<string, object> CtxSettings(object cliArgs)
+        {
+            Dictionary<string, object> rt = In(
+                "arkStartTimeoutMinutes", 10, "arkTimeoutMinutes", 45, "stallTimeoutMinutes", "8",
+                "idleConfirmSeconds", 90, "abortOnMaaStallWarning", "false", "visionMaxRescue", 3,
+                "benignMaaErrors", new object[] { "warn line", @"C:\a b.exe" },
+                "m9aInstanceArg", "--instance", "m9aForceStart", true,
+                "r1999StartTimeoutMinutes", 12, "r1999TimeoutMinutes", 60,
+                "visionApiKey", KeySentinel);
+            if (cliArgs != null) rt["m9aCliArgs"] = cliArgs;
+            return In(
+                "paths", In("maaDir", @"T:\maa", "maaExe", @"T:\maa\MAA.exe", "maaConfig", @"T:\maa\config.json",
+                            "maaGuiLog", @"T:\maa\gui.log", "maaAsstLog", @"T:\maa\asst.log",
+                            "arknightsExe", @"T:\ark\Arknights.exe",
+                            "m9aDir", @"T:\m9a", "m9aExe", "m9a.exe", "m9aLogDir", @"T:\m9a\logs",
+                            "mumuDir", @"T:\mumu", "mumuAdb", @"nx_main\adb.exe"),
+                "runtime", rt,
+                "re1999", In("package", "com.example.m9a"));
+        }
+
+        // CtxBody：壳给的那几枚旋钮(与 lib\rust-round.ps1 当年喂 Get-GdRoundCtx 的入参面同形)＋夹具 settings。
+        // 生产侧 body 里**没有** settings 这枚(现读 config\settings.json)；gates 故意混三形：一枚空项、
+        // 一枚大写键(真身手构的 [pscustomobject] 就是大写)、一枚小写键(过 JSON 之后的形)。
+        static Dictionary<string, object> CtxBody(Dictionary<string, object> s)
+        {
+            return In("settings", s,
+                "ids", new object[] { "ark", "r1999" },
+                "gates", new object[] { null,
+                    In("Id", "farm", "Verb", "Invoke-GdArkFarm"),
+                    In("id", "shop", "verb", "Invoke-GdArkShopReset") },
+                "opt", In("chip", 3, "note", "ctx-cell"),
+                "force", false, "dryRun", false, "skipCleanup", false, "noElevate", true,
+                "nameField", "Id", "noticeOwner", "owner", "tag", "selftest",
+                "logPath", @"T:\logs\run-ctx.log", "ownerPid", 4242L);
+        }
+
         // ==================== ②-b2(Chain.cs 链体直答件)的夹具助手 ====================
         // 三族，各自钉一件事：
         //   * Nat —— nativeRuns 的一项(**大写** Code/Out/Err)；Chain 递给 parse-mumu-state 的那三格才是
@@ -2346,6 +2399,204 @@ namespace GdPanel
                 string err = S(Gd.Get(GdJson.ReadEnvelope(outPath), "error"));
                 return code == 1 && err.Contains("read-screensaver-config") && err.Contains("disable-screensaver-for-round")
                     && err.Contains("append-round-history") && err.Contains("update-ark-event-probe");
+            });
+
+            // ==================== 33) build-round-ctx(刀⑪)：轮 ctx 的 C# 直身 ====================
+            // 期望名册逐字抄自 lib\rust-round.ps1 的 Get-GdRoundCtx／Get-GdRoundMaaRunPayload／
+            // Get-GdRoundM9aRunPayload(三枚真身随 11-06 刀⑪ 笔(c) 出仓，这半句按历史引文读)。换核那一步的**同帧等值证据**
+            // 在 ship 账本 raw\k948-cut11-compare.log＋raw\k948-cut11-parity-ps51.log(STRUCT-DIFFS=0／ORDER-EQ=True／
+            // BYTE-EQ=True／SHA-EQ=True／FAILS=0；首拍 k941 那本在册不覆写)，那把尺自己的牙由 raw\k947-cut11-selftest-mutation-report.txt 十七发 mutation 自证；本节往后钉的是"换完核不许漂移"，不再依赖 PS 原身。
+            Dictionary<string, object> ctxFx = CtxSettings(null);
+            b.Chk("CLI 端到端：build-round-ctx 真挂上分发链，信封 verb/ok 自证＋data 顶层 15 枚键逐枚点名(声明序即协议)", delegate
+            {
+                string ci = Path.Combine(tmp, "ctx-cli-in.json");
+                string co = Path.Combine(tmp, "ctx-cli-out.json");
+                GdJson.Write(ci, CtxBody(ctxFx));
+                int code = GdCli.Run("build-round-ctx", new string[] { "--in=" + ci, "--out=" + co });
+                Dictionary<string, object> env = GdJson.ReadEnvelope(co);
+                return code == 0 && B(Gd.Get(env, "ok"))
+                    && S(Gd.Get(env, "verb")) == "build-round-ctx"
+                    && KeysOf(Gd.Get(env, "data")) == "ids,gates,opt,force,dryRun,skipCleanup,noElevate,"
+                        + "nameField,noticeOwner,tag,logLeaf,logPath,pid,maaRun,m9aRun";
+            });
+            b.Chk("名册第二处(usage 长串)随行自证：未知子命令那句报错里数得到 build-round-ctx", delegate
+            {
+                string uo = Path.Combine(tmp, "ctx-usage-out.json");
+                int code = GdCli.Run("no-such-verb", new string[] { "--out=" + uo });
+                string err = S(Gd.Get(GdJson.ReadEnvelope(uo), "error"));
+                return code == 1 && err.Contains("build-round-ctx");
+            });
+            b.Chk("ids 两枚原样到；gates 空项静默滤＋大小写两形都读得到，落账只有小写两键 {id,verb}", delegate
+            {
+                Dictionary<string, object> d = Row(RoundHost.BuildCtx(CtxBody(ctxFx)));
+                object[] gs = Gd.List(d["gates"]);
+                Dictionary<string, object> g0 = Row(gs[0]);
+                Dictionary<string, object> g1 = Row(gs[1]);
+                return Len(d["ids"]) == 2 && S(Gd.List(d["ids"])[0]) == "ark"
+                    && gs.Length == 2
+                    && KeysOf(g0) == "id,verb" && S(g0["id"]) == "farm" && S(g0["verb"]) == "Invoke-GdArkFarm"
+                    && KeysOf(g1) == "id,verb" && S(g1["id"]) == "shop" && S(g1["verb"]) == "Invoke-GdArkShopReset";
+            });
+            b.Chk("opt 原样透传：值不 stringify(chip 仍是数 3、note 仍是串)；缺 opt 给空对象不抛", delegate
+            {
+                Dictionary<string, object> d = Row(RoundHost.BuildCtx(CtxBody(ctxFx)));
+                Dictionary<string, object> op = Row(d["opt"]);
+                Dictionary<string, object> bare = CtxBody(ctxFx);
+                bare.Remove("opt");
+                Dictionary<string, object> d2 = Row(RoundHost.BuildCtx(bare));
+                return op != null && KeysOf(op) == "chip,note" && !(op["chip"] is string)
+                    && Convert.ToInt32(op["chip"], CultureInfo.InvariantCulture) == 3
+                    && S(op["note"]) == "ctx-cell"
+                    && d2 != null && Cnt(d2["opt"]) == 0;
+            });
+            b.Chk("pid 只认壳写的 ownerPid；缺 ownerPid ⇒ 0 且不抛(本件不补闸，那句 Err 住在核内 round_ctx_parse)", delegate
+            {
+                object d = RoundHost.BuildCtx(CtxBody(ctxFx));
+                Dictionary<string, object> bare = CtxBody(ctxFx);
+                bare.Remove("ownerPid");
+                object e = RoundHost.BuildCtx(bare);
+                return I(Key(d, "pid")) == 4242 && I(Key(e, "pid")) == 0;
+            });
+            b.Chk("三枚缺省照真身：nameField=Id／noticeOwner=每日／tag=manual", delegate
+            {
+                Dictionary<string, object> bare = CtxBody(ctxFx);
+                bare.Remove("nameField");
+                bare.Remove("noticeOwner");
+                bare.Remove("tag");
+                Dictionary<string, object> d = Row(RoundHost.BuildCtx(bare));
+                return S(d["nameField"]) == "Id" && S(d["noticeOwner"]) == "每日" && S(d["tag"]) == "manual";
+            });
+            b.Chk("logLeaf 五相位(实测眼镜，非推断)：普通／尾分隔符裁掉／盘符根不抛且回 'C:'／裸分隔符回空串／空串回空串不抛"
+                + "(分岔照登：Split-Path -Leaf 对 'C:\\' 与 '\\' 两形都回 'C:\\'，真身那句 if ($logFile) 只挡空串)", delegate
+            {
+                Dictionary<string, object> d = Row(RoundHost.BuildCtx(CtxBody(ctxFx)));
+                Dictionary<string, object> t1 = CtxBody(ctxFx);
+                t1["logPath"] = @"T:\logs\run-ctx.log\";
+                Dictionary<string, object> t2 = CtxBody(ctxFx);
+                t2["logPath"] = @"C:\";
+                Dictionary<string, object> t3 = CtxBody(ctxFx);
+                t3["logPath"] = @"\";
+                Dictionary<string, object> t4 = CtxBody(ctxFx);
+                t4["logPath"] = "";
+                return S(d["logLeaf"]) == "run-ctx.log" && S(d["logPath"]) == @"T:\logs\run-ctx.log"
+                    && S(Key(RoundHost.BuildCtx(t1), "logLeaf")) == "run-ctx.log"
+                    && S(Key(RoundHost.BuildCtx(t2), "logLeaf")) == "C:"
+                    && S(Key(RoundHost.BuildCtx(t3), "logLeaf")) == ""
+                    && S(Key(RoundHost.BuildCtx(t4), "logLeaf")) == "";
+            });
+            b.Chk("maaRun.paths 六枚名册与值逐枚点名", delegate
+            {
+                Dictionary<string, object> d = Row(RoundHost.BuildCtx(CtxBody(ctxFx)));
+                Dictionary<string, object> p = Row(Key(d, "maaRun"));
+                Dictionary<string, object> pp = Row(p["paths"]);
+                return KeysOf(pp) == "maaDir,maaExe,maaConfig,maaGuiLog,maaAsstLog,arknightsExe"
+                    && S(pp["maaDir"]) == @"T:\maa" && S(pp["maaExe"]) == @"T:\maa\MAA.exe"
+                    && S(pp["maaConfig"]) == @"T:\maa\config.json" && S(pp["maaGuiLog"]) == @"T:\maa\gui.log"
+                    && S(pp["maaAsstLog"]) == @"T:\maa\asst.log" && S(pp["arknightsExe"]) == @"T:\ark\Arknights.exe";
+            });
+            b.Chk("maaRun.runtime 七枚名册：串 \"8\" 走 [int] 折成 8、串 \"false\" 走 [bool] 折成 false、benign 逐枚 stringify", delegate
+            {
+                Dictionary<string, object> d = Row(RoundHost.BuildCtx(CtxBody(ctxFx)));
+                Dictionary<string, object> rt = Row(Key(d, "maaRun"));
+                Dictionary<string, object> rr = Row(rt["runtime"]);
+                object[] benign = Gd.List(rr["benignMaaErrors"]);
+                return KeysOf(rr) == "arkStartTimeoutMinutes,arkTimeoutMinutes,stallTimeoutMinutes,"
+                        + "idleConfirmSeconds,abortOnMaaStallWarning,visionMaxRescue,benignMaaErrors"
+                    && I(rr["arkStartTimeoutMinutes"]) == 10 && I(rr["arkTimeoutMinutes"]) == 45
+                    && I(rr["stallTimeoutMinutes"]) == 8 && I(rr["idleConfirmSeconds"]) == 90
+                    && rr["abortOnMaaStallWarning"] is bool && !(bool)rr["abortOnMaaStallWarning"]
+                    && I(rr["visionMaxRescue"]) == 3
+                    && benign.Length == 2 && S(benign[0]) == "warn line" && S(benign[1]) == @"C:\a b.exe";
+            });
+            b.Chk("m9aRun 五段名册＋conn.serial 与 instance 两枚恒空(回落档，段 5 就地覆盖)＋package 取 re1999", delegate
+            {
+                Dictionary<string, object> d = Row(RoundHost.BuildCtx(CtxBody(ctxFx)));
+                Dictionary<string, object> m = Row(d["m9aRun"]);
+                Dictionary<string, object> mp = Row(m["paths"]);
+                Dictionary<string, object> mc = Row(m["conn"]);
+                Dictionary<string, object> mi = Row(m["instance"]);
+                return KeysOf(m) == "paths,conn,instance,package,runtime"
+                    && KeysOf(mp) == "m9aDir,m9aExe,m9aLogDir" && S(mp["m9aDir"]) == @"T:\m9a"
+                    && S(mp["m9aExe"]) == "m9a.exe" && S(mp["m9aLogDir"]) == @"T:\m9a\logs"
+                    && KeysOf(mc) == "adb,serial" && S(mc["serial"]) == ""
+                    && KeysOf(mi) == "id,name" && S(mi["id"]) == "" && S(mi["name"]) == ""
+                    && S(m["package"]) == "com.example.m9a";
+            });
+            b.Chk("m9aRun.runtime 六枚名册＋m9aCliArgs 三态：settings 没写这枚⇒键不在场(6 枚)；写 false⇒在场且 false(7 枚)；写串 true⇒折成布尔真", delegate
+            {
+                Dictionary<string, object> d6 = Row(RoundHost.BuildCtx(CtxBody(CtxSettings(null))));
+                Dictionary<string, object> d7 = Row(RoundHost.BuildCtx(CtxBody(CtxSettings(false))));
+                Dictionary<string, object> d8 = Row(RoundHost.BuildCtx(CtxBody(CtxSettings("true"))));
+                Dictionary<string, object> a = Row(d6["m9aRun"]);
+                Dictionary<string, object> b7 = Row(d7["m9aRun"]);
+                Dictionary<string, object> b8 = Row(d8["m9aRun"]);
+                Dictionary<string, object> r6 = Row(a["runtime"]);
+                Dictionary<string, object> r7 = Row(b7["runtime"]);
+                Dictionary<string, object> r8 = Row(b8["runtime"]);
+                return KeysOf(r6) == "m9aInstanceArg,m9aForceStart,visionMaxRescue,r1999StartTimeoutMinutes,"
+                        + "r1999TimeoutMinutes,stallTimeoutMinutes"
+                    && !r6.ContainsKey("m9aCliArgs") && Cnt(r6) == 6
+                    && Cnt(r7) == 7 && r7["m9aCliArgs"] is bool && !(bool)r7["m9aCliArgs"]
+                    && Cnt(r8) == 7 && r8["m9aCliArgs"] is bool && (bool)r8["m9aCliArgs"]
+                    && S(r6["m9aInstanceArg"]) == "--instance" && B(r6["m9aForceStart"])
+                    && I(r6["r1999StartTimeoutMinutes"]) == 12 && I(r6["r1999TimeoutMinutes"]) == 60
+                    && I(r6["stallTimeoutMinutes"]) == 8;
+            });
+            b.Chk("adb 回落档的装载闸两相位：临时树有 lib\\mumu.ps1 ⇒ MuMu 的 adb 算术出数；没有 ⇒ 空串(分岔照登：Get-Command 翻成在位性)", delegate
+            {
+                string mumuPs = Path.Combine(tmp, @"lib\mumu.ps1");
+                // 第一相位要"在位"，而临时树建仓时只造了 lib\maa.ps1 —— 这枚得自己塞进去，
+                // 收尾随整棵临时树一起删(不落仓内)。GdEnv.Init(null) 的幂等那档在这里生效：
+                // Root 仍是临时树，所以本件读的正是这枚 tmp\lib\mumu.ps1。
+                try
+                {
+                    Directory.CreateDirectory(Path.GetDirectoryName(mumuPs));
+                    File.WriteAllText(mumuPs, "#");
+                }
+                catch { }
+                Dictionary<string, object> d = Row(RoundHost.BuildCtx(CtxBody(ctxFx)));
+                Dictionary<string, object> mc = Row(Key(d, "m9aRun"));
+                Dictionary<string, object> conn = Row(mc["conn"]);
+                string withFile = S(conn["adb"]);
+                try { if (File.Exists(mumuPs)) File.Delete(mumuPs); } catch { }
+                Dictionary<string, object> e = Row(RoundHost.BuildCtx(CtxBody(ctxFx)));
+                Dictionary<string, object> em = Row(Key(e, "m9aRun"));
+                Dictionary<string, object> econn = Row(em["conn"]);
+                string withoutFile = S(econn["adb"]);
+                return withFile == @"T:\mumu\nx_main\adb.exe" && withoutFile == "";
+            });
+            b.Chk("整块 settings 绝不进 ctx：runtime.visionApiKey 的名字与哨兵值在序列化回执里都搜不到", delegate
+            {
+                string txt = GdJson.Serialize(RoundHost.BuildCtx(CtxBody(ctxFx)));
+                return !txt.Contains("visionApiKey") && !txt.Contains(KeySentinel);
+            });
+            b.Chk("守门：不喂 settings 夹具就现读临时树那份(故意不建) ⇒ 当场抛 FileNotFoundException，不静默给空 ctx", delegate
+            {
+                return Thrown<FileNotFoundException>(delegate
+                {
+                    Dictionary<string, object> bare = CtxBody(ctxFx);
+                    bare.Remove("settings");
+                    return RoundHost.BuildCtx(bare);
+                });
+            });
+            b.Chk("[int] 的原样怪癖：银行家舍入(2.5→2／3.5→4)；认不出的串抛出去，经 CLI 信封是 ok=false＋原话(话术不因换核分岔)", delegate
+            {
+                Dictionary<string, object> fx = CtxSettings(null);
+                Dictionary<string, object> rp = Row(Gd.Get(fx, "runtime"));
+                rp["arkTimeoutMinutes"] = "2.5";
+                rp["idleConfirmSeconds"] = "3.5";
+                Dictionary<string, object> d = Row(RoundHost.BuildCtx(CtxBody(fx)));
+                Dictionary<string, object> rr = Row(Key(Row(d["maaRun"]), "runtime"));
+                Dictionary<string, object> bad = CtxSettings(null);
+                Row(Gd.Get(bad, "runtime"))["arkTimeoutMinutes"] = "abc";
+                bool threw = Thrown<FormatException>(delegate { return RoundHost.BuildCtx(CtxBody(bad)); });
+                string bi = Path.Combine(tmp, "ctx-bad-in.json");
+                string bo = Path.Combine(tmp, "ctx-bad-out.json");
+                GdJson.Write(bi, CtxBody(bad));
+                GdCli.Run("build-round-ctx", new string[] { "--in=" + bi, "--out=" + bo });
+                Dictionary<string, object> env = GdJson.ReadEnvelope(bo);
+                return I(rr["arkTimeoutMinutes"]) == 2 && I(rr["idleConfirmSeconds"]) == 4 && threw
+                    && !B(Gd.Get(env, "ok")) && S(Gd.Get(env, "error")).Contains("System.Int32");
             });
 
             // 收尾：临时树整目录删掉(纪律＝门/自检的临时件不落仓内)

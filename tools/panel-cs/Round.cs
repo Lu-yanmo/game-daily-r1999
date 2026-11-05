@@ -137,7 +137,9 @@ namespace GdPanel
 
         static Dictionary<string, object> settingsCache;
 
-        static Dictionary<string, object> SettingsNow()
+        // ⚠ 2026-11-05 转接刀·运行面刀⑪：这一枚由 private 改 internal —— Round.Host.cs 的 ctx 直身吃同一份
+        //   settings 事实源。改的是可见性，判据一个字没动；另起一份"只给 ctx 用"的读数件就是本主线在删的双账。
+        internal static Dictionary<string, object> SettingsNow()
         {
             if (settingsCache != null) return settingsCache;
             List<string> missing;

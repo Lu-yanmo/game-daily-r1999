@@ -36,6 +36,14 @@
   visionApiKey 不许进核。对面真身如今在 tools\rustcore\src\main.rs(daily_round_chain 与驱动档链体)和
   tools\panel-cs\*(Chain.cs／Round.Data.cs／Orchestration.cs)。
 
+  ⚠ 改口(11-06 转接刀·运行面刀⑪ 笔(c/d))：上面那段点名的"Get-GdRoundMaaRunPayload 与 Get-GdRoundM9aRunPayload
+  两枚头注里『同一名册／同把』那两句"随两枚定义体一起出仓——轮 ctx 的装配整块换核(tools\panel-cs\Round.Host.cs
+  的 build-round-ctx 直身)，本文件自此只剩"递壳才拿得动的那几枚旋钮＋回放"。那几条理由一个字没变，只是家换了：
+  取键逐枚点名、visionApiKey 不许进核、名册一轮一定稿、pid 必须由壳写明——如今住在 Round.Host.cs 的头注与
+  panel-cs --roundtest 的 build-round-ctx 那一节里，验收面随 test-ark 那两格一起搬靶；
+  逐字节等值的同帧证据在 ship 账本 raw\k948-cut11-parity-ps51.log 与 raw\k948-cut11-compare.log，
+  那一节每一格的牙在 raw\k947-cut11-selftest-mutation-report.txt(逐发 mutation，账上现拍 CELLS-UNCOVERED=NONE)。
+
   ⚠ 本文件里**不许出现任何判据**：判定、话术、三档退出码、崩路语义都在核内；这里只做"取数、装配、回放、回执"。
   多打一行日志就等于同一句日志打两遍(链上每一句由核内侧信道产生，这里只照原级别回放)。
 #>
@@ -113,126 +121,6 @@ function Test-GdRustRoundPath {
         }
     } catch { }
     return $true
-}
-
-function Get-GdRoundMaaRunPayload {
-    <# ctx 的 maaRun 那一格：与 lib\ark-daily.ps1 里 executor 写 ctx 的那枚 maaRun **同一名册**(paths 六枚＋runtime 七枚)，
-       因为核内用的是同一把解析器(maarun_parse)，键名与 config\settings.json 逐字同名。
-       **取键逐枚点名是硬约束**：$S.runtime 整块里住着视觉兜底的 API key(visionApiKey)，
-       序列化进来等于把 key 递进核、递进 ctx/journal 两本会留盘的账。
-       benignMaaErrors 用 List[string] 累加而不是 @(...)：那枚键没填时 @($null) 会占成一条空串错误项(在案老坑)。 #>
-    param([Parameter(Mandatory)]$S)
-    $benign = New-Object System.Collections.Generic.List[string]
-    foreach ($bm in $S.runtime.benignMaaErrors) { $benign.Add([string]$bm) }
-    return [pscustomobject]@{
-        paths = [pscustomobject]@{
-            maaDir       = [string]$S.paths.maaDir
-            maaExe       = [string]$S.paths.maaExe
-            maaConfig    = [string]$S.paths.maaConfig
-            maaGuiLog    = [string]$S.paths.maaGuiLog
-            maaAsstLog   = [string]$S.paths.maaAsstLog
-            arknightsExe = [string]$S.paths.arknightsExe
-        }
-        runtime = [pscustomobject]@{
-            arkStartTimeoutMinutes = [int]$S.runtime.arkStartTimeoutMinutes
-            arkTimeoutMinutes      = [int]$S.runtime.arkTimeoutMinutes
-            stallTimeoutMinutes    = [int]$S.runtime.stallTimeoutMinutes
-            idleConfirmSeconds     = [int]$S.runtime.idleConfirmSeconds
-            abortOnMaaStallWarning = [bool]$S.runtime.abortOnMaaStallWarning
-            visionMaxRescue        = [int]$S.runtime.visionMaxRescue
-            benignMaaErrors        = $benign
-        }
-    }
-}
-
-function Get-GdRoundM9aRunPayload {
-    <# ctx 的 m9aRun 那一格：名册与 lib\r1999-daily.ps1 里 `Invoke-GdR1999DailyRust` 的取键段同把(paths 三枚＋conn 两枚＋instance 两枚＋package＋runtime 六/七枚；10-24 刀② 起回退臂出仓、那一名册只剩 executor 这一份，按坐标清账批口径不引行号)。
-       ⚠ **这一格给不出"真值"，只能给"不许退化的回落档"**，这是 B-4② 实测推翻题面的那一结(§11.65)：
-         · instance —— 真身是判定层按方案挑的(lib\r1999-daily.ps1:83)，方案键名册里根本没有 default，
-           在这里猜一枚＝替判定层做决定 ⇒ 写空串，由核内段 5 拿判定回执就地覆盖(round_m9a_apply_decision)。
-         · conn.serial —— 由实例配置派生(Get-M9AConnection 读那份实例 json)，实例没定下来之前无从取 ⇒ 同样留空、段 5 覆盖。
-         · conn.adb —— **不许留空**：核内 m9a_scen_core 的硬闸就是 m9aDir/adb 为空即 Err，
-           而轮档的解析取的是**宽松**(main.rs 那段注释写明：合体轮可能压根没装那一路)，Err 之后整份载荷
-           退化成默认体(paths/package/超时全丢)——段 5 只补 instance/conn 两格，补不回其余。
-           回落档取 (Get-GdMuMu).Adb：与真身 Get-M9AConnection 缺 AdbPath 时**同一处来路**、纯路径算术、
-           不要求任何现场状态(不起进程、不读实例配置)，正是"一轮一定稿"时刻唯一拿得住的那一枚。
-       m9aCliArgs 走三态：键没写＝真身"没填"档＝开命令行入口 ⇒ $null 时**干脆不加键**，不许塌成 false。 #>
-    param([Parameter(Mandatory)]$S)
-    $adb = ''
-    if (Get-Command Get-GdMuMu -ErrorAction SilentlyContinue) {
-        try { $adb = [string](Get-GdMuMu -S $S).Adb } catch { $adb = '' }
-    }
-    $rt = [ordered]@{
-        m9aInstanceArg           = [string]$S.runtime.m9aInstanceArg
-        m9aForceStart            = [bool]$S.runtime.m9aForceStart
-        visionMaxRescue          = [int]$S.runtime.visionMaxRescue
-        r1999StartTimeoutMinutes = [int]$S.runtime.r1999StartTimeoutMinutes
-        r1999TimeoutMinutes      = [int]$S.runtime.r1999TimeoutMinutes
-        stallTimeoutMinutes      = [int]$S.runtime.stallTimeoutMinutes
-    }
-    if ($null -ne $S.runtime.m9aCliArgs) { $rt.Add('m9aCliArgs', [bool]$S.runtime.m9aCliArgs) }
-    return [pscustomobject]@{
-        paths    = [pscustomobject]@{
-            m9aDir    = [string]$S.paths.m9aDir
-            m9aExe    = [string]$S.paths.m9aExe
-            m9aLogDir = [string]$S.paths.m9aLogDir
-        }
-        conn     = [pscustomobject]@{ adb = $adb; serial = '' }
-        instance = [pscustomobject]@{ id = ''; name = '' }
-        package  = [string]$S.re1999.package
-        runtime  = [pscustomobject]$rt
-    }
-}
-
-function Get-GdRoundCtx {
-    <# ctx 名册 15 枚(核内 round_ctx_parse 逐枚点名的那 15 枚)，**一轮一定稿**：
-       journal 的 init 与 ctx 做全等校验，换 ctx 就得起新 journal ⇒ 事后补不进任何一格，
-       段 5 才定得下来的那两格(1999 的实例/adb 落点)只能靠核内就地覆盖，这是 B-4② 需要一处核内改造的全部原因。
-       pid 一枚必填、且**必须由壳写**($PID：撤锁只撤自己登记那一份，核自己的进程号在第一发 ask 之后就不是它了)。 #>
-    param(
-        [Parameter(Mandatory)]$S,
-        [AllowNull()][string[]]$Ids = @(),
-        [AllowNull()][array]$Gates = @(),
-        [hashtable]$Opt = @{},
-        [bool]$Force = $false,
-        [bool]$DryRun = $false,
-        [bool]$SkipCleanup = $false,
-        [bool]$NoElevate = $false,
-        [string]$NameField = 'Id',
-        [string]$NoticeOwner = '每日',
-        [string]$Tag = 'manual'
-    )
-    $idList = New-Object System.Collections.Generic.List[string]
-    if ($null -ne $Ids) { foreach ($x in @($Ids)) { $idList.Add([string]$x) } }
-    $gList = New-Object System.Collections.Generic.List[object]
-    foreach ($g in @($Gates)) {
-        if (-not $g) { continue }        # 真身 `$Gates | Where-Object { $_ }`：空项静默滤，不算错
-        $gList.Add([pscustomobject]@{ id = [string]$g.Id; verb = [string]$g.Verb })
-    }
-    $ob = [ordered]@{}
-    foreach ($k in @($Opt.Keys)) { $ob[[string]$k] = $Opt[$k] }
-    $logFile = ''
-    try { $logFile = [string]$global:GD.LogFile } catch { $logFile = '' }
-    # Split-Path -Leaf 对空串会当场抛("无法将路径为空")—— 没日志文件这件事本身不该炸掉 ctx 装配
-    $logLeaf = ''
-    if ($logFile) { $logLeaf = [string](Split-Path -Leaf $logFile) }
-    return [pscustomobject]@{
-        ids          = $idList
-        gates        = $gList
-        opt          = [pscustomobject]$ob
-        force        = [bool]$Force
-        dryRun       = [bool]$DryRun
-        skipCleanup  = [bool]$SkipCleanup
-        noElevate    = [bool]$NoElevate
-        nameField    = [string]$NameField
-        noticeOwner  = [string]$NoticeOwner
-        tag          = [string]$Tag
-        logLeaf      = $logLeaf
-        logPath      = $logFile
-        pid          = [long]$PID
-        maaRun       = Get-GdRoundMaaRunPayload -S $S
-        m9aRun       = Get-GdRoundM9aRunPayload -S $S
-    }
 }
 
 function Start-GdRoundHostNoSleep {
@@ -499,8 +387,29 @@ function Invoke-GdDailyRoundDispatch {
     }
     $ctx = $null
     try {
-        $ctx = Get-GdRoundCtx -S $S -Ids $Ids -Gates $Gates -Opt $Opt -Force ([bool]$Force) -DryRun ([bool]$DryRun) `
-                              -SkipCleanup ([bool]$SkipCleanup) -NoElevate ([bool]$NoElevate) -NameField $NameField -NoticeOwner $NoticeOwner -Tag $Tag
+        # 刀⑪(2026-11-06)：轮 ctx 的装配整块进核(panel-cs 的 build-round-ctx 直身)，壳这一侧只递**壳才拿得动**的
+        # 三枚旋钮——logPath＝本进程正在写的那本日志、ownerPid＝本进程号(撤锁只撤自己登记那一份，
+        # 核自己的进程号在第一发 ask 之后就不是它了)、以及 ids/gates/opt 与四枚开关；
+        # settings **不再递**：直身自己现读 config\settings.json，与 PS 原身读的是同一份、同一把尺。
+        # 同帧等值证据(逐字节，不是"结构差不多")＝ship 账本 raw\k948-cut11-parity-ps51.log
+        # (BYTE-EQ=True／SHA-EQ=True／PS-BYTES=CS-BYTES=3334)＋raw\k948-cut11-compare.log
+        # (STRUCT-DIFFS=0／ORDER-EQ=True／LEAK-NAME-WORD=False／FAILS=0，判据体沿用母件 k940 一字未动)；
+        # 语义面由 panel-cs --roundtest 段 33 十五枚钉住，那十五枚的牙由 raw\k947-cut11-selftest-mutation-report.txt
+        # 十七发 mutation 逐格自证(CELLS-UNCOVERED=NONE)。
+        $ctx = Invoke-GdCli -Verb 'build-round-ctx' -Body @{
+            ids         = $Ids
+            gates       = $Gates
+            opt         = $Opt
+            force       = [bool]$Force
+            dryRun      = [bool]$DryRun
+            skipCleanup = [bool]$SkipCleanup
+            noElevate   = [bool]$NoElevate
+            nameField   = [string]$NameField
+            noticeOwner = [string]$NoticeOwner
+            tag         = [string]$Tag
+            logPath     = [string]$global:GD.LogFile
+            ownerPid    = $PID
+        }
     } catch {
         # ctx 装配炸＝连"这一轮要问哪些格"都没定下来，比真身的"判定不出来"更早 ⇒ 同样走拒跑通道，别一屏内部报错
         Stop-GdBeforeRun "本轮的轮上下文没装配起来：$($_.Exception.Message)"

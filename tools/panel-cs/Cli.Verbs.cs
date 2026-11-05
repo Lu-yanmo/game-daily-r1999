@@ -34,7 +34,12 @@ namespace GdPanel
         //   (lib\rust-round.ps1 外发名册 'updgate'／'audit' 两臂那 23 行壳的 C# 直身，判据全住 Gate.Host.cs；
         //   两本工具本体共 404 行、按表账三枚「不许动」永久留壳 ⇒ 这一批 .ps1 侧净 −23，不是「退役那两本工具」。
         //   既有 verb 的回执形状一枚没动)。
-        public const int ExpectedCount = 103;
+        // 刀⑪ 轮 ctx 装配进核(2026-11-05)：103 → 104，链尾再加 build-round-ctx
+        //   (lib\rust-round.ps1 的 ctx 三枚 Get-GdRoundCtx／Get-GdRoundMaaRunPayload／Get-GdRoundM9aRunPayload
+        //   的 C# 直身，判据住 Round.Host.cs；settings 由本件现读、**整块 settings 绝不进 body**(visionApiKey
+        //   住在 runtime 里)，pid 由壳写明 ownerPid、缺键那档由核内 round_ctx_parse 的 Err 定罪，本件不补闸。
+        //   既有 verb 的回执形状一枚没动)。
+        public const int ExpectedCount = 104;
 
         // 顺序＝Cli.cs 分派链里的出现顺序（自检只比集合，不比顺序；顺序留着是为了肉眼对照分派链方便）。
         public static readonly string[] Names = new string[]
@@ -161,7 +166,11 @@ namespace GdPanel
             //      外发名册 'updgate'／'audit' 两臂的直身出口(Gate.Host.cs)，起 pwsh 跑那两本工具并收
             //      Code／Line／Joined 三格；那两本工具本体(共 404 行)按表账"不许动"照旧留壳，搬的只是 23 行臂 ----
             "run-m9a-update",
-            "run-1999-event-audit"
+            "run-1999-event-audit",
+            // ---- 刀⑪ 运行面轮 ctx 装配进核(2026-11-05)：build-round-ctx 是 rust-round 那三枚 ctx 件的直身出口
+            //      (Round.Host.cs)。名册 15 枚与声明序照真身；这一枚是**现读 config\settings.json** 的出口
+            //      (与 resolve-round-context 同档)，所以壳只给旋钮、不给 settings ----
+            "build-round-ctx"
         };
 
         // "未知子命令"那句报错用的名册串：逐枚全名，不再有通配与纯计数。

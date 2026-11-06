@@ -15,22 +15,27 @@
 # ──────────────────────────────────────────────────────────────────────────────
 
 function Resolve-R1999Plan {
-    <# 转发壳：版本窗口/主线确认门/领空回落/文案的规则在 C#(decide-r1999) #>
+    <# 转发壳：版本窗口/主线确认门/领空回落/文案的规则在 C#(decide-r1999)。
+       ⚠ 刀⑯ 笔(d)-1(2026-11-06)改口：旧组值 Test-GdShopDoneEnabled＋Get-GdShopDoneMap＋Get-GdAckMap 本批出仓，
+       改指核 read-decision-state **一次**取齐；"给不给领空图"的折算仍在本壳(吃核交回的 ShopDoneGateOpen——
+       真身 Round.FlagEnabled：缺省即开启、显式写 false 才关)，IgnoreShopDone 语义不变。 #>
     param(
         [Parameter(Mandatory)]$S,
         [Parameter(Mandatory)]$Data,
         [Parameter(Mandatory)][long]$Now,
         [switch]$IgnoreShopDone
     )
+    $ds = Invoke-GdCli -Verb 'read-decision-state' -Body ([pscustomobject]@{
+        game = 'r1999'
+        settings = [pscustomobject]@{ re1999 = $S.re1999 }
+    })
     $shopDone = @{}
-    if (-not $IgnoreShopDone -and (Test-GdShopDoneEnabled -S $S -Game 'r1999')) {
-        $shopDone = Get-GdShopDoneMap -Game 'r1999'
-    }
+    if (-not $IgnoreShopDone -and $ds.ShopDoneGateOpen) { $shopDone = $ds.ShopDone }
     $body = [pscustomobject]@{
         re1999 = [pscustomobject]@{ mainStoryRequiresAck = $S.re1999.mainStoryRequiresAck }
         now = $Now
         data = $Data
-        ack = (Get-GdAckMap -Game 'r1999')
+        ack = $ds.Ack
         shopDone = $shopDone
     }
     return Invoke-GdCli -Verb 'decide-r1999' -Body $body

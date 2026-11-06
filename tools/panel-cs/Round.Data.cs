@@ -7,7 +7,7 @@
 //                         三档顺序与那两条 WARN 原话照抄；后半段(把值喂进 decide-ark)不在这儿——那是判定，已住 Decisions.cs。
 //   read-r1999-activity   Get-R1999Event(lib\r1999-decisions.ps1:39) 的**取数半段**：读 M9A 自带活动数据 + 算 DataAge(天)。
 //   read-decision-state   "五本 state 读"一次取齐：<game>-event-ack.json / <game>-shop-done.json / ark-event-probe.json，
-//                         外加 Test-GdShopDoneEnabled(lib\decisions-common.ps1:127) 那把 flag 尺的**读值半段**。
+//                         外加领空门"给不给"的**读值半段**(原 lib\decisions-common.ps1::Test-GdShopDoneEnabled 已出仓，见 :504)。
 //   compose-decision-inputs Resolve-ArkPlan／Resolve-R1999Plan 的**组值半段**(转接刀·判定面进核 2026-11-03 新立)：
 //                         dow(周日=7)／now(毫秒)／ack／领空折好的 shopDone／probe／ark·re1999 块与 paths 块一次摆桌，
 //                         给核臂 round-resolve:* 组 decide-* 的 body 用。
@@ -224,7 +224,7 @@ namespace GdPanel
             GdJson.Write(file, Gd.Out(outer, map));
         }
 
-        // Set-GdShopDoneKey / Set-GdAckKey：取表→盖这一格→整表写回(真身就是这个顺序，读不到就当空表起)。
+        // StampMapKey：取表→盖这一格→整表写回(原 lib\decisions-common.ps1::Set-GdShopDoneKey／Set-GdAckKey 已出仓，语义由核内本真身与 set-*-shop-state／set-r1999-ack 出口承接)。
         static int StampMapKey(string file, string outer, string key, string time)
         {
             Dictionary<string, object> m = ReadGateMap(file, outer);
@@ -233,7 +233,7 @@ namespace GdPanel
             return m.Count;
         }
 
-        // Remove-GdShopDoneKey：不在就回 false(**且不写盘** —— 真身那句 return 在 Remove 之前)。
+        // DropMapKey：不在就回 false(**且不写盘** —— 原 lib\decisions-common.ps1::Remove-GdShopDoneKey 已出仓，该形由 set-*-shop-state 的 Action=miss 承接)。
         static bool DropMapKey(string file, string outer, string key, out int count)
         {
             Dictionary<string, object> m = ReadGateMap(file, outer);
@@ -244,7 +244,7 @@ namespace GdPanel
             return true;
         }
 
-        // Get-GdArkEventProbe：文件不在／读坏了／没有 EventKey —— 三种"没探过"一律回 null(判定层照常拿最后一关当探针)。
+        // ReadProbe：文件不在／读坏了／没有 EventKey —— 三种"没探过"一律回 null(原 lib\ark-decisions.ps1::Get-GdArkEventProbe 已出仓，判定层经 read-decision-state 的 Probe 直答取齐)。
         internal static Dictionary<string, object> ReadProbe()
         {
             string p = Path.Combine(StateDir(), ProbeFile);
@@ -467,9 +467,9 @@ namespace GdPanel
         // 的 body 里除 data/source 外那几枚键，核臂取走后自己拼。
         // 逐字真身：dow 周日=7(lib\ark-decisions.ps1:56-57 原样，老行为)；now=Get-GdNowMs 同形毫秒
         // (lib\decisions-common.ps1:39 [DateTimeOffset]::Now.ToUnixTimeMilliseconds())；
-        // ack/shopDone 两本门表(ReadGateMap)；领空表"给不给"那一折(lib\ark-decisions.ps1:58-61 与
-        // lib\r1999-decisions.ps1:24-26 同形：Test-GdShopDoneEnabled 的读值半段＝Round.FlagEnabled(shopDoneStopsEvent)，
-        // 缺省即开启显式 false 才关；1ev.①：链内纯 PS 判据随臂搬家，坐标在此)——这里**折好**再交(照真身 $shopDone 变量)。
+        // ack/shopDone 两本门表(ReadGateMap)；领空表"给不给"那一折(PS 侧同折仍在：Resolve-ArkPlan／Resolve-R1999Plan 吃
+        // read-decision-state 交回的 ShopDoneGateOpen＝Round.FlagEnabled(shopDoneStopsEvent)，
+        // 缺省即开启显式 false 才关；1ev.①：链内纯 PS 判据随臂搬家，坐标在此)——核内这里**折好**再交(照 PS 真身 $shopDone 变量)。
         // probe 只喂 decide-ark(Resolve-R1999Plan 的 body 没有 probe 键)，这里统一回，谁用谁自己取。
         internal static object ComposeDecisionInputs(Dictionary<string, object> raw)
         {
@@ -501,8 +501,9 @@ namespace GdPanel
 
         // ==================== verb: read-decision-state ====================
         // "五本 state 读"一次取齐(①-2 那一族)。want 逐枚点名：默认三样都要，调用方可以只要 ack。
-        // ShopDoneGateOpen 就是 Test-GdShopDoneEnabled 的读值半段：**缺省即开启，显式写 false 才关掉**，
-        // 那把尺复用 Round.FlagEnabled(C# 侧唯一真身，原样怪癖第 6 笔在 Round.cs 头注)。
+        // ShopDoneGateOpen 就是领空门"给不给"的读值半段(原 lib\decisions-common.ps1::Test-GdShopDoneEnabled 已出仓，本读数是其唯一真身)：
+        // **缺省即开启，显式写 false 才关掉**，
+        // 复用 Round.FlagEnabled(C# 侧唯一真身，原样怪癖第 6 笔在 Round.cs 头注)。
         // 领空表的"给不给"仍归调用方 —— 这里只把原表和读数一起摆上桌。
         internal static object DecisionState(Dictionary<string, object> raw)
         {

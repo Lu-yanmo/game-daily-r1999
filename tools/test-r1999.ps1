@@ -121,16 +121,20 @@ try {
     #   它不再量的是旧那格的"覆盖只影响被写的那一款"——写侧没了，那一形从此不可能出现；跨款隔离这句归 [m6] 的现问面自证。
     $evName1b = [string](Get-GdEntryVerb -Game 'r1999' -Verb 'Ack')
     Check "现问到的开关名 [$($evName1b)] 不渗进未确认的提示语(出现即红)" (($x1b.Reason -notmatch [regex]::Escape($evName1b)) -and ($x1b.Reason -match '本轮跑长草方案')) $x1b.Reason
-    Set-GdAckKey -Game 'r1999' -Key '9.9-combat'
+    # 刀⑯ 笔(d)-1：写件三枚出仓 ⇒ 夹具写盘改指核侧写 verb（真身 tools\panel-cs\Round.Data.cs::R1999Ack／R1999ShopState）。
+    #   判据换家照 ark 侧同形：Remove-GdShopDoneKey 的 true/false 换成信封 Action（reset＝摘掉了、miss＝本来就没有且不写盘）。
+    Invoke-GdCli -Verb 'set-r1999-ack' -Body ([pscustomobject]@{ eventKey = '9.9-combat'; eventTip = '测试' }) | Out-Null
     $x2 = Resolve-R1999Plan -S $S -Data $rData -Now $nowMs
     Check '1999 确认后 → 活动方案' ($x2.Mode -eq 'event' -and $x2.Instance -eq 'event')
-    Set-GdShopDoneKey -Game 'r1999' -Key '9.9-combat'
+    Invoke-GdCli -Verb 'set-r1999-shop-state' -Body ([pscustomobject]@{ eventKey = '9.9-combat'; done = $true }) | Out-Null
     $x3 = Resolve-R1999Plan -S $S -Data $rData -Now $nowMs
     Check '1999 商店领空 → 长草实例' ($x3.Mode -eq 'idle' -and $x3.Instance -eq 'idle' -and $x3.ShopDone) $x3.Reason
     Check '领空回落的提示语不再带 verb 名(10-30 B-3②-d 刀① 摘掉 body 两枚键，反向钉：出现即红)' (($x3.Reason -notmatch 'daily-clear') -and ($x3.Reason -match '本轮跑长草方案')) $x3.Reason
     Check '1999 领空后仍可撤销' ((Resolve-R1999Plan -S $S -Data $rData -Now $nowMs -IgnoreShopDone).Mode -eq 'event')
-    Check '1999 撤销标记生效' ((Remove-GdShopDoneKey -Game 'r1999' -Key '9.9-combat') -and (Resolve-R1999Plan -S $S -Data $rData -Now $nowMs).Mode -eq 'event')
-    Check '1999 重复撤销返回 false' ((Remove-GdShopDoneKey -Game 'r1999' -Key '9.9-combat') -eq $false)
+    $rvReset = Invoke-GdCli -Verb 'set-r1999-shop-state' -Body ([pscustomobject]@{ eventKey = '9.9-combat'; done = $false })
+    Check '1999 撤销标记生效' ($rvReset.Action -eq 'reset' -and (Resolve-R1999Plan -S $S -Data $rData -Now $nowMs).Mode -eq 'event')
+    $rvMiss = Invoke-GdCli -Verb 'set-r1999-shop-state' -Body ([pscustomobject]@{ eventKey = '9.9-combat'; done = $false })
+    Check '1999 重复撤销判 miss(不写盘那一形，DropMapKey 语义换家到 Action)' ($rvMiss.Action -eq 'miss')
 } finally {
     Restore-GdTestState
 }

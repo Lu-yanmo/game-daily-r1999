@@ -415,20 +415,8 @@ function Test-GdProcessRunning {
     param([Parameter(Mandatory)][string]$Name)
     return [bool](Get-Process -Name $Name -ErrorAction SilentlyContinue)
 }
-function Stop-GdProcessTree {
-    param([Parameter(Mandatory)][string]$Name, [switch]$Force)
-    $procs = @(Get-Process -Name $Name -ErrorAction SilentlyContinue)
-    if ($procs.Count -eq 0) { return 0 }
-    foreach ($p in $procs) {
-        try { if ($Force) { $p.Kill() } else { [void]$p.CloseMainWindow() } } catch { }
-    }
-    if (-not $Force) {
-        $deadline = (Get-Date).AddSeconds(20)
-        while ((Get-Date) -lt $deadline -and (Get-Process -Name $Name -ErrorAction SilentlyContinue)) { Start-Sleep -Milliseconds 800 }
-        foreach ($p in @(Get-Process -Name $Name -ErrorAction SilentlyContinue)) { try { $p.Kill() } catch { } }
-    }
-    return $procs.Count
-}
+# Stop-GdProcessTree 真身已删(11-06 转接刀·运行面刀⑭ 笔(a))：PS 面最后一处消费点随刀⑫ 笔(a) 摘 Stop-M9A 壳归零，
+#   表账第六列自此 0:0 整行划除不留墓碑；唯一出口＝stop-process-tree verb(tools/panel-cs/Round.cs::Round.ProcTree 直身)。
 
 function Invoke-GdNative {
     <# 运行外部命令，返回 @{Code;Out;Err} #>

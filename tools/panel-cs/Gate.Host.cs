@@ -100,6 +100,22 @@ namespace GdPanel
             return c.Code == 0 && (c.Out ?? "").IndexOf("connected", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
+        // ==================== verb: resolve-mumu-adb-endpoint(运行面刀⑮ 笔(c)，2026-11-06) ====================
+        // 这一枚不新写任何规则——它只是把上面早就在场的 MuMuEndpoint 直身(三源两正则)露成命令行出口，
+        // 形制照"转接刀·时间换算族"与 build-round-ctx 的先例。settings 由本出口现读 config\settings.json，
+        // **整块 settings 不进 body**(与刀⑪ 那条同一规矩)；body 的两枚旋钮只给自检夹具：
+        //   settings = 注入假树；conn = 实例 json 那一源的 adb/serial。生产另一路消费者
+        //   (Supervisor.Host.RequestScreen)仍是进程内直调，不经过这里。
+        // PS 侧对面 Get-GdMuMuAdbEndpoint(tools\vision-mumu.ps1)随本刀笔(d) 摘件出仓。
+
+        internal static object EndpointV(Dictionary<string, object> inp)
+        {
+            Dictionary<string, object> s = Gd.Map(Gd.Get(inp, "settings"));
+            if (s == null) s = Round.SettingsNow();
+            Dictionary<string, object> conn = Gd.Map(Gd.Get(inp, "conn"));
+            return MuMuEndpoint(s, conn);
+        }
+
         // ==================== 两把闸的臂直身(转接刀·运行面刀⑧) ====================
 
         // verb: run-m9a-update —— lib\rust-round.ps1 外发名册 'updgate' 那臂的 C# 直身。

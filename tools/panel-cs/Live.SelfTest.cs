@@ -412,6 +412,18 @@ namespace GdPanel
                 Dictionary<string, object> d = Row(Live.ArkFindWindow(In("procName", "gd-没有这个进程")));
                 return d != null && !Gd.Truthy(d["Found"]) && L(d["Handle"]) == 0L && L(d["ProcId"]) == 0L && S(d["Title"]) == "";
             });
+            // 2026-11-06 刀⑮ 笔(b) 补格：PS 真身 Get-GdArkWindow(lib\vision-ark.ps1) 的调用形是
+            // 「从 settings 现算进程名→枚举→miss 回 $null」，对面这枚出口把「名字从哪来」开成了注入缝。
+            // 这格钉的是注入缝的语义差：procName 显式给空串＝给了( OptStr 只把 null 当没给)，
+            // 此时不读 settings、Name 照给值回空串——若哪天把「给了」改判成「非空」，这格就会红，
+            // 而上一格咬不出来(它给的是假进程名)。mutation 靶即此格。
+            b.Chk("ark-find-window：procName 显式空串＝给了，不回读 settings，Name 给空、五键照全给", delegate
+            {
+                Dictionary<string, object> d = Row(Live.ArkFindWindow(In("procName", "")));
+                return d != null && d.ContainsKey("Found") && d.ContainsKey("Name") && d.ContainsKey("Handle")
+                       && d.ContainsKey("ProcId") && d.ContainsKey("Title")
+                       && !Gd.Truthy(d["Found"]) && S(d["Name"]) == "" && L(d["Handle"]) == 0L && S(d["Title"]) == "";
+            });
             b.Chk("ark-desktop-state：全量注入时一个字都不碰窗口调用", delegate
             {
                 Dictionary<string, object> d = Row(Live.ArkDesktopState(In("handle", 12345L, "desk", "Default",

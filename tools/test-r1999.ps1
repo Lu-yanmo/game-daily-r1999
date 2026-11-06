@@ -341,11 +341,15 @@ Check '更新器本体在位且退出码契约写在头注' ((Test-Path -Literal
 # 活动打完没打完的 agent 判定(tools\1999-event-audit.ps1，2026-09-30 用户「让agent判断」)：同样只做静态锚，
 # 不碰模拟器不联网 —— 真链路 09-30 用 -Image 旁路对着一张方舟截图实问过(模型如实答 unknown，保守纪律成立)。
 $r1999Audit = Get-Content -LiteralPath (Join-Path $PSScriptRoot '1999-event-audit.ps1') -Raw -Encoding utf8
+# 11-06 刀⑮ 笔(c) 随动：剥注释尺上移到本格之前——审计工具的截屏已改问核 mumu-screen-shot，
+# 正向锚自此抓调用行字面。凡"正向锚＋同件注释也写了这个词"的格从一开始就得剥注释
+# (本格旧版只抓裸 Save-GdMuMuShot 时，头注那句改口说明会把锚喂饱——§11.170 那笔账的同一形制)。
+$r1999AuditCode = ($r1999Audit -replace '(?s)<\#.*?\#>', ' ') -replace '(?m)^\s*#.*$', ' '
 Check '1999 收尾段挂了活动审计(队列跑完才问、失败只 WARN 不挡轮；11-04 笔(c/d) 搬靶到轮档件，刀⑧ 再搬进 Gate.Host.cs)' (
     ($gateCs -match 'GateRun\(raw, @"tools\\1999-event-audit\.ps1"') -and ($gateCs -match '审计结论\|无事发生\|维持 event-pending') -and
     ($rustCore -match '1999 活动审计没审成'))
 Check '审计工具的护栏语义在案：只有画面证据明确的 yes 才 ack，no/unknown 照旧等人' (($r1999Audit -match '只有画面上出现明确的"全部完成"证据才许答 yes') -and ($r1999Audit -match 'no/unknown 维持 pending'))
-Check '审计工具只问不点：点击通道一个字都不许出现' (($r1999Audit -notmatch 'input tap') -and ($r1999Audit -notmatch 'Invoke-GdVisionRescue') -and ($r1999Audit -match 'Save-GdMuMuShot'))
+Check '审计工具只问不点：点击通道一个字都不许出现，截屏只走核的 mumu-screen-shot 调用行(刀⑮ 笔(c) 起)' (($r1999Audit -notmatch 'input tap') -and ($r1999Audit -notmatch 'Invoke-GdVisionRescue') -and ($r1999AuditCode -match "Invoke-GdCli -Verb 'mumu-screen-shot'"))
 # 18:21/19:10/19:20 三次实锤定下的现场自理三件：VM 自己起自己关(谁拉起谁关)、落点拿到后先显式 connect
 # (adb server 列表为空时 -s 序列号直接 device not found)、序列化拿不到时有界轮询而不是当场判死。
 Check '审计工具自己保虚拟机在场：起 VM、只有我们起的才关回去(对称还原)' (($r1999Audit -match 'Start-GdMuMu') -and ($r1999Audit -match 'Stop-GdMuMu') -and ($r1999Audit -match 'weBootedVm'))
@@ -355,7 +359,6 @@ Check '审计工具拿到落点先 Connect-GdAdb 再走 -s(实锤 09-30 19:20 �
 # 正向半必须**剥注释后按调用行字面**抓(m9a-update 两形照上面 $fnEv 那套，§「锚不是调用」那笔账)：
 # 本格第一版图省事只抓裸 verb 名，mutation 现拍当场自伤——把调用行整个换回旧壳，套件照样全绿，
 # 因为头注里那句指路的话把锚喂饱了。凡"正向锚＋同件注释也写了这个词"的格，从一开始就得剥注释。
-$r1999AuditCode = ($r1999Audit -replace '(?s)<\#.*?\#>', ' ') -replace '(?m)^\s*#.*$', ' '
 Check '审计的 ack 那一步问的是核，且件内不复写确认话术(11-04 刀⑦ 笔(b) 改指)' (
     ($r1999AuditCode -match "Invoke-GdCli -Verb 'set-r1999-ack'") -and ($r1999Audit -notmatch '已确认 1999 活动'))
 # 2026-10-27 第十六刀：probe-m9adrive 等值门整件退役，门里 C-ps-whitelist 那格咬现树 executor 的三个字面，
@@ -467,13 +470,109 @@ Write-Host "`n[t18] 1999 这一路也接上视觉兜底(2026-09-26 加强 AI 干
 # 为什么 1999 也要接：M9A 和 MAA 得的是同一种病 —— 模板集里没有的界面它看不见。
 # 2026-09-25 19:24 那一轮，1999 客户端在模拟器里下 1.91G 更新包，10 个任务里 8 个「任务失败」，
 # 我们的日志只会说"进程提前退出"，而画面上一眼就能看出是"停在更新界面"。
-$mumuLib = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\lib\vision-mumu.ps1') -Raw -Encoding utf8
+# 刀⑮ 笔(a)：这枚无条件读改成不依赖件在场＋给下面那枚护栏立现读格——件与 New-GdVisionTarget-mumu
+# 命令必须同一个事实(同在同不在)，半迁移(命令还在但件被挪走→腹内正锚静默失守)当场红。
+$mumuLibPath = Join-Path $PSScriptRoot '..\lib\vision-mumu.ps1'
+$mumuLibOnDisk = Test-Path -LiteralPath $mumuLibPath
+$mumuLib = if ($mumuLibOnDisk) { Get-Content -LiteralPath $mumuLibPath -Raw -Encoding utf8 } else { '' }
+Check '模拟器后端件与 New-GdVisionTarget-mumu 命令同一个事实(同在同不在，半迁移红)' (
+    $mumuLibOnDisk -eq [bool](Get-Command New-GdVisionTarget-mumu -ErrorAction SilentlyContinue)) "件=$mumuLibOnDisk"
 $m9aLib = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\lib\m9a.ps1') -Raw -Encoding utf8
 # (原来这里还读一份 lib\r1999-daily.ps1 给下面那两格外层重试锚用；10-24 刀② 后那两格打的是 Orchestration.cs，
 #  读面在 [t16] 段的 $orchCs/$orchRetry 已经取好，这里不再重复读同一份文件)
 # ⚠ 10-25 甲档刀①-b：下面那九格正向文本锚也从 lib\m9a.ps1 搬走了，$m9aLib 只剩最后那格**否定式**在用
 #   ("状态名一律没改"——现树里不许出现新状态名，这一形与真身在不在场无关，摘件的刀② 之后仍要留在现树身上)
-if (Get-Command New-GdVisionTarget-mumu -ErrorAction SilentlyContinue) {
+# 2026-11-06 刀⑮ 笔(d)：本节原来一枚护栏罩着整段，其中大半格量的根本不是 lib\vision-mumu.ps1，
+# 而是 RunLoops.cs／main.rs／vision-ask.ps1／lib\vision-rescue.ps1／Gate.Host.cs —— 让它们跟着这枚件一起被摘
+# 就是"山搬了家而尺跟着埋"(在册那条空串 -match 假绿的同一形)。自此那些格提出护栏无条件跑，
+# 护栏只留"靶子真调才跑得动"那几格；提出与留下的格数由装配件那把尺逐档现读打印，注释不预写枚数。
+# 件不在不许正锚空咬，改咬"那三枚没复活＋端点三源金样与两枚出口住在核侧"。
+    # "注释里写着不该有的东西"和"代码里真的那么干了"是两回事：Get-Command 的 Definition 连着
+# 注释一起给，所以"不许写死端口/不许走 exec-out"这类**否定式**断言必须先把注释剥掉再判 ——
+# 否则文件里多写一句解释就把自检弄红(2026-09-26 第一次跑就是这两条假红)。
+function Get-GdTestCodeOnly {
+    param([string]$Text)
+    return (($Text -replace '(?s)<\#.*?\#>', ' ') -replace '(?m)^\s*#.*$', ' ')
+}
+# 反过来也判：内核既然两路共用，就不许认识任何一端的专有东西(否则 1999 仓库带上它就等于拖着端游的假设跑)
+# 刀⑮ 笔(a)：这枚护栏腹内的读改成两臂——件在按老形咬文本；件不在(编排已进核)不许让正锚空咬恒红，
+# 改咬"兜底编排命令没在现树复活"。这一格就是护栏自身的现读格：静默失守的形在这里被堵掉。
+$rescueLibPath = Join-Path $PSScriptRoot '..\lib\vision-rescue.ps1'
+$rescueLibOnDisk = Test-Path -LiteralPath $rescueLibPath
+$rescueLib = if ($rescueLibOnDisk) { Get-GdTestCodeOnly (Get-Content -LiteralPath $rescueLibPath -Raw -Encoding utf8) } else { '' }
+Check '兜底内核不认识 adb，也不认识端游窗口(截图/点击一律向靶子要)' (
+    $rescueLib -notmatch 'adb |input tap|screencap|PrintWindow|Send-GdArkClick|arknightsExe')
+# 2026-10-28 甲档第二十刀刀③：话术锚「这棵树上没有」的代码面唯一出处在被摘的旧 :325(Invoke-GdVisionRescue
+# 的闸门段)——那一截编排进核后，内核侧只留"按命名约定找靶子、找不到回 $null"这一件事，说不说那句话归调用方。
+# 活着的对面有两份：PS 薄壳 tools\vision-ask.ps1:55、核内 C# tools\panel-cs\Live.cs:809(由 --livetest 盯)。
+# 命名约定那一半没搬家，本刀一个字没动它：这是它本来就有的分工，不是判据放宽。
+# 2026-11-06 刀⑮ 笔(c)：那份里的 PS 薄壳那一半也搬进核了——薄壳不再自己判"这棵树上有没有这一路"，改问
+# resolve-rescue-context，话术由核内 No(data, why) 经 $ctx.Skip 转达(Live.cs:809 与 --livetest 那格
+# Live.SelfTest.cs:132 逐字钉同一句话)。所以下面这格从"两份各咬一次"改成"核内正锚 + 薄壳负锚"：
+# 正锚证明话术还在被说，负锚证明它确实只剩一处出处而不是搬家没搬净——搬家非增删，不许让旧形静默失守。
+$askCode = Get-GdTestCodeOnly (Get-Content -LiteralPath (Join-Path $PSScriptRoot 'vision-ask.ps1') -Raw -Encoding utf8)
+Check '"这棵树上没有这一路"那句话只由核内说一次，PS 薄壳的代码面不再自己拼这句(刀⑮ 笔(c) 起；头注里的说明句不算)' (
+    ((Get-Content -LiteralPath (Join-Path $PSScriptRoot 'panel-cs\Live.cs') -Raw -Encoding utf8) -match '这棵树上没有') -and
+    ($askCode -notmatch '这棵树上没有') -and
+    ($askCode -match 'resolve-rescue-context'))
+if ($rescueLibOnDisk) {
+    $rescueConvTooth = ($rescueLib -match 'New-GdVisionTarget-' -and $rescueLib -match 'return \$null')
+} else {
+    $rescueConvTooth = (-not (Get-Command Invoke-GdVisionRescue -ErrorAction SilentlyContinue))
+}
+Check '内核按 New-GdVisionTarget-<kind> 的命名约定拼函数名找后端，找不到就返回 $null(件不在改咬编排没复活)' $rescueConvTooth "件=$rescueLibOnDisk"
+# 接线：这一路此前**压根没有**兜底调用点(后端是死代码)。现在按"进程还在不在"分两类接上。
+# ⚠ 10-25 甲档刀①-b 换桌：下面九格原先咬的是 lib\m9a.ps1 的 Invoke-M9ARun 整段循环，而那一刀要把它摘掉。
+#   新桌子两张，都是活码：判据/话术/扣数/分流 = tools\panel-cs\RunLoops.cs 的 decide-m9a-run-tick，
+#   调用点/记账/靶子名与 adb 通道 = tools\rustcore\src\main.rs 的执行侧(of_m9a／do_rescue／do_record／合体轮)。
+#   断言内容一个字没改，改的只是到哪家去问(与上面 [t16] 那三格 10-24 刀② 同一处置)。
+#   唯一一处**形变**写在第 3 格：旧那半句"`$rescue.Left--` 不许出现"是 PowerShell 闭包子作用域特有的坑
+#   (& 调用里扣不动)，C# 侧恰恰用 `rescueLeft--` 且跨拍状态由 verb 自己中继 ⇒ 那一形在新桌上不成立，
+#   换成钉"扣的那一数必须写回跨拍状态"。另补一格"尺接没接电"：窗口一枚取不到就当场红，
+#   免得桌子搬了家而九格靠空串 -match 假绿(在册纪律：现场那一路要补正例自检格)。
+$runLoopsCs = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'panel-cs\RunLoops.cs') -Raw -Encoding utf8
+$m9aLadder = [regex]::Match($runLoopsCs, '(?s)void ResumeRecord\(\).*?Eq\(status, "empty-queue"\);').Value
+$m9aAsk = [regex]::Match($runLoopsCs, '(?s)if \(InAskSet\(\) && rescueLeft > 0 && rescueAvail\).*?phase = "ask-rescue"').Value
+$m9aEmit = [regex]::Match($runLoopsCs, '(?s)"Directives", Gd\.Out\(.*?if \(hasDuration\)').Value
+$rsRound = [regex]::Match($rustCore, '(?s)let mut m9a_scen = m9a_scen_core.*?m9a_scen\.grab_available = false').Value
+$rsEnv9 = [regex]::Match($rustCore, '(?s)fn of_m9a.*?serial: sc\.serial\.clone\(\)').Value
+$rsRescue = [regex]::Match($rustCore, '(?s)fn do_rescue.*?\*rescue_left = rl;').Value
+$rsTick = [regex]::Match($rustCore, '(?s)let rescue_avail = h\.rescue_available\(\).*?st_m9a = jv_get\(&d, "State"\);').Value
+$rsM9aRt = [regex]::Match($rustCore, '(?s)let rt = jv_get\(v, "runtime"\);\n    // mode 缺键.*?sc\.stall_min = jv_int\(&jv_get\(&rt, "stallTimeoutMinutes"\), 0\);').Value
+$rsClock = [regex]::Match($rustCore, '(?s)if jv_truthy\(&jv_get\(&jv_get\(&d, "Directives"\), "ResetLastLog"\)\).*?last_log = h\.clock\(\);').Value
+$rsRescued = [regex]::Match($rustCore, '(?s)if jv_truthy\(&jv_get\(&d, "Rescued"\)\).*?res\.rescued = true;').Value
+$rsRecord = [regex]::Match($rustCore, '(?s)fn do_record.*?jv_s\("record"\)').Value
+Check '兜底这九格的桌子都取到了窗口(尺接没接电，空串 -match 会假绿)' (
+    $m9aLadder.Length -gt 0 -and $m9aAsk.Length -gt 0 -and $m9aEmit.Length -gt 0 -and $rsRound.Length -gt 0 -and $rsEnv9.Length -gt 0 -and $rsRescue.Length -gt 0 -and $rsTick.Length -gt 0 -and $rsM9aRt.Length -gt 0 -and $rsClock.Length -gt 0 -and $rsRescued.Length -gt 0 -and $rsRecord.Length -gt 0) $(
+    'len: ladder=' + $m9aLadder.Length + ' ask=' + $m9aAsk.Length + ' emit=' + $m9aEmit.Length + ' round=' + $rsRound.Length + ' env9=' + $rsEnv9.Length + ' rescue=' + $rsRescue.Length + ' tick=' + $rsTick.Length + ' rt=' + $rsM9aRt.Length + ' clock=' + $rsClock.Length + ' rescued=' + $rsRescued.Length + ' record=' + $rsRecord.Length)
+Check '兜底调用点认 mumu 这枚靶子，且带上实例的 adb 通道(桌子＝main.rs 的 of_m9a 与合体轮)' (
+    $rsEnv9 -match 'target: sc\.target\.clone\(\)' -and $rsEnv9 -match 'adb: sc\.adb\.clone\(\)' -and $rsRound -match 'm9a_scen\.target = "mumu"')
+Check '兜底不是硬调：先问可用性，树上没有就只是不兜、不炸(旧那格问的是 Get-Command 探路)' (
+    $m9aAsk -match 'rescueAvail' -and $rsRescue -match 'h\.rescue_available\(\)' -and $rsTick -match 'let rescue_avail = h\.rescue_available\(\)')
+Check '预算扣的那一数必须写回跨拍状态(一轮里真扣得动，扣完就不再问)' (
+    $m9aAsk -match 'rescueLeft--' -and $rsRescue -match 'rl -= 1' -and $rsRescue -match '\*rescue_left = rl;')
+Check '次数上限沿用同一个键 runtime.visionMaxRescue(限的是"一轮里跟模型没完没了的次数")' (
+    $rsM9aRt -match 'jv_get\(&rt, "visionMaxRescue"\)' -and $rsTick -match '"rescueMaxRaw"')
+Check '停滞/超时(进程还在)兜成了就撤回调款、计时从头算继续等' (
+    $m9aLadder -match 'if \(Alive\(\)\)' -and $m9aLadder -match 'resetLastLog = true;' -and $rsClock -match 'last_log = h\.clock\(\);')
+Check 'blocked/not-started/empty-queue 也问一次(把猜测换成"画面上确实是 XX")' (
+    $m9aLadder -match 'Eq\(status, "blocked"\)' -and $m9aLadder -match 'Eq\(status, "not-started"\)' -and $m9aLadder -match 'Eq\(status, "empty-queue"\)' -and $m9aLadder -match '"判因"')
+Check '兜清楚的证据是唯一能翻掉"重试没意义"的东西 → 打 Rescued 标记并交给核认下' (
+    $m9aLadder -match 'rescued = true;' -and $m9aEmit -match 'd\["Rescued"\] = rescued;' -and $rsRescued -match 'res\.rescued = true;')
+Check '这一路的救火账记在核里，game 归 r1999、target 归 mumu(do_record→add_rescue_record)' (
+    $rsRecord -match 'add_rescue_record' -and $rsEnv9 -match 'game: sc\.game\.clone\(\)' -and $rsRound -match 'm9a_scen\.game = "r1999"')
+Check '兜底次数与最后一问拼进 Detail(判因链不许丢这条线)' (
+    $m9aLadder -match '；视觉兜底 ' -and $m9aLadder -match '次，最后一次：' -and $m9aLadder -match '\[停滞已解除，继续等待\]')
+Check '状态名一律没改(收尾与通知按状态名分流，造新名字等于把判因链弄断)' (
+    $m9aLib -notmatch "Status = 'rescued'" -and $m9aLib -notmatch "Status = 'vision")
+# 外层重试的分流：画面被兜清楚了，本来"重试也没用"的那几种才值得再跑一次。
+# 10-24 刀② 后这段判据住在 Orchestration.cs DailyRetry 的 r1999 支($orchRetry 那枚窗口在 [t16] 段就取好了)，
+# 话术逐字由它交出、executor 只回放 —— 桌子换了，钉的还是同一件事：rescued 只翻那三种状态。
+Check '重试分流认这个标记(not-started/empty-queue/blocked 只有兜清楚才翻案)' (
+    $orchRetry -match 'baseRetry \|\| \(rescued &&' -and $orchRetry -match '"not-started"' -and $orchRetry -match '"empty-queue"' -and $orchRetry -match '"blocked"')
+Check '带标记时日志说得清是"兜清楚了才重试"(不是原来那句"关闭游戏后重试一次")' (
+    $orchCs -match '视觉兜底把挡路的界面点掉了')
+if ($mumuLibOnDisk) {
     # 契约：内核(lib\vision-rescue.ps1)只按字段名调它，少一个字段就是"兜底静默不生效"，所以逐字段点名
     $tm = New-GdVisionTarget-mumu -S $S
     $need = @('Kind', 'Name', 'Enabled', 'Why', 'NeedsAdmin', 'AdminWhy', 'Scene', 'UserText', 'Shot', 'Click', 'Alive', 'Grab')
@@ -501,13 +600,6 @@ if (Get-Command New-GdVisionTarget-mumu -ErrorAction SilentlyContinue) {
 
     # adb 端点三级来源：① 实例配置里的 AdbDevice ② MuMuManager adb -v ③ adb devices 里恰好一台
     # 为什么不能写死端口：16384/7555 换个 MuMu 版本或实例编号就错，而且本机专属值不许进源码(test-modules 的 m8)。
-    # "注释里写着不该有的东西"和"代码里真的那么干了"是两回事：Get-Command 的 Definition 连着
-# 注释一起给，所以"不许写死端口/不许走 exec-out"这类**否定式**断言必须先把注释剥掉再判 ——
-# 否则文件里多写一句解释就把自检弄红(2026-09-26 第一次跑就是这两条假红)。
-function Get-GdTestCodeOnly {
-    param([string]$Text)
-    return (($Text -replace '(?s)<\#.*?\#>', ' ') -replace '(?m)^\s*#.*$', ' ')
-}
 $fnEp = Get-GdTestCodeOnly (Get-Command Get-GdMuMuAdbEndpoint).Definition
     Check 'adb 端点第一选择是调用方给的 Conn(那一路真要用的设备)' ($fnEp -match '\$Conn\.Adb' -and $fnEp -match '\$Conn\.Serial')
     Check '第二选择问 MuMuManager 的 adb -v，且只抠 ip:port 不认字段名(输出形态各家版本不一)' (
@@ -526,78 +618,26 @@ $fnEp = Get-GdTestCodeOnly (Get-Command Get-GdMuMuAdbEndpoint).Definition
         $fnCap -match 'screencap' -and $fnCap -match "'pull'" -and (Get-GdTestCodeOnly $mumuLib) -notmatch 'exec-out')
     Check '模拟器后端里一个端游的字眼都没有(两路后端互不认识，导出才能各带一份)' (
         (Get-GdTestCodeOnly $mumuLib) -notmatch 'arknightsExe|PrintWindow|Send-GdArkClick|Get-GdArkWindow')
-    # 反过来也判：内核既然两路共用，就不许认识任何一端的专有东西(否则 1999 仓库带上它就等于拖着端游的假设跑)
-    $rescueLib = Get-GdTestCodeOnly (Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\lib\vision-rescue.ps1') -Raw -Encoding utf8)
-    Check '兜底内核不认识 adb，也不认识端游窗口(截图/点击一律向靶子要)' (
-        $rescueLib -notmatch 'adb |input tap|screencap|PrintWindow|Send-GdArkClick|arknightsExe')
-    # 2026-10-28 甲档第二十刀刀③：话术锚「这棵树上没有」的代码面唯一出处在被摘的旧 :325(Invoke-GdVisionRescue
-    # 的闸门段)——那一截编排进核后，内核侧只留"按命名约定找靶子、找不到回 $null"这一件事，说不说那句话归调用方。
-    # 活着的对面有两份：PS 薄壳 tools\vision-ask.ps1:55、核内 C# tools\panel-cs\Live.cs:809(由 --livetest 盯)。
-    # 命名约定那一半没搬家，本刀一个字没动它：这是它本来就有的分工，不是判据放宽。
-    Check '内核按 New-GdVisionTarget-<kind> 的命名约定拼函数名找后端，找不到就返回 $null' (
-        $rescueLib -match 'New-GdVisionTarget-' -and $rescueLib -match 'return \$null')
-    Check '"这棵树上没有这一路"那句话说在调用方(PS 薄壳与核内 C# 各一份，两路同口径)' (
-        ((Get-GdTestCodeOnly (Get-Content -LiteralPath (Join-Path $PSScriptRoot 'vision-ask.ps1') -Raw -Encoding utf8)) -match '这棵树上没有') -and
-        ((Get-Content -LiteralPath (Join-Path $PSScriptRoot 'panel-cs\Live.cs') -Raw -Encoding utf8) -match '这棵树上没有'))
     Check '模拟器截屏把客户区报成整块屏(通用的千分比换算因此直接给出设备像素)' (
         $fnCap -match 'ClientLeft = 0' -and $fnCap -match 'ClientW = \$w')
     $fnTap = (Get-Command Send-GdMuMuTap).Definition
     Check '点击出口与端游那一路同形状(@{Mode;Sent})，判定层因此不需要认识 adb' (
         $fnTap -match 'Mode = ' -and $fnTap -match 'Sent = ')
-
-    # 接线：这一路此前**压根没有**兜底调用点(后端是死代码)。现在按"进程还在不在"分两类接上。
-    # ⚠ 10-25 甲档刀①-b 换桌：下面九格原先咬的是 lib\m9a.ps1 的 Invoke-M9ARun 整段循环，而那一刀要把它摘掉。
-    #   新桌子两张，都是活码：判据/话术/扣数/分流 = tools\panel-cs\RunLoops.cs 的 decide-m9a-run-tick，
-    #   调用点/记账/靶子名与 adb 通道 = tools\rustcore\src\main.rs 的执行侧(of_m9a／do_rescue／do_record／合体轮)。
-    #   断言内容一个字没改，改的只是到哪家去问(与上面 [t16] 那三格 10-24 刀② 同一处置)。
-    #   唯一一处**形变**写在第 3 格：旧那半句"`$rescue.Left--` 不许出现"是 PowerShell 闭包子作用域特有的坑
-    #   (& 调用里扣不动)，C# 侧恰恰用 `rescueLeft--` 且跨拍状态由 verb 自己中继 ⇒ 那一形在新桌上不成立，
-    #   换成钉"扣的那一数必须写回跨拍状态"。另补一格"尺接没接电"：窗口一枚取不到就当场红，
-    #   免得桌子搬了家而九格靠空串 -match 假绿(在册纪律：现场那一路要补正例自检格)。
-    $runLoopsCs = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'panel-cs\RunLoops.cs') -Raw -Encoding utf8
-    $m9aLadder = [regex]::Match($runLoopsCs, '(?s)void ResumeRecord\(\).*?Eq\(status, "empty-queue"\);').Value
-    $m9aAsk = [regex]::Match($runLoopsCs, '(?s)if \(InAskSet\(\) && rescueLeft > 0 && rescueAvail\).*?phase = "ask-rescue"').Value
-    $m9aEmit = [regex]::Match($runLoopsCs, '(?s)"Directives", Gd\.Out\(.*?if \(hasDuration\)').Value
-    $rsRound = [regex]::Match($rustCore, '(?s)let mut m9a_scen = m9a_scen_core.*?m9a_scen\.grab_available = false').Value
-    $rsEnv9 = [regex]::Match($rustCore, '(?s)fn of_m9a.*?serial: sc\.serial\.clone\(\)').Value
-    $rsRescue = [regex]::Match($rustCore, '(?s)fn do_rescue.*?\*rescue_left = rl;').Value
-    $rsTick = [regex]::Match($rustCore, '(?s)let rescue_avail = h\.rescue_available\(\).*?st_m9a = jv_get\(&d, "State"\);').Value
-    $rsM9aRt = [regex]::Match($rustCore, '(?s)let rt = jv_get\(v, "runtime"\);\n    // mode 缺键.*?sc\.stall_min = jv_int\(&jv_get\(&rt, "stallTimeoutMinutes"\), 0\);').Value
-    $rsClock = [regex]::Match($rustCore, '(?s)if jv_truthy\(&jv_get\(&jv_get\(&d, "Directives"\), "ResetLastLog"\)\).*?last_log = h\.clock\(\);').Value
-    $rsRescued = [regex]::Match($rustCore, '(?s)if jv_truthy\(&jv_get\(&d, "Rescued"\)\).*?res\.rescued = true;').Value
-    $rsRecord = [regex]::Match($rustCore, '(?s)fn do_record.*?jv_s\("record"\)').Value
-    Check '兜底这九格的桌子都取到了窗口(尺接没接电，空串 -match 会假绿)' (
-        $m9aLadder.Length -gt 0 -and $m9aAsk.Length -gt 0 -and $m9aEmit.Length -gt 0 -and $rsRound.Length -gt 0 -and $rsEnv9.Length -gt 0 -and $rsRescue.Length -gt 0 -and $rsTick.Length -gt 0 -and $rsM9aRt.Length -gt 0 -and $rsClock.Length -gt 0 -and $rsRescued.Length -gt 0 -and $rsRecord.Length -gt 0) $(
-        'len: ladder=' + $m9aLadder.Length + ' ask=' + $m9aAsk.Length + ' emit=' + $m9aEmit.Length + ' round=' + $rsRound.Length + ' env9=' + $rsEnv9.Length + ' rescue=' + $rsRescue.Length + ' tick=' + $rsTick.Length + ' rt=' + $rsM9aRt.Length + ' clock=' + $rsClock.Length + ' rescued=' + $rsRescued.Length + ' record=' + $rsRecord.Length)
-    Check '兜底调用点认 mumu 这枚靶子，且带上实例的 adb 通道(桌子＝main.rs 的 of_m9a 与合体轮)' (
-        $rsEnv9 -match 'target: sc\.target\.clone\(\)' -and $rsEnv9 -match 'adb: sc\.adb\.clone\(\)' -and $rsRound -match 'm9a_scen\.target = "mumu"')
-    Check '兜底不是硬调：先问可用性，树上没有就只是不兜、不炸(旧那格问的是 Get-Command 探路)' (
-        $m9aAsk -match 'rescueAvail' -and $rsRescue -match 'h\.rescue_available\(\)' -and $rsTick -match 'let rescue_avail = h\.rescue_available\(\)')
-    Check '预算扣的那一数必须写回跨拍状态(一轮里真扣得动，扣完就不再问)' (
-        $m9aAsk -match 'rescueLeft--' -and $rsRescue -match 'rl -= 1' -and $rsRescue -match '\*rescue_left = rl;')
-    Check '次数上限沿用同一个键 runtime.visionMaxRescue(限的是"一轮里跟模型没完没了的次数")' (
-        $rsM9aRt -match 'jv_get\(&rt, "visionMaxRescue"\)' -and $rsTick -match '"rescueMaxRaw"')
-    Check '停滞/超时(进程还在)兜成了就撤回调款、计时从头算继续等' (
-        $m9aLadder -match 'if \(Alive\(\)\)' -and $m9aLadder -match 'resetLastLog = true;' -and $rsClock -match 'last_log = h\.clock\(\);')
-    Check 'blocked/not-started/empty-queue 也问一次(把猜测换成"画面上确实是 XX")' (
-        $m9aLadder -match 'Eq\(status, "blocked"\)' -and $m9aLadder -match 'Eq\(status, "not-started"\)' -and $m9aLadder -match 'Eq\(status, "empty-queue"\)' -and $m9aLadder -match '"判因"')
-    Check '兜清楚的证据是唯一能翻掉"重试没意义"的东西 → 打 Rescued 标记并交给核认下' (
-        $m9aLadder -match 'rescued = true;' -and $m9aEmit -match 'd\["Rescued"\] = rescued;' -and $rsRescued -match 'res\.rescued = true;')
-    Check '这一路的救火账记在核里，game 归 r1999、target 归 mumu(do_record→add_rescue_record)' (
-        $rsRecord -match 'add_rescue_record' -and $rsEnv9 -match 'game: sc\.game\.clone\(\)' -and $rsRound -match 'm9a_scen\.game = "r1999"')
-    Check '兜底次数与最后一问拼进 Detail(判因链不许丢这条线)' (
-        $m9aLadder -match '；视觉兜底 ' -and $m9aLadder -match '次，最后一次：' -and $m9aLadder -match '\[停滞已解除，继续等待\]')
-    Check '状态名一律没改(收尾与通知按状态名分流，造新名字等于把判因链弄断)' (
-        $m9aLib -notmatch "Status = 'rescued'" -and $m9aLib -notmatch "Status = 'vision")
-    # 外层重试的分流：画面被兜清楚了，本来"重试也没用"的那几种才值得再跑一次。
-    # 10-24 刀② 后这段判据住在 Orchestration.cs DailyRetry 的 r1999 支($orchRetry 那枚窗口在 [t16] 段就取好了)，
-    # 话术逐字由它交出、executor 只回放 —— 桌子换了，钉的还是同一件事：rescued 只翻那三种状态。
-    Check '重试分流认这个标记(not-started/empty-queue/blocked 只有兜清楚才翻案)' (
-        $orchRetry -match 'baseRetry \|\| \(rescued &&' -and $orchRetry -match '"not-started"' -and $orchRetry -match '"empty-queue"' -and $orchRetry -match '"blocked"')
-    Check '带标记时日志说得清是"兜清楚了才重试"(不是原来那句"关闭游戏后重试一次")' (
-        $orchCs -match '视觉兜底把挡路的界面点掉了')
 } else {
-    Check 'lib\vision-mumu.ps1 有 New-GdVisionTarget-mumu(1999 仓库少了它兜底就是死代码)' $false '没找到这个函数'
+    Check '模拟器后端那三枚没在现树复活(算端点／拍屏／点一下)' (
+        -not (Get-Command Get-GdMuMuAdbEndpoint -ErrorAction SilentlyContinue) -and
+        -not (Get-Command Save-GdMuMuShot -ErrorAction SilentlyContinue) -and
+        -not (Get-Command Send-GdMuMuTap -ErrorAction SilentlyContinue))
+    $gateHostT18 = ''
+    try { $gateHostT18 = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'panel-cs\Gate.Host.cs') -Raw -Encoding utf8 } catch { }
+    $cliT18 = ''
+    try { $cliT18 = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'panel-cs\Cli.cs') -Raw -Encoding utf8 } catch { }
+    Check '端点那三条规矩住在核侧(Gate.Host.cs：MuMuManager adb -v 只抠 ip:port／JSON 分字段兜底／拿不到先说跑 setup.ps1)' (
+        $gateHostT18.Length -gt 0 -and $gateHostT18.Contains('adb_host') -and $gateHostT18.Contains('adb_port') -and
+        $gateHostT18.Contains('setup.ps1') -and $gateHostT18.Contains('MuMuManager')) ('Gate.Host.cs=' + $gateHostT18.Length + ' 字符')
+    Check '模拟器拍屏与点一下两枚出口仍在核内分派链上(mumu-screen-shot／mumu-screen-click，靶子名走 resolve-rescue-context)' (
+        $cliT18.Length -gt 0 -and $cliT18.Contains('mumu-screen-shot') -and $cliT18.Contains('mumu-screen-click') -and
+        $cliT18.Contains('resolve-rescue-context')) ('Cli.cs=' + $cliT18.Length + ' 字符')
 }
 
 $res = Show-GdTestResult -Tag 'r1999'

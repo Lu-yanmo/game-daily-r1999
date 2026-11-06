@@ -221,6 +221,10 @@ namespace GdPanel
                 //   build-round-ctx：壳给旋钮(ids/gates/opt/四开关/nameField/noticeOwner/tag/logPath/ownerPid)，
                 //   settings 由本件现读——整块 settings 不进 body(runtime 里住着 visionApiKey)。判据在 Round.Host.cs。
                 else if (verb == "build-round-ctx") r = Decide(a, RoundHost.BuildCtx);
+                // ---- 刀⑮ 笔(c)(2026-11-06)：MuMu adb 端点直身露成出口，照先例排链尾 ----
+                //   resolve-mumu-adb-endpoint：三源两正则全住 Gate.Host.cs(本枚只是把它露出来，一条规则都不新写)；
+                //   settings 现读、整块不进 body，body 旋钮 settings/conn 只给自检夹具。1999-event-audit 的落点轮询自此问核。
+                else if (verb == "resolve-mumu-adb-endpoint") r = Decide(a, GateHost.EndpointV);
                 else throw new GdUsageException("未知子命令：" + verb + "(现有：" + GdCliVerbs.Roster() + "；后续批次见 docs\\ps-migration-batch0.md 与 docs\\ps-migration-live-caliber.md)");
             }
             catch (GdUsageException ex)

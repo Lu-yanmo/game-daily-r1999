@@ -653,7 +653,7 @@ namespace GdPanel
         public int ExpTest()
         {
             Console.WriteLine("---- panel-cs 实验功能读写自测(打在临时副本上，真配置只读不写) ----");
-            if (!ExpImplemented()) { Console.WriteLine("这一仓没有实现库(lib\\vision-rescue.ps1 不在)，卡片就该是空的 —— 没得测。"); return 0; }
+            if (!ExpImplemented()) { Console.WriteLine("这一仓没有\"问模型\"那一层(tools\\vision\\ask.py 不在)，卡片就该是空的 —— 没得测。"); return 0; }
             string real = Path.Combine(root, @"config\settings.json");
             if (!File.Exists(real)) { Console.WriteLine("没有 " + real + " —— 把 config\\settings.example.json 复制成 settings.json 再跑。"); return 1; }
             string tmp = Path.Combine(Path.GetTempPath(), "gd-exptest-" + Process.GetCurrentProcess().Id + ".json");

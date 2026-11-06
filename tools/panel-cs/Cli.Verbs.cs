@@ -39,7 +39,11 @@ namespace GdPanel
         //   的 C# 直身，判据住 Round.Host.cs；settings 由本件现读、**整块 settings 绝不进 body**(visionApiKey
         //   住在 runtime 里)，pid 由壳写明 ownerPid、缺键那档由核内 round_ctx_parse 的 Err 定罪，本件不补闸。
         //   既有 verb 的回执形状一枚没动)。
-        public const int ExpectedCount = 104;
+        // 刀⑮ 笔(c) MuMu 端点出口(2026-11-06)：104 → 105，链尾再加 resolve-mumu-adb-endpoint
+        //   (Gate.Host.cs 早就在场的 MuMuEndpoint 直身露成命令行出口，三源两正则一条规则都不新写；
+        //   settings 现读不进 body，旋钮 settings/conn 只给自检夹具。PS 侧 Get-GdMuMuAdbEndpoint 壳随笔(d) 摘件。
+        //   既有 verb 的回执形状一枚没动)。
+        public const int ExpectedCount = 105;
 
         // 顺序＝Cli.cs 分派链里的出现顺序（自检只比集合，不比顺序；顺序留着是为了肉眼对照分派链方便）。
         public static readonly string[] Names = new string[]
@@ -170,7 +174,11 @@ namespace GdPanel
             // ---- 刀⑪ 运行面轮 ctx 装配进核(2026-11-05)：build-round-ctx 是 rust-round 那三枚 ctx 件的直身出口
             //      (Round.Host.cs)。名册 15 枚与声明序照真身；这一枚是**现读 config\settings.json** 的出口
             //      (与 resolve-round-context 同档)，所以壳只给旋钮、不给 settings ----
-            "build-round-ctx"
+            "build-round-ctx",
+            // ---- 刀⑮ 笔(c)(2026-11-06)：resolve-mumu-adb-endpoint 是 Gate.Host.cs 里 MuMuEndpoint 直身的出口露出
+            //      (三源两正则/路径守卫/回执三键 {Adb,Serial,Why} 全部原样，规则零新增)；settings 现读、
+            //      旋钮 settings/conn 只给自检夹具——与 build-round-ctx 同一形制 ----
+            "resolve-mumu-adb-endpoint"
         };
 
         // "未知子命令"那句报错用的名册串：逐枚全名，不再有通配与纯计数。

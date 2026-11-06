@@ -398,6 +398,28 @@ namespace GdPanel
                 !GateHost.MuMuVmAlive("", "127.0.0.1:16384") && !GateHost.MuMuVmAlive(self, "") &&
                 !GateHost.MuMuVmAlive(gone, "127.0.0.1:16384"));
 
+            // 刀⑮ 笔(c)(2026-11-06)：出口面现拍 —— verb 真挂上分发链，不是名册上的虚名。
+            // 夹具形：settings 与 conn 都由 body 供上 ⇒ 全程不读真 settings.json、不起任何进程(上面那条纪律一样成立)；
+            // 回执三键 {Adb,Serial,Why} 的键名即契约——PS 侧两本入口(1999-event-audit／vision-ask)自此按这个名字读。
+            string vdir = Path.Combine(Path.GetTempPath(), "gd-mumu-verb-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(vdir);
+            try
+            {
+                string vi = Path.Combine(vdir, "endpoint-in.json");
+                string vo = Path.Combine(vdir, "endpoint-out.json");
+                GdJson.Write(vi, Inp("settings", S, "conn", Inp("adb", self, "serial", "127.0.0.1:16384")));
+                int vcode = GdCli.Run("resolve-mumu-adb-endpoint", new string[] { "--in=" + vi, "--out=" + vo });
+                Dictionary<string, object> venv = GdJson.ReadEnvelope(vo);
+                Dictionary<string, object> vdata = D(Gd.Get(venv, "data"));
+                b.Chk("CLI 端到端：resolve-mumu-adb-endpoint 真挂上分发链，信封 verb/ok 自证＋conn 供齐两源原样采用三键", () =>
+                    vcode == 0 && Gd.Truthy(Gd.Get(venv, "ok")) &&
+                    Gd.Str(Gd.Get(venv, "verb")) == "resolve-mumu-adb-endpoint" && vdata != null &&
+                    Gd.Str(Gd.Get(vdata, "Adb")) == self &&
+                    Gd.Str(Gd.Get(vdata, "Serial")) == "127.0.0.1:16384" &&
+                    Gd.Str(Gd.Get(vdata, "Why")).Length == 0);
+            }
+            finally { try { Directory.Delete(vdir, true); } catch { } }
+
             // 跨语言契约：lib\rust-round.ps1 那两臂把回件读成 [pscustomobject]@{Available;Err}，
             // 键名一改，PS 侧读到的是 $null —— Available 恒假(监督静默没上岗)且不报错，正是最难查的那种坏。
             string cli = File.ReadAllText(Path.Combine(dir, "Cli.cs"), Encoding.UTF8);

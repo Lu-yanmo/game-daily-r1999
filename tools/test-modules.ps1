@@ -80,7 +80,12 @@ foreach ($m in @(Get-GdModules)) {
         Check "[$id] $k 非空" ([bool][string]$m.$k)
     }
     Check "[$id] PathKeys 至少一项(这一路总要有要催的路径)" (@($m.PathKeys).Count -gt 0) (@($m.PathKeys) -join ',')
-    Check "[$id] Libs 至少两项(助手库 + 至少一枚业务库)" (@($m.Libs).Count -ge 2) (@($m.Libs) -join ' ')
+    # 11-06 转接刀·运行面刀⑮ 笔(d)-2 复跑红一次照登：本格原形量的是「助手库 + 至少一枚 PS 业务库」，
+    # 而 ark 那一路的 PS 业务库(decisions／farm／detect／vision 四族)到本刀为止全部进了核内或 C# 侧,
+    # 清单只剩助手库 maa.ps1 一枚＝那条前提被本刀自己作废。按在册「改弱了的钉要写下它不再量什么」换代不删格:
+    # 自此量「Libs 非空 ＋ 助手库在册」两形(空表红、漏册红);「每路至少一枚 PS 业务库」不再由本格量。
+    Check "[$id] Libs 非空且把助手库册上(空表或漏册当场红;11-06 刀⑮ 笔(d)-2 换代,见上面四行史注)" (
+        @($m.Libs).Count -ge 1 -and (@($m.Libs | ForEach-Object { [string]$_ }) -contains [string]$m.AssistantLib)) (@($m.Libs) -join ' ')
     # 声明了却不在树上的库 = 半夜那句"无法将…识别为 cmdlet"
     $missing = @(Get-GdModuleLibPaths -MissingOnly)
     Check "[$id] 声明的业务库全在 lib\ 下" ($missing.Count -eq 0) ($missing -join ' / ')
@@ -144,47 +149,70 @@ foreach ($m in @(Get-GdModules)) {
     Check "[$([string]$m.Id)] 清单没引用别的模块的业务库" ($leaked.Count -eq 0) ($leaked -join ' / ')
 }
 # 这份自检查原样进两个导出仓库 → 涉及"两路共用"的断言按注册表里有几款判，绝不写死 ark / r1999
+# 2026-11-06 刀⑮ 笔(a)：兜底内核的"在两份清单里"改成名册⇔件在场一把尺现读——同在同不在放行，
+# 半迁移(名册还引用而件已退役／件还在而名册不共享)当场红。摘件批不必再回头改这格。
+$vrOnDisk = Test-Path -LiteralPath (Join-Path $root 'lib\vision-rescue.ps1')
 if (@(Get-GdModules).Count -ge 2) {
-    Check '两路共用的内核确实出现在两份清单里(vision-rescue.ps1)' (@($shared) -contains 'vision-rescue.ps1') ($shared -join ' / ')
+    $vrInRoster = (@($shared) -contains 'vision-rescue.ps1')
+    Check 'vision-rescue 的名册登记与件在场同一个事实(同在同不在，半迁移红)' ($vrInRoster -eq $vrOnDisk) ("名册=$vrInRoster 件=$vrOnDisk")
 }
 Check 'Get-GdModuleLibPaths 把共享库去重了(入口点两遍会重复定义一堆函数)' (
     (@(Get-GdModuleLibPaths).Count -eq @(Get-GdModuleLibPaths | ForEach-Object { [System.IO.Path]::GetFileName($_) } | Sort-Object -Unique).Count)) `
     ("$(@(Get-GdModuleLibPaths).Count) 个文件 / $(@($shared).Count) 个共享")
 # 后端按命名约定接：内核不许认识任何一路，各路的靶子函数得在自己那一份后端里
-$vrText = [System.IO.File]::ReadAllText((Join-Path $root 'lib\vision-rescue.ps1'))
-Check '兜底内核不认识端游也不认识模拟器(只按 New-GdVisionTarget-<kind> 找)' (
-    (Get-GdCodeOnlyText -Text $vrText) -notmatch 'New-GdVisionTarget-ark|New-GdVisionTarget-mumu' -and
-    $vrText -match 'New-GdVisionTarget-\$\(')
+# 刀⑮ 笔(a)：这枚无条件读改成两臂——件在按老形咬文本(正锚+负锚都有牙)；件不在不许正锚空咬变恒红或恒绿，
+# 改咬"编排命令没在别处复活＋名册已不再登记"，缺读数交不出账就红。
+$vrText = if ($vrOnDisk) { [System.IO.File]::ReadAllText((Join-Path $root 'lib\vision-rescue.ps1')) } else { '' }
+if ($vrOnDisk) {
+    $vrKernelTooth = (Get-GdCodeOnlyText -Text $vrText) -notmatch 'New-GdVisionTarget-ark|New-GdVisionTarget-mumu' -and
+        $vrText -match 'New-GdVisionTarget-\$\('
+} else {
+    $vrKernelTooth = (-not (Get-Command Invoke-GdVisionRescue -ErrorAction SilentlyContinue)) -and
+        (-not (@($shared) -contains 'vision-rescue.ps1'))
+}
+Check '兜底内核不认识端游也不认识模拟器(只按 New-GdVisionTarget-<kind> 找；件不在改咬没复活)' $vrKernelTooth "件=$vrOnDisk"
 # 自检脚手架点库的名单是另一份硬编码(tools\test-lib.ps1 第 10 行)：清单加了库而它没跟上，
 # test-ark / test-r1999 里那些 (Get-Command X).Definition 断言会整段跳过 —— 静默少一层保护，最难发现的那种。
 # 只管兜底这三份(test-lib 的名单本来就不含 ark-daily/r1999-daily 这类编排库，别把不该管的也钉上)。
 $tlText = [System.IO.File]::ReadAllText((Join-Path $root 'tools\test-lib.ps1'))
-foreach ($m in @(Get-GdModules)) {
-    $id = [string]$m.Id
-    $libs = @($m.Libs | ForEach-Object { [string]$_ })
-    if ($libs -notcontains 'vision-rescue.ps1') { continue }
-    $mine = @($libs | Where-Object { $_ -like 'vision-*.ps1' -and $_ -ne 'vision-rescue.ps1' })
-    Check "[$id] 用了兜底内核就得自带一份后端(否则 Get-GdVisionTarget 永远找不到靶子)" ($mine.Count -eq 1) ($libs -join ' / ')
-    foreach ($bf in $mine) {
-        $btPath = Join-Path $root "lib\$bf"
-        Check "[$id] 清单声明的后端 $bf 在这棵树上" (Test-Path -LiteralPath $btPath)
-        if (-not (Test-Path -LiteralPath $btPath)) { continue }
-        $bt = [System.IO.File]::ReadAllText($btPath)
-        $kind = [regex]::Match($bt, '(?m)^function New-GdVisionTarget-([a-z0-9]+)').Groups[1].Value
-        Check "[$id] 后端 $bf 交出一个 New-GdVisionTarget-<kind>" ($kind -ne '') "kind=[$kind]"
-        Check "[$id] 靶子带齐契约字段(内核只认这几个名字)" (
-            $bt -match 'Shot\s*=' -and $bt -match 'Click\s*=' -and $bt -match 'Alive\s*=' -and
-            $bt -match 'Enabled\s*=' -and $bt -match 'NeedsAdmin\s*=' -and $bt -match 'Scene\s*=')
-        # 命名约定真接得上：内核按同一个 kind 找得到靶子(建靶子只造闭包，不碰窗口、不碰 adb、不联网)
-        $t = $null
-        try { $t = Get-GdVisionTarget -S $S -Kind $kind } catch { $t = $null }
-        Check "[$id] Get-GdVisionTarget -Kind $kind 拿得到靶子" ($t -and [string]$t.Kind -eq $kind) $(
-            if ($t) { "开关 Enabled=$([bool]$t.Enabled) 要提权=$([bool]$t.NeedsAdmin)" } else { '没拿到' })
-        Check "[$id] 后端 $bf 只写在 $id 一路的清单里(另一路的仓库不会带上它)" (
-            @(Get-GdModules | Where-Object { [string]$_.Id -ne $id -and (@($_.Libs | ForEach-Object { [string]$_ }) -contains $bf) }).Count -eq 0)
-        Check "[$id] 自检脚手架也点了 $bf(那两路自检的结构断言才不会整段跳过)" (
-            $tlText -match ("'" + [regex]::Escape([System.IO.Path]::GetFileNameWithoutExtension($bf)) + "'"))
+# 2026-11-06 刀⑮ 笔(d)：这一段整族量的是"PS 兜底内核与各路 PS 后端的连接约定"，三件本体出仓后它没有对面了——不许让它靠 continue 静默停跑(在册那条"山搬了家而尺跟着埋")，改两臂：件在按老形逐路对账；件不在咬"名册已摘净＋自检脚手架也不点那三份"，两头都交得出数。
+if ($vrOnDisk) {
+    foreach ($m in @(Get-GdModules)) {
+        $id = [string]$m.Id
+        $libs = @($m.Libs | ForEach-Object { [string]$_ })
+        if ($libs -notcontains 'vision-rescue.ps1') { continue }
+        $mine = @($libs | Where-Object { $_ -like 'vision-*.ps1' -and $_ -ne 'vision-rescue.ps1' })
+        Check "[$id] 用了兜底内核就得自带一份后端(否则 Get-GdVisionTarget 永远找不到靶子)" ($mine.Count -eq 1) ($libs -join ' / ')
+        foreach ($bf in $mine) {
+            $btPath = Join-Path $root "lib\$bf"
+            Check "[$id] 清单声明的后端 $bf 在这棵树上" (Test-Path -LiteralPath $btPath)
+            if (-not (Test-Path -LiteralPath $btPath)) { continue }
+            $bt = [System.IO.File]::ReadAllText($btPath)
+            $kind = [regex]::Match($bt, '(?m)^function New-GdVisionTarget-([a-z0-9]+)').Groups[1].Value
+            Check "[$id] 后端 $bf 交出一个 New-GdVisionTarget-<kind>" ($kind -ne '') "kind=[$kind]"
+            Check "[$id] 靶子带齐契约字段(内核只认这几个名字)" (
+                $bt -match 'Shot\s*=' -and $bt -match 'Click\s*=' -and $bt -match 'Alive\s*=' -and
+                $bt -match 'Enabled\s*=' -and $bt -match 'NeedsAdmin\s*=' -and $bt -match 'Scene\s*=')
+            # 命名约定真接得上：内核按同一个 kind 找得到靶子(建靶子只造闭包，不碰窗口、不碰 adb、不联网)
+            $t = $null
+            try { $t = Get-GdVisionTarget -S $S -Kind $kind } catch { $t = $null }
+            Check "[$id] Get-GdVisionTarget -Kind $kind 拿得到靶子" ($t -and [string]$t.Kind -eq $kind) $(
+                if ($t) { "开关 Enabled=$([bool]$t.Enabled) 要提权=$([bool]$t.NeedsAdmin)" } else { '没拿到' })
+            Check "[$id] 后端 $bf 只写在 $id 一路的清单里(另一路的仓库不会带上它)" (
+                @(Get-GdModules | Where-Object { [string]$_.Id -ne $id -and (@($_.Libs | ForEach-Object { [string]$_ }) -contains $bf) }).Count -eq 0)
+            Check "[$id] 自检脚手架也点了 $bf(那两路自检的结构断言才不会整段跳过)" (
+                $tlText -match ("'" + [regex]::Escape([System.IO.Path]::GetFileNameWithoutExtension($bf)) + "'"))
+        }
     }
+} else {
+    Check '兜底 PS 后端名册已摘净：没有任何一路的 Libs 再声明 vision-*.ps1(件不在而名册还写着＝半迁移红)' (
+        @(Get-GdModules | ForEach-Object { @($_.Libs) } | Where-Object { [string]$_ -like 'vision-*.ps1' }).Count -eq 0)
+    # 11-06 刀⑮ 笔(d)-2 复跑红一次照登：上面那格首拍咬的是 $tlText 全文，而 tools\test-lib.ps1:21 那句史注
+    # 逐字点名那三份——注释不是引用(在册纪律；同族见 test-r1999 的 Get-GdTestCodeOnly)。代码面那行名单本来就只剩
+    # @('decisions', 'maa', 'm9a', 'mumu') 四枚，判据错在取件轴不在被量的件。处方＝先剥注释再判，史注留着不删。
+    $tlCode203 = Get-GdCodeOnlyText -Text $tlText
+    Check '自检脚手架的代码面名单也不点那三份(注释剥后再判；名单与清单一起摘才算闭合：只删清单＝少装载一路，只删名单＝多一个恒不命中的名字)' (
+        $tlCode203 -notmatch "'vision-rescue'" -and $tlCode203 -notmatch "'vision-ark'" -and $tlCode203 -notmatch "'vision-mumu'")
 }
 
 Write-Host "`n[m4] 还活着的钩子真调得动(EnvProbes)＋面板取段的形状耦合格"
@@ -329,9 +357,15 @@ if (Test-Path -LiteralPath $askPy) {
     Check 'ask.py 自己带离线自检(--selftest)' ($pySrc -match 'def run_selftest')
     Check 'ask.py 只有一处真的发请求(urlopen 不被自检绕过)' (([regex]::Matches($pySrc, 'urllib\.request\.urlopen')).Count -eq 1)
 }
+# 2026-11-06 刀⑮ 笔(d)：Invoke-GdVisionRaw 的真身随 lib\vision-rescue.ps1 出仓。它管的那四件事(起的是 python + ask.py
+# 而不是自己发 HTTP／key 只进子进程的环境变量／key 不进命令行／提示词走请求文件)判据一个字没松，家换成核内
+# Live.cs::Live.VisionAsk(表账那行第四列本就写着那一枚，本刀只是把 PS 那一份取走)。形制按在册两臂：件在按老形咬
+# Definition 文本；件不在不许正锚空咬变恒红，改咬"PS 那枚没在别处复活＋那四条形制在核侧文本里在场"，缺读数交不出账就红。
+$visionRescueOnDisk = Test-Path -LiteralPath (Join-Path $root 'lib\vision-rescue.ps1')
 $rawDef = ''
 if (Get-Command Invoke-GdVisionRaw -ErrorAction SilentlyContinue) { $rawDef = (Get-Command Invoke-GdVisionRaw).Definition }
-Check 'PowerShell 侧有 Invoke-GdVisionRaw(问模型的唯一出口，自检能整体替换它)' ($rawDef.Length -gt 0)
+Check '兜底内核件与 Invoke-GdVisionRaw 命令同一个事实(同在同不在，半迁移红)' (
+    $visionRescueOnDisk -eq [bool](Get-Command Invoke-GdVisionRaw -ErrorAction SilentlyContinue)) "件=$visionRescueOnDisk"
 if ($rawDef) {
     # 注释里点名了 Invoke-RestMethod(解释"为什么换成 Python")，所以判"有没有自己发 HTTP"要先把注释剥掉
     $rawCode = Get-GdCodeOnlyText -Text $rawDef
@@ -344,6 +378,14 @@ if ($rawDef) {
     Check 'key 只进子进程的环境变量' ($rawDef -match '-Env\s+@\{\s*DASHSCOPE_API_KEY')
     Check 'key 不出现在命令行参数里(进程列表和日志都会把它带出去)' (-not ($rawDef -match '-Arguments[^\r\n]*\$key'))
     Check '提示词走请求文件不走命令行(长文本带引号换行，塞命令行必然出乱子)' ($rawDef -match "'--request'")
+} else {
+    Check '问模型这一层在 PS 侧不再有第二份实现(Invoke-GdVisionRaw 没在别处复活)' (
+        -not (Get-Command Invoke-GdVisionRaw -ErrorAction SilentlyContinue))
+$liveAsk = ''
+    try { $liveAsk = [System.IO.File]::ReadAllText((Join-Path $root 'tools\panel-cs\Live.cs')) } catch { }
+    Check '那四条形制住在核侧(起 python + ask.py／key 只进环境变量／提示词走 --request／命令行上没有 key 的口子)' (
+        $liveAsk.Length -gt 0 -and $liveAsk.Contains('ask.py') -and $liveAsk.Contains('DASHSCOPE_API_KEY') -and
+        $liveAsk.Contains('--request') -and -not $liveAsk.Contains('--api-key')) ('Live.cs=' + $liveAsk.Length + ' 字符')
 }
 $gateDef = ''
 if (Get-Command Get-GdPythonExe -ErrorAction SilentlyContinue) { $gateDef = (Get-Command Get-GdPythonExe).Definition }
@@ -376,16 +418,31 @@ foreach ($m in @(Get-GdModules -AvailableOnly)) {
     $id = [string]$m.Id
     $kind = if ($m.PSObject.Properties.Name -contains 'VisionKind') { [string]$m.VisionKind } else { '' }
     Check "[$id] 清单声明了 VisionKind(外壳不许自己记 ark/mumu 对照表)" ($kind.Length -gt 0) "kind=[$kind]"
-    Check "[$id] VisionKind 是小写短名(内核拼的是 New-GdVisionTarget-<kind>，大小写或空格都会让它找不到)" (
+    Check "[$id] VisionKind 是小写短名(它是喂给核内 resolve-rescue-context 的那一枚 target，大小写或空格都会让认不到)" (
         $kind -match '^[a-z][a-z0-9]*$') $kind
-    # 后端文件名与 kind 绑死：kind 写 mumu 就得有 lib\vision-mumu.ps1；
-    # 后半句更要紧 —— 文件在但没写进这一路的 Libs，等于压根没人点它，还是静默不生效。
-    $beFile = Join-Path $root "lib\vision-$kind.ps1"
-    Check "[$id] 后端文件按约定存在(lib\vision-$kind.ps1)" (Test-Path -LiteralPath $beFile)
-    Check "[$id] 后端文件写进了这一路的 Libs" (@($m.Libs) -contains "vision-$kind.ps1") (@($m.Libs) -join ' ')
-    $builder = "New-GdVisionTarget-$kind"
-    Check "[$id] 顶层点库之后 $builder 真在(命名约定对得上)" ([bool](Get-Command $builder -ErrorAction SilentlyContinue))
+    # 2026-11-06 刀⑮ 笔(d)：下面三格原来咬"PS 后端文件在不在／写没写进 Libs／靶子函数点没点到"，那三件事随三件出仓。
+    # 件在按老形跑；件不在改咬"那一路的 PS 后端不许留在树上、靶子命令不许复活"——VisionKind 这一格本身两臂都跑，
+    # 因为它量的是清单上的业务知识，不是 PS 件。
+    if ($vrOnDisk) {
+        # 后端文件名与 kind 绑死：kind 写 mumu 就得有 lib\vision-mumu.ps1；
+        # 后半句更要紧 —— 文件在但没写进这一路的 Libs，等于压根没人点它，还是静默不生效。
+        $beFile = Join-Path $root "lib\vision-$kind.ps1"
+        Check "[$id] 后端文件按约定存在(lib\vision-$kind.ps1)" (Test-Path -LiteralPath $beFile)
+        Check "[$id] 后端文件写进了这一路的 Libs" (@($m.Libs) -contains "vision-$kind.ps1") (@($m.Libs) -join ' ')
+        $builder = "New-GdVisionTarget-$kind"
+        Check "[$id] 顶层点库之后 $builder 真在(命名约定对得上)" ([bool](Get-Command $builder -ErrorAction SilentlyContinue))
+    } else {
+        Check "[$id] 这一路的 PS 后端已随三件出仓(lib\vision-$kind.ps1 不许留在树上)" (
+            -not (Test-Path -LiteralPath (Join-Path $root "lib\vision-$kind.ps1")))
+        Check "[$id] 靶子命令没在现树复活(New-GdVisionTarget-$kind 由核内 resolve-rescue-context 顶替)" (
+            -not (Get-Command "New-GdVisionTarget-$kind" -ErrorAction SilentlyContinue))
+    }
 }
+# VisionKind 摘了后端不等于摘了消费者：入口那一路仍只问清单(在册那条"业务知识只存一份"的判据换了宿主，没换出处)。
+$askSrcT = ''
+try { $askSrcT = [System.IO.File]::ReadAllText((Join-Path $root 'tools\vision-ask.ps1')) } catch { }
+Check 'VisionKind 仍被入口消费(tools\vision-ask.ps1 只问清单，不自己记 kind 表；读不到那一份就红)' (
+    $askSrcT.Length -gt 0 -and $askSrcT.Contains('VisionKind')) ('vision-ask.ps1=' + $askSrcT.Length + ' 字符')
 # 框架与工具层不许硬写某一路的 kind：内核只按命名约定拼函数名，外壳只问清单。
 # 判的是"把 kind 当字面量用"的那几种写法(-Target/-Kind/直接调 New-GdVisionTarget-xxx)，
 # 不是"文件里出现过 mumu 这四个字母"—— status.ps1 点 lib\mumu.ps1 那种是库名，另一回事。

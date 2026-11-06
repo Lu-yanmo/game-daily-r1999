@@ -20,7 +20,7 @@ namespace GdPanel
     {
         // ---------- 实验功能：面板唯一直接读写 settings.json 里"布尔开关"的地方 ----------
         // 为什么敢让 C# 直接碰配置：这不是判定 —— 用不用视觉兜底、准不准它给领取点位，
-        // 仍由 lib\vision-rescue.ps1 读同一批键决定，面板只是替玩家拧开关。
+        // 仍由核内那一路读同一批键决定(Live.cs 的 ArkVisionOn/MumuVisionOn 与 resolve-rescue-context 闸②；11-06 刀⑮ 笔(d) 前写在 lib\vision-rescue.ps1，那件已整件出仓)，面板只是替玩家拧开关。
         // 写法用"整文件行内替换"：只换 true/false 那几个字节，
         // 别的内容(含中文说明、注释性键)一个字节不动，改前照 PS 那边的规矩备份 + 每文件只留 20 份。
         // 现在管两个键：arkVisionRescue(端游兜底总开关) / visionAllowReward(领奖白名单，默认关)。
@@ -30,26 +30,15 @@ namespace GdPanel
         static Regex BoolKeyRe(string key) { return new Regex("(\"" + Regex.Escape(key) + "\"\\s*:\\s*)(true|false)"); }
         string settingsPathOverride;       // 只有 --consoletest/--exptest 用它：把读写指到一份临时副本上
         string SettingsPath { get { return string.IsNullOrEmpty(settingsPathOverride) ? Path.Combine(root, @"config\settings.json") : settingsPathOverride; } }
-        bool ExpImplemented() { return File.Exists(Path.Combine(root, @"lib\vision-rescue.ps1")); }
+        // 11-06 刀⑮ 笔(d)：实现库的判断从 lib\vision-rescue.ps1 的在位性换到 tools\vision\ask.py 的在位性——兜底判据全在 C#/核内，
+        // 唯一还在树外的依赖就是"问模型"那一层的 python 本体；它在不在，与"这张卡片有没有东西可拧"是同一件事。
+        bool ExpImplemented() { return File.Exists(Path.Combine(root, @"tools\vision\ask.py")); }
 
-        // 这棵树上到底有没有"能拍画面的后端"(lib\vision-<kind>.ps1，端游/模拟器/以后第三个都算)。
-        // 配置页要不要摆视觉模型/视觉 Key 这两行、总开关能不能拧，都问这个 —— 面板不自己记 kind 名单，
-        // 名单只写在各自的清单(lib\*-module.ps1 的 VisionKind)和 lib\vision-ask.ps1 那一路的查表里。
-        bool HasVisionBackend()
-        {
-            if (!ExpImplemented()) return false;
-            try
-            {
-                foreach (string f in Directory.GetFiles(Path.Combine(root, "lib"), "vision-*.ps1"))
-                {
-                    string n = Path.GetFileName(f);
-                    if (n == "vision-rescue.ps1") continue;
-                    if (Regex.IsMatch(n, @"^vision-[a-z][a-z0-9]*\.ps1$")) return true;
-                }
-            }
-            catch { }
-            return false;
-        }
+        // 这棵树上到底有没有"能拍画面的后端"：⚠ 11-06 刀⑮ 笔(d)：lib\vision-*.ps1 三件整件出仓，"后端在场"自此不由 PS 件在位性供数——
+        // PrintWindow(ark)与 adb(mumu)两段直身是编译进这棵 exe 的 C#(Live.cs／Gate.Host.cs)，闸①的 hasBuilder 默认按 kind 认路(核内 resolve-rescue-context)，
+        // 面板这一层只剩一个真问题：这台机器上"问模型"那一层的本体(ask.py)带没带上树。带上了，这一路的两枚后端就都在场。
+        // 名单规矩不变：面板不自己记 kind 名单，不认识的第 X 路照旧由核内闸①回那句 skip 话术，不在这儿长第二套判据。
+        bool HasVisionBackend() { return ExpImplemented(); }
 
         bool? ReadExpFlag() { return ReadBoolFlag(ExpKey); }
         string WriteExpFlag(bool on) { return WriteBoolFlag(ExpKey, on, "AI 辅助(视觉兜底)", "已打开", "已关掉"); }

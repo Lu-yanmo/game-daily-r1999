@@ -2,10 +2,10 @@
 # 用法: pwsh -NoProfile -File tools\vision-ask.ps1 [-Game ark|r1999] [-Image 某张.png] [-Context "一句话"]
 #       需要 PowerShell 7；要 -Image 的那张图自己给路径，本文件不替你找。
 #
-# 为什么要有这一份：lib\vision-rescue.ps1 那条链是"卡住了才兜一次"，一次只留一句结论
+# 为什么要有这一份：兜底那条链是"卡住了才兜一次"，一次只留一句结论
 # (Detail 那一行)，问得不满意也没地方补问。排查时真正想要的是**同一个画面反复问、看模型到底怎么说**，
-# 而且绝对不想在这个过程中往游戏里点一下 —— 所以这里复用同一个靶子、同一次问价(Invoke-GdVisionRaw)，
-# 唯独不碰 $t.Click。整份文件只读：不写 settings、不动窗口状态、不改 state(除了那张临时截图)。
+# 而且绝对不想在这个过程中往游戏里点一下 —— 所以这里复用同一个靶子、同一次问价；11-06 刀⑮ 笔(d)：那两层原来的住处
+# (lib\vision-rescue.ps1 的 Get-GdVisionTarget／Invoke-GdVisionRaw)已整件出仓，现在靶子问核内 resolve-rescue-context、问价问 vision-ask-model，两侧都不再是 PS 函数。整份文件只读：不写 settings、不动窗口状态、不改 state(除了那张临时截图)。
 #
 # 两种输入：
 #   -Image 已有一张 PNG(比如从 state\rescue\ 里挑出来的历史截图) → 直接问它，连截屏这一步都省了；
@@ -47,29 +47,39 @@ if (-not $Game -and -not $Image) {
 if ($Image -and -not (Test-Path -LiteralPath $Image)) { Stop-GdBeforeRun "-Image 指的文件不存在：$Image" }
 
 $kind = if ($Game) { Get-GdVisionKindFor -Id $Game } else { '' }
-$t = $null
 if ($Game -and -not $kind) { Stop-GdBeforeRun "-Game $Game 不是这棵树上的模块(有的：$((Get-GdModuleIds -AvailableOnly) -join ' / '))" }
+# 11-06 刀⑮ 笔(c)：靶子不再从 PS 后端文件里要(Get-GdVisionTarget 那族随三件本体出仓)，
+# 改问核 resolve-rescue-context —— 六道现场闸的判语与话术全在核里，这里只转达。
+# mumu 一路的端点三源两正则也不在这侧：先问 resolve-mumu-adb-endpoint 拿 adb/serial 再喂 ctx。
+$ctx = $null
+$ep = $null
 if ($kind) {
-    $t = Get-GdVisionTarget -S $S -Kind $kind
-    if (-not $t) {
-        Stop-GdBeforeRun "这棵树上没有 $kind 这一路的视觉兜底后端(没有 New-GdVisionTarget-$kind 这个函数)。单游戏仓库只带自己那一份后端，这是正常形态"
+    $body = [ordered]@{ target = $kind }
+    if ($kind -eq 'mumu') {
+        $ep = Invoke-GdCli -Verb 'resolve-mumu-adb-endpoint' -Body ([pscustomobject]@{})
+        $body['adb'] = [string]$ep.Adb
+        $body['serial'] = [string]$ep.Serial
     }
+    $ctx = Invoke-GdCli -Verb 'resolve-rescue-context' -Body ([pscustomobject]$body)
 }
 
 Write-Host '== 问谁 ==' -ForegroundColor Cyan
-if ($t) {
-    Write-Host "  后端    : $($t.Kind)($($t.Name))"
-    Write-Host "  开关    : $(if ($t.Enabled) { '开' } else { "关 —— $($t.Why)" })"
-    Write-Host "  要管理员: $(if ($t.NeedsAdmin) { "是$(if ($t.AdminWhy) { "($($t.AdminWhy))" })" } else { '否' })   当前$(if (Test-GdAdmin) { '已提权' } else { '未提权' })"
+if ($ctx) {
+    Write-Host "  后端    : $($ctx.Kind)($($ctx.Name))"
+    Write-Host ('  开关    : ' + $(if ($ctx.Enabled) { '开' } else { "关 —— $($ctx.Skip)" }))
+    Write-Host "  要管理员: $(if ($ctx.NeedsAdmin) { "是$(if ($ctx.AdminWhy) { "($($ctx.AdminWhy))" })" } else { '否' })   当前$(if (Test-GdAdmin) { '已提权' } else { '未提权' })"
 } else {
     Write-Host '  后端    : (用 -Image 那张已有图，不需要后端)'
 }
 $model = if ($S.runtime.visionModel) { [string]$S.runtime.visionModel } else { 'qwen3.8-flash(默认)' }
 Write-Host "  模型    : $model"
-Write-Host "  端点    : $(Resolve-GdVisionEndpoint -Base ([string]$S.runtime.visionBaseUrl))"
+Write-Host "  端点    : $((Invoke-GdCli -Verb 'resolve-vision-endpoint' -Body ([pscustomobject]@{ base = [string]$S.runtime.visionBaseUrl })).Url)"
 $py = Get-GdPythonExe -S $S
 Write-Host "  Python  : $(if ($py) { $py } else { '没找到可用的 → 跑 setup.ps1 -WithPython' })"
-Write-Host "  key     : $(if (Get-GdVisionApiKey -S $S) { '已配(内容不打印)' } else { '没配 → 后面问不成' })"
+# 11-06 刀⑮ 笔(c)：key 的取法现地内联(与 1999-event-audit.ps1 同一形制)——Get-GdVisionApiKey 那枚壳随三件本体出仓。
+$key = $env:DASHSCOPE_API_KEY
+if (-not $key -and $S.runtime -and $S.runtime.visionApiKey) { $key = [string]$S.runtime.visionApiKey }
+Write-Host "  key     : $(if ($key) { '已配(内容不打印)' } else { '没配 → 后面问不成' })"
 
 # ---------- 拿到一张图 ----------
 # $shot 要留着：模型给的是千分比，换算成"这张图上的第几个像素"得有宽高等信息，
@@ -78,11 +88,15 @@ $path = $Image
 $tmp = ''
 $shot = $null
 if (-not $Image) {
-    if (-not $t.Enabled) { Stop-GdBeforeRun "这一路的兜底开关是关的($($t.Why))。只想看模型怎么答：把开关打开，或者把 -Image 指到一张已有截图" }
-    if ($t.NeedsAdmin -and -not (Test-GdAdmin)) { Stop-GdBeforeRun "这一路要管理员权限才拍得到东西：$($t.AdminWhy)。用「以管理员身份运行」打开 PowerShell 再跑本文件" }
-    if (-not (& $t.Alive)) { Stop-GdBeforeRun "$($t.Name)现在不在(端游没开？虚拟机没起？)，拍不到东西" }
-    $tmp = Join-Path (Get-GdRescueShotDir) ('ask-' + (Get-Date -Format 'MMdd-HHmmss') + '-' + $t.Kind + '.png')
-    $shot = & $t.Shot $tmp
+    if (-not $ctx.Enabled) { Stop-GdBeforeRun "这一路的兜底开关是关的($($ctx.Skip))。只想看模型怎么答：把开关打开，或者把 -Image 指到一张已有截图" }
+    if ($ctx.NeedsAdmin -and -not (Test-GdAdmin)) { Stop-GdBeforeRun "这一路要管理员权限才拍得到东西：$($ctx.AdminWhy)。用「以管理员身份运行」打开 PowerShell 再跑本文件" }
+    if (-not $ctx.CanAsk) { Stop-GdBeforeRun ([string]$ctx.Skip) }
+    $tmp = Join-Path (Join-Path (Get-GdDir 'State') 'rescue') ('ask-' + (Get-Date -Format 'MMdd-HHmmss') + '-' + $ctx.Kind + '.png')
+    if ($ctx.Kind -eq 'mumu') {
+        $shot = Invoke-GdCli -Verb 'mumu-screen-shot' -Body ([pscustomobject]@{ path = $tmp; adb = [string]$ep.Adb; serial = [string]$ep.Serial })
+    } else {
+        $shot = Invoke-GdCli -Verb 'ark-window-shot' -Body ([pscustomobject]@{ path = $tmp })
+    }
     if (-not $shot.Ok) { Stop-GdBeforeRun "截图失败：$($shot.Why)" }
     $path = $shot.Path
     Write-Host "`n== 画面 ==" -ForegroundColor Cyan
@@ -100,19 +114,22 @@ if (-not $Image) {
 # ---------- 问一次，只问 ----------
 Write-Host "`n== 问模型 ==" -ForegroundColor Cyan
 if ($Context) { Write-Host "  带去的上下文：$Context" -ForegroundColor DarkGray }
-$scene = if ($t) { [string]$t.Scene } else { '' }
-$userText = if ($t) { [string]$t.UserText } else { '' }
-$raw = Invoke-GdVisionRaw -S $S -ImagePath $path -Scene $scene -UserText $userText -Context $Context
-if (-not $raw.Ok) {
-    Write-Host "  没问成：$($raw.Error)" -ForegroundColor Red
+$scene = if ($ctx) { [string]$ctx.Scene } else { '' }
+$userText = if ($ctx) { [string]$ctx.UserText } else { '' }
+# 11-06 刀⑮ 笔(c)：问价与抠判定并成一次问核 —— vision-ask-model 的回件里就带 Verdict
+# (核内 Vision.Ask 末尾自己跑了一遍 Verdict，空文本/抠不出 JSON 时为 null，与旧 Get-GdVisionVerdictFromText 回 $null 同形)。
+$ask = Invoke-GdCli -Verb 'vision-ask-model' -Body ([pscustomobject]@{ imagePath = [string]$path; scene = $scene; userText = $userText; context = $Context })
+if (-not $ask.Ok) {
+    Write-Host "  没问成：$($ask.Error)" -ForegroundColor Red
     if ($tmp -and -not $Keep) { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
     exit 1
 }
-Write-Host "  HTTP $($raw.HttpStatus)  模型 $($raw.Model)  用时 $($raw.ElapsedMs) ms  发出去 $($raw.Attempts) 次"
+Write-Host "  HTTP $($ask.HttpStatus)  模型 $($ask.Model)  用时 $($ask.ElapsedMs) ms  发出去 $($ask.Attempts) 次"
 Write-Host "`n== 模型原话 ==" -ForegroundColor Cyan
-Write-Host ([string]$raw.Text)
+Write-Host ([string]$ask.Text)
 
-$v = Get-GdVisionVerdictFromText -Text ([string]$raw.Text)
+$v = $null
+if ($ask.Verdict -and [bool]$ask.Verdict.Found) { $v = $ask.Verdict }
 if (-not $v) {
     Write-Host "`n没从这段回复里抠出 JSON → 按兜底的规矩，这种话不会被拿去点任何东西。" -ForegroundColor Yellow
 } else {
@@ -123,13 +140,23 @@ if (-not $v) {
         $i = 0
         foreach ($c in @($v.Clicks)) {
             $i++
-            $pt = if ($shot) { Get-GdRescueClickPoint -Shot $shot -Verdict $c } else { $null }
+            $pt = $null
+            if ($shot) {
+                $cp = Invoke-GdCli -Verb 'vision-click-point' -Body ([pscustomobject]@{
+                    nx = $c.X; ny = $c.Y
+                    imgW = [int]$shot.ImgW; imgH = [int]$shot.ImgH
+                    clientLeft = [int]$shot.ClientLeft; clientTop = [int]$shot.ClientTop
+                    clientW = [int]$shot.ClientW; clientH = [int]$shot.ClientH
+                    max = 1000; why = [string]$c.Why
+                })
+                if ([bool]$cp.Found) { $pt = $cp }
+            }
             $where = ''
             if ($shot) { $where = if ($pt) { "→ 图上像素 $($pt.BitmapX),$($pt.BitmapY)" } else { '→ 落在这张图外面，兜底会拒掉它' } }
             Write-Host ("    {0} ({1,4},{2,4})  {3} {4}" -f $i, [int]$c.X, [int]$c.Y, $c.Why, $where)
         }
     }
-    Write-Host '  本文件没有点任何东西。真要去救火，等卡住时由 lib\vision-rescue.ps1 自己兜，或直接跑日常入口。' -ForegroundColor Green
+    Write-Host '  本文件没有点任何东西。真要去救火，等卡住时由核内兜底编排自己兜，或直接跑日常入口。' -ForegroundColor Green
 }
 if ($Keep) {
     Copy-Item -LiteralPath $path -Destination $Keep -Force

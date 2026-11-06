@@ -5992,7 +5992,7 @@ fn drive_m9a_daily_envelope(
         Err(e) => return (1, fail(&format!("驱动协议坏了：ctx 的 m9aRun 读不动：{}", e))),
     };
     // 名册外那五格按真身给：state_dir 来自 --state（第六闸），game/target 是真身 m9a.ps1 里写死的
-    // 两个字母面，两枚可用性是装载期事实（lib\r1999-module.ps1:39 只带 vision-rescue.ps1；锚原写 :27，刀⑦ 笔(a) 摘掉清单里那枚编排键后现读真值 :39）。
+    // 两个字母面，两枚可用性按史注读（lib\r1999-module.ps1:39 曾只带 vision-rescue.ps1；锚原写 :27，刀⑦ 笔(a) 后真值 :39；11-06 刀⑮ 笔(d) vision 三件整件出仓、Libs 摘净 ⇒ 这一格自此是核内常量 true/false，判据面＝resolve-rescue-context 按 kind 认路）。
     scen.state_dir = state.to_string();
     scen.game = "r1999".to_string();
     scen.target = "mumu".to_string();
@@ -9198,10 +9198,10 @@ trait MaaHost {
     fn verb(&mut self, name: &str, body: &JVal) -> Result<JVal, String>;
     /// 旧真身 `Get-Command Invoke-GdVisionRescue`（那枚 PS 函数已随第二十刀刀③ 出仓）。B-2a 恒 false；B-2b③ 起转真，
     /// 但**那句问不出**——树上有没有这枚函数属装载期事实，不属判据：剧本侧由 `rescueAvailable` 喂（夹具说，
-    /// 不许核自己猜），生产侧按 game 给常量（ark/m9a 都带 vision-rescue.ps1 ⇒ 恒 true）。
+    /// 不许核自己猜），生产侧按 game 给常量（此前依据是 ark/m9a 的清单都带 vision-rescue.ps1 ⇒ 恒 true；11-06 刀⑮ 笔(d) 后该常量由核内直身供：mumu 后端住 Live.cs／Gate.Host.cs，两路都在场）。
     fn rescue_available(&self) -> bool;
-    /// `Get-Command Invoke-GdArkForegroundGrab`。同上，但**按场景分**：抢前台那枚住 vision-ark.ps1，
-    /// 只有端游一路的 Libs 带着它 ⇒ ark 可 true，m9a 那一路结构上就是 false（剧本侧喂 `grabAvailable`）。
+    /// `Get-Command Invoke-GdArkForegroundGrab`。同上，但**按场景分**：抢前台那枚此前住 vision-ark.ps1(已随 11-06 刀⑮ 笔(d) 整件出仓)，
+    /// 真身现在只有 C# 一份(Live.cs ark-grab-foreground)，ark 可 true、mumu 那一路结构上就是 false（剧本侧喂 `grabAvailable`）。
     fn grab_available(&self) -> bool;
 }
 
@@ -9243,9 +9243,9 @@ struct MaaScen {
     // ===== B-2b：兜底编排要吃的六格 =====
     // game/target 是旧 `Add-GdRescueRecord -Game/-Target` 与靶子名（那枚函数随刀③ 出仓；maa.ps1 五处写死 'ark' 的
     // 调用点更早在甲档第四刀出仓，账见 §11.158）；
-    // 两枚 *_available 取代 B-2a 的恒 false —— 剧本给什么就用什么，`Get-Command` 那两问的真身在
-    // lib\ark-module.ps1 / lib\r1999-module.ps1 的 Libs 清单里（ark 两枚都在场；r1999 只有 rescue 在场，
-    // 抢前台那枚住 lib\vision-ark.ps1，只有 ark 一路点它）。
+    // 两枚 *_available 取代 B-2a 的恒 false —— 剧本给什么就用什么；`Get-Command` 那两问的原出处在
+    // lib\ark-module.ps1 / lib\r1999-module.ps1 的 Libs 清单里（ark 两枚都在场；r1999 只有 rescue 在场——11-06 刀⑮ 笔(d) 三件 vision 整件出仓，这句按史注读，
+    // 抢前台那枚的真身自此只有 C# 一份 Live.cs ark-grab-foreground，仍只有 ark 一路点它）。
     game: String,
     target: String,
     rescue_available: bool,
@@ -11300,8 +11300,8 @@ struct RealHost {
     /// 它与链体行同序落进同一文件，壳侧一次排空就照原级别回放整条链 —— 通道只有一条。
     log_sink: String,
     // 两枚可用性在真身世界不是问盘问出来的，而是问"这一路的模块清单里有没有那枚函数"：
-    // lib\ark-module.ps1:45 的 Libs 带 vision-rescue.ps1 + vision-ark.ps1 ⇒ 两枚都在场（锚原写 :31，刀⑦ 笔(a) 后现读真值 :45）；
-    // lib\r1999-module.ps1:39 的 Libs 只带 vision-rescue.ps1（抢前台那枚是端游专用的，住 vision-ark.ps1；锚原写 :27）
+    // lib\ark-module.ps1:45 的 Libs 曾带 vision-rescue.ps1 + vision-ark.ps1 ⇒ 两枚都在场（锚原写 :31，刀⑦ 笔(a) 后真值 :45；11-06 刀⑮ 笔(d) 三件整件出仓、Libs 只剩 maa.ps1，这两行锚自此按史注读）；
+    // lib\r1999-module.ps1:39 的 Libs 曾只带 vision-rescue.ps1（抢前台那枚是端游专用的；锚原写 :27，同上按史注读）
     // ⇒ rescue 在场、grab 不在场。这是**装载期就定了的事实**，不随现场变，所以按 game 给常量，
     // 不去现跑 `Get-Command`（问了也是同一个答案，还要多引一条"当前模块加载了哪些 lib"的现场依赖）。
     rescue_avail: bool,
@@ -11481,7 +11481,7 @@ fn drive_real_m9a_run(
     let mut sc2 = sc.clone();
     sc2.dry_run = false;
     // game 是名册外的常量（真身 m9a.ps1 三处写死 'r1999'），由 envelope 填好再进来；
-    // for_game 按它给两枚可用性：r1999 ⇒ rescue 在场、grab 不在场（lib\r1999-module.ps1:39 的清单事实，锚原写 :27）。
+    // for_game 按它给两枚可用性：r1999 ⇒ rescue 在场、grab 不在场（此前为 lib\r1999-module.ps1:39 的清单事实，锚原写 :27；11-06 刀⑮ 笔(d) 后是核内常量，按史注读）。
     let mut h = RealHost::for_game(panel_cs, &sc2.game, log_sink);
     let r = m9a_run(&mut h, &sc2)?;
     Ok(M9aRunOut { status: r.status, detail: r.detail, duration: r.duration, rescued: r.rescued })
@@ -15937,8 +15937,8 @@ fn selftest() -> i32 {
         &mut total,
     );
     // B-2b 把 B-2a 那两枚"恒 false"换成按模块清单给的常量（ark-module.ps1:45 / r1999-module.ps1:39，锚原写 :31 / :27）。
-    // 这里钉的是"两路各是什么"这一格本身 —— 树上有没有那枚函数的事实源在 lib 的 Libs 清单里，
-    // 清单变了这里就得跟着变（跟着变是应当的，不是回归）。
+    // 这里钉的是"两路各是什么"这一格本身 —— 事实源此前在 lib 清单的 Libs 里；11-06 刀⑮ 笔(d) vision 三件整件出仓、
+    // Libs 不再声明 PS 后端 ⇒ 这一格自此钉的是核内常量(ark 两枚都在、mumu 只有 rescue)：按 game 给常量的形状不变、出处换了，常量值一个字没动。
     chk(
         rh19.rescue_available() && rh19.grab_available(),
         "RealHost(ark) 的两枚可用性走样：ark 一路兜底与抢前台都在场，缺任何一枚 stuck 档就走不到兜底那一步",

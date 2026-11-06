@@ -5,7 +5,8 @@
   系统不敢自动跑，等人来入口脚本的 ack 开关(单游戏仓 -Ack / 合体 -Ack1999)确认"。查过数据面：M9A 的 data\activity\cn.json 只有
   活动期元数据(版本/起止/类型)，**没有任何玩家进度** —— 所以判据只有一条路：模拟器里的 1999 画面 +
   视觉模型(qwen3.8-flash，通道 tools\vision\ask.py)。三条硬纪律：
-    1) 只问不点：不碰 vision-rescue 的点击通道，截屏只走 adb(Save-GdMuMuShot)；
+    1) 只问不点：不碰 vision-rescue 的点击通道，截屏只走 adb(11-06 刀⑮ 笔(c) 起改问核 mumu-screen-shot，
+       PS 侧 Save-GdMuMuShot 那枚壳随笔(d) 摘件)；
     2) 三态回答 yes / no / unknown —— 只有**画面证据明确的 yes** 才自动落 ack(问核，不再叫编排岛里那枚壳)，
        no/unknown 维持 pending 照旧等人；宁可多问人一次，不许猜着 ack(ack 的下游是"放开自动刷活动方案")；
     3) 证据全留底：截图、模型原话、判定、有没有 ack，都落 state\1999-progress-audit\，事后可审计可回滚。
@@ -49,7 +50,10 @@ Write-Host ('  待确认活动：{0}[{1}] —— 判定源只认画面，不猜'
 
 $py = Get-GdPythonExe -S $S
 if (-not $py) { Write-Host '  没找到可用的 Python 3(问模型那层用它) → 审不了' -ForegroundColor Red; exit 1 }
-$key = Get-GdVisionApiKey -S $S
+# 刀⑮ 笔(c)：key 的取法真身就三行(环境变量优先、其次 settings.runtime.visionApiKey，只读不打印)，
+# PS 侧那枚壳随 vision-rescue 三本一起出仓 ⇒ 在这儿现地内联，key 内容依旧一个字符都不进日志。
+$key = $env:DASHSCOPE_API_KEY
+if (-not $key -and $S.runtime -and $S.runtime.visionApiKey) { $key = [string]$S.runtime.visionApiKey }
 if (-not $key) { Write-Host '  没有视觉模型的 API key(settings.runtime.visionApiKey 或环境变量 DASHSCOPE_API_KEY) → 审不了' -ForegroundColor Red; exit 1 }
 $askPy = Join-Path $root 'tools\vision\ask.py'
 if (-not (Test-Path -LiteralPath $askPy)) { Write-Host '  缺 tools\vision\ask.py → 审不了' -ForegroundColor Red; exit 1 }
@@ -83,7 +87,10 @@ if ($Image) {
        所以落点要有界轮询：每 6 秒问一次、最多 10 次(约一分钟)，问到就走，全空才认审不了。 #>
     $ep = $null
     for ($tryEp = 1; $tryEp -le 10; $tryEp++) {
-        $ep = Get-GdMuMuAdbEndpoint -S $S
+        # 刀⑮ 笔(c)：落点三源两正则的真身早已在核里(Gate.Host.cs MuMuEndpoint，生产另一路 RequestScreen 进程内直调)，
+        # 这一枚 verb 只是把它露成出口——回执三键 {Adb,Serial,Why} 与旧壳同形，settings 由核现读、不进 body。
+        $epd = Invoke-GdCli -Verb 'resolve-mumu-adb-endpoint' -Body ([pscustomobject]@{})
+        $ep = [pscustomobject]@{ Adb = [string]$epd.Adb; Serial = [string]$epd.Serial; Why = [string]$epd.Why }
         if ($ep.Adb -and $ep.Serial) { break }
         if ($tryEp -lt 10) { Start-Sleep -Seconds 6 }
     }
@@ -110,7 +117,8 @@ if ($Image) {
 try {
     if (-not $Image) {
         $png = Join-Path $auditDir "$ts.png"
-        $shot = Save-GdMuMuShot -Adb $ep.Adb -Serial $ep.Serial -Path $png
+        # 刀⑮ 笔(c)：截屏改问核(mumu-screen-shot，Live.cs 直身)；回执 Ok/Why/ImgW/ImgH/AvgLum 与旧壳 Save-GdMuMuShot 同形。
+        $shot = Invoke-GdCli -Verb 'mumu-screen-shot' -Body ([pscustomobject]@{ path = $png; adb = [string]$ep.Adb; serial = [string]$ep.Serial })
         if (-not $shot.Ok) { Write-Host "  截屏失败：$($shot.Why) → 审不了" -ForegroundColor Red; exit 1 }
         Write-Host ('  截屏：{0}x{1} 平均亮度 {2}' -f $shot.ImgW, $shot.ImgH, $shot.AvgLum)
         if ([int]$shot.AvgLum -lt 8) { Write-Host '  这一屏几乎全黑，模型会一本正经地胡说 —— 照问，但结论预期是 unknown' -ForegroundColor Yellow }
@@ -136,7 +144,8 @@ try {
         image           = [string]$png
         system_prompt   = $sysPrompt
         user_text       = $userText
-        endpoint        = (Resolve-GdVisionEndpoint -Base ([string]$S.runtime.visionBaseUrl))
+        # 刀⑮ 笔(c)：端点补全规矩的直身住在 Vision.cs(resolve-vision-endpoint 已在册)，旧壳随笔(d) 出仓。
+        endpoint        = (Invoke-GdCli -Verb 'resolve-vision-endpoint' -Body ([pscustomobject]@{ base = [string]$S.runtime.visionBaseUrl })).Url
         model           = $model
         temperature     = 0
         max_tokens      = 400

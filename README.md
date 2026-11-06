@@ -304,8 +304,7 @@ pwsh -File install-task.ps1 -Uninstall
   lib\decisions.ps1    今天用哪个方案：版本窗口、确认门、实例选择
   lib\m9a.ps1          M9A 实例切换 + 命令行启动 + logs\log-*.log 判定
   lib\mumu.ps1         MuMuManager 启停、adb 探活
-  lib\vision-rescue.ps1 卡住时的视觉兜底公共层（问模型→抠 JSON→换算点位→点一下→比对画面；见第 2.1 节，不想要就关）
-  lib\vision-mumu.ps1 兜底的模拟器后端：adb 拍屏 + adb tap（不要管理员，也碰不到宿主机窗口）
+  （11-06 刀⑮ 笔(d)：lib\vision-rescue.ps1／lib\vision-mumu.ps1 已整件出仓 —— 兜底判据住核内(resolve-rescue-context)，adb 拍屏／tap／端点三段的真身在 tools\panel-cs\Live.cs／Gate.Host.cs；第 2.1 节讲的行为一字未变，不想要照旧关开关）
   lib\supervisor.ps1  监督 agent（见第 2.2 节）：证据→状态→动作三段纯函数 + 起停/记账；这一路只通知，不碰模拟器
   tools\supervise.ps1 监督的心跳子进程本体（真跑一轮时自动隐藏起；-Once 手动拍一拍）
   tools\vision-ask.ps1 只问不点：把虚拟机现屏交给模型、原样打印回答，一次点击都不做

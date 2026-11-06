@@ -23,7 +23,9 @@ param(
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '.')).Path
 . (Join-Path $root 'lib\common.ps1')
-. (Join-Path $root 'lib\detect.ps1')
+# 11-06 转接刀·运行面刀⑮ 笔(a)：lib\detect.ps1 三枚壳整件出仓(72 行)。探测判据本就只住在 C# 一份
+#   (tools\panel-cs\Detect.cs::Installs)，固定盘那枚口径现拍也归对面自供(Installs 里 roots 不给就用
+#   Detect.cs::FixedRoots)——PS 侧自此不再自己组装 roots、不再留第二层壳，下面两枚助手只递参、只拆回执。
 
 $templatePath = Join-Path $root 'config\settings.example.json'
 $outPath = Join-Path $root 'config\settings.json'
@@ -45,6 +47,31 @@ function Resolve-GdPathArg {
     return (Get-Item -LiteralPath $p -ErrorAction SilentlyContinue).FullName
 }
 
+function Resolve-GdInstallProbe {
+    <# 一类软件的探测合并(进程→卸载表→磁盘扫描)＝detect-installs，判据全在 Detect.cs(三源/过滤/排序/文案)；
+       roots 不递 ⇒ 对面自供固定盘口径。无命中回 $null(上面 Select-GdItem 靠 if($r) 分流)。 #>
+    param([Parameter(Mandatory)][string[]]$ProcessNames, [Parameter(Mandatory)][string[]]$ExeNames,
+          [Parameter(Mandatory)][string[]]$NameHints, [string[]]$UninstallLike = @(),
+          [string]$PickProp = 'Dir', [string]$RelExe = '', [string]$TrimSegment = '', [switch]$SkipScan)
+    $d = Invoke-GdCli -Verb 'detect-installs' -Body ([pscustomobject]@{
+        processNames = @($ProcessNames); exeNames = @($ExeNames); nameHints = @($NameHints); uninstallLike = @($UninstallLike)
+        pickProp = $PickProp; relExe = $RelExe; trimSegment = $TrimSegment; skipScan = [bool]$SkipScan
+    })
+    if (-not $d.Found) { return $null }
+    return @{ Value = [string]$d.Value; Source = [string]$d.Source }
+}
+
+function Get-GdMuMuVmProbe {
+    <# 壳内只剩两件本机才有的事：文件在不在、起 MuMuManager(起外部进程归编排层)。
+       JSON→VM 列表的判据在 Processes.cs(verb parse-mumu-vms)，这里只把 Vms 还原成 Index/Name 两键。 #>
+    param([Parameter(Mandatory)][string]$Manager)
+    if (-not (Test-Path -LiteralPath $Manager)) { return @() }
+    $raw = try { & $Manager 'info' '--vmindex' 'all' 2>$null | Out-String } catch { '' }
+    if (-not ([string]$raw).Trim()) { return @() }
+    $d = Invoke-GdCli -Verb 'parse-mumu-vms' -Body ([pscustomobject]@{ raw = $raw })
+    return @(foreach ($v in @($d.Vms)) { [pscustomobject]@{ Index = [string]$v.Index; Name = [string]$v.Name } })
+}
+
 # 每一项：命令行 > 现有配置(仍有效) > 进程 > 扫描
 function Select-GdItem {
     param(
@@ -63,12 +90,12 @@ function Select-GdItem {
 $results = [ordered]@{}
 if (-not $SkipScan) { Write-Host '开始探测(固定磁盘浅层扫描，几秒到几十秒)…' -ForegroundColor DarkGray } else { Write-Host '-SkipScan：跳过磁盘扫描' -ForegroundColor DarkGray }
 
-$probeMaa = { Resolve-GdCandidate -ProcessNames @('MAA', 'MaaAssistantArknights') -ExeNames @('MAA.exe') -NameHints @('*MAA*', 'MaaAssistant*') -SkipScan:$SkipScan }
-$probeM9A = { Resolve-GdCandidate -ProcessNames @('m9a', 'M9A', 'MFAAvalonia') -ExeNames @('m9a.exe') -NameHints @('*M9A*', '*MFAA*') -SkipScan:$SkipScan }
-$probeMuMu = { Resolve-GdCandidate -ProcessNames @('MuMuNxMain', 'MuMuNxDevice', 'MuMuVM') -ExeNames @('MuMuManager.exe') `
+$probeMaa = { Resolve-GdInstallProbe -ProcessNames @('MAA', 'MaaAssistantArknights') -ExeNames @('MAA.exe') -NameHints @('*MAA*', 'MaaAssistant*') -SkipScan:$SkipScan }
+$probeM9A = { Resolve-GdInstallProbe -ProcessNames @('m9a', 'M9A', 'MFAAvalonia') -ExeNames @('m9a.exe') -NameHints @('*M9A*', '*MFAA*') -SkipScan:$SkipScan }
+$probeMuMu = { Resolve-GdInstallProbe -ProcessNames @('MuMuNxMain', 'MuMuNxDevice', 'MuMuVM') -ExeNames @('MuMuManager.exe') `
                                      -NameHints @('*MuMu*') -UninstallLike @('*MuMu*') -RelExe (Join-Path 'nx_main' 'MuMuManager.exe') `
                                      -TrimSegment 'nx_main' -SkipScan:$SkipScan }
-$probeArk = { Resolve-GdCandidate -ProcessNames @('Arknights', 'HypergryffClient') -ExeNames @('Arknights.exe') `
+$probeArk = { Resolve-GdInstallProbe -ProcessNames @('Arknights', 'HypergryffClient') -ExeNames @('Arknights.exe') `
                                     -NameHints @('*Arknights*', '*明日方舟*', 'Game', 'games') -UninstallLike @('*Arknights*', '*明日方舟*') -PickProp 'Exe' -SkipScan:$SkipScan }
 
 $cur = $null
@@ -95,7 +122,7 @@ foreach ($k in @('paths.maaDir', 'paths.m9aDir', 'paths.mumuDir', 'paths.arknigh
 $vmNote = ''
 if ($hasR1999 -and $results['paths.mumuDir'].Value) {
     $mgr = Join-Path $results['paths.mumuDir'].Value ([string]$cfg.paths.mumuManager)
-    $vms = @(Get-GdMuMuVmList -Manager $mgr)
+    $vms = @(Get-GdMuMuVmProbe -Manager $mgr)
     if ($VmIndex) {
         $pick = @($vms | Where-Object { $_.Index -eq $VmIndex })
         $results['mumu.vmIndex'] = @{ Value = $VmIndex; Source = '命令行 -VmIndex' }

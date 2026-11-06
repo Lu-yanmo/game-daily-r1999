@@ -1,5 +1,5 @@
 // tools/panel-cs/Detect.SelfTest.cs —— --statetest：批次 2(Detect.cs)的无头自检。
-// 期望串逐字抄自 lib\detect.ps1 / lib\ark-status.ps1 / lib\r1999-status.ps1 的旧实现 ——
+// 期望串逐字抄自旧树 lib\detect.ps1 / lib\ark-status.ps1 / lib\r1999-status.ps1 的旧实现(三本均已整件出仓：后两本 11-04 刀④，detect 那本 11-06 刀⑮(a)) ——
 // 这里红了就是移植走样，改 Detect.cs，不改这里的期望。
 //
 // 一个重要坑(写假树前必须知道)：探测的跳过段清单里有 temp/appdata —— 假树要是建在 %TEMP% 下，

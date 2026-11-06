@@ -1,7 +1,7 @@
 // tools/panel-cs/Detect.cs —— 批次 2：安装位置探测(detect) + 两个只读状态段落(队列行/实例行)。
 //
-// 单一事实源纪律：自本批起 lib\detect.ps1 的 Resolve-GdCandidate、lib\ark-status.ps1 的 Show-GdArkQueueState、
-// lib\r1999-status.ps1 的 Show-GdR1999InstanceList 的**解析/探测本体**住这里，PS 侧只剩薄转发壳。
+// 单一事实源纪律：探测/解析本体只住这里一份。⚠ 11-06 转接刀·运行面刀⑮ 笔(a)：旧树 lib\detect.ps1 整件出仓，
+// setup.ps1 的探测改由它自己的本地助手直点 verb(roots 也不再从外侧递，见下面 FixedRoots 那一档自供口径)。
 // ⚠ 转接刀·运行面刀④(2026-11-04)：后两枚壳连壳带件出仓(那两本 lib\*-status.ps1 整件退役)，
 //   转发面自此住在两本 *-module.ps1 的 StatusSection 钩子里，直身仍只有这里一份。
 // 文案(Value/Source/行式)必须与 PS 原话逐字符一致 —— `--statetest` 逐字钉住(原对拍门甲档第十刀退役)，禁止放宽。
@@ -45,7 +45,7 @@ namespace GdPanel
             public string Prop(string name) { return name == "Exe" ? Exe : Dir; }
         }
 
-        // ==================== 路径过滤(逐字对齐 lib\detect.ps1 的两张表) ====================
+        // ==================== 路径过滤(两张表只此一份；旧 lib\detect.ps1 已于 11-06 刀⑮(a) 整件出仓) ====================
 
         static readonly string[] SkipSegments = new string[] { "windows", "appdata", "programdata", "windowsapps", "$recycle.bin",
             "system volume information", "winsxs", "temp", "node_modules", ".git" };
@@ -357,7 +357,7 @@ namespace GdPanel
 
         public static string[] FixedRoots()   // public 只为 --statetest 能敲形状，别的业务方不需要
         {
-            // Get-GdFixedRoot：固定盘且就绪，根目录去尾斜杠再加回一个 '\' —— 与 PS 的 TrimEnd+'\'+ 同形
+            // 固定盘且就绪，根目录去尾斜杠再加回一个 '\' —— 与旧 Get-GdFixedRoot 同形(11-06 刀⑮(a) 随 lib\detect.ps1 出仓，这份就是唯一口径)
             List<string> outList = new List<string>();
             try
             {

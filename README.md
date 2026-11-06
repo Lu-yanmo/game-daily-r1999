@@ -300,7 +300,7 @@ pwsh -File install-task.ps1 -Uninstall
   config\settings.example.json  配置模板（入仓）
   config\settings.json  唯一需要配的文件（不入仓）
   lib\common.ps1       日志/JSON/备份/防睡眠/进程/通知
-  lib\detect.ps1       安装位置探测：进程 → 卸载表 → 磁盘浅层扫描
+  （2026-11-06 转接刀·运行面刀⑮ 笔(a) 起本行不再是目录项：lib\detect.ps1 已整件删除、本仓库不再带这一枚文件；探测判据的真身只住 tools\panel-cs\Detect.cs 一份，setup.ps1 直点 verb detect-installs／parse-mumu-vms）
   lib\decisions.ps1    今天用哪个方案：版本窗口、确认门、实例选择
   lib\m9a.ps1          M9A 实例切换 + 命令行启动 + logs\log-*.log 判定
   lib\mumu.ps1         MuMuManager 启停、adb 探活

@@ -1,7 +1,7 @@
 // tools/panel-cs/Processes.cs —— 批次 3：外部进程层的"纯解析/纯规划"本体，从 lib\maa.ps1 / lib\m9a.ps1 / lib\mumu.ps1 逐条搬来。
 //
 // 单一事实源纪律：自本批起 PS 侧的 Get-MaaAsstStuckState / Get-MaaAsstStuckHint / Set-MaaDailyConfig 的规则段、
-// Get-M9ALaunchArgs(⚠ 10-26 甲档第五刀刀②：那枚 PS 壳已出仓，这一份就是唯一实现)／Read-GdM9ALine／Resolve-M9AStatus、Get-GdMuMuState 的 JSON 解读、Get-GdMuMuVmList 的
+// Get-M9ALaunchArgs(⚠ 10-26 甲档第五刀刀②：那枚 PS 壳已出仓，这一份就是唯一实现)／Read-GdM9ALine／Resolve-M9AStatus、Get-GdMuMuState 的 JSON 解读、Get-GdMuMuVmList 的(⚠ 11-06 刀⑮(a)：那枚壳随 lib\detect.ps1 整件出仓，起 MuMuManager 仍留 PS 侧)
 // 属性表转换、Connect-GdAdb / Get-Gd1999Pid 的输出判定 —— 全部只剩薄转发壳，规则只写 C# 这一份。
 // 文案必须与 PS 原话逐字符一致：期望串逐字钉在 Processes.SelfTest.cs(--proctest，12 刀起接替已退役的
 // tools\probe-process-golden.ps1 等值门)，

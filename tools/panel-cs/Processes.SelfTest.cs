@@ -1,5 +1,5 @@
 // tools/panel-cs/Processes.SelfTest.cs —— --proctest：批次 3(Processes.cs)的无头自检。
-// 期望串逐字抄自 lib\maa.ps1 / lib\m9a.ps1 / lib\mumu.ps1 / lib\detect.ps1 的旧实现 ——
+// 期望串逐字抄自 lib\maa.ps1 / lib\m9a.ps1 / lib\mumu.ps1 与旧树 lib\detect.ps1(11-06 刀⑮(a) 整件出仓)的旧实现 ——
 // 临时生成器(gd-proc-gen)在 HEAD 旧实现上跑同一套场景抓出 TSV，这里的期望从那份 TSV 解码一层搬来；
 // 这里红了就是移植走样，改 Processes.cs，不改这里的期望(docs\ps-migration-batch0.md §7 同一条纪律)。
 //

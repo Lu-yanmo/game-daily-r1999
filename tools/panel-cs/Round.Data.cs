@@ -27,7 +27,7 @@
 // 双源登记(改一句要两侧同改；生产接线(②-d)之前 PS 那侧仍是事实源)：
 //   * 上面每一句 WARN/OK 原话 ↔ lib\ark-daily.ps1:48-58 / lib\r1999-daily.ps1:49-68 / lib\ark-decisions.ps1:87-109；
 //   * state 文件名与外层键(`$Game-event-ack`+`acked`、`$Game-shop-done`+`done`、`ark-event-probe` 的五键)
-//     ↔ lib\decisions-common.ps1:57-139 与 lib\ark-decisions.ps1:119-180 —— 键名与时间戳格式('yyyy-MM-dd HH:mm')是磁盘协议，
+//     ↔ lib\decisions-common.ps1:57-139 与 lib\ark-decisions.ps1:119-156(写盘半段 158-189 已于 11-06 转接刀·运行面刀⑯ 出仓，本枚为唯一真身) —— 键名与时间戳格式('yyyy-MM-dd HH:mm')是磁盘协议，
 //     PS 那侧还在按这个名字读，这里写错了就是"门自己关不上"；
 //   * **r1999 的 `DataAge` 后处理是 §11.52 ⑤ 新登记的那处双源，本批不定档**：PS 侧 Get-R1999Event(lib\r1999-decisions.ps1:84-85) 拿 age 追加
 //     到 `$result.Reason` 那句"(活动数据 N 天前)"里。本 verb 只回 `DataAgeDays` 这个**数**，不做那句追加(追加属于判定结论)；
@@ -654,7 +654,7 @@ namespace GdPanel
         }
 
         // ==================== verb: update-ark-event-probe(R9-a 收编 round-probe:ark) ====================
-        // Update-GdArkEventProbe(lib\ark-decisions.ps1:158-189) 的**整枚**：两枚前置闸(EventKey／StageHint
+        // Update-GdArkEventProbe(lib\ark-decisions.ps1:158-189；PS 原身已于 11-06 转接刀·运行面刀⑯ 从 lib\ark-decisions.ps1 出仓，本枚自此为唯一真身) 的**整枚**：两枚前置闸(EventKey／StageHint
         // 给不出就不采)、四档判据、落盘、三句话术，全在这里 —— 判据那半**直调同装配的
         // Orchestration.ArkEventProbe 本体**(`decide-ark-event-probe`，不在核内也不在这里抄第二份)。
         // 与同文件那三枚写件的差别：这一枚**不打 GdLog**，把要说的话连同**档位**一起带回回执
@@ -682,7 +682,7 @@ namespace GdPanel
 
             string evidence = Gd.Str(Gd.Get(v, "Evidence"));
             if (!Gd.Truthy(Gd.Get(v, "Valid")))
-                // 原话逐字(ark-decisions.ps1:172)：这一档**不落地**(留着昨天的结论也没意义)，下轮照常再试。
+                // 原话逐字(原 lib\ark-decisions.ps1:172；PS 原身已随 11-06 刀⑯ 出仓)：这一档**不落地**(留着昨天的结论也没意义)，下轮照常再试。
                 return Gd.Out("Written", false, "NoticeLevel", "WARN", "NoticeText", "活动图自证：" + evidence);
 
             bool entered = Gd.Truthy(Gd.Get(v, "Entered"));
@@ -695,7 +695,7 @@ namespace GdPanel
                 "Evidence", evidence);
             string dir = OptStr(c, "stateDir", delegate { return StateDir(); });
             GdJson.Write(Path.Combine(dir, ProbeFile), obj);
-            // 两句人话逐字(ark-decisions.ps1:184/186)，档位 OK／WARN 也逐字。
+            // 两句人话逐字(原 lib\ark-decisions.ps1:184/186；PS 原身已随 11-06 刀⑯ 出仓)，档位 OK／WARN 也逐字。
             if (entered)
                 return Gd.Out("Written", true, "NoticeLevel", "OK",
                     "NoticeText", "活动图自证：" + stage + " 进得去 → 下一轮照常按活动图刷(" + evidence + ")");

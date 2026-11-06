@@ -32,7 +32,7 @@
 // Start-GdArkClient＋Wait-GdArkLauncherReady(这两枚与上一行的 Stop-MaaAndGame 已于 11-03 转接刀·方舟拉起族从 lib\maa.ps1 删除，去向见 docs\rust-core-plan.md §11.217) / Start-GdMuMu / Set-MaaDailyConfig / Set-M9AInstance(已于 11-05 转接刀·运行面刀⑨ 从 lib\m9a.ps1 删除，去向见同一本 §11.241) /
 // Update-GdArkFarmLedger —— 逐条出处见 Chain.cs 头注的两段双源登记)、
 // R9-a 那四枚的对应真身(Get-GdScreensaverConfig(common.ps1 旧 359-378；该真身已于转接刀·屏保稳态族从 lib\common.ps1 删除，去向见 docs\rust-core-plan.md §11.215) / Enter-GdNoSleep 的 keepScreenOn 半段
-// (该真身整枚已于丙档落码刀①从 lib\common.ps1 删除，去向见 docs\rust-core-plan.md §11.116) / Add-GdHistory(common.ps1:870-898) / Update-GdArkEventProbe(ark-decisions.ps1:158-189)
+// (该真身整枚已于丙档落码刀①从 lib\common.ps1 删除，去向见 docs\rust-core-plan.md §11.116) / Add-GdHistory(common.ps1:870-898) / Update-GdArkEventProbe(ark-decisions.ps1:158-189；该真身已于 11-06 转接刀·运行面刀⑯ 从 lib\ark-decisions.ps1 删除，去向见 docs\rust-core-plan.md §11.262)
 // —— 逐条出处见 Round.cs 与 Round.Data.cs 各自那段的头注)——
 // 生产接线(②-d)之前它们仍是事实源(Enter-GdNoSleep 那半段、屏保 config 那枚与②-b2 的拉起族三枚除外——PS 侧原身已分别于丙档落码刀①、转接刀·屏保稳态族与转接刀·方舟拉起族删除，那几格没有原身可对)，这里红了就是移植走样，
 // 改 Round.cs / Round.Data.cs / Chain.cs，不改这里的期望(批次 1 起同一条纪律)。
@@ -2410,7 +2410,7 @@ namespace GdPanel
                     && !Directory.Exists(ghostDir) && !File.Exists(Path.Combine(ghostDir, "history.csv"));
             });
 
-            // ---------- update-ark-event-probe(Update-GdArkEventProbe，ark-decisions.ps1:158-189) ----------
+            // ---------- update-ark-event-probe(Update-GdArkEventProbe，ark-decisions.ps1:158-189；PS 原身已于 11-06 转接刀·运行面刀⑯ 出仓，本枚为唯一真身) ----------
             // 回执三键(Written/NoticeLevel/NoticeText)；两枚前置闸与三档"不落地"都不写盘，只有 Valid 那几档写。
             // 档位必须逐字(WARN/OK/WARN)：核内段 9 用 fx_log 转成一行账外日志，`DirectOut.lines` 只会按 INFO 落，
             // 降档就是改话术的面(§11.67 那条收编理由)，所以这里把**档位与文字**并成一格比。

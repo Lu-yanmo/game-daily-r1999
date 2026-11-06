@@ -7135,7 +7135,7 @@ fn round_answer(
             DirectOut::only(JVal::B(true))
         }
         ("round", a) if a == GD_MODULE_ARK.probe_act => {
-            // R9-a 收编：活动图每轮自证（lib\ark-decisions.ps1:158-189 的采集段整段）。
+            // R9-a 收编：活动图每轮自证（lib\ark-decisions.ps1:158-189 的采集段整段；PS 原身已于 11-06 转接刀·运行面刀⑯ 出仓，本臂为唯一真身）。
             // 观测读数现采 ⇒ `round_obs_fetch`；两枚前置闸（EventKey／StageHint 给不出就不采）、
             // 四档判据与落盘都在新立的 `update-ark-event-probe` 里（判据那半复用同装配的
             // `decide-ark-event-probe` 本体，**不在核内抄第二份**）。
@@ -8317,7 +8317,7 @@ fn daily_round_chain(
                         );
                         match p {
                             // 三句话术由答手（新立的 `update-ark-event-probe`）带**档位**回来，这里转成
-                            // 一行账外日志：真身那三句用的是 WARN／OK／WARN（lib\ark-decisions.ps1:172/184/186），
+                            // 一行账外日志：真身那三句用的是 WARN／OK／WARN（原 lib\ark-decisions.ps1:172/184/186；PS 原身已随 11-06 刀⑯ 出仓），
                             // 而 `DirectOut.lines` 只会按 INFO 落侧信道 ⇒ 走 `fx_log` 才不降档。
                             // 空串＝这一轮没什么要说（EventKey／StageHint 给不出那一档，verb 原样返空）。
                             Ok(d) => {

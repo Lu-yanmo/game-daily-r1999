@@ -15,6 +15,8 @@
 # 本文件的职责是"按游戏 id 读写状态"，id 该由模块清单说了算(加一款游戏不该来改这里)。
 # 但本文件也是老消费方(tools\test-*.ps1 / probe-decisions / 只点 common+decisions 的自检)唯一认识的底座，
 # 所以注册表没装载时它必须照旧认这两个 id —— 回落分支就是给那些入口留的，别删。
+# ⚠ 刀⑯ 收官批(2026-11-06)：probe-decisions.ps1 整件出仓(取证 raw\k35a-cut16-fin-recon.txt)——上面列举的
+#   消费者自此只剩 tools\test-*.ps1 与只点 common+decisions 的自检；回落分支的存活判据不变。
 
 function Get-GdGameIds {
     <# 判定层认得的游戏 id：注册表里有模块就用模块的，否则回落到本仓库一直用的两个。 #>

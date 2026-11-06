@@ -79,7 +79,7 @@ class TestConfigGate(unittest.TestCase):
         self.assertIn('空条目', hole['Why'])
         no_parser = EN.check_config_value('farmTargets', ['a=1'], spec_parser=None)
         self.assertFalse(no_parser['Ok'])
-        self.assertIn('ark-farm', no_parser['Why'])
+        self.assertIn('panel-cs', no_parser['Why'])      # 刀⑬(2026-11-06)：验不了的判据从 ark-farm.ps1 改指 C# 判定层
 
     def test_unknown_action_type(self):
         r = EN.test_action({'type': 'reboot-mumu', 'reason': '模型突发奇想'})

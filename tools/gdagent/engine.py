@@ -8,7 +8,7 @@
     对拍只喂确定性 fixture(纯 ASCII 值，绕开编码转义差)，模型回复走假队列不真联网。
   * 活层(读写 settings/journal、起 daily-clear、问模型)全部走**注入缝**
     (send_exchange 的 model_fn/verb_fn/apply_fn/confirm/snapshot_fn)，自检喂假件即可全链路断言。
-  * lib\\agent.ps1 自此只剩 -Snapshot 那一路活段(判表真身在 ark-farm)：新功能一律进这里，不要回 PS 加规则。
+  * lib\\agent.ps1 自此只剩 -Snapshot 那一路活段(判表真身在 C# 判定层)：新功能一律进这里，不要回 PS 加规则。
 
 PS 语义的三处刻意复刻(都是当年在案的老坑)：
   1) PowerShell 的 -eq/-in/hashtable 键/switch 全部**不分大小写** —— 所以白名单/path/type 的比较
@@ -125,7 +125,7 @@ def _check_farm_targets(value, spec_parser):
     out = []
     for raw in arr:
         if spec_parser is None:
-            return {'Ok': False, 'Why': '这棵树没有 ark-farm.ps1，验不了 farmTargets'}
+            return {'Ok': False, 'Why': '这棵树没有 C# 判定层(panel-cs)，验不了 farmTargets'}
         parsed = spec_parser(ps_str(raw))
         if parsed is None:
             return {'Ok': False, 'Why': 'farmTargets 里有空条目'}

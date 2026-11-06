@@ -17,8 +17,8 @@ $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 # ＝少装载一路(那一路的库认不到函数)，只删清单而这一份没删＝多一个恒不命中的名字、谁也看不出。
 # 上面那条讲"当年 ark-daily 的调用在自检里认不到函数"的史注按仓内口径不改口——它说的那枚件现在在仓外，
 # 故事讲的是[为什么立这条对账]，不是[现在点的是谁]。
-$script:GdTestDotLibs = @('decisions', 'maa', 'm9a', 'mumu', 'vision-rescue', 'vision-ark', 'vision-mumu',
-                          'ark-farm')
+# 11-06 转接刀·运行面刀⑬ 笔(c)：'ark-farm' 整件出仓(判定+记账真身全在核内 Chain.cs／Orchestration.cs)，名单自此不点它。
+$script:GdTestDotLibs = @('decisions', 'maa', 'm9a', 'mumu', 'vision-rescue', 'vision-ark', 'vision-mumu')
 foreach ($lib in $script:GdTestDotLibs) {
     $libPath = Join-Path $root "lib\$lib.ps1"
     if (Test-Path -LiteralPath $libPath) { . $libPath }

@@ -314,6 +314,18 @@ namespace GdPanel
             return In("30031", In("name", "先锋封装芯片"));
         }
 
+        // 材料表夹具的多枚版(转接刀·运行面刀⑬ 补格 2026-11-06)：一枚夹具带三件事——
+        //   ① 30031 与 39007 **同名** ⇒ 钉 BuildItemMaps 的"首现胜"(NameToId[先锋封装芯片] 只认 30031)；
+        //   ② 或铝石 ⇒ 给"同一个块里第二个材料也入账"那格用；
+        //   ③ AlloyPlate 大小写混排 ⇒ 给"查表不分大小写"那格用(日志里故意写全小写 alloyplate)。
+        // ⚠ "首现胜"这一格吃的是 Dictionary 的枚举序：In() 只增不删，插入序＝枚举序(.NET 实现细节，
+        //   但这份夹具就靠它)。真要换形制得先把 BuildItemMaps 改成吃有序输入，别在这里假装有两把尺。
+        static Dictionary<string, object> ItemIdxMany()
+        {
+            return In("30031", In("name", "先锋封装芯片"), "39007", In("name", "先锋封装芯片"),
+                      "30115", In("name", "或铝石"), "30116", In("name", "AlloyPlate"));
+        }
+
         // ==================== R9-a 收编那四枚的取数助手 ====================
         // 这一族钉的是**磁盘形状**与**回执键名/键序**，所以读回来必须从字节读：
         //   * ReadRaw / StartsBom —— 实测 pwsh 7 的 `Set-Content/Add-Content -Encoding utf8` 写出来是**无 BOM**
@@ -1913,6 +1925,121 @@ namespace GdPanel
                 return !sum.Contains(tmp) && sum.Length > 0 && off != null && S(off["path"]) == gui;
             });
 
+            // ---- 转接刀·运行面刀⑬ 补格(2026-11-06)：test-ark 的 [farm] 段将被摘，摘之前先把对面补齐 ----
+            // 那一段里"打 ark-farm.ps1 三枚真身(Get-GdArkItemMaps:53／Read-GdArkFarmLedger:93／
+            // Update-GdArkFarmLedger:125)"的语义，上面 30 段只钉到"追加半块"与"未知名字"两档，
+            // 剩下这些档对面**零格**：幂等、offset 数值、跨路径起读、同块多件、拒绝表与总数形、
+            // 坏账本降级、stateDir 落点、材料表三规则。删了就是净丢覆盖，所以先补后删(在册刀序)。
+            b.Chk("刀⑬ 补1(幂等)：同一本日志连跑两遍 ⇒ 第二遍空话、账一位不回扫", delegate
+            {
+                string s = Path.Combine(ledgerDir, "s6");
+                string gui = WLog(chainDir, "gui-ledger-6.log",
+                    "[INF]<11> CE-5 掉落统计", "[INF]<12> 先锋封装芯片: 2 (+2)");
+                object first = Chain.UpdateFarmLedger(In("paths", allPaths, "itemIndex", ItemIdx(), "guiLog", gui, "stateDir", s));
+                object again = Chain.UpdateFarmLedger(In("paths", allPaths, "itemIndex", ItemIdx(), "guiLog", gui, "stateDir", s));
+                Dictionary<string, object> inv = Row(Gd.Get(Row(GdJson.Read(Path.Combine(s, "ark-inventory.json"))), "byId"));
+                return S(Key(first, "Summary")).Length > 0 && S(Key(again, "Summary")).Length == 0
+                    && B(Key(again, "Done")) && I(Key(again, "Blocks")) == 0 && I(Key(again, "Plus")) == 0
+                    && inv != null && I(Gd.Get(Row(inv["30031"]), "count")) == 2;
+            });
+            b.Chk("刀⑬ 补2(offset 数值)：存的偏移＝那本日志的真实字节数(不是行数、不是上一拍的旧长度)", delegate
+            {
+                string s = Path.Combine(ledgerDir, "s7");
+                string gui = WLog(chainDir, "gui-ledger-7.log",
+                    "[INF]<11> CE-5 掉落统计", "[INF]<12> 先锋封装芯片: 2 (+2)",
+                    "[INF]<13> CE-4 掉落统计", "[INF]<14> 先锋封装芯片: 3 (+1)");
+                Chain.UpdateFarmLedger(In("paths", allPaths, "itemIndex", ItemIdx(), "guiLog", gui, "stateDir", s));
+                Dictionary<string, object> off = Row(Gd.Get(Row(GdJson.Read(Path.Combine(s, "ark-inventory.json"))), "offset"));
+                return off != null && S(off["path"]) == gui && I(off["offset"]) == new FileInfo(gui).Length
+                    && new FileInfo(gui).Length > 0;
+            });
+            b.Chk("刀⑬ 补3(跨路径起读)：账本里的 offset.path 与这次那本不同 ⇒ 整本从 0 读(偏移不跨文件复用)", delegate
+            {
+                string s = Path.Combine(ledgerDir, "s8");
+                string guiA = WLog(chainDir, "gui-ledger-8a.log",
+                    "[INF]<11> CE-5 掉落统计", "[INF]<12> 先锋封装芯片: 2 (+2)");
+                Chain.UpdateFarmLedger(In("paths", allPaths, "itemIndex", ItemIdx(), "guiLog", guiA, "stateDir", s));
+                // 第二本必须**比第一本长**(第一本 64 字节、这一本 147 字节)：否则"错用旧偏移"会被
+                // 下面那句 len>=savedOffset 的守卫自动兜住，这一格就没有牙了。
+                string guiB = WLog(chainDir, "gui-ledger-8b.log",
+                    "[INF]<21> CE-5 掉落统计", "[INF]<22> 先锋封装芯片: 2 (+2)",
+                    "[INF]<23> 这一行没有配额形状只用来把这本日志写得比上一本长");
+                object d = Chain.UpdateFarmLedger(In("paths", allPaths, "itemIndex", ItemIdx(), "guiLog", guiB, "stateDir", s));
+                Dictionary<string, object> inv = Row(Gd.Get(Row(GdJson.Read(Path.Combine(s, "ark-inventory.json"))), "byId"));
+                Dictionary<string, object> off = Row(Gd.Get(Row(GdJson.Read(Path.Combine(s, "ark-inventory.json"))), "offset"));
+                return new FileInfo(guiB).Length > new FileInfo(guiA).Length
+                    && I(Key(d, "Blocks")) == 1 && I(Key(d, "Plus")) == 2
+                    && inv != null && I(Gd.Get(Row(inv["30031"]), "count")) == 4
+                    && off != null && S(off["path"]) == guiB;
+            });
+            b.Chk("刀⑬ 补4(同块多件)：同一行两个材料都入账(只记第一个就是漏账)", delegate
+            {
+                string s = Path.Combine(ledgerDir, "s9");
+                string gui = WLog(chainDir, "gui-ledger-9.log",
+                    "[INF]<11> CE-5 掉落统计", "[INF]<12> 先锋封装芯片: 2 (+2)   或铝石: 1 (+1)");
+                object d = Chain.UpdateFarmLedger(In("paths", allPaths, "itemIndex", ItemIdxMany(), "guiLog", gui, "stateDir", s));
+                Dictionary<string, object> inv = Row(Gd.Get(Row(GdJson.Read(Path.Combine(s, "ark-inventory.json"))), "byId"));
+                return I(Key(d, "Blocks")) == 1 && I(Key(d, "Plus")) == 3 && I(Key(d, "Unknown")) == 0
+                    && inv != null && I(Gd.Get(Row(inv["30031"]), "count")) == 2
+                    && I(Gd.Get(Row(inv["30115"]), "count")) == 1;
+            });
+            b.Chk("刀⑬ 补5(拒绝表＋总数形)：「当前次数」被拒绝表挡住不入未识别账；「: 30 (30)」只按 (+N) 入账，但学习表仍记一场", delegate
+            {
+                string s = Path.Combine(ledgerDir, "s10");
+                string gui = WLog(chainDir, "gui-ledger-10.log",
+                    "[INF]<11> CE-5 掉落统计", "[INF]<12> 先锋封装芯片: 2 (+2)   当前次数 : 3",
+                    "[INF]<13> LS-5 掉落统计", "[INF]<14> 先锋封装芯片: 30 (30)");
+                object d = Chain.UpdateFarmLedger(In("paths", allPaths, "itemIndex", ItemIdx(), "guiLog", gui, "stateDir", s));
+                Dictionary<string, object> inv = Row(Gd.Get(Row(GdJson.Read(Path.Combine(s, "ark-inventory.json"))), "byId"));
+                Dictionary<string, object> dt = Row(Gd.Get(Row(GdJson.Read(Path.Combine(s, "ark-droptable.json"))), "30031"));
+                return I(Key(d, "Blocks")) == 2 && I(Key(d, "Plus")) == 2 && I(Key(d, "Unknown")) == 0
+                    && inv != null && I(Gd.Get(Row(inv["30031"]), "count")) == 2
+                    && dt != null && I(Gd.Get(Row(dt["CE-5"]), "runs")) == 1 && I(Gd.Get(Row(dt["CE-5"]), "qty")) == 2
+                    && I(Gd.Get(Row(dt["LS-5"]), "runs")) == 1 && I(Gd.Get(Row(dt["LS-5"]), "qty")) == 0;
+            });
+            b.Chk("刀⑬ 补6(坏账本降级)：两本账都读不动 ⇒ 那两句 WARN 原话在场、按空账继续记(不抛、不整段罢工)", delegate
+            {
+                string s = Path.Combine(ledgerDir, "s11");
+                Wf(s, "ark-inventory.json", "{\"byId\": ###");
+                Wf(s, "ark-droptable.json", "{\"30031\": ###");
+                string gui = WLog(chainDir, "gui-ledger-11.log",
+                    "[INF]<11> CE-5 掉落统计", "[INF]<12> 先锋封装芯片: 2 (+2)");
+                object d = Chain.UpdateFarmLedger(In("paths", allPaths, "itemIndex", ItemIdx(), "guiLog", gui, "stateDir", s));
+                Dictionary<string, object> inv = Row(Gd.Get(Row(GdJson.Read(Path.Combine(s, "ark-inventory.json"))), "byId"));
+                string l0 = Ln(Key(d, "Lines"), 0);
+                string l1 = Ln(Key(d, "Lines"), 1);
+                return Len(Key(d, "Lines")) == 2 && l0 != null && l0.Contains("ark-inventory.json 读不了")
+                    && l0.Contains("按空账处理") && l1 != null && l1.Contains("ark-droptable.json 读不了")
+                    && l1.Contains("学习关系按空处理")
+                    && S(Key(d, "Summary")) == "记了 1 场掉落、入账 +2"
+                    && inv != null && I(Gd.Get(Row(inv["30031"]), "count")) == 2;
+            });
+            b.Chk("刀⑬ 补7(stateDir 落点)：同一本日志换一份 stateDir ⇒ 账按目录分家，各写各的、不共一本", delegate
+            {
+                string gui = WLog(chainDir, "gui-ledger-12.log",
+                    "[INF]<11> CE-5 掉落统计", "[INF]<12> 先锋封装芯片: 2 (+2)");
+                string sx = Path.Combine(ledgerDir, "s12x");
+                string sy = Path.Combine(ledgerDir, "s12y");
+                Chain.UpdateFarmLedger(In("paths", allPaths, "itemIndex", ItemIdx(), "guiLog", gui, "stateDir", sx));
+                object d = Chain.UpdateFarmLedger(In("paths", allPaths, "itemIndex", ItemIdx(), "guiLog", gui, "stateDir", sy));
+                Dictionary<string, object> ix = Row(Gd.Get(Row(GdJson.Read(Path.Combine(sx, "ark-inventory.json"))), "byId"));
+                Dictionary<string, object> iy = Row(Gd.Get(Row(GdJson.Read(Path.Combine(sy, "ark-inventory.json"))), "byId"));
+                return S(Key(d, "Summary")) == "没有库存缓存，初值按 0 起账(会先多刷一轮才收敛)；记了 1 场掉落、入账 +2"
+                    && ix != null && iy != null && I(Gd.Get(Row(ix["30031"]), "count")) == 2
+                    && I(Gd.Get(Row(iy["30031"]), "count")) == 2;
+            });
+            b.Chk("刀⑬ 补8(材料表三规则)：重名取首现(30031 先入表 ⇒ 39007 不接账)、查表不分大小写(alloyplate 认得 AlloyPlate)", delegate
+            {
+                string s = Path.Combine(ledgerDir, "s13");
+                string gui = WLog(chainDir, "gui-ledger-13.log",
+                    "[INF]<11> CE-5 掉落统计", "[INF]<12> 先锋封装芯片: 2 (+2)   alloyplate: 1 (+1)");
+                object d = Chain.UpdateFarmLedger(In("paths", allPaths, "itemIndex", ItemIdxMany(), "guiLog", gui, "stateDir", s));
+                Dictionary<string, object> inv = Row(Gd.Get(Row(GdJson.Read(Path.Combine(s, "ark-inventory.json"))), "byId"));
+                return I(Key(d, "Plus")) == 3 && I(Key(d, "Unknown")) == 0
+                    && inv != null && inv.ContainsKey("30031") && !inv.ContainsKey("39007") && inv.ContainsKey("30116")
+                    && I(Gd.Get(Row(inv["30031"]), "count")) == 2 && I(Gd.Get(Row(inv["30116"]), "count")) == 1;
+            });
+
             // ==================== 30b) resolve-ark-farm-decision：三前置＋取数半段直身(判定面进核的 farm 通路) ====================
             // 每格独占一份 stateDir(f0..f5)，材料表与关卡表一律显式喂(itemIndex/table 两枚夹具)——
             // 现场读那两路会进程内缓存，别让任何一格把缓存下毒。
@@ -1992,6 +2119,35 @@ namespace GdPanel
                 return Key(d, "Farm") == null && Len(Key(d, "Lines")) == 1
                     && Ln(Key(d, "Lines"), 0) == "专用材料轮没有可刷的目标：没配 ark.farmTargets → 材料补刷未启动";
             });
+            // ---- 刀⑬ 补格(承上)：决策通道这一路对面缺的两档 ----
+            // f7 钉"首跑 Resolve 先于任何记账"那条(旧 PS 侧靠 test-ark 的「文件不在就是空账」那格)；
+            // f8 钉 IdToName 反查轴(目标写代号时话术用名不用号)——旧那格打在 Parse 层，
+            //     这里打在**决策通道的回执**上，摘件后才有对面。
+            b.Chk("刀⑬ 补9(空账起底)：两本账文件都不在 ⇒ 不抛、按空账起(Have=0)，且不塞一句 WARN 进 Lines", delegate
+            {
+                string s = Path.Combine(ledgerDir, "f7");
+                object d = Chain.ResolveArkFarmDecision(In("settings",
+                    StArk(In("farmTargets", new object[] { "先锋封装芯片=5@CE-5" }, "farmMaxTimesPerRound", 12)),
+                    "decision", In("Mode", "idle"), "itemIndex", ItemIdx(), "table", In("CE-5", 36),
+                    "stateDir", s));
+                Dictionary<string, object> fp = Row(Key(d, "Farm"));
+                return fp != null && B(fp["Active"]) && I(fp["Have"]) == 0 && I(fp["Gap"]) == 5
+                    && I(fp["Times"]) == 5 && Len(Key(d, "Lines")) == 0;
+            });
+            b.Chk("刀⑬ 补10(反查轴)：目标写成代号 ⇒ ItemName 从 IdToName 反查回来，Reason 用名不用号(重名夹具下仍落 30031)", delegate
+            {
+                string s = Path.Combine(ledgerDir, "f8");
+                GdJson.Write(Path.Combine(s, "ark-inventory.json"), In("byId", In("30031", In("count", 0, "origin", ""))));
+                GdJson.Write(Path.Combine(s, "ark-droptable.json"), In("30031", In("CE-5", In("runs", 10, "qty", 20))));
+                object d = Chain.ResolveArkFarmDecision(In("settings",
+                    StArk(In("farmTargets", new object[] { "30031=5" }, "farmMaxTimesPerRound", 12)),
+                    "decision", In("Mode", "idle"), "itemIndex", ItemIdxMany(), "table", In("CE-5", 36),
+                    "stateDir", s));
+                Dictionary<string, object> fp = Row(Key(d, "Farm"));
+                return fp != null && B(fp["Active"]) && S(fp["ItemId"]) == "30031"
+                    && S(fp["ItemName"]) == "先锋封装芯片" && I(fp["Times"]) == 5
+                    && S(fp["Reason"]).StartsWith("补刷 先锋封装芯片×5 @CE-5：目标 5，现有 0，还差 5");
+            });
 
             // ==================== 31) CLI 接线：这十枚真的挂上了分发链(名册两处同批的自证) ====================
             b.Chk("takeover-processes 走 --in/--out：退出码 0、四键齐、那一句 WARN 在信封的 data 里", delegate
@@ -2039,6 +2195,43 @@ namespace GdPanel
                     && err.Contains("read-maa-stage-observation") && err.Contains("start-ark-client")
                     && err.Contains("start-mumu") && err.Contains("apply-maa-daily-config")
                     && err.Contains("apply-m9a-instance") && err.Contains("update-ark-farm-ledger");
+            });
+
+            // ==================== 31b) farm 两枚走 CLI：刀⑬ 改口后**真消费者**那条路由的本体 ====================
+            // 段 30/30b 打的是**进程内直身**(Chain.UpdateFarmLedger／Chain.ResolveArkFarmDecision)，
+            // 而 lib\ark-module.ps1 的 StatusPlan 行与 lib\agent.ps1 的快照打的是**子进程信封**
+            // (Invoke-GdCli -Verb ...)。两副眼镜缺一副就会出现"直身全绿、verb 却没接上"的假绿——
+            // 摘 test-ark 那一段之前，先把这条路由自己钉住(回执的键名与话术逐字＝直身那一副的复刻)。
+            b.Chk("update-ark-farm-ledger 走 --in/--out：退出码 0、六键齐、Summary 那句与直身同字", delegate
+            {
+                string inPath = Path.Combine(tmp, "fl-in.json");
+                string outPath = Path.Combine(tmp, "fl-out.json");
+                string s = Path.Combine(ledgerDir, "cli-fl");
+                string gui = WLog(chainDir, "gui-cli-fl.log",
+                    "[INF]<11> CE-5 掉落统计", "[INF]<12> 先锋封装芯片: 2 (+2)");
+                GdJson.Write(inPath, In("paths", allPaths, "itemIndex", ItemIdx(), "guiLog", gui, "stateDir", s));
+                int code = GdCli.Run("update-ark-farm-ledger", new string[] { "--in=" + inPath, "--out=" + outPath });
+                Dictionary<string, object> env = GdJson.ReadEnvelope(outPath);
+                Dictionary<string, object> data = Row(Gd.Get(env, "data"));
+                return code == 0 && Gd.Truthy(Gd.Get(env, "ok"))
+                    && S(Gd.Get(env, "verb")) == "update-ark-farm-ledger"
+                    && data != null && data.Count == 6 && B(data["Done"])
+                    && S(data["Summary"]) == "没有库存缓存，初值按 0 起账(会先多刷一轮才收敛)；记了 1 场掉落、入账 +2"
+                    && I(data["Blocks"]) == 1 && I(data["Plus"]) == 2 && I(data["Unknown"]) == 0
+                    && new FileInfo(Path.Combine(s, "ark-inventory.json")).Length > 0;
+            });
+            b.Chk("resolve-ark-farm-decision 走 --in/--out：dedicated 那一路的 WARN 原话从信封回来(ark-module/agent 拼的就是这一句)", delegate
+            {
+                string inPath = Path.Combine(tmp, "fd-in.json");
+                string outPath = Path.Combine(tmp, "fd-out.json");
+                GdJson.Write(inPath, In("settings", StArk(In()), "decision", In(), "dedicated", true,
+                    "itemIndex", ItemIdx(), "table", In("CE-5", 36), "stateDir", Path.Combine(ledgerDir, "cli-fd")));
+                int code = GdCli.Run("resolve-ark-farm-decision", new string[] { "--in=" + inPath, "--out=" + outPath });
+                Dictionary<string, object> env = GdJson.ReadEnvelope(outPath);
+                Dictionary<string, object> data = Row(Gd.Get(env, "data"));
+                return code == 0 && Gd.Truthy(Gd.Get(env, "ok")) && data != null
+                    && Gd.Get(data, "Farm") == null
+                    && Ln(data["Lines"], 0) == "专用材料轮没有可刷的目标：没配 ark.farmTargets → 材料补刷未启动";
             });
 
             // ==================== 32) R9-a 收编那四枚：换的是"谁来答"，不是"答成什么样" ====================

@@ -3,7 +3,7 @@
 分工(与 engine.py 头注同口径)：
   * engine.py 管纯流程与语义(自检/对拍钉死)，本文件只负责"缝到真东西上"，不掺规则；
   * 模型往返走 model.py(进程内复用 ask.py，key 只走环境变量、只读不打印)；
-  * 快照/关卡表走 PS 侧留下的活段出口(`tools\\agent.ps1 -Snapshot`，补刷判表仍是 ark-farm 的活)；
+  * 快照/关卡表走 PS 侧留下的活段出口(`tools\\agent.ps1 -Snapshot`，补刷判表自此问 C# 判定层)；
     探不到就明说什么缺(降级快照)，绝不让一轮对话因为快照卡死；
   * farmTargets 逐条解析不在这里重写 —— 走 C# 判定层 verb `parse-farm-target-spec`(批次 5 的真身)，
     信封契约 = docs\\ps-migration-batch0.md §2(--in/--out 文件，stdout 不参与判定)；
@@ -135,9 +135,12 @@ def ensure_cli_exe(root):
 
 
 def make_spec_parser(root):
-    """lib\\ark-farm.ps1 不在树里 → None(engine 会给出'这棵树没有 ark-farm.ps1'的原话)；
-    在树里 → 每条起一次 panel-cs verb。Found:false = 旧语义的 $null(空条目)。"""
-    if not (Path(root) / 'lib' / 'ark-farm.ps1').is_file():
+    """C# 判定层(panel-cs 及其 build.ps1)都不在树里 → None(engine 会给出'这棵树没有 C# 判定层'的原话)；
+    在树里 → 每条起一次 panel-cs verb。Found:false = 旧语义的 $null(空条目)。
+    ⚠ 转接刀·运行面刀⑬(2026-11-06)：在场性代理从 `lib\\ark-farm.ps1` 改指 verb 的真宿主 —— PS 侧真身出仓后，
+       ark-farm.ps1 不在场不再是"验不了 farmTargets"的判据(那枚代理会随件一起变成假红源)。"""
+    pc = Path(root) / 'tools' / 'panel-cs'
+    if not (pc / 'panel-cs.exe').is_file() and not (pc / 'build.ps1').is_file():
         return None
 
     def spec_parser(raw):

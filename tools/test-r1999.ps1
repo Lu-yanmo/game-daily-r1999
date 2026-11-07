@@ -16,6 +16,9 @@ Show-GdCommonRunLockChecks
 Show-GdCommonScreensaverChecks
 
 # ---- B-3②-d 刀①(10-29)静态锚：Get-R1999Event 的取数半段"两臂都在"，钉在 m9aDir 那道现场门之前 ----
+# ⚠ 刀⑰ 笔(c)-2(2026-11-07)改判：上面那句"两臂都在"按历史引文读——回落臂本批出仓(与刀⑯ 判死的
+#   "回落臂假绿形"同形：try 把核缺席的 throw 吞成 null 再 PS 直读＝把核坏了化装成合法长草读数)，
+#   下面第二格自此翻负(回潮即红)，核臂格与九键信封格保持；判据的家与语义见 docs\rust-core-plan.md。
 # 为什么放这里：这一格钉的是源码形状，M9A 目录在不在都该有证词(只读自检不许要求机器现场状态)；
 # 放在下面 [t4] 那道 return 之后，没装 M9A 的机器上它就静默不跑，等于把锚做成哑尺。
 # 剥注释照上面 $fnEp 那两形(-replace 逐字复用)：本文件里 read-r1999-activity 这个词头注也写了，
@@ -25,8 +28,9 @@ $fnEv = ($fnEv -replace '(?s)<\#.*?\#>', ' ') -replace '(?m)^\s*#.*$', ' '
 Check '②-d 刀①核臂在：取数半段打 read-r1999-activity，且只喂 paths 直答(不喂第二份 settings)' (
     $fnEv -match "Invoke-GdCli -Verb 'read-r1999-activity'" -and $fnEv -match 'paths = ' -and ($fnEv -notmatch 'settings = ')) $(
     if ($fnEv.Length -eq 0) { 'Get-R1999Event 不在场(尺没接到电)' } else { "len=$($fnEv.Length)" })
-Check '②-d 刀①回落臂在：核不可用时仍由壳自己判 ready→读 json→算 DataAge(逐字＝改指前原样)' (
-    $fnEv -match 'Test-GdPathReady' -and $fnEv -match 'Read-GdJson -Path \$path' -and $fnEv -match 'New-TimeSpan')
+Check '⑰(c)-2 改判负锚：回落臂三针(直读 json／New-TimeSpan 算龄／Test-GdPathReady 判路)都不在 Get-R1999Event 剥注释体里(回潮＝把核坏了化装成合法长草读数的假绿形复活)' (
+    $fnEv -notmatch 'Read-GdJson' -and $fnEv -notmatch 'New-TimeSpan' -and $fnEv -notmatch 'Test-GdPathReady') $(
+    'len=' + $fnEv.Length)
 Check '九键 idle 信封全函数只构造一次(两臂汇流到 $idle；抄第二份就是双源，§11.52 ⑤)' (
     ([regex]::Matches($fnEv, "Mode = 'idle'")).Count -eq 1) $(
     'count=' + ([regex]::Matches($fnEv, "Mode = 'idle'")).Count)

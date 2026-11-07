@@ -37,37 +37,21 @@ function Check {
 $S = Get-GdSettings -Quiet
 
 # 屏保读数：06:00 方舟连败的根因，判据必须能脱离本机注册表被验完。
-# 全部喂构造出来的 $Cfg(只读自检不许要求机器现场状态：这台机器解除没解除都不该让套件变红)，
-# 最后两条才碰真注册表，而且只要求"落在四态之一、不许抛" —— 不押它是哪一种。
+# 刀㉓ 笔(b) 摘格本：原先那九枚"喂构造假 cfg"的行为格自此不在 PS 侧——对面 10-26 甲档第八刀就立在
+#   tools\panel-cs\Decisions.SelfTest.cs(四档顺序那格 + floorSec/字符串读数/Ci 那格 + saver 14 档逐字投影)，
+#   摘之前四发 mutation 当场证其有牙(raw\b186-cut23b1-mutations.py 落账)：改 unknown 短话→verdict-unknown 红 1 格；
+#   改 armed 长话里解除脚本点名→四档那格+逐字 armed/floor 族红 6 格；改"不是终态"→四档那格+off 族红 3 格；
+#   短话前缀变长→floorSec 那格+逐字全族红 8 格；基线与每发还原后均 dectest 69/69，EXE-CHANGED 四发全 True。
+#   同帧锚检 OUTER-HITS=0：全仓(除 docs/raw/ps-map/publish 这些从不出仓的账)没有第二处逐字咬那九枚格名。
+# 本段自此只剩两类：碰本机注册表那一格(只验不抛 + 落四态，不押它是哪一种)＋生产消费面的形状钉。
 function Show-GdCommonScreensaverChecks {
-    Write-Host "`n[t1g] 屏保读数(武装没有 / 是谁挂的 / 解除工具会不会误写)"
-    $none = [pscustomobject]@{ Saver = ''; Product = ''; Active = '0'; TimeoutSec = 0 }
-    $armed = [pscustomobject]@{ Saver = 'C:\Windows\system32\wpxscreensaver64.scr'; Product = 'Wallpaper Engine Screensaver'; Active = '1'; TimeoutSec = 300 }
-    $off = [pscustomobject]@{ Saver = 'C:\Windows\system32\some.scr'; Product = ''; Active = '0'; TimeoutSec = 600 }
-    # 门内现问薄壳(转接刀·屏保稳态族)：lib\common.ps1 那三枚同规则真身已出仓，唯一事实源在核内
-    # (Decisions.cs 的 ScreensaverWho／ScreensaverVerdict ＋ Round.cs 的 ScreensaverConfig)——
-    # 判据一格没动，只是取数那半段从"调 PS 壳"换成"问出口"。假读数不带 Found 键，直接递进去。
-    function GdSvVerdict { param($cfg) return Invoke-GdCli -Verb 'resolve-screensaver-verdict' -Body ([pscustomobject]@{ cfg = $cfg }) }
-    function GdSvWho { param($cfg) return [string](Invoke-GdCli -Verb 'resolve-screensaver-who' -Body ([pscustomobject]@{ cfg = $cfg })).Text }
+    Write-Host "`n[t1g] 屏保读数(本机真读数 + 消费面形状钉；假 cfg 四档判据的家在 --dectest 屏保族)"
     # 本机真读数走的那半段：现问 read-screensaver-config，Found:false 必须折成 cfg=null(读不到那一档)，
     # 否则核内会把"不知道"读成"没挂"—— 与 status.ps1／unarm-screensaver.ps1 同一句折算。
     function GdSvLiveVerdict {
         $d = Invoke-GdCli -Verb 'read-screensaver-config' -Body ([pscustomobject]@{})
         return Invoke-GdCli -Verb 'resolve-screensaver-verdict' -Body ([pscustomobject]@{ cfg = $(if ($d.Found) { $d } else { $null }) })
     }
-    $vNone = GdSvVerdict -cfg $none
-    $vArmed = GdSvVerdict -cfg $armed
-    $vOff = GdSvVerdict -cfg $off
-    $vNull = GdSvVerdict -cfg $null
-    Check '没挂 .scr → none，且不算风险' ($vNone.Kind -eq 'none' -and -not $vNone.Risk) ($vNone.Text)
-    Check '挂了且武装位=1 → armed，是唯一要标红的一档' ($vArmed.Kind -eq 'armed' -and $vArmed.Risk) ($vArmed.Kind)
-    Check '挂了但武装位=0 → off，不吓人(日常"只关不复"就落这档)' ($vOff.Kind -eq 'off' -and -not $vOff.Risk) ($vOff.Kind)
-    Check '注册表读不到 → 说的是"判断不了"，绝不显示成没事' ($vNull.Kind -eq 'unknown' -and $vNull.Text -match '读不到' -and -not $vNull.Risk) ($vNull.Text)
-    Check 'armed 的长话里带得出解除命令(让人看完知道下一步敲什么)' ($vArmed.Detail -match 'unarm-screensaver') ($vArmed.Detail)
-    Check 'off 的长话里说明它不是终态(会被重新武装)' ($vOff.Detail -match '不是终态')
-    Check '是谁挂的：ProductName 认 Wallpaper Engine' ((GdSvWho -cfg $armed) -eq 'Wallpaper Engine')
-    Check '是谁挂的：读不到 ProductName 时退回文件名，不印 8.3 短名' ((GdSvWho -cfg $off) -eq 'some')
-    Check '面板那行(短话)不带箭头和路径，卡片装得下' ($vArmed.Text.Length -le 30 -and $vArmed.Text.IndexOf('→') -lt 0) ($vArmed.Text)
     # 本机真读数：只验"不许抛 + 落在四态里"，不押它此刻是哪一种(解除/没解除都该绿)
     $live = $null
     $threw = $false

@@ -71,46 +71,40 @@ Check "同 Id 重复注册不覆盖、只丢 WARN($dupId)" ($global:GdModules.Co
 Check '清单没 Id 时注册直接抛' $(try { [void](Register-GdModule -Manifest [pscustomobject]@{ Id = '' }); $false } catch { $true })
 Check '取不存在的模块返回 $null(不抛，由调用方决定怎么说)' ($null -eq (Get-GdModule -Id '不存在的模块'))
 
-Write-Host "`n[m2] 每份清单的完备性"
-foreach ($m in @(Get-GdModules)) {
-    $id = [string]$m.Id
-    $bad = @(Assert-GdModuleManifest -Module $m)
-    Check "[$id] 清单体检没有意见" ($bad.Count -eq 0) ($bad -join '；')
-    foreach ($k in @('Id', 'Name', 'ShortName', 'AssistantLib', 'SettingsBlock')) {
-        Check "[$id] $k 非空" ([bool][string]$m.$k)
-    }
-    Check "[$id] PathKeys 至少一项(这一路总要有要催的路径)" (@($m.PathKeys).Count -gt 0) (@($m.PathKeys) -join ',')
-    # 11-06 转接刀·运行面刀⑮ 笔(d)-2 复跑红一次照登：本格原形量的是「助手库 + 至少一枚 PS 业务库」，
-    # 而 ark 那一路的 PS 业务库(decisions／farm／detect／vision 四族)到本刀为止全部进了核内或 C# 侧,
-    # 清单只剩助手库 maa.ps1 一枚＝那条前提被本刀自己作废。按在册「改弱了的钉要写下它不再量什么」换代不删格:
-    # 自此量「Libs 非空 ＋ 助手库在册」两形(空表红、漏册红);「每路至少一枚 PS 业务库」不再由本格量。
-    Check "[$id] Libs 非空且把助手库册上(空表或漏册当场红;11-06 刀⑮ 笔(d)-2 换代,见上面四行史注)" (
-        @($m.Libs).Count -ge 1 -and (@($m.Libs | ForEach-Object { [string]$_ }) -contains [string]$m.AssistantLib)) (@($m.Libs) -join ' ')
-    # 声明了却不在树上的库 = 半夜那句"无法将…识别为 cmdlet"
-    $missing = @(Get-GdModuleLibPaths -MissingOnly)
-    Check "[$id] 声明的业务库全在 lib\ 下" ($missing.Count -eq 0) ($missing -join ' / ')
-    Check "[$id] 助手库在清单的 Libs 里(顶层 dot-source 点得到它；编排键已随刀⑦ 笔(a) 退役)" ($m.Libs -contains [string]$m.AssistantLib)
-    Check "[$id] RequiresAdmin 与 AdminWhy 搭配套(要提权就得说为什么)" $(-not $m.RequiresAdmin -or [string]$m.AdminWhy) "RequiresAdmin=$($m.RequiresAdmin)"
-    if ($m.RequiresAdmin) {
-        Check "[$id] 要管理员 → 提权开关名(ElevationFlag)写了" ([bool][string]$m.ElevationFlag) "ElevationFlag=$($m.ElevationFlag)"
-    }
-    # ⚠ 刀⑤(2026-11-04) 名册归一：这里原本逐字抄了 lib\modules.ps1:24 那串七枚必需钩子，下面另写一本八枚
-    #   可选名册 —— 同一套事实两处各写一遍正是 §11.186 点名的病灶(改一处忘一处，门还照绿)。本批两本名册都删，
-    #   判据换成通形＋负锚两格，必需格的事实源自此只剩 modules.ps1:24 一处(那格由 $script: 变量现问，不抄串)：
-    #     通形尺＝Hooks 里出现的每一格都必须是 scriptblock；
-    #     负锚＝除「modules.ps1 名册里点到的」与 status 一族(整段按在不在决定跳不跳，从来是可选格)之外，
-    #           清单再写别的键当场红。少写必需格由 Assert-GdModuleManifest 在装载期 throw(生产闸)，
-    #           多写一格却是静默的：它谁也不影响，只会让下一路清单跟着抄一枚没人走的壳。
-    foreach ($h in @($m.Hooks.PSObject.Properties.Name)) {
-        Check "[$id] 钩子 $h 是 scriptblock(通形尺：名册只在 lib\modules.ps1:24，这里不再抄第二遍)" ($m.Hooks.$h -is [scriptblock])
-    }
-    $knownHooks = @($script:GdModuleRequiredHooks)
-    $strayHooks = @($m.Hooks.PSObject.Properties.Name | Where-Object { $_ -notin $knownHooks -and $_ -notlike 'Status*' })
-    Check "[$id] Hooks 里没有名册外的键(刀⑤ 起判定/运行/收尾/门/监督六族不再占格，写了就是抄壳)" ($strayHooks.Count -eq 0) ($strayHooks -join ' / ')
-    # status.ps1 那一段是 `if ($m.Hooks.StatusSection -and $m.StatusSectionTitle)` —— 少了标题，钩子永远不跑
-    if ($m.Hooks.StatusSection) { Check "[$id] 有 StatusSection 钩子就得给 StatusSectionTitle(否则那段永远不印)" ([bool][string]$m.StatusSectionTitle) }
-    Check "[$id] 短名适合印在汇总里(无空格无换行)" ([string]$m.ShortName -match '^\S+$') $m.ShortName
+Write-Host "`n[m2] 每份清单的完备性(11-07 SC-C 刀⑰ 笔(c)-2 第 2 批 B2：判定面整段换家 check-module-manifests)"
+# 换家史注(按在册「判据不删只换家」＋「改弱了的钉要写下它不再量什么」)：这一段原本 40 行、11 枚逐条 Check，
+# 判定面(读清单文本＋跨文件集合比对)自本批起整段住 tools\panel-cs\Chain.cs 的 CheckModuleManifests，
+# 门自此只问不算。不再量什么，逐条写清(不是丢了，是换家之后这一侧不再重问)：
+#   ① 逐枚格名 ⇒ 换成回执里「规则名｜细节」串的数组：覆盖枚数不降(§11.278 契约格逐格去向)，
+#      但红时读的是核点名的规则串，不再是一行一行印出来的 Check 格名；
+#   ② 「钩子 $h 是 scriptblock」降档为文本档「值以 { 起」⇒ 自此只量声明形状、不量运行时类型；
+#      scriptblock 那半由 [m1] 的 Import-GdModules 全程不抛＋[m4] 的 EnvProbes 真调继续承接；
+#   ③ 「[$id] 清单体检没有意见」那枚的运行时面不再由门问：少写必需钩子由 lib\modules.ps1 的
+#      Assert-GdModuleManifest 在装载期当场 throw(生产闸)，那是 PS 运行时事实，核不许复制一份；
+#   ④ 判据来源从「PS 注册表里的对象」换成「清单文件的文本」⇒ 某份清单若在运行时改写自身字段，
+#      门自此看不见(已知不量面)。真树两路是纯文本声明，第二把尺 raw\k80b-cross-check.ps1 逐枚对平
+#      (Id 序／LibFile／PS 侧 Assert 同拍零意见四格 True)；
+#   ⑤ 入参 requiredPathKeys／requiredHooks 仍由 PS 侧唯一事实源现问(Get-GdRequiredPathKeys 与
+#      modules.ps1:24 那枚 $script:GdModuleRequiredHooks)，门不抄第二份名册——抄了就是 §11.186 的病灶。
+$b2Body = [pscustomobject]@{
+    root             = $root
+    entry            = (Join-Path $root 'daily-clear.ps1')
+    requiredPathKeys = @(Get-GdRequiredPathKeys $root)
+    requiredHooks    = @($script:GdModuleRequiredHooks)
 }
+$b2 = $null
+$b2Err = ''
+try { $b2 = Invoke-GdCli -Verb 'check-module-manifests' -Body $b2Body } catch { $b2Err = $_.Exception.Message }
+Check '[m2] check-module-manifests 交回读数(核缺席／入闸拒跑都算红，不许静默跳过)' ($b2Err -eq '' -and $null -ne $b2) $b2Err
+$b2Mods = @()
+if ($null -ne $b2) { $b2Mods = @($b2.Modules) }
+$b2RegIds = @(Get-GdModuleIds | ForEach-Object { [string]$_ })
+Check ('[m2] 核侧看到的清单数 = 注册表数(零行是"没问"不是"没意见"，故两形都要过)') (($b2Mods.Count -gt 0) -and ($b2Mods.Count -eq $b2RegIds.Count)) ('核 ' + $b2Mods.Count + ' / 注册 ' + $b2RegIds.Count)
+$b2Ids = @($b2Mods | ForEach-Object { [string]$_.Id } | Sort-Object)
+Check '[m2] Id 名册逐字对平(两侧同集合才算承接，防"核读错树"的假绿)' ((@($b2Ids) -join ',') -eq (@($b2RegIds | Sort-Object) -join ',')) ($b2Ids -join ' / ')
+$b2Man = @()
+foreach ($r in $b2Mods) { foreach ($q in @($r.Problems)) { $b2Man += ([string]$r.Id + ':' + [string]$q) } }
+Check ('[m2] 清单侧零意见(原 11 枚逐条 Check 现由核点名，命中 ' + $b2Man.Count + ' 枚)') (($b2Err -eq '') -and ($b2Man.Count -eq 0)) ($b2Man -join ' ‖ ')
 
 function Get-GdCodeOnlyText {
     <# 把注释剥干净，只留代码。两步都要：整块注释(井号+尖括号包起来那种)如果只按行剥，
@@ -275,50 +269,24 @@ foreach ($m in @(Get-GdModules)) {
     Check "[$([string]$m.Id)] settings 模板里有 $($blk) 这一块" ($null -ne (Read-GdJson -Path (Join-Path $root 'config\settings.example.json')).$blk)
 }
 
-Write-Host "`n[m6] 入口动词与真参数对得上(菜单/面板印的开关名不能是编的)"
-# 11-01 丙形真转接(§11.176 ⑥)：这里不再点同步件——下面每一枚开关名都由 Get-GdEntryVerb 现问本进程的注册表得到。
-# 参数表来自仓库根目录那个 daily-clear.ps1：它是这一棵树上真正的入口，动词必须被它认识。
-# 读不到(工程被裁得没入口)就直接判失败 —— 静默跳过正是要防的那种"绿着但没人检查"。
-$dailyTable = @{}
-$dailyPath = Join-Path $root 'daily-clear.ps1'
-try {
-    $cmd = Get-Command $dailyPath -ErrorAction Stop
-    foreach ($k in $cmd.Parameters.Keys) { $dailyTable[[string]$k] = $true }
-} catch { Write-Host "  读不到 $dailyPath 的参数表：$($_.Exception.Message)" -ForegroundColor Red }
-Check 'daily-clear.ps1 的参数表读得到' ($dailyTable.Count -gt 0) "$($dailyTable.Count) 个参数"
-foreach ($m in @(Get-GdModules)) {
-    $id = [string]$m.Id
-    # 默认三门每路都查；此外只查该模块在 Merged 里自己声明过的动词 ——
-    # ark 声明了 Farm='-FarmArk' 会被查，r1999 没有 Farm 这道门，硬塞给它就是假红。
-    $verbs = @('Ack', 'ShopDone', 'ShopReset')
-    if ($m.EntryVerbs -and $m.EntryVerbs.Merged) {
-        # Merged 多半是 hashtable：它的 PSObject.Properties 会把 .NET 成员(Count/IsReadOnly…)也吐出来，
-        # 拿键枚举才对；写成对象(PSCustomObject)的那种清单则只有属性名。两种都兼容。
-        $mv = $m.EntryVerbs.Merged
-        $declared = @()
-        if ($mv -is [System.Collections.IDictionary]) { $declared = @($mv.Keys | ForEach-Object { [string]$_ }) }
-        else { $declared = @($mv.PSObject.Properties.Name) }
-        foreach ($p in $declared) {
-            if ($p -in @('Ack', 'ShopDone', 'ShopReset', 'Farm') -and $p -notin $verbs) { $verbs += $p }
-        }
-    }
-    foreach ($verb in $verbs) {
-        if ($id -eq 'ark' -and $verb -eq 'Ack') {
-            # 2026-10-12 第 1 刀：方舟的活动确认门从入口退场了(-AckArk 不再被 daily-clear.ps1 认识，
-            # 活动图改每轮机器自证)。EntryVerbs.Merged 的 Ack 键仍在——那是 Rust 链体那枚
-            # entryverb("ark","Ack") 的 ask 名册位(返回值弃读，删键=形状变要升契约号)；
-            # 当年为它一并保留的 Hooks.Ack 占位格已随 11-04 刀⑤ 出仓(必需名册自此只剩 EnvProbes 一枚，
-            # 而那一格的话术自 10-12 起就不进任何文案)。所以这一路反过来钉：入口**必须不认识** -AckArk。
-            # 谁哪天把参数加回来，这格就红，提醒他要么真装回人肉门、要么改这里。
-            $arkAckNote = 'ask 名册位仍在(钩子格已随刀⑤ 出仓)，值弃读'
-            if ($dailyTable.ContainsKey('AckArk')) { $arkAckNote = 'daily-clear.ps1 又认识 AckArk 了' }
-            Check '[ark] Ack 已退场：入口不再认识 -AckArk(活动图改每轮自证)' (-not $dailyTable.ContainsKey('AckArk')) $arkAckNote
-            continue
-        }
-        $flag = Get-GdEntryVerb -Game $id -Verb $verb        # 函数返回的是带前导连字符的完整开关名(判定日志直接拼进提示语)
-        Check "[$id] $verb 的开关名 $flag 是入口真认识的参数" ($dailyTable.ContainsKey($flag.TrimStart('-')))
-    }
-}
+Write-Host "`n[m6] 入口动词与真参数对得上(菜单/面板印的开关名不能是编的；11-07 B2 换家)"
+# 换家史注：这一段原本 44 行(现读 daily-clear.ps1 的参数表 + 逐枚开关名正查 + ark×Ack 反向负锚)，
+# 判定面自本批起住核内(Chain.cs 入口侧：读 param 块 → 逐枚 FlagFor 对照 → 负锚)。不再量什么：
+#   ① 逐枚"[$id] $verb 的开关名是入口真认识的参数"的格名 ⇒ 换成 EntryProblems 里的
+#      verb-flag-absent｜id.Verb｜-Flag 串；正查逐枚照做，只是点名由核来；
+#   ② "参数表读得到"从「Get-Command 真绑定」降为文本档「读得到行首 param 块且括号配平」⇒
+#      自此不再量参数绑定后的规范化名；两形都照样红(entry-param-block／entry-param-table-empty)；
+#   ③ ark×Ack 那枚反向负锚的事实源从本文件旧 :306 的硬编码判语进核(AckExitedIds)：
+#      门侧自此不持有任何一款的名字，ark 之外那一路的 Ack 正查照旧(核内逐路 FlagFor)；
+#   ④ Get-GdEntryVerb 现问注册表那半仍留在 PS 侧(面板/菜单印开关名用的是它的真身)，
+#      本段不再拿它当判据；「注册表还能答」由下面 Test-GdMergedEntry 那一格守住(未换家、未摘)。
+# 现问现答，不复用 [m2] 那次的读数：中间还隔着 m3~m5，不靠变量存活做判据。
+$b6 = $null
+$b6Err = ''
+try { $b6 = Invoke-GdCli -Verb 'check-module-manifests' -Body $b2Body } catch { $b6Err = $_.Exception.Message }
+$b6Entry = @()
+if ($null -ne $b6) { $b6Entry = @($b6.EntryProblems) }
+Check ('[m6] 入口侧零意见(参数表读得到／逐枚开关名在参数表里／ark×Ack 反向负锚，命中 ' + $b6Entry.Count + ' 枚)') (($b6Err -eq '') -and ($b6Entry.Count -eq 0)) ($b6Entry -join ' ‖ ')
 Check '合体判断走注册表(Test-GdMergedEntry 返回布尔)' ($null -ne (Test-GdMergedEntry)) "merged=$(Test-GdMergedEntry)"
 
 Write-Host "`n[m7] 注册表被清空时的行为(工程裁坏了要说人话，别少印四段)"

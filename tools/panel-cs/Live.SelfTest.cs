@@ -866,9 +866,313 @@ namespace GdPanel
                 return caught == 5;
             });
 
+            // ---------- 刀⑰ 笔(c)-2 第 2 批(2026-11-07)：B2 check-module-manifests 出口自检十档 ----------
+            // 夹具＝一棵最小真树(临时目录里的 lib\*-module.ps1 ＋ 入口件)，走的是与现树完全相同的一条通道：
+            // 本枚规则读的是文件文本，夹具不落盘就量不到东西(与 B1 的临时文件同形，只是多一层目录)。
+            b.Chk("check-module-manifests 合规夹具树：Modules 两行(序 ark|r1999)、逐行零意见、EntryProblems 空、Total=0、Passed 真、回执恰四键", delegate
+            {
+                string root = CmTree(Path.Combine(tmp, "cm-ok"));
+                Dictionary<string, object> d = Row(Chain.CheckModuleManifests(CmIn(root)));
+                object[] ms = (object[])d["Modules"];
+                return d.Count == 4 && ms != null && ms.Length == 2
+                       && CmId(d, 0) == "ark" && CmId(d, 1) == "r1999"
+                       && CmP(d, 0).Length == 0 && CmP(d, 1).Length == 0
+                       && CmJoin((object[])d["EntryProblems"]).Length == 0
+                       && L(d["TotalProblems"]) == 0L && Gd.Truthy(d["Passed"]);
+            });
+            b.Chk("check-module-manifests 坏清单逐条点名：一棵件同时中十枚规则＋入口侧两枚，TotalProblems 是命中和(12)不是段数(2)", delegate
+            {
+                string root = CmTree(Path.Combine(tmp, "cm-bad"), CmArkBad, null);
+                Dictionary<string, object> d = Row(Chain.CheckModuleManifests(CmIn(root)));
+                string man = CmP(d, 0), ent = CmJoin((object[])d["EntryProblems"]);
+                bool all = HasAll(man, "flat-key-empty", "short-name-shape", "path-key-not-required",
+                    "assistant-lib-unlisted", "lib-file-missing", "admin-why-missing", "elevation-flag-missing",
+                    "hook-value-not-brace", "hook-key-stray", "status-section-title-missing");
+                return L(d["TotalProblems"]) == 12L && man.Split('|').Length == 10
+                       && all && HasAll(ent, "verb-flag-absent", "ark.ShopDone", "ark.ShopReset")
+                       && !Gd.Truthy(d["Passed"]) && CmP(d, 1).Length == 0;
+            });
+            b.Chk("check-module-manifests 读不出档只落一枚：件里没有 Register-GdModule ⇒ 一行一条 manifest-body-missing，不排空键假细节、入口侧也不替它补", delegate
+            {
+                string root = CmTree(Path.Combine(tmp, "cm-nobody"), CmArkNone, null);
+                Dictionary<string, object> d = Row(Chain.CheckModuleManifests(CmIn(root)));
+                string man = CmP(d, 0);
+                return L(d["TotalProblems"]) == 1L && CountOf(man, "manifest-body-missing") == 1
+                       && CountOf(man, "flat-key-empty") == 0 && CmId(d, 0).Length == 0
+                       && CmJoin((object[])d["EntryProblems"]).Length == 0;
+            });
+            b.Chk("check-module-manifests 空表与缺键分两档(读了是空表／键不在清单里)：PathKeys 与 Libs 各一枚，两形不互混", delegate
+            {
+                string a = CmTree(Path.Combine(tmp, "cm-empty"), CmArkEmptyLists, null);
+                string b2 = CmTree(Path.Combine(tmp, "cm-absent"), CmArkAbsentLists, null);
+                Dictionary<string, object> da = Row(Chain.CheckModuleManifests(CmIn(a)));
+                Dictionary<string, object> db = Row(Chain.CheckModuleManifests(CmIn(b2)));
+                string ma = CmP(da, 0), mb = CmP(db, 0);
+                return HasAll(ma, "path-keys-empty｜读了，是空表", "libs-empty｜读了，是空表")
+                       && HasAll(mb, "path-keys-empty｜键不在清单里", "libs-empty｜键不在清单里")
+                       && CountOf(ma, "flat-key-empty") == 0 && CountOf(ma, "assistant-lib-unlisted") == 0
+                       && L(da["TotalProblems"]) == 2L && L(db["TotalProblems"]) == 2L;
+            });
+            b.Chk("check-module-manifests 入口侧四档分家：件不在／没有 param 块／param() 零枚／括号配不平，四形各落各的串", delegate
+            {
+                string root = CmTree(Path.Combine(tmp, "cm-entry1"));
+                Dictionary<string, object> d1 = Row(Chain.CheckModuleManifests(In(
+                    "root", root, "entry", Path.Combine(root, "no-such-entry.ps1"),
+                    "requiredPathKeys", new object[] { "maaDir", "m9aDir", "mumuDir" },
+                    "requiredHooks", new object[] { "EnvProbes" })));
+                string r2 = CmTree(Path.Combine(tmp, "cm-entry2"), null, "# no param block here\nWrite-Host 1\n");
+                Dictionary<string, object> d2 = Row(Chain.CheckModuleManifests(CmIn(r2)));
+                string r3 = CmTree(Path.Combine(tmp, "cm-entry3"), null, "param(\n)\nWrite-Host 1\n");
+                Dictionary<string, object> d3 = Row(Chain.CheckModuleManifests(CmIn(r3)));
+                string r4 = CmTree(Path.Combine(tmp, "cm-entry4"), null, "param(\n    [switch]$A\n");
+                Dictionary<string, object> d4 = Row(Chain.CheckModuleManifests(CmIn(r4)));
+                return HasAll(CmJoin((object[])d1["EntryProblems"]), "entry-file-missing")
+                       && HasAll(CmJoin((object[])d2["EntryProblems"]), "entry-param-block｜读不到行首的 param 块")
+                       && HasAll(CmJoin((object[])d3["EntryProblems"]), "entry-param-table-empty")
+                       && HasAll(CmJoin((object[])d4["EntryProblems"]), "entry-param-block｜param 块的括号配不平");
+            });
+            b.Chk("check-module-manifests 开关名两向：Merged 声明的名字入口不认识⇒verb-flag-absent；ark×Ack 是反向负锚⇒入口认识它才红(非 ark 那一路同开关照旧正查)", delegate
+            {
+                string root = CmTree(Path.Combine(tmp, "cm-flag"), null,
+                    "[CmdletBinding()]\nparam(\n    [switch]$ArkShopDone,\n    [switch]$ArkShopReset,\n" +
+                    "    [switch]$FarmArk,\n    [switch]$AckArk,\n    [switch]$R1999ShopDone,\n    [switch]$R1999ShopReset\n)\n");
+                Dictionary<string, object> d = Row(Chain.CheckModuleManifests(CmIn(root)));
+                string ent = CmJoin((object[])d["EntryProblems"]);
+                return HasAll(ent, "ack-gate-exited｜ark.Ack", "verb-flag-absent｜r1999.Ack")
+                       && CountOf(ent, "ack-gate-exited") == 1 && CountOf(ent, "verb-flag-absent") == 1
+                       && L(d["TotalProblems"]) == 2L;
+            });
+            b.Chk("check-module-manifests 大小写口径逐字对齐 PS(-contains／hashtable 键不分大小写)：清单键全大写＋开关名全小写＋钩子名换大小写，仍零意见", delegate
+            {
+                string root = CmTree(Path.Combine(tmp, "cm-case"), CmArkUpperKeys, null);
+                Dictionary<string, object> d = Row(Chain.CheckModuleManifests(CmIn(root)));
+                return L(d["TotalProblems"]) == 0L && CmId(d, 0) == "ARK" && CmP(d, 0).Length == 0
+                       && CmJoin((object[])d["EntryProblems"]).Length == 0;
+            });
+            b.Chk("check-module-manifests 钩子那枚降到文本档：值以 { 起才算块体，写成串即 hook-value-not-brace(不再量\"运行时是不是真 scriptblock\")", delegate
+            {
+                string root = CmTree(Path.Combine(tmp, "cm-hook"), CmArkHookStr, null);
+                Dictionary<string, object> d = Row(Chain.CheckModuleManifests(CmIn(root)));
+                string man = CmP(d, 0);
+                return CountOf(man, "hook-value-not-brace｜EnvProbes") == 1 && L(d["TotalProblems"]) == 1L;
+            });
+            b.Chk("check-module-manifests 无清单的树：Modules 零行⇒两向都 vacuous pass(与老形空循环同语义，登记为已知不量面)", delegate
+            {
+                string root = CmTree(Path.Combine(tmp, "cm-none"));
+                File.Delete(Path.Combine(root, "lib", "ark-module.ps1"));
+                File.Delete(Path.Combine(root, "lib", "r1999-module.ps1"));
+                Dictionary<string, object> d = Row(Chain.CheckModuleManifests(CmIn(root)));
+                return ((object[])d["Modules"]).Length == 0 && L(d["TotalProblems"]) == 0L
+                       && Gd.Truthy(d["Passed"]) && ((object[])d["EntryProblems"]).Length == 0;
+            });
+            b.Chk("check-module-manifests 入闸五发逐档拒跑(四枚缺键＋root 空串一档，全走 GdRuleException：缺任何一枚就是核自己抄一份名册)", delegate
+            {
+                string root = CmTree(Path.Combine(tmp, "cm-gate"));
+                Dictionary<string, object> good = CmIn(root);
+                string[] bad = new string[] { "root", "entry", "requiredPathKeys", "requiredHooks" };
+                int caught = 0;
+                foreach (string k in bad)
+                {
+                    Dictionary<string, object> b2 = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+                    foreach (KeyValuePair<string, object> kv in good) if (kv.Key != k) b2[kv.Key] = kv.Value;
+                    try { Chain.CheckModuleManifests(b2); }
+                    catch (GdRuleException) { caught++; }
+                    catch { }
+                }
+                Dictionary<string, object> blank = new Dictionary<string, object>(good);
+                blank["root"] = "";
+                try { Chain.CheckModuleManifests(blank); }
+                catch (GdRuleException) { caught++; }
+                catch { }
+                return caught == 5;
+            });
+
             int rc = b.Result("--livetest");
             try { if (Directory.Exists(tmp)) Directory.Delete(tmp, true); } catch { }
             return rc;
+        }
+
+        // ---------- 刀⑰ 笔(c)-2 第 2 批(2026-11-07)：B2 check-module-manifests 的夹具树与取数助手 ----------
+        // 夹具形状逐字对齐现树两本清单：Register-GdModule ([pscustomobject]@{…})、Hooks 也是 [pscustomobject]@{…}、
+        // EntryVerbs=@{ Merged = @{…} }、StatusSectionTitle 是平键；入口是「[CmdletBinding()] param(…)」那一形。
+        // 内容全 ASCII、只留判定要读的键：本枚读的是文件文本，夹具不落盘就没有东西可量(与 B1 同一形制，多一层目录)。
+        const string CmArkGood =
+            "Register-GdModule ([pscustomobject]@{\n" +
+            "    Id            = 'ark'\n" +
+            "    Name          = 'Arknights MAA'\n" +
+            "    ShortName     = 'ark-cn'\n" +
+            "    AssistantLib  = 'maa.ps1'\n" +
+            "    SettingsBlock = 'ark'\n" +
+            "    RequiresAdmin = $true\n" +
+            "    ElevationFlag = 'arkRequiresElevation'\n" +
+            "    AdminWhy      = 'client runs elevated'\n" +
+            "    PathKeys      = @('maaDir')\n" +
+            "    Libs          = @('maa.ps1')\n" +
+            "    EntryVerbs    = @{\n" +
+            "        Merged = @{ Ack = '-AckArk'; ShopDone = '-ArkShopDone'; ShopReset = '-ArkShopReset'; Farm = '-FarmArk' }\n" +
+            "    }\n" +
+            "    Hooks         = [pscustomobject]@{\n" +
+            "        EnvProbes     = {\n" +
+            "            param($S)\n" +
+            "            return [ordered]@{ 'MAA' = $S.paths.maaDir }\n" +
+            "        }\n" +
+            "        StatusSection = { param($S) Write-Host 'x' }\n" +
+            "    }\n" +
+            "    StatusSectionTitle = 'MAA queue'\n" +
+            "})\n";
+        const string CmR1999Good =
+            "Register-GdModule ([pscustomobject]@{\n" +
+            "    Id            = 'r1999'\n" +
+            "    Name          = 'Reverse 1999'\n" +
+            "    ShortName     = 'r1999'\n" +
+            "    AssistantLib  = 'm9a.ps1'\n" +
+            "    SettingsBlock = 're1999'\n" +
+            "    RequiresAdmin = $false\n" +
+            "    PathKeys      = @('m9aDir', 'mumuDir')\n" +
+            "    Libs          = @('m9a.ps1')\n" +
+            "    EntryVerbs    = @{\n" +
+            "        Merged = @{ Ack = '-Ack1999'; ShopDone = '-R1999ShopDone'; ShopReset = '-R1999ShopReset' }\n" +
+            "    }\n" +
+            "    Hooks         = [pscustomobject]@{\n" +
+            "        EnvProbes = { param($S) return @{} }\n" +
+            "    }\n" +
+            "})\n";
+        const string CmEntryGood =
+            "[CmdletBinding()]\nparam(\n" +
+            "    [string]$Games = 'all',\n" +
+            "    [ValidateSet('auto', 'manual')][string]$Tag = 'manual',\n" +
+            "    [switch]$DryRun,\n" +
+            "    [Alias('MarkShopDone')][switch]$ArkShopDone,\n" +
+            "    [switch]$ArkShopReset,\n" +
+            "    [switch]$FarmArk,\n" +
+            "    [switch]$Ack1999,\n" +
+            "    [switch]$R1999ShopDone,\n" +
+            "    [switch]$R1999ShopReset\n" +
+            ")\nWrite-Host 'fixture entry'\n";
+        // 坏清单：一枚件同时中十枚规则(平键空／短名带空格／路径键不在名册／助手库不在 Libs／声明的库不在盘／
+        // 提权两枚缺配／钩子是串／钩子键越界／有 StatusSection 没标题)＋入口侧两枚(声明的开关名入口不认识)。
+        const string CmArkBad =
+            "Register-GdModule ([pscustomobject]@{\n" +
+            "    Id            = 'ark'\n" +
+            "    Name          = ''\n" +
+            "    ShortName     = 'has space'\n" +
+            "    AssistantLib  = 'other.ps1'\n" +
+            "    SettingsBlock = 'ark'\n" +
+            "    RequiresAdmin = $true\n" +
+            "    PathKeys      = @('maaDir', 'bogusDir')\n" +
+            "    Libs          = @('nope.ps1')\n" +
+            "    EntryVerbs    = @{\n" +
+            "        Merged = @{ ShopDone = '-NopeFlag' }\n" +
+            "    }\n" +
+            "    Hooks         = [pscustomobject]@{\n" +
+            "        EnvProbes     = 'not a block'\n" +
+            "        BogusHook     = { 1 }\n" +
+            "        StatusSection = { 2 }\n" +
+            "    }\n" +
+            "})\n";
+        const string CmArkNone = "# this fixture registers nothing at all\nWrite-Host 'no Register-GdModule here'\n";
+        const string CmArkEmptyLists =
+            "Register-GdModule ([pscustomobject]@{\n" +
+            "    Id = 'ark'\n    Name = 'Arknights MAA'\n    ShortName = 'ark-cn'\n" +
+            "    AssistantLib = 'maa.ps1'\n    SettingsBlock = 'ark'\n" +
+            "    PathKeys = @()\n    Libs = @()\n" +
+            "    EntryVerbs = @{ Merged = @{ ShopDone = '-ArkShopDone'; ShopReset = '-ArkShopReset'; Farm = '-FarmArk' } }\n" +
+            "    Hooks = [pscustomobject]@{ EnvProbes = { 1 } }\n})\n";
+        const string CmArkAbsentLists =
+            "Register-GdModule ([pscustomobject]@{\n" +
+            "    Id = 'ark'\n    Name = 'Arknights MAA'\n    ShortName = 'ark-cn'\n" +
+            "    AssistantLib = 'maa.ps1'\n    SettingsBlock = 'ark'\n" +
+            "    EntryVerbs = @{ Merged = @{ ShopDone = '-ArkShopDone'; ShopReset = '-ArkShopReset'; Farm = '-FarmArk' } }\n" +
+            "    Hooks = [pscustomobject]@{ EnvProbes = { 1 } }\n})\n";
+        // 全大写键＋全小写开关名＋钩子名换大小写：验"集合比对一律 OrdinalIgnoreCase"那条口径(§11.279 改判④)。
+        const string CmArkUpperKeys =
+            "REGISTER-GDMODULE ([pscustomobject]@{\n" +
+            "    ID            = 'ARK'\n" +
+            "    NAME          = 'Arknights MAA'\n" +
+            "    SHORTNAME     = 'ark-cn'\n" +
+            "    ASSISTANTLIB  = 'maa.ps1'\n" +
+            "    SETTINGSBLOCK = 'ark'\n" +
+            "    REQUIRESADMIN = $TRUE\n" +
+            "    ELEVATIONFLAG = 'arkRequiresElevation'\n" +
+            "    ADMINWHY      = 'client runs elevated'\n" +
+            "    PATHKEYS      = @('MAADIR')\n" +
+            "    LIBS          = @('MAA.PS1')\n" +
+            "    ENTRYVERBS    = @{ MERGED = @{ ACK = '-ACKARK'; SHOPDONE = '-arkshopdone'; SHOPRESET = '-arkshopreset'; FARM = '-farmark' } }\n" +
+            "    HOOKS         = [pscustomobject]@{ ENVPROBES = { 1 } }\n" +
+            "})\n";
+        const string CmArkHookStr =
+            "Register-GdModule ([pscustomobject]@{\n" +
+            "    Id = 'ark'\n    Name = 'Arknights MAA'\n    ShortName = 'ark-cn'\n" +
+            "    AssistantLib = 'maa.ps1'\n    SettingsBlock = 'ark'\n" +
+            "    PathKeys = @('maaDir')\n    Libs = @('maa.ps1')\n" +
+            "    EntryVerbs = @{ Merged = @{ ShopDone = '-ArkShopDone'; ShopReset = '-ArkShopReset'; Farm = '-FarmArk' } }\n" +
+            "    Hooks = [pscustomobject]@{ EnvProbes = 'Write-Host nope' }\n" +
+            "    StatusSectionTitle = 'MAA queue'\n})\n";
+
+        // 写一棵最小合规树；arkOverride／entryOverride 非空时只覆写那一枚件——"坏在哪一条"由那一段单独决定。
+        static string CmTree(string root, string arkOverride, string entryOverride)
+        {
+            string lib = Path.Combine(root, "lib");
+            Directory.CreateDirectory(lib);
+            File.WriteAllText(Path.Combine(lib, "maa.ps1"), "# helper lib\n", new UTF8Encoding(false));
+            File.WriteAllText(Path.Combine(lib, "m9a.ps1"), "# helper lib\n", new UTF8Encoding(false));
+            File.WriteAllText(Path.Combine(lib, "ark-module.ps1"), arkOverride == null ? CmArkGood : arkOverride, new UTF8Encoding(false));
+            File.WriteAllText(Path.Combine(lib, "r1999-module.ps1"), CmR1999Good, new UTF8Encoding(false));
+            File.WriteAllText(Path.Combine(root, "daily-clear.ps1"), entryOverride == null ? CmEntryGood : entryOverride, new UTF8Encoding(false));
+            return root;
+        }
+
+        static string CmTree(string root) { return CmTree(root, null, null); }
+
+        // 门侧那四键的合规入参：两枚名册由"门现问"(这里是夹具写死)，核不许自己抄——缺任何一枚即入闸拒跑。
+        static Dictionary<string, object> CmIn(string root)
+        {
+            return In("root", root, "entry", Path.Combine(root, "daily-clear.ps1"),
+                "requiredPathKeys", new object[] { "maaDir", "m9aDir", "mumuDir" },
+                "requiredHooks", new object[] { "EnvProbes" });
+        }
+
+        static string CmJoin(object[] xs)
+        {
+            StringBuilder sb = new StringBuilder();
+            if (xs != null)
+                for (int i = 0; i < xs.Length; i++) { if (i > 0) sb.Append('|'); sb.Append(S(xs[i])); }
+            return sb.ToString();
+        }
+
+        static object[] CmRows(Dictionary<string, object> d) { return d == null ? null : (object[])d["Modules"]; }
+
+        static string CmP(Dictionary<string, object> d, int i)
+        {
+            object[] ms = CmRows(d);
+            if (ms == null || i < 0 || i >= ms.Length) return "(no-row)";
+            return CmJoin((object[])((Dictionary<string, object>)ms[i])["Problems"]);
+        }
+
+        static string CmId(Dictionary<string, object> d, int i)
+        {
+            object[] ms = CmRows(d);
+            if (ms == null || i < 0 || i >= ms.Length) return "(no-row)";
+            return S(((Dictionary<string, object>)ms[i])["Id"]);
+        }
+
+        static bool HasAll(string joined, params string[] subs)
+        {
+            for (int i = 0; i < subs.Length; i++)
+                if (joined.IndexOf(subs[i], StringComparison.Ordinal) < 0) return false;
+            return true;
+        }
+
+        // 「只落一枚」那种档要数出现次数：Contains 分不开"一条"与"三条同样的"。
+        static int CountOf(string hay, string sub)
+        {
+            int n = 0, at = 0;
+            while (true)
+            {
+                int k = hay.IndexOf(sub, at, StringComparison.Ordinal);
+                if (k < 0) return n;
+                n++; at = k + sub.Length;
+            }
         }
 
         // 这一枚与下面 LWaitJson／LClearJson／LBlankJson 三枚纯读数夹具改 internal，是给 --roundtest 用的

@@ -365,6 +365,492 @@ namespace GdPanel
             return Gd.Out("Hits", hits.ToArray(), "Count", count, "Passed", passed, "Expect", expect);
         }
 
+        // ==================== 刀⑰ 笔(c)-2 第 2 批(2026-11-07) B2：check-module-manifests ====================
+        // 契约格定档见 docs\rust-core-plan.md §11.278，本批落码时的四处改判(四键必填／第十三枚规则／
+        // Ack 退场名册进核／参数表与名册比对走大小写不敏感)按「错账用新笔登记」写进 §11.279。
+        //
+        // 射程＝tools\test-modules.ps1 的 [m2]「每份清单的完备性」与 [m6]「入口动词与真参数对得上」两段里那些
+        // 「拿清单文本＋入口参数表当尺」的判据：读文本与集合比对两步全住核内，PS 门侧自此只余「组参＋按格 Check」
+        // 两件事——与上一批 B1(scan-source-patterns)同形制＝门只问不自己算。
+        //
+        // 三档分档法(§11.278)在这里划的线：只有 PS 运行时才量得到的那一档(真注册、真 dot-source、真 scriptblock
+        // 类型、真参数绑定)**不写文本假对面**——「清单体检没有意见」的运行时面继续由 lib\modules.ps1 的
+        // Import-GdModules 装载期 throw 承接，[m6] 那枚「Test-GdMergedEntry 返回布尔」留在 PS 门里。
+        // 唯一一处降档＝「钩子是 scriptblock」换成文本档「值以 { 起」，语义差当场登记：文本档认不出
+        // 「以 { 起但其实是一枚串」那种写法，而现树两本清单的必需钩子 EnvProbes 与 status 一族全是块体，无格翻。
+        //
+        // 这里头没抄第二份名册：Get-GdRequiredPathKeys 的 key↔lib 对照表(lib\common.ps1:213)与必需钩子名册
+        // (lib\modules.ps1:24)都由**门侧现问、当入参喂进来**(这就是四键必填的理由)；核只做集合比对。
+        // 唯一进核的一张表是「哪一路的 Ack 已退场」(AckExitedIds，原住 test-modules.ps1:306 的那句硬编码判语)。
+
+        sealed class ManifestRow
+        {
+            public string Id = "";
+            public string LibFile = "";
+            public bool BodyOk = false;      // 顶层 @{} 读得出才谈得上逐键判定(§11.279 改判⑤：读不出只落那一枚，不排一串空键假细节)
+            public List<string> Problems = new List<string>();
+            public Dictionary<string, string> Merged = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        // 五枚平键＝[m2]:79 那串；三枚基础动词＝[m6]:293；四枚白名单＝[m6]:302；退场名册＝[m6]:306。
+        static readonly string[] ManifestFlatKeys = new string[] { "Id", "Name", "ShortName", "AssistantLib", "SettingsBlock" };
+        static readonly string[] EntryVerbBase = new string[] { "Ack", "ShopDone", "ShopReset" };
+        static readonly string[] MergedVerbWhitelist = new string[] { "Ack", "ShopDone", "ShopReset", "Farm" };
+        static readonly string[] AckExitedIds = new string[] { "ark" };
+
+        // 串感知的"跳过一段字符串"：返回收尾引号的下标(调用方 i=q 后循环自增)，找不到回 -1。
+        // 单引号串里 '' 是转义；双引号串里反引号连下一枚一起吃。here-string(@' / @")不在射程：
+        // 现树两本清单与入口都没在这儿用 here-string，真用了本枚会当"读不出"落 manifest-body-missing／
+        // entry-param-block 那一档——不是静默放过。
+        static int SkipPsString(string t, int i)
+        {
+            char q = t[i];
+            for (int j = i + 1; j < t.Length; j++)
+            {
+                char ch = t[j];
+                if (q == '"' && ch == '`') { j++; continue; }
+                if (ch == q)
+                {
+                    if (q == '\'' && j + 1 < t.Length && t[j + 1] == '\'') { j++; continue; }
+                    return j;
+                }
+            }
+            return -1;
+        }
+
+        // 从 open(指向 '{' / '(' / '[')找配平的闭括号下标；只数这一种括号，串内不算，# 到行尾跳过。
+        // 为什么只数一种：清单里 `@{ Ack = 'x' }` 这种嵌套靠同种括号计深度就够，混着数会被值里的括号骗。
+        static int MatchClose(string t, int open)
+        {
+            if (open < 0 || open >= t.Length) return -1;
+            char c0 = t[open];
+            char cl = c0 == '{' ? '}' : (c0 == '(' ? ')' : ']');
+            int depth = 0;
+            for (int i = open; i < t.Length; i++)
+            {
+                char ch = t[i];
+                if (ch == '\'' || ch == '"')
+                {
+                    int q = SkipPsString(t, i);
+                    if (q < 0) return -1;
+                    i = q;
+                    continue;
+                }
+                if (ch == '#')
+                {
+                    int e = t.IndexOf('\n', i);
+                    if (e < 0) return -1;            // 注释一直吃到文件尾 ⇒ 后面没有配平了
+                    i = e - 1;
+                    continue;
+                }
+                if (ch == c0) depth++;
+                else if (ch == cl) { depth--; if (depth == 0) return i; }
+            }
+            return -1;
+        }
+
+        // 把"括号内部"(start..end)按顶层分隔符切段：深度按 { ( [ 三种一起数(属性块 [ValidateSet(...)] 里的
+        // 逗号不算分隔符，正是要防的那条)，串内不算，行内 # 注释整段换成等长空格(位置不漂)。
+        static List<string> SplitTop(string t, int start, int end, string seps)
+        {
+            List<string> segs = new List<string>();
+            StringBuilder cur = new StringBuilder();
+            int depth = 0;
+            for (int i = start; i < end; i++)
+            {
+                char ch = t[i];
+                if (ch == '\'' || ch == '"')
+                {
+                    int q = SkipPsString(t, i);
+                    if (q < 0 || q >= end) q = end - 1;
+                    for (int k = i; k <= q; k++) cur.Append(t[k]);
+                    i = q;
+                    continue;
+                }
+                if (ch == '#')
+                {
+                    int e = t.IndexOf('\n', i);
+                    if (e < 0 || e > end) e = end;
+                    for (int k = i; k < e; k++) cur.Append(' ');
+                    i = e - 1;
+                    continue;
+                }
+                if (ch == '{' || ch == '(' || ch == '[') { depth++; cur.Append(ch); continue; }
+                if (ch == '}' || ch == ')' || ch == ']') { if (depth > 0) depth--; cur.Append(ch); continue; }
+                if (depth == 0 && seps.IndexOf(ch) >= 0)
+                {
+                    if (cur.ToString().Trim().Length > 0) segs.Add(cur.ToString());
+                    cur.Length = 0;
+                    continue;
+                }
+                cur.Append(ch);
+            }
+            if (cur.ToString().Trim().Length > 0) segs.Add(cur.ToString());
+            return segs;
+        }
+
+        // 一段 "KEY = 值" 在第一个**顶层** '=' 处分成家(值里可以有 '='，键里不会)。分不出家交回 null 由调用方跳过。
+        static PsPair SplitKeyValue(string seg)
+        {
+            int depth = 0;
+            for (int i = 0; i < seg.Length; i++)
+            {
+                char ch = seg[i];
+                if (ch == '\'' || ch == '"')
+                {
+                    int q = SkipPsString(seg, i);
+                    if (q < 0) return null;
+                    i = q;
+                    continue;
+                }
+                if (ch == '#')
+                {
+                    int e = seg.IndexOf('\n', i);
+                    if (e < 0) return null;
+                    i = e - 1;
+                    continue;
+                }
+                if (ch == '{' || ch == '(' || ch == '[') { depth++; continue; }
+                if (ch == '}' || ch == ')' || ch == ']') { if (depth > 0) depth--; continue; }
+                if (ch == '=' && depth == 0)
+                {
+                    PsPair p = new PsPair();
+                    p.Key = PsScalar(seg.Substring(0, i));
+                    p.Value = seg.Substring(i + 1).Trim();
+                    return p;
+                }
+            }
+            return null;
+        }
+
+        // 标量取原文：'x' / "x" 去外壳(单引号串里的 '' 还原成一枚 ')，其它(裸值、$true、[pscustomobject]@{…})原样交回。
+        static string PsScalar(string v)
+        {
+            string t = (v == null ? "" : v).Trim();
+            if (t.Length >= 2 && ((t[0] == '\'' && t[t.Length - 1] == '\'') || (t[0] == '"' && t[t.Length - 1] == '"')))
+            {
+                string inner = t.Substring(1, t.Length - 2);
+                if (t[0] == '\'') return inner.Replace("''", "'");
+                return inner;
+            }
+            return t;
+        }
+
+        // 值 → 字符串名册。分四档，"读了而读出来是空"与"读不出"分开：
+        //   @('a','b') ⇒ 抠所有带引号的项(含空项 '' —— 老形 Assert 那句"PathKeys 里有空项"就靠它才不丢)；
+        //   @()        ⇒ 零项(空表，合法读数)；
+        //   $xxx       ⇒ 零项(PS 里 $null 展开成空，@($null) 的 Count 是 0)；
+        //   一枚裸串    ⇒ 一项(与 PS `@('maa.ps1')` 与 @(...) 两形同结果)。
+        static List<string> PsValueList(string v)
+        {
+            List<string> outList = new List<string>();
+            string t = (v == null ? "" : v).Trim();
+            if (t.Length == 0) return outList;
+            if (t.StartsWith("$")) return outList;
+            int p = t.IndexOf('(');
+            if (t.StartsWith("@") && p > 0)
+            {
+                int q = t.LastIndexOf(')');
+                string inner = q > p ? t.Substring(p + 1, q - p - 1) : t.Substring(p + 1);
+                foreach (Match m in Regex.Matches(inner, @"'((?:[^']|'')*)'|""([^""]*)"""))
+                    outList.Add(m.Groups[1].Success ? m.Groups[1].Value.Replace("''", "'") : m.Groups[2].Value);
+                return outList;
+            }
+            if (t.StartsWith("@") || t.StartsWith("[")) return outList;      // @{…}／[pscustomobject]@{…} 不是名册
+            outList.Add(PsScalar(t));
+            return outList;
+        }
+
+        // 清单里 RequiresAdmin 写的是裸 $true／$false(不是串)。
+        static bool PsValueBool(string v)
+        {
+            string t = (v == null ? "" : v).Trim();
+            return t.Equals("$true", StringComparison.OrdinalIgnoreCase);
+        }
+
+        // 值文本 → 顶层 @{} 的键值表：先 Trim 再取第一个 '{' 当家，交回 parsed=false 表示"这块读不出"(与"空表"分档)。
+        static Dictionary<string, string> PsHashtableOf(string valueText, out bool parsed)
+        {
+            parsed = false;
+            Dictionary<string, string> d = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            string t = (valueText == null ? "" : valueText).Trim();
+            int open = t.IndexOf('{');
+            if (open < 0) return d;
+            int close = MatchClose(t, open);
+            if (close < 0) return d;
+            foreach (string seg in SplitTop(t, open + 1, close, ",;\r\n"))
+            {
+                PsPair p = SplitKeyValue(seg);
+                if (p == null || p.Key.Length == 0) continue;
+                d[p.Key] = p.Value;
+            }
+            parsed = true;
+            return d;
+        }
+
+        static string Val(Dictionary<string, string> d, string k)
+        {
+            if (d == null) return "";
+            string v;
+            return d.TryGetValue(k, out v) ? v : "";
+        }
+
+        // PS 的 -contains／hashtable.ContainsKey 对字符串键都是**大小写不敏感**的，本枚逐字对齐(§11.279 登记的口径)。
+        static bool HasItem(List<string> xs, string v)
+        {
+            if (xs == null) return false;
+            for (int i = 0; i < xs.Count; i++)
+                if (string.Equals(xs[i], v, StringComparison.OrdinalIgnoreCase)) return true;
+            return false;
+        }
+
+        static bool HasItem(string[] xs, string v)
+        {
+            if (xs == null) return false;
+            for (int i = 0; i < xs.Length; i++)
+                if (string.Equals(xs[i], v, StringComparison.OrdinalIgnoreCase)) return true;
+            return false;
+        }
+
+        // 剥注释两刀：<# … #> 整块换成空格(块里那些不带井号的中间行正是"注释里写了一枚像键的行"的来源，
+        // 与 PS 侧 Get-GdCodeOnlyText 同一判语)；行首(允许缩进)整行 # 丢掉。行内 # 交给扫描器在串外处理。
+        static string StripPsComments(string text)
+        {
+            string t = Regex.Replace(text ?? "", "<\\#[\\s\\S]*?\\#>", " ");
+            string[] lines = t.Split('\n');
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < lines.Length; i++)
+            {
+                string s = lines[i];
+                string trimmed = s.TrimStart();
+                if (trimmed.StartsWith("#")) continue;
+                sb.Append(s);
+                if (i + 1 < lines.Length) sb.Append('\n');
+            }
+            return sb.ToString();
+        }
+
+        // 开关名：清单 EntryVerbs.Merged 写了这一枚动词就用它那串(带前导 -)，缺键回落 -<动词名>。
+        // 与 lib\decisions-common.ps1:94 Get-GdEntryVerb 的语义差逐格登记：那枚先问合体闸 Test-GdMergedEntry，
+        // 本枚**不问**——现树两棵清单的 Merged 把动词写全，合体与否走的都是同一个名字；单游戏导出树上
+        // [m6] 问的入口也仍是 daily-clear.ps1(合体形)，同值。留 PS 那枚 Test-GdMergedEntry 继续量合体本身。
+        static string FlagFor(ManifestRow m, string verb)
+        {
+            string v = Val(m.Merged, verb);
+            if (v.Length > 0)
+            {
+                string s = PsScalar(v);
+                if (s.Length > 0) return s.StartsWith("-") ? s : "-" + s;
+            }
+            return "-" + verb;
+        }
+
+        static Dictionary<string, object> ManifestRowToDict(ManifestRow m)
+        {
+            return Sub("Id", m.Id, "LibFile", m.LibFile, "Problems", m.Problems.ToArray());
+        }
+
+        // verb: check-module-manifests —— 门侧现问的四键喂进来，核内做"读文本＋集合比对"两步，交回恰四键回执。
+        // 入闸四枚全走 GdRuleException＝拒跑非判红(缺任一枚就核自己抄一份名册，正是 §11.186 点名的病灶)：
+        //   root(仓库根，去 lib\ 扫 *-module.ps1)／entry(入口件，读它的 param 块)／
+        //   requiredPathKeys(＝Get-GdRequiredPathKeys 现量)／requiredHooks(＝$script:GdModuleRequiredHooks)。
+        //   后两枚**只判在场不判非空**：空表是合法读数(那棵树上一路都没装)，缺键才是没问。
+        // 出＝{Modules:[{Id,LibFile,Problems[]}], EntryProblems[], TotalProblems, Passed}；
+        //   TotalProblems 是**命中条数之和**不是段数(老形一格里 throw 十条意见，新形逐条点名)；
+        //   Passed 由核内判(TotalProblems==0)，不交给回执码背——回执码 0 只说"核跑成了"。
+        internal static object CheckModuleManifests(Dictionary<string, object> raw)
+        {
+            Dictionary<string, object> c = View(raw);
+            string root = RequireStr(c, "root", "拿它去 lib\\ 扫 *-module.ps1");
+            string entry = RequireStr(c, "entry", "入口件的实路径，读它的 param 块当参数表");
+            List<string> reqKeys = RequireList(c, "requiredPathKeys", "这一路该催的路径键名册");
+            List<string> reqHooks = RequireList(c, "requiredHooks", "清单必需的钩子名册");
+
+            string libDir = Path.Combine(root, "lib");
+            string[] files;
+            try { files = Directory.Exists(libDir) ? Directory.GetFiles(libDir, "*-module.ps1") : new string[0]; }
+            catch (Exception ex) { throw new GdRuleException("check-module-manifests：lib 目录读不动：" + libDir + "(" + ex.Message + ")"); }
+            Array.Sort<string>(files, StringComparer.Ordinal);      // 与 PS 侧 Sort-Object Name 同序(现树两名两把尺同结果)
+
+            List<ManifestRow> rows = new List<ManifestRow>();
+            foreach (string f in files)
+            {
+                ManifestRow m = new ManifestRow();
+                m.LibFile = Path.GetFileName(f);
+                string code = "";
+                bool readable = true;
+                try { code = StripPsComments(File.ReadAllText(f, new UTF8Encoding(false))); }
+                catch (Exception ex) { readable = false; m.Problems.Add("manifest-body-missing｜读文件失败：" + ex.Message); }
+                Dictionary<string, string> top = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                if (readable)
+                {
+                    int reg = code.IndexOf("Register-GdModule", StringComparison.OrdinalIgnoreCase);
+                    int open = reg < 0 ? -1 : code.IndexOf('{', reg);
+                    if (open < 0) m.Problems.Add("manifest-body-missing｜这份件里没有 Register-GdModule 的顶层 @{}");
+                    else
+                    {
+                        bool bodyParsed;
+                        top = PsHashtableOf(code.Substring(open), out bodyParsed);
+                        if (!bodyParsed)
+                        {
+                            m.Problems.Add("manifest-body-missing｜顶层 Register-GdModule 的 @{} 读不出配平的括号");
+                            top = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                        }
+                        else
+                        {
+                            m.Id = PsScalar(Val(top, "Id"));
+                            m.BodyOk = true;
+                        }
+                    }
+                }
+                if (m.BodyOk)
+                {
+                    // ① 五枚平键非空([m2]:79-81)。② 短名形状([m2]:112)——空串同样过不了 ^\S+$，与老形两格同红。
+                    foreach (string k in ManifestFlatKeys)
+                        if (PsScalar(Val(top, k)).Length == 0) m.Problems.Add("flat-key-empty｜" + k);
+                    string shortName = PsScalar(Val(top, "ShortName"));
+                    if (!Regex.IsMatch(shortName, @"^\S+$")) m.Problems.Add("short-name-shape｜" + shortName);
+
+                    // ③④ PathKeys([m2]:82 ＋ Assert:96-97 的"不在名单里")。
+                    List<string> pathKeys = PsValueList(Val(top, "PathKeys"));
+                    if (pathKeys.Count == 0)
+                        m.Problems.Add("path-keys-empty｜" + (Val(top, "PathKeys").Length == 0 ? "键不在清单里" : "读了，是空表"));
+                    foreach (string k in pathKeys)
+                        if (!HasItem(reqKeys, k)) m.Problems.Add("path-key-not-required｜" + (k.Length == 0 ? "(空项)" : k));
+
+                    // ⑤⑥⑦ Libs／助手库在册／声明的库在不在盘([m2]:87、:92、:91)。
+                    //      老形 :87 的后半把与 :92 是同一把尺写两遍，换家后合成 assistant-lib-unlisted 一条，覆盖面不减。
+                    List<string> libs = PsValueList(Val(top, "Libs"));
+                    string assistant = PsScalar(Val(top, "AssistantLib"));
+                    if (libs.Count == 0) m.Problems.Add("libs-empty｜" + (Val(top, "Libs").Length == 0 ? "键不在清单里" : "读了，是空表"));
+                    else if (!HasItem(libs, assistant)) m.Problems.Add("assistant-lib-unlisted｜" + (assistant.Length == 0 ? "(助手库空)" : assistant));
+                    foreach (string n in libs)
+                    {
+                        bool onDisk = false;
+                        try { onDisk = File.Exists(Path.Combine(libDir, n)); } catch { onDisk = false; }
+                        if (!onDisk) m.Problems.Add("lib-file-missing｜" + (n.Length == 0 ? "(空项)" : n));
+                    }
+
+                    // ⑧⑨ 提权两枚配套([m2]:93、:95 ＋ Assert:100)。
+                    if (PsValueBool(Val(top, "RequiresAdmin")))
+                    {
+                        if (PsScalar(Val(top, "AdminWhy")).Length == 0) m.Problems.Add("admin-why-missing｜RequiresAdmin=$true");
+                        if (PsScalar(Val(top, "ElevationFlag")).Length == 0) m.Problems.Add("elevation-flag-missing｜RequiresAdmin=$true");
+                    }
+
+                    // ⑩⑪⑫ Hooks：值以 { 起(scriptblock 的文本档，语义差见本段头注)＋键 ⊆ 必需名册∪Status* ＋
+                    //     有 StatusSection 就得给 StatusSectionTitle([m2]:104-106、:107-109、:111)。
+                    bool hooksParsed;
+                    Dictionary<string, string> hooks = PsHashtableOf(Val(top, "Hooks"), out hooksParsed);
+                    if (!hooksParsed) m.Problems.Add("hook-value-not-brace｜Hooks 这块读不出顶层 @{}");
+                    foreach (KeyValuePair<string, string> hp in hooks)
+                    {
+                        if (!hp.Value.TrimStart().StartsWith("{")) m.Problems.Add("hook-value-not-brace｜" + hp.Key);
+                        if (!HasItem(reqHooks, hp.Key) && !hp.Key.StartsWith("Status", StringComparison.OrdinalIgnoreCase))
+                            m.Problems.Add("hook-key-stray｜" + hp.Key);
+                        if (hp.Key.Equals("StatusSection", StringComparison.OrdinalIgnoreCase) &&
+                            PsScalar(Val(top, "StatusSectionTitle")).Length == 0)
+                            m.Problems.Add("status-section-title-missing｜StatusSection");
+                    }
+
+                    // 开关名的家：EntryVerbs.Merged(内层那层 @{})——[m6] 的动词表由它自己声明，四枚白名单筛过才收。
+                    // 读不出(EntryVerbs 缺键／Merged 缺键／括号不配平)一律交回空表：回落名 -<动词> 随后照样在入口侧翻红，
+                    // 不会两头不落。
+                    bool evParsed;
+                    Dictionary<string, string> ev = PsHashtableOf(Val(top, "EntryVerbs"), out evParsed);
+                    bool mgParsed;
+                    m.Merged = PsHashtableOf(Val(ev, "Merged"), out mgParsed);
+                    if (!evParsed || !mgParsed) m.Merged = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                }
+                rows.Add(m);
+            }
+
+            // ---------------- 入口侧：读 daily-clear.ps1 的 param 块，与清单声明的开关名对照 ----------------
+            List<string> entryProblems = new List<string>();
+            List<string> entryParams = new List<string>();
+            bool entryReadable = false;
+            if (!File.Exists(entry)) entryProblems.Add("entry-file-missing｜" + entry);
+            else
+            {
+                string ecode = "";
+                try { ecode = StripPsComments(File.ReadAllText(entry, new UTF8Encoding(false))); entryReadable = true; }
+                catch (Exception ex) { entryProblems.Add("entry-file-missing｜读文件失败：" + ex.Message); }
+                if (entryReadable)
+                {
+                    // 行首 param 块(脚本级那一枚，取**第一个**命中：入口的 param 在所有函数之前)。
+                    Match pm = Regex.Match(ecode, @"(?mi)^[ \t]*param[ \t]*\(");
+                    if (!pm.Success) entryProblems.Add("entry-param-block｜读不到行首的 param 块");
+                    else
+                    {
+                        int po = ecode.IndexOf('(', pm.Index);
+                        int pc = MatchClose(ecode, po);
+                        if (pc < 0) entryProblems.Add("entry-param-block｜param 块的括号配不平(吃到文件尾)");
+                        else
+                        {
+                            foreach (string seg in SplitTop(ecode, po + 1, pc, ","))
+                            {
+                                // 段里第一个 $名字 就是参数名(属性 [ValidateSet(…)] 不带 $，默认值 = $PSScriptRoot 那种排在后面)。
+                                Match nm = Regex.Match(seg, @"\$[A-Za-z_][A-Za-z0-9_]*");
+                                if (nm.Success) entryParams.Add(nm.Value.Substring(1));
+                            }
+                            if (entryParams.Count == 0) entryProblems.Add("entry-param-table-empty｜读了，零枚参数");
+                        }
+                    }
+                }
+            }
+
+            foreach (ManifestRow m in rows)
+            {
+                if (!m.BodyOk) continue;     // 清单本体没读出来的那一行，入口侧不补假细节(改判⑤同批)
+                List<string> verbs = new List<string>(EntryVerbBase);
+                foreach (string k in m.Merged.Keys)
+                    if (HasItem(MergedVerbWhitelist, k) && !HasItem(verbs, k)) verbs.Add(k);
+                foreach (string verb in verbs)
+                {
+                    string flag = FlagFor(m, verb);
+                    string pname = flag.TrimStart('-');
+                    if (HasItem(AckExitedIds, m.Id) && verb.Equals("Ack", StringComparison.OrdinalIgnoreCase))
+                    {
+                        // [m6]:306-316 那枚反向负锚：这一路入口**必须不认识**它，谁把参数加回来这里翻红。
+                        if (HasItem(entryParams, pname))
+                            entryProblems.Add("ack-gate-exited｜" + m.Id + "." + verb + "｜入口又认识 -" + pname + " 了");
+                        continue;
+                    }
+                    if (!HasItem(entryParams, pname)) entryProblems.Add("verb-flag-absent｜" + m.Id + "." + verb + "｜" + flag);
+                }
+            }
+
+            List<object> moduleRows = new List<object>();
+            long manifestHits = 0;
+            foreach (ManifestRow m in rows) { moduleRows.Add(ManifestRowToDict(m)); manifestHits += m.Problems.Count; }
+            long total = manifestHits + entryProblems.Count;
+            return Gd.Out("Modules", moduleRows.ToArray(), "EntryProblems", entryProblems.ToArray(),
+                "TotalProblems", total, "Passed", total == 0);
+        }
+
+        // 必填两枚的入闸：缺键与空串同档(都是"没问")，走拒跑不是判红。
+        static string RequireStr(Dictionary<string, object> c, string k, string why)
+        {
+            if (!Given(c, k)) throw new GdRuleException("check-module-manifests：" + k + " 缺键——" + why + "，核不许自己抄一份");
+            string v = Gd.Str(Gd.Get(c, k));
+            if (string.IsNullOrEmpty(v)) throw new GdRuleException("check-module-manifests：" + k + " 是空串——" + why);
+            return v;
+        }
+
+        // 必填两枚名册的入闸：**只判在场**，空表是合法读数(那棵树上一路都没装)，缺键才是没问。
+        static List<string> RequireList(Dictionary<string, object> c, string k, string why)
+        {
+            if (!Given(c, k)) throw new GdRuleException("check-module-manifests：" + k + " 缺键——" + why + "，核不许自己抄一份");
+            List<string> xs = OptList(c, k);
+            return xs;
+        }
+
+        sealed class PsPair
+        {
+            public string Key = "";
+            public string Value = "";
+        }
+
         // Test-GdProcessRunning(common.ps1:474) 同形：读不到就当没在跑(Get-Process -ErrorAction SilentlyContinue)。
         static bool Running(string name)
         {

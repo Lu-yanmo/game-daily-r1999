@@ -237,6 +237,11 @@ namespace GdPanel
                 //   scan-source-patterns：门脚本族七成「拿 PS 文本当尺」判据的对面(契约格 §11.276)；
                 //   规则正当新增一枚——扫描与判定就是本体的本体，输入闸四枚走拒跑形，PS 门侧只余组参与按格 Check。
                 else if (verb == "scan-source-patterns") r = Decide(a, Chain.ScanSourcePatterns);
+                // ---- 刀⑰ 笔(c)-2 第 2 批(2026-11-07) B2：清单完备性＋入口开关名对账的对面，照先例排链尾(注册三处同批：本链＋Cli.Verbs.cs 名册＋枚数) ----
+                //   check-module-manifests：test-modules [m2][m6] 两段里「拿清单文本＋入口参数表当尺」那十三枚规则的对面(契约格 §11.278，
+                //   落码时的四处改判 §11.279)；四键必填＝门侧现问供数(路径键名册/必需钩子名册都在 PS 侧的家)，核内只做读文本＋集合比对，
+                //   一张名册都不抄第二份(§11.186 点名的病灶)。唯一进核的表＝Ack 退场名册(原住 test-modules.ps1:306 那句硬编码)。
+                else if (verb == "check-module-manifests") r = Decide(a, Chain.CheckModuleManifests);
                 else throw new GdUsageException("未知子命令：" + verb + "(现有：" + GdCliVerbs.Roster() + "；后续批次见 docs\\ps-migration-batch0.md 与 docs\\ps-migration-live-caliber.md)");
             }
             catch (GdUsageException ex)

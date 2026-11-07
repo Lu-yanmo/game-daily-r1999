@@ -53,7 +53,13 @@ namespace GdPanel
         //   (门脚本族「拿 PS 文本当尺」判据的对面：body {files,pattern,expect(缺省 any)}、回执 {Hits,Count,Passed,Expect}；
         //   与笔(b) 的差别＝本枚规则正当新增且只新增「扫描与判定」这一条——判定就是本体的本体，输入闸四枚走拒跑形。
         //   契约格见 docs\rust-core-plan.md §11.276。既有 verb 的回执形状一枚没动)。
-        public const int ExpectedCount = 109;
+        // 刀⑰ 笔(c)-2 第 2 批(2026-11-07)：109 → 110，链尾再加 check-module-manifests
+        //   (test-modules [m2]「每份清单的完备性」十一枚里取九枚＋[m6]「入口动词与真参数对得上」四枚里取三枚的对面：
+        //   body {root,entry,requiredPathKeys,requiredHooks} 四枚必填(缺任一枚拒跑＝核不抄第二份名册)、
+        //   回执 {Modules,EntryProblems,TotalProblems,Passed} 恰四格；「只有 PS 运行时才量得到」那一档不写文本假对面，
+        //   继续由 Import-GdModules 装载期 throw 与留在门里的 Test-GdMergedEntry 承接。契约格 §11.278，改判登记 §11.279。
+        //   既有 verb 的回执形状一枚没动)。
+        public const int ExpectedCount = 110;
 
         // 顺序＝Cli.cs 分派链里的出现顺序（自检只比集合，不比顺序；顺序留着是为了肉眼对照分派链方便）。
         public static readonly string[] Names = new string[]
@@ -197,7 +203,11 @@ namespace GdPanel
             "input-desktop-name",
             "wait-adb-game-pid",
             // ---- 刀⑰ 笔(c)-2 第 1 批(2026-11-07)：B1 文本判定对面(契约格 §11.276；输入闸四枚＝空 files／空 pattern／缺文件／坏正则) ----
-            "scan-source-patterns"
+            "scan-source-patterns",
+            // ---- 刀⑰ 笔(c)-2 第 2 批(2026-11-07)：B2 清单完备性＋入口开关名对账对面(契约格 §11.278／改判 §11.279) ----
+            //      入闸四枚＝root／entry／requiredPathKeys／requiredHooks 缺任一枚拒跑；回执四格＝Modules／EntryProblems／
+            //      TotalProblems(命中和，不是段数)／Passed(核内判)。清单与入口都按**现树现读**，夹具走同一条通道(自检喂临时树)。 ----
+            "check-module-manifests"
         };
 
         // "未知子命令"那句报错用的名册串：逐枚全名，不再有通配与纯计数。

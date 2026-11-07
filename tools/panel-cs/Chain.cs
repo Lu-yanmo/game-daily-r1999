@@ -72,7 +72,7 @@
 //
 // ==================== 第二笔(同一批的后五枚，2026-10-14)：起进程与写盘那五枚 ====================
 //  ① `start-ark-client`   Start-GdArkClient＋Wait-GdArkLauncherReady(旧 maa.ps1 真身两枚，11-03 转接刀·方舟拉起族整枚出仓；那两枚坐标 702／622 自此按历史引文读)＋
-//                          Wait-GdCondition(common.ps1:979)＋Get-GdWindowByTitle(common.ps1:1012；⚠ 11-05 转接刀·运行面刀⑨ 该真身已自 lib\common.ps1 出仓，坐标按历史引文读)：
+//                          Wait-GdCondition(common.ps1:979；⚠ 刀⑰ 笔(b) 该真身已自 lib\common.ps1 出仓，坐标按历史引文读)＋Get-GdWindowByTitle(common.ps1:1012；⚠ 11-05 转接刀·运行面刀⑨ 该真身已自 lib\common.ps1 出仓，坐标按历史引文读)：
 //                          路径闸 → 窗口名册 → 起进程 → 等窗口 → 暖身 → 更新页那一段真点击。
 //  ② `start-mumu`         Start-GdMuMu(mumu.ps1:38)＋Get-GdMuMuState(mumu.ps1:21)＋Invoke-GdNative(common.ps1:493)：
 //                          info 读数 → 已在跑就吭一声 → control launch → 轮询到 AndroidStarted。
@@ -287,7 +287,7 @@ namespace GdPanel
             return BaseName(StrOf(Gd.Get(PathsOf(c), "m9aExe"), ""));
         }
 
-        // Get-GdFileTail(common.ps1:995) 的逐字复刻：文件不在 ⇒ Text='' Offset=0；
+        // Get-GdFileTail(common.ps1:995；⚠ 刀⑰ 笔(b) 该真身已自 lib\common.ps1 出仓，坐标按历史引文读) 的逐字复刻：文件不在 ⇒ Text='' Offset=0；
         // Offset 越界 ⇒ 归零全读(那是"日志被轮转"那一档，不是错误)；FileShare=ReadWrite(MAA 正在往里写)；
         // 编码 UTF8 —— 与 PS 那侧 [System.Text.Encoding]::UTF8 同一个构造(能吃 BOM，无 BOM 也按 UTF8 解)。
         sealed class Tail
@@ -312,6 +312,19 @@ namespace GdPanel
                 t.Offset = size;
                 return t;
             }
+        }
+
+        // verb: read-file-tail —— 刀⑰ 笔(b)(2026-11-07)：Get-GdFileTail(common.ps1 真身，随批出仓)的出口露出。
+        // 规则零新增：读的就是上面 ReadTail 那把尺(逐字复刻语义)；body {path, offset(缺省 0)}，回执 {Text, Offset}。
+        // 已登记的语义差：PS 侧空 Path 会在 Test-Path 当场抛，核侧 File.Exists('')=false ⇒ ('',0) ——
+        // 消费方(run-via-task 镜像续读)传的是实路径，不落这一档，故不改 ReadTail 也不在此补闸。
+        internal static object ReadFileTail(Dictionary<string, object> raw)
+        {
+            Dictionary<string, object> c = View(raw);
+            string path = OptStr(c, "path", null);
+            long offset = OptLng(c, "offset", 0);
+            Tail t = ReadTail(path, offset);
+            return Gd.Out("Text", t.Text, "Offset", t.Offset);
         }
 
         // Test-GdProcessRunning(common.ps1:474) 同形：读不到就当没在跑(Get-Process -ErrorAction SilentlyContinue)。
@@ -597,7 +610,7 @@ namespace GdPanel
             catch { return false; }        // 坏正则：真身那一下也被逐颗进程的 catch 吞掉
         }
 
-        // Wait-GdCondition(common.ps1:979) 逐字：先判再睡，睡在 return 之前**无条件**执行
+        // Wait-GdCondition(common.ps1:979；⚠ 刀⑰ 笔(b) 该真身已自 lib\common.ps1 出仓，坐标按历史引文读) 逐字：先判再睡，睡在 return 之前**无条件**执行
         // (原样怪癖第 10 笔：超时那一档最后一次判完还多睡一轮)。
         static bool WaitUntil(Dictionary<string, object> c, Func<bool> test, int timeoutSeconds,
                               int pollSeconds, string what, List<object> lines)
@@ -612,6 +625,37 @@ namespace GdPanel
             }
             Say(lines, "WARN", "等待超时(" + timeoutSeconds + "s)：" + what);
             return false;
+        }
+
+        // verb: wait-adb-game-pid —— 刀⑰ 笔(b)(2026-11-07)：Wait-GdCondition(common.ps1 真身，随批出仓)在
+        // 1999-event-audit:114 那唯一活调用点的**单用途形**：test = 进程内问一枚 Live.AdbGamePid 的 Found，
+        // 睡与判用的都是上面 WaitUntil 那把尺(先判再睡、超时 WARN 原话、异常吞成 false，一条规则都不新写)。
+        // 通用 wait-condition{verb,body,field} 形已在设计轮拒掉(需分派链内部重入＝形状变过大，见 k45a 契约格)。
+        // body：timeoutSeconds/pollSeconds(缺省 5)/what(缺省 '1999 客户端进程')；
+        // adb/serial/package 与夹具旋钮 noSpawn/fakeOut **给了才透传**——缺省时落到 Live.AdbGamePid 自己的现场读，
+        // 与 PS 那侧"每轮现问端点"同语义(这里不预读，避免给空串把现场读档顶成实路径)。
+        // 回执 {Met, Lines}；Lines 进 GdLog 即落日志(verb 子进程的 stdout／信封)，PS 壳改指后不回放
+        // (mumu 批定谳沿用，避免双份日志)。
+        internal static object WaitAdbGamePid(Dictionary<string, object> raw)
+        {
+            Dictionary<string, object> c = View(raw);
+            int timeoutSeconds = (int)OptLng(c, "timeoutSeconds", 0);
+            int pollSeconds = (int)OptLng(c, "pollSeconds", 5);
+            string what = OptStr(c, "what", delegate { return "1999 客户端进程"; });
+            Dictionary<string, object> inner = new Dictionary<string, object>();
+            string[] pass = new string[] { "adb", "serial", "package", "noSpawn", "fakeOut" };
+            for (int i = 0; i < pass.Length; i++)
+            {
+                object v;
+                if (c.TryGetValue(pass[i], out v) && v != null) inner[pass[i]] = v;
+            }
+            List<object> lines = new List<object>();
+            bool met = WaitUntil(c, delegate
+            {
+                Dictionary<string, object> d = Live.AdbGamePid(inner) as Dictionary<string, object>;
+                return d != null && Gd.Truthy(Gd.Get(d, "Found"));
+            }, timeoutSeconds, pollSeconds, what, lines);
+            return Gd.Out("Met", met, "Lines", lines.ToArray());
         }
 
         static int RuntimeInt(Dictionary<string, object> c, string key, object fixture, int def)

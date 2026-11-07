@@ -64,7 +64,9 @@ function Set-GdSettingChangedBroadcast {
 
 Write-Host '--- 屏保解除工具(只动当前用户，默认只读) ---'
 $desk = ''
-try { $desk = Get-GdInputDesktopName } catch { }
+# 刀⑰ 笔(b)(2026-11-07)：输入桌面名改问核(input-desktop-name，Live.InputDesktopNameV 直身＝GdWin.InputDesktopName 露出)；
+# 读不到⇒空串不 throw，下面那格「读不到」的话术照旧；Get-GdInputDesktopName 真身(连带 GdDesk.cs)随批出仓。
+try { $desk = [string](Invoke-GdCli -Verb 'input-desktop-name' -Body ([pscustomobject]@{})).Name } catch { }
 Write-Host ("  输入桌面现在 = {0}" -f $(if ($desk) { $desk } else { '读不到' }))
 if ($desk -and $desk -ne 'Default') {
     Write-Host "  注意：会话已经被屏保/锁屏桌面接管，这个工具不会(也不该)替你把画面点掉。" -ForegroundColor Yellow

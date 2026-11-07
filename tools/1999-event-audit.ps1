@@ -111,7 +111,11 @@ if ($Image) {
         $m = Invoke-GdNative -File $ep.Adb -Arguments @('-s', $ep.Serial, 'shell', 'monkey', '-p', $pkg, '-c', 'android.intent.category.LAUNCHER', '1') -TimeoutSeconds 30
         if ($m.Code -ne 0) { Write-Host "  monkey 拉起失败(退出码 $($m.Code))：$((($m.Out + $m.Err) -replace '\s+', ' ').Trim()) → 审不了" -ForegroundColor Red; exit 1 }
         $weLaunched = $true
-        if (-not (Wait-GdCondition -Test { [bool](Invoke-GdCli -Verb 'adb-game-pid' -Body ([pscustomobject]@{ adb = [string]$ep.Adb; serial = [string]$ep.Serial; package = [string]$pkg })).Found } -TimeoutSeconds 120 -PollSeconds 5 -What '1999 客户端进程')) {
+        # 刀⑰ 笔(b)(2026-11-07)：等待改问核(wait-adb-game-pid 单用途形，Chain.WaitAdbGamePid 直身)。
+        # 语义逐字照旧：先判再睡、120s 上限、5s 一轮、超时那句 WARN 由核内 Say 落日志；
+        # Lines 不回放(mumu 批定谳：核已落日志，壳再印一遍就是双份)。Wait-GdCondition 真身随批出仓。
+        $wd = Invoke-GdCli -Verb 'wait-adb-game-pid' -Body ([pscustomobject]@{ adb = [string]$ep.Adb; serial = [string]$ep.Serial; package = [string]$pkg; timeoutSeconds = 120; pollSeconds = 5; what = '1999 客户端进程' })
+        if (-not [bool]$wd.Met) {
             Write-Host '  拉了 120 秒进程还没起来 → 审不了' -ForegroundColor Red; exit 1
         }
         <# 进程在 ≠ 进了主界面：客户端还要过启动动画/登录/热更。v1 用定长等待换简单 —— 等少了拍到加载屏，

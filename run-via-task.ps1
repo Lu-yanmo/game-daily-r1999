@@ -147,7 +147,9 @@ while ((Get-Date) -lt $deadline) {
         # 只回显新增行(按字节偏移续读)：每轮重抄最后一行会把控制台刷成一屏重复
         if ($mirrorPath -ne $newest.FullName) { $mirrorPath = $newest.FullName; $mirrorOffset = 0 }
         if ((Get-Item -LiteralPath $newest).Length -lt $mirrorOffset) { $mirrorOffset = 0 }
-        $tail = Get-GdFileTail -Path $mirrorPath -Offset ([long]$mirrorOffset)
+        # 刀⑰ 笔(b)(2026-11-07)：续读改问核(read-file-tail，Chain.ReadFileTail 直身＝当年 Get-GdFileTail 的逐字复刻)；
+        # 回执 Text/Offset 两键与旧壳同名同语义(不在⇒('',0)、轮转⇒归零全读)；Get-GdFileTail 真身随批出仓。
+        $tail = Invoke-GdCli -Verb 'read-file-tail' -Body ([pscustomobject]@{ path = $mirrorPath; offset = [long]$mirrorOffset })
         $mirrorOffset = $tail.Offset
         foreach ($line in (@($tail.Text -split "`r?`n") | Where-Object { $_.Trim() })) {
             Write-Host "  [$(Get-Date -Format 'HH:mm:ss')] $line"

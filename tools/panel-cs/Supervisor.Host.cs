@@ -493,7 +493,7 @@ namespace GdPanel
                 "Done", done);
         }
 
-        // Get-GdFileTail(common.ps1)的直身：偏移失配(日志轮转)回 0 重读，Offset 恒为读完时的文件尾。
+        // Get-GdFileTail(common.ps1；⚠ 刀⑰ 笔(b) 该真身已出仓，坐标按历史引文读)的直身：偏移失配(日志轮转)回 0 重读，Offset 恒为读完时的文件尾。
         static object[] GetTail(string path, long offset)
         {
             if (!File.Exists(path)) return new object[] { "", (long)0 };

@@ -43,7 +43,13 @@ namespace GdPanel
         //   (Gate.Host.cs 早就在场的 MuMuEndpoint 直身露成命令行出口，三源两正则一条规则都不新写；
         //   settings 现读不进 body，旋钮 settings/conn 只给自检夹具。PS 侧 Get-GdMuMuAdbEndpoint 壳随笔(d) 摘件。
         //   既有 verb 的回执形状一枚没动)。
-        public const int ExpectedCount = 105;
+        // 刀⑰ 笔(b) state 三枚对面出口(2026-11-07)：105 → 108，链尾再加 read-file-tail／input-desktop-name／wait-adb-game-pid
+        //   (ReadTail／GdWin.InputDesktopName／WaitUntil×AdbGamePid 三枚早就在场的真身露成出口，一条规则都不新写；
+        //   wait-adb-game-pid 是单用途形——拒绝通用 wait-condition 重入形(形状变过大)。PS 侧三枚真身
+        //   Wait-GdCondition／Get-GdFileTail／Get-GdInputDesktopName 共 58 行随批出仓，$global:GdDeskTypeDef 与
+        //   tools\gdinterop\GdDesk.cs 随第三枚涟漪退役(Add-GdInterop 按目录现扫，名册零手改)。
+        //   既有 verb 的回执形状一枚没动)。
+        public const int ExpectedCount = 108;
 
         // 顺序＝Cli.cs 分派链里的出现顺序（自检只比集合，不比顺序；顺序留着是为了肉眼对照分派链方便）。
         public static readonly string[] Names = new string[]
@@ -178,7 +184,14 @@ namespace GdPanel
             // ---- 刀⑮ 笔(c)(2026-11-06)：resolve-mumu-adb-endpoint 是 Gate.Host.cs 里 MuMuEndpoint 直身的出口露出
             //      (三源两正则/路径守卫/回执三键 {Adb,Serial,Why} 全部原样，规则零新增)；settings 现读、
             //      旋钮 settings/conn 只给自检夹具——与 build-round-ctx 同一形制 ----
-            "resolve-mumu-adb-endpoint"
+            "resolve-mumu-adb-endpoint",
+            // ---- 刀⑰ 笔(b)(2026-11-07)：三枚链尾同批。read-file-tail 是 Chain.ReadTail 直身的出口(回执 {Text,Offset}
+            //      逐字照 Get-GdFileTail 语义)；input-desktop-name 是 GdWin.InputDesktopName 的出口(读不到⇒空串不 throw，
+            //      desk 夹具键照 ArkDesktopState 先例)；wait-adb-game-pid 是 WaitUntil×AdbGamePid 的单用途形
+            //      (回执 {Met,Lines}，超时 WARN 原话；通用 wait-condition 重入形已拒——见 docs\ps-migration-batch0.md 刀⑰ 笔(b)) ----
+            "read-file-tail",
+            "input-desktop-name",
+            "wait-adb-game-pid"
         };
 
         // "未知子命令"那句报错用的名册串：逐枚全名，不再有通配与纯计数。

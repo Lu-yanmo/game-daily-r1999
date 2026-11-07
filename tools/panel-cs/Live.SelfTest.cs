@@ -758,6 +758,43 @@ namespace GdPanel
                        && S(gone["Mode"]) == "adb 通道断了" && !Gd.Truthy(gone["Sent"]);
             });
 
+            // ---------- 刀⑰ 笔(b)(2026-11-07)：三枚新出口 read-file-tail／input-desktop-name／wait-adb-game-pid ----------
+            // 判据全在对面真身(Chain.ReadTail／Chain.WaitUntil／GdWin.InputDesktopName／Live.AdbGamePid)，
+            // 这七格只钉"出口露得对不对＋回执形状逐字"，一条规则都不在这儿重写。
+            b.Chk("read-file-tail 四档：首次全读／续读只回新增／文件不在⇒('',0)／offset 越界(轮转)归零全读", delegate
+            {
+                string f = Path.Combine(tmp, "tail.txt");
+                File.WriteAllText(f, "第一行。\n", new UTF8Encoding(false));
+                Dictionary<string, object> a = Row(Chain.ReadFileTail(In("path", f)));
+                if (S(a["Text"]) != "第一行。\n" || L(a["Offset"]) != 13L || a.Count != 2) return false;
+                File.AppendAllText(f, "第二行。\n", new UTF8Encoding(false));
+                Dictionary<string, object> b2 = Row(Chain.ReadFileTail(In("path", f, "offset", a["Offset"])));
+                if (S(b2["Text"]) != "第二行。\n" || L(b2["Offset"]) != 26L) return false;
+                Dictionary<string, object> gone = Row(Chain.ReadFileTail(In("path", Path.Combine(tmp, "nope.log"))));
+                if (S(gone["Text"]) != "" || L(gone["Offset"]) != 0L) return false;
+                Dictionary<string, object> rolled = Row(Chain.ReadFileTail(In("path", f, "offset", 999999L)));
+                return S(rolled["Text"]) == "第一行。\n第二行。\n" && L(rolled["Offset"]) == 26L;
+            });
+            b.Chk("input-desktop-name 夹具直答：desk 给了原样回，出口只有 Name 一格(真调用由 unarm-screensaver 消费面自证)", delegate
+            {
+                Dictionary<string, object> d = Row(Live.InputDesktopNameV(In("desk", "Default")));
+                return d.Count == 1 && S(d["Name"]) == "Default";
+            });
+            b.Chk("wait-adb-game-pid 即中档：noSpawn+fakeOut 有 pid ⇒ Met 真，且一条 WARN 都不许有", delegate
+            {
+                Dictionary<string, object> d = Row(Chain.WaitAdbGamePid(In("noSpawn", true, "fakeOut", " 1234\n",
+                    "timeoutSeconds", 120, "adb", @"C:\fake\adb.exe", "serial", "127.0.0.1:7555",
+                    "package", "com.bilibili.arknight")));
+                return d.Count == 2 && Gd.Truthy(d["Met"]) && ((object[])d["Lines"]).Length == 0;
+            });
+            b.Chk("wait-adb-game-pid 超时档：timeoutSeconds=0 ⇒ 零判直落 Met 假，WARN 那句逐字(缺省 what=1999 客户端进程)", delegate
+            {
+                Dictionary<string, object> d = Row(Chain.WaitAdbGamePid(In("noSpawn", true, "fakeOut", "",
+                    "timeoutSeconds", 0)));
+                object[] ls = (object[])d["Lines"];
+                return !Gd.Truthy(d["Met"]) && ls.Length == 1 && S(ls[0]) == "等待超时(0s)：1999 客户端进程";
+            });
+
             int rc = b.Result("--livetest");
             try { if (Directory.Exists(tmp)) Directory.Delete(tmp, true); } catch { }
             return rc;

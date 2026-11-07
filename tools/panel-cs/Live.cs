@@ -667,6 +667,18 @@ namespace GdPanel
             return data;
         }
 
+        // verb: input-desktop-name —— 刀⑰ 笔(b)(2026-11-07)：Get-GdInputDesktopName(common.ps1 真身，随批出仓；
+        // 连带 $global:GdDeskTypeDef 与 tools\gdinterop\GdDesk.cs 整枚退役——Add-GdInterop 按目录现扫，名册零手改)
+        // 的出口露出：读的就是 GdWin.InputDesktopName 那把尺(OpenInputDesktop/GetUserObjectInformationW/CloseDesktop
+        // 全封装直身，拿不到回空串)，规则零新增。body {}(desk 夹具键给了原样回，与 ArkDesktopState:251 同一形制)；
+        // 回执 {Name}；读不到 ⇒ ''(不 throw)。unarm-screensaver 的 ''⇒印「读不到」那一路由消费面自证(真调用盲区已登记)。
+        internal static object InputDesktopNameV(Dictionary<string, object> raw)
+        {
+            Dictionary<string, object> c = View(raw);
+            string desk = OptStr(c, "desk", delegate { return GdWin.InputDesktopName(); });
+            return Gd.Out("Name", desk == null ? "" : desk);
+        }
+
         // 尺寸闸这一句与 ark 的两句**不同源**(ark 看窗口矩形+"还最小化吗"，mumu 看安卓给回来的 PNG 尺寸)，
         // 所以不复用 ShotSizeWhy，也不许"顺手统一"。阈值两路都是 200x150。
         internal static string MuMuSizeWhy(int w, int h)

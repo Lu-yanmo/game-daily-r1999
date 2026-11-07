@@ -324,7 +324,9 @@ function Join-GdPath {
 # 编不过可以回退逐行冻结的 PS 原身；interop 装的是 **P/Invoke 签名**，PS 侧没有原身可退(类型只能现编)，
 # 所以这里的"回退"= 让调用方拿到它本来就写好的那条"读不到/失败"语义：Add-GdInterop 永不向上抛、只落状态，
 # 由调用方按状态各走各的分支(Add-GdSleepTypeDef 仍会抛：转接层 Start-GdRoundHostNoSleep 的 catch 吞成"没设位、本轮照跑"，
-# Set-GdScreensaverActive 自己不接、原样上抛；Get-GdInputDesktopName 直接返回空串 = "不知道")。内核与 interop 都不是硬依赖——不许把 06:00 那轮置于死地。
+# Set-GdScreensaverActive 自己不接、原样上抛；Get-GdInputDesktopName 已删(刀⑰ 笔(b)，docs\rust-core-plan.md §11.272)，
+# "读不到返回空串"那半三态搬到 verb input-desktop-name 的回执 Name 上，由 unarm-screensaver 消费面现折)。
+# 内核与 interop 都不是硬依赖——不许把 06:00 那轮置于死地。
 $script:GdInteropState = 'off'    # off|live|fallback
 $script:GdInteropMs = -1          # 本进程现编 interop 花了几毫秒(-1 = 没编过)
 function Add-GdInterop {
@@ -349,7 +351,7 @@ function Add-GdInterop {
 
 # --- 防止系统在跑日常时睡眠/被屏保盖屏 ---
 $global:GdSleepHandle = $false
-$global:GdDeskTypeDef = $false    # Get-GdInputDesktopName 的 interop 只做一次
+# $global:GdDeskTypeDef 已删(刀⑰ 笔(b))：Get-GdInputDesktopName 的"只做一次"闸随真身一起出仓，[GdDesk]:: 全树只在那函数体内。
 function Add-GdSleepTypeDef {
     <# B0 起这里不再内联 C#：签名在 tools\gdinterop\GdPower.cs，现编由 Add-GdInterop 负责。
        编不过要**抛**(与旧 `Add-Type ... -ErrorAction Stop` 同形)——丙档落码刀①删掉 Enter/Exit-GdNoSleep 那两枚真身后，接这一抛的是
@@ -372,33 +374,12 @@ function Add-GdSleepTypeDef {
 # 原头注点名的老调用方 tools\panel.ps1 已于 10-23 刀③ 删除，此处留作历史引文，别当活锚读。
 
 # Get-GdScreensaverStateFile 已删(丙档落码刀②，docs\rust-core-plan.md §11.118)：唯一调用方随 Enter-GdNoSleep 一起退役，screensaver.restore 那本 state 自此没有 PS 侧的读写者。
-function Get-GdInputDesktopName {
-    <# 输入事件当前落到哪个桌面：正常='Default'；Lock Screen/Screen-saver/Winlogon 时鼠标键盘到不了普通窗口。
-       返回 ''=读不到(按"不知道"处理，不得据此判锁屏)。2026-09-26 加：06:00 两轮方舟全是死在
-       会话被屏保桌面接管上，起跑前一行就能判掉，不该再烧 12 分钟等端游。 #>
-    if (-not $global:GdDeskTypeDef) {
-        # 注意(这条教训 B0 前后都成立)：绝不能给现编加 -ErrorAction SilentlyContinue —— 实测那样类型会"编译成功但不落地"，
-        # 之后每次 [GdDesk]:: 都静默走 catch 返回 ''(2026-09-26 排查)。形态也必须像 GdPower/GdWin 一样是完整
-        # -TypeDefinition/-Path + 显式 class：-Name+-MemberDefinition 在函数体内同样会"成功但不落地"(实测 2026-09-26)。
-        # B0 起编译这一段搬进 Add-GdInterop(签名本体在 tools\gdinterop\GdDesk.cs)：它内部自带
-        # $ErrorActionPreference='Stop'、任何异常只落状态不外抛，所以这里判返回值——编不过就本轮按"读不到"处理，
-        # 与旧那句 try/catch{ return '' } 一字同形。
-        if ((Add-GdInterop) -ne 'live') { return '' }
-        $global:GdDeskTypeDef = $true
-    }
-    try {
-        # 参数照抄 vision-ark 里实测可用的 [GdWin]::InputDesktopName：flags=OPEN_EXISTING(2)，
-        # access=DESKTOP_READOBJECTS(0x0002)，UOI_NAME=2。上一版抄成 GetUserObjectName/0x100 是错的，恒返回空。
-        $h = [GdDesk]::OpenInputDesktop(0x0002, $false, 0x0002)
-        if ($h -eq [IntPtr]::Zero) { return '' }
-        try {
-            $sb = New-Object System.Text.StringBuilder 256
-            $need = [uint32]0
-            if ([GdDesk]::GetUserObjectInformationW($h, 2, $sb, 512, [ref]$need)) { return $sb.ToString() }
-            return ''
-        } finally { [void][GdDesk]::CloseDesktop($h) }
-    } catch { return '' }
-}
+# Get-GdInputDesktopName 已删(刀⑰ 笔(b)，docs\rust-core-plan.md §11.272)：三态(读到/读不到/编译不成)整枚搬到核侧，
+# 真身在 tools\panel-cs\GdWin.cs::InputDesktopName(拿不到回空串)，出口是 verb input-desktop-name(处理器 Live.cs::InputDesktopNameV，
+# 回执只有 Name 一格)。消费面 tools\unarm-screensaver.ps1 已改问 verb；"不知道"那半折法(空串≠锁屏)留在消费面，不进核。
+# 原头注的两条教训照登(别再踩)：现编类型不许给 -ErrorAction SilentlyContinue("编译成功但不落地")；
+# -Name+-MemberDefinition 在函数体内同样不落地，形态必须是完整 -TypeDefinition。签名本体 tools\gdinterop\GdDesk.cs 随批整枚退役
+# ——Add-GdInterop 按目录现扫全量编译，不点名 GdDesk.cs，删了不会被"少一个文件"咬到。
 # Get-GdScreensaverActive 已删(丙档落码刀②，docs\rust-core-plan.md §11.118)：生产面零调用方，它唯一的调用方随 Enter-GdNoSleep 一起退役(§11.116)。
 # SPI 武装位那一格现由核内 verb disable-screensaver-for-round 现读(Round.cs::ScreensaverOff 里的 GdPower.SPIGetActive)；本枚"读不到返回 null"那半三态随体退场。
 function Set-GdScreensaverActive {
@@ -829,38 +810,14 @@ function Stop-GdRunLock {
     } catch { }
 }
 
-function Wait-GdCondition {
-    param(
-        [Parameter(Mandatory)][scriptblock]$Test,
-        [Parameter(Mandatory)][int]$TimeoutSeconds,
-        [int]$PollSeconds = 5,
-        [string]$What = 'condition'
-    )
-    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
-    while ((Get-Date) -lt $deadline) {
-        if (& $Test) { return $true }
-        Start-Sleep -Seconds $PollSeconds
-    }
-    Write-GdLog "等待超时(${TimeoutSeconds}s)：$What" -Level WARN
-    return $false
-}
-
-function Get-GdFileTail {
-    <# 从指定字节偏移开始读取新增内容，返回 @{Text;Offset} #>
-    param(
-        [Parameter(Mandatory)][string]$Path,
-        [long]$Offset = 0
-    )
-    if (-not (Test-Path -LiteralPath $Path)) { return @{ Text = ''; Offset = 0 } }
-    $fs = [System.IO.File]::Open($Path, 'Open', 'Read', 'ReadWrite')
-    try {
-        if ($Offset -gt $fs.Length) { $Offset = 0 }   # 日志被轮转
-        [void]$fs.Seek($Offset, 'Begin')
-        $sr = New-Object System.IO.StreamReader($fs, [System.Text.Encoding]::UTF8)
-        $text = $sr.ReadToEnd()
-        return @{ Text = $text; Offset = $fs.Length }
-    } finally { $fs.Dispose() }
-}
+# Wait-GdCondition 已删(刀⑰ 笔(b)，docs\rust-core-plan.md §11.272)：真身是 tools\panel-cs\Chain.cs::WaitUntil 的逐字复刻，
+# 出口是 verb wait-adb-game-pid(处理器 Chain.WaitAdbGamePid＝单用途形，拒开通用重入形：scriptblock 进不了 JSON 契约)。
+# 先判再睡／超时那句 WARN「等待超时(Ns)：what」逐字与旧件同形；WARN 由核内 Say 落日志，壳侧不回放 Lines(mumu 批定谳)。
+# 消费面 tools\1999-event-audit.ps1 已改问 verb。
+# Get-GdFileTail 已删(同批)：真身是 tools\panel-cs\Chain.cs::ReadTail 的逐字复刻，出口是 verb read-file-tail
+# (处理器 Chain.ReadFileTail，回执 Text/Offset 两键与旧 hashtable 同形)。三条口径随面对在位：不在⇒('',0)、
+# offset 越界⇒归零全读(日志轮转那一支)、Offset 恒为读完时的文件尾；FileShare.ReadWrite 与无 BOM UTF8 也照抄。
+# 消费面 run-via-task.ps1 的续读已改问 verb。
 
 # Get-GdWindowByTitle 已删(11-05 转接刀·运行面刀⑨)：按主窗口标题找进程那把闸的对面在
 # tools/panel-cs/Chain.cs::FindByTitle(start-ark-client 链体内用，含 msedge 误报那道进程名过滤)，表账档位词「已承接」，

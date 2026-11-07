@@ -225,6 +225,14 @@ namespace GdPanel
                 //   resolve-mumu-adb-endpoint：三源两正则全住 Gate.Host.cs(本枚只是把它露出来，一条规则都不新写)；
                 //   settings 现读、整块不进 body，body 旋钮 settings/conn 只给自检夹具。1999-event-audit 的落点轮询自此问核。
                 else if (verb == "resolve-mumu-adb-endpoint") r = Decide(a, GateHost.EndpointV);
+                // ---- 刀⑰ 笔(b)(2026-11-07)：三枚 PS 真身的对面出口，照先例排链尾(注册三处同批：本链＋Cli.Verbs.cs 名册＋枚数) ----
+                //   read-file-tail        ＝ Chain.ReadTail 直身露出(镜像日志按字节偏移续读)，零规则新增；
+                //   input-desktop-name    ＝ GdWin.InputDesktopName 直身露出，desk 夹具键照 ArkDesktopState/Live.cs:251 先例；
+                //   wait-adb-game-pid     ＝ 单用途形(拒绝通用 wait-condition 重入形)：Chain.WaitUntil × 进程内 Live.AdbGamePid 的 Found；
+                //                            三枚全部只复用在场真身，处理器与私有助手同类，不改任何可见性。
+                else if (verb == "read-file-tail") r = Decide(a, Chain.ReadFileTail);
+                else if (verb == "input-desktop-name") r = Decide(a, Live.InputDesktopNameV);
+                else if (verb == "wait-adb-game-pid") r = Decide(a, Chain.WaitAdbGamePid);
                 else throw new GdUsageException("未知子命令：" + verb + "(现有：" + GdCliVerbs.Roster() + "；后续批次见 docs\\ps-migration-batch0.md 与 docs\\ps-migration-live-caliber.md)");
             }
             catch (GdUsageException ex)

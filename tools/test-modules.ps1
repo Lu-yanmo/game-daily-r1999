@@ -218,6 +218,30 @@ if ($vrOnDisk) {
         $tlCode203 -notmatch "'vision-rescue'" -and $tlCode203 -notmatch "'vision-ark'" -and $tlCode203 -notmatch "'vision-mumu'")
 }
 
+# 刀⑳ 笔(a)-3 清单完备性对面格：test-lib 头注那句「名单由 $GdTestDotLibs 交给 [m3] 逐条对账，漏一项当场变红」
+# 到今天才有尺量它。老形 [m3] 只钉了反方向(清单不许引用别人的库)＋vision 三枚的负锚，正方向(名单 ⇔ 两份清单
+# Libs 并集 ∪ 共用底座 decisions)没有任何尺量过，后果当场可见＝名单里那枚 'mumu'(lib\mumu.ps1 已随刀⑯ 笔(d)-2
+# 整件出仓)活到今天：Test-Path 守卫恒不命中⇒既不红也不供数。处方＝剥注释取代码面名单，与现读并集做双向差集。
+# 尺不挂在 $vrOnDisk 那条会消失的分路上(在册「山搬了家而尺跟着埋」)；按注册表里有几款分两臂，绝不写死 ark/r1999。
+$tlCode303 = Get-GdCodeOnlyText -Text $tlText
+$tlList303 = @()
+if ($tlCode303 -match '(?m)^\$script:GdTestDotLibs\s*=\s*@\(([^)]*)\)') {
+    $tlList303 = @([regex]::Matches($Matches[1], "'([^']+)'") | ForEach-Object { $_.Groups[1].Value })
+}
+$tlUnion303 = @(Get-GdModules | ForEach-Object { @($_.Libs) } |
+    ForEach-Object { [System.IO.Path]::GetFileNameWithoutExtension([string]$_) })
+$tlExpect303 = @((@($tlUnion303) + @('decisions')) | Sort-Object -Unique)
+$tlExtra303 = @($tlList303 | Where-Object { $tlExpect303 -notcontains $_ })
+$tlMissing303 = @($tlExpect303 | Where-Object { $tlList303 -notcontains $_ })
+$tlReadout303 = ("名单=[$($tlList303 -join ' ')] 并集加底座=[$($tlExpect303 -join ' ')] 多=[$($tlExtra303 -join ' ')] 少=[$($tlMissing303 -join ' ')]")
+if (@(Get-GdModules).Count -ge 2) {
+    Check '自检脚手架名单与两份清单 Libs 并集闭合(双向差集：多一名＝恒不命中的死名，少一名＝那一路自检整段静默跳过)' (
+        @($tlExtra303).Count -eq 0 -and @($tlMissing303).Count -eq 0 -and @($tlList303).Count -ge 1) $tlReadout303
+} else {
+    Check '本路清单声明的库都在自检脚手架名单里(单游戏导出仓只量这一路，另一路的库不在这棵树上)' (
+        @($tlMissing303).Count -eq 0 -and @($tlList303).Count -ge 1) $tlReadout303
+}
+
 Write-Host "`n[m4] 还活着的钩子真调得动(EnvProbes)＋面板取段的形状耦合格"
 foreach ($m in @(Get-GdModules -AvailableOnly)) {
     $id = [string]$m.Id

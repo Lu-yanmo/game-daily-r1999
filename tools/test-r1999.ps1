@@ -21,7 +21,7 @@ Show-GdCommonScreensaverChecks
 #   下面第二格自此翻负(回潮即红)，核臂格与九键信封格保持；判据的家与语义见 docs\rust-core-plan.md。
 # 为什么放这里：这一格钉的是源码形状，M9A 目录在不在都该有证词(只读自检不许要求机器现场状态)；
 # 放在下面 [t4] 那道 return 之后，没装 M9A 的机器上它就静默不跑，等于把锚做成哑尺。
-# 剥注释照上面 $fnEp 那两形(-replace 逐字复用)：本文件里 read-r1999-activity 这个词头注也写了，
+# 剥注释照下面 $fnEv 那两形(-replace 逐字复用；Get-GdTestCodeOnly 到本文件后半才定义、这里调不到。原指的那枚（模拟器端点的函数体变量）已随死臂 19 格由刀⑳ 笔(a)-1 摘掉，故改指在位的那两形)：本文件里 read-r1999-activity 这个词头注也写了，
 # 不剥注释的"正向锚"会在真身被摘掉后照样绿——那是本仓登记过的"锚不是调用"形。
 $fnEv = [string](Get-Command Get-R1999Event -ErrorAction SilentlyContinue).Definition
 $fnEv = ($fnEv -replace '(?s)<\#.*?\#>', ' ') -replace '(?m)^\s*#.*$', ' '
@@ -478,11 +478,11 @@ Write-Host "`n[t18] 1999 这一路也接上视觉兜底(2026-09-26 加强 AI 干
 # 为什么 1999 也要接：M9A 和 MAA 得的是同一种病 —— 模板集里没有的界面它看不见。
 # 2026-09-25 19:24 那一轮，1999 客户端在模拟器里下 1.91G 更新包，10 个任务里 8 个「任务失败」，
 # 我们的日志只会说"进程提前退出"，而画面上一眼就能看出是"停在更新界面"。
-# 刀⑮ 笔(a)：这枚无条件读改成不依赖件在场＋给下面那枚护栏立现读格——件与 New-GdVisionTarget-mumu
-# 命令必须同一个事实(同在同不在)，半迁移(命令还在但件被挪走→腹内正锚静默失守)当场红。
+# 刀⑮ 笔(a) 曾把这份后端件的读改成「不依赖件在场」＋给下面那枚护栏立现读格；刀⑳ 笔(a)-1 起件已整枚退役，
+# 那份读（$mumuLib）随之零消费者、同批摘掉。护栏照旧两条腿都在：件与 New-GdVisionTarget-mumu 必须同一个事实
+# (同在同不在)，半迁移(命令还在但件被挪走)当场红。
 $mumuLibPath = Join-Path $PSScriptRoot '..\lib\vision-mumu.ps1'
 $mumuLibOnDisk = Test-Path -LiteralPath $mumuLibPath
-$mumuLib = if ($mumuLibOnDisk) { Get-Content -LiteralPath $mumuLibPath -Raw -Encoding utf8 } else { '' }
 Check '模拟器后端件与 New-GdVisionTarget-mumu 命令同一个事实(同在同不在，半迁移红)' (
     $mumuLibOnDisk -eq [bool](Get-Command New-GdVisionTarget-mumu -ErrorAction SilentlyContinue)) "件=$mumuLibOnDisk"
 $m9aLib = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\lib\m9a.ps1') -Raw -Encoding utf8
@@ -580,73 +580,24 @@ Check '重试分流认这个标记(not-started/empty-queue/blocked 只有兜清�
     $orchRetry -match 'baseRetry \|\| \(rescued &&' -and $orchRetry -match '"not-started"' -and $orchRetry -match '"empty-queue"' -and $orchRetry -match '"blocked"')
 Check '带标记时日志说得清是"兜清楚了才重试"(不是原来那句"关闭游戏后重试一次")' (
     $orchCs -match '视觉兜底把挡路的界面点掉了')
-if ($mumuLibOnDisk) {
-    # 契约：内核(lib\vision-rescue.ps1)只按字段名调它，少一个字段就是"兜底静默不生效"，所以逐字段点名
-    $tm = New-GdVisionTarget-mumu -S $S
-    $need = @('Kind', 'Name', 'Enabled', 'Why', 'NeedsAdmin', 'AdminWhy', 'Scene', 'UserText', 'Shot', 'Click', 'Alive', 'Grab')
-    $missing = @($need | Where-Object { $tm.PSObject.Properties.Name -notcontains $_ })
-    Check '模拟器靶子把契约要求的 12 个字段都给齐(内核只按名字调它)' ($missing.Count -eq 0) $(
-        if ($missing.Count) { "缺：$($missing -join ',')" } else { '齐' })
-    Check '靶子自称 mumu(内核按 New-GdVisionTarget-<kind> 找它，名字错了就找不到)' ($tm.Kind -eq 'mumu') $tm.Kind
-    Check '模拟器这一路**不要**管理员(点的是虚拟机，宿主机提不提权与它无关)' (
-        -not $tm.NeedsAdmin -and -not $tm.AdminWhy) "NeedsAdmin=$($tm.NeedsAdmin)"
-    Check '没有"抢前台"这一步(点击进的是虚拟机，碰不到用户正在用的窗口，所以 Grab 给空)' ($null -eq $tm.Grab)
-    Check '提示词开头换成 1999/模拟器那套文案(不沿用端游那句，否则模型会去找端游的弹窗)' (
-        $tm.Scene -match '1999' -and $tm.Scene -match 'MuMu|模拟器' -and $tm.Scene -notmatch '端游')
-    Check '靶子自己带 Shot/Click/Alive 三个动作(内核不认识 adb)' (
-        $tm.Shot -is [scriptblock] -and $tm.Click -is [scriptblock] -and $tm.Alive -is [scriptblock])
-
-    # 开关关掉必须"一次都不试"，而且那句原因要带 settings 里的键名 —— 玩家对着日志才知道改哪儿
-    $rtOff = [pscustomobject](Convert-GdMapToHashtable $S.runtime)
-    Set-GdMapValue -Map $rtOff -Key 'mumuVisionRescue' -Value $false | Out-Null
-    $tmOff = New-GdVisionTarget-mumu -S ([pscustomobject]@{ runtime = $rtOff; paths = $S.paths })
-    Check 'mumuVisionRescue=false → 这一路关闭且原因里带键名' (-not $tmOff.Enabled -and $tmOff.Why -match 'mumuVisionRescue') $tmOff.Why
-    $rtArk = [pscustomobject](Convert-GdMapToHashtable $S.runtime)
-    Set-GdMapValue -Map $rtArk -Key 'arkVisionRescue' -Value $false | Out-Null
-    $tmOther = New-GdVisionTarget-mumu -S ([pscustomobject]@{ runtime = $rtArk; paths = $S.paths })
-    Check '端游那个开关管不着模拟器(arkVisionRescue=false 时模拟器靶子照常开着)' $tmOther.Enabled
-
-    # adb 端点三级来源：① 实例配置里的 AdbDevice ② MuMuManager adb -v ③ adb devices 里恰好一台
-    # 为什么不能写死端口：16384/7555 换个 MuMu 版本或实例编号就错，而且本机专属值不许进源码(test-modules 的 m8)。
-$fnEp = Get-GdTestCodeOnly (Get-Command Get-GdMuMuAdbEndpoint).Definition
-    Check 'adb 端点第一选择是调用方给的 Conn(那一路真要用的设备)' ($fnEp -match '\$Conn\.Adb' -and $fnEp -match '\$Conn\.Serial')
-    Check '第二选择问 MuMuManager 的 adb -v，且只抠 ip:port 不认字段名(输出形态各家版本不一)' (
-        $fnEp -match "'adb', '-v'" -and $fnEp -match 'd\{1,3\}')
-    # 09-30 19:16 只读探测实锤：本机这版回的 JSON 里 adb_host 与 adb_port 各占一行，连续 ip:port 抠不到，
-    # 虚拟机明明在跑却被误报"多半没在跑" —— 分字段兜底必须有，且不许写成只认这一版。
-    Check '抠不到连续 ip:port 时兜 JSON 分字段形态(adb_host/adb_port 拼回序列号)' (
-        $fnEp -match 'adb_host' -and $fnEp -match 'adb_port')
-    Check '第三选择 adb devices，但**恰好一台**才认(挑错设备等于往别人的模拟器里点)' ($fnEp -match '\$ons\.Count -eq 1')
-    Check '源码里不写死 adb 端口(换了 MuMu 版本/实例编号就错)' ($fnEp -notmatch '16384|7555|127\.0\.0\.1:\d')
-    Check '拿不到 adb 时先说"跑 setup.ps1"，不拿相对路径硬跑' ($fnEp -match 'setup\.ps1')
-    Check '问 MuMuManager 之前先探路 Get-Command(这份库单独被拿去用时没有 mumu.ps1 也能跑)' (
-        $fnEp -match 'Get-Command Get-GdMuMu')
-    $fnCap = (Get-Command Save-GdMuMuShot).Definition
-    Check '拍屏走"设备里落一张 + pull"，不走 exec-out 接 stdout(文本管道会把 PNG 编码弄废)' (
-        $fnCap -match 'screencap' -and $fnCap -match "'pull'" -and (Get-GdTestCodeOnly $mumuLib) -notmatch 'exec-out')
-    Check '模拟器后端里一个端游的字眼都没有(两路后端互不认识，导出才能各带一份)' (
-        (Get-GdTestCodeOnly $mumuLib) -notmatch 'arknightsExe|PrintWindow|Send-GdArkClick|Get-GdArkWindow')
-    Check '模拟器截屏把客户区报成整块屏(通用的千分比换算因此直接给出设备像素)' (
-        $fnCap -match 'ClientLeft = 0' -and $fnCap -match 'ClientW = \$w')
-    $fnTap = (Get-Command Send-GdMuMuTap).Definition
-    Check '点击出口与端游那一路同形状(@{Mode;Sent})，判定层因此不需要认识 adb' (
-        $fnTap -match 'Mode = ' -and $fnTap -match 'Sent = ')
-} else {
-    Check '模拟器后端那三枚没在现树复活(算端点／拍屏／点一下)' (
-        -not (Get-Command Get-GdMuMuAdbEndpoint -ErrorAction SilentlyContinue) -and
-        -not (Get-Command Save-GdMuMuShot -ErrorAction SilentlyContinue) -and
-        -not (Get-Command Send-GdMuMuTap -ErrorAction SilentlyContinue))
-    $gateHostT18 = ''
-    try { $gateHostT18 = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'panel-cs\Gate.Host.cs') -Raw -Encoding utf8 } catch { }
-    $cliT18 = ''
-    try { $cliT18 = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'panel-cs\Cli.cs') -Raw -Encoding utf8 } catch { }
-    Check '端点那三条规矩住在核侧(Gate.Host.cs：MuMuManager adb -v 只抠 ip:port／JSON 分字段兜底／拿不到先说跑 setup.ps1)' (
-        $gateHostT18.Length -gt 0 -and $gateHostT18.Contains('adb_host') -and $gateHostT18.Contains('adb_port') -and
-        $gateHostT18.Contains('setup.ps1') -and $gateHostT18.Contains('MuMuManager')) ('Gate.Host.cs=' + $gateHostT18.Length + ' 字符')
-    Check '模拟器拍屏与点一下两枚出口仍在核内分派链上(mumu-screen-shot／mumu-screen-click，靶子名走 resolve-rescue-context)' (
-        $cliT18.Length -gt 0 -and $cliT18.Contains('mumu-screen-shot') -and $cliT18.Contains('mumu-screen-click') -and
-        $cliT18.Contains('resolve-rescue-context')) ('Cli.cs=' + $cliT18.Length + ' 字符')
-}
+# 刀⑳ 笔(a)-1：这里原来是一根 if / else 两臂的门，腹内 19 枚正向格打的是模拟器后端件在场时的那套 PS 靶
+# （New-GdVisionTarget-mumu／Get-GdMuMuAdbEndpoint／Save-GdMuMuShot／Send-GdMuMuTap 的字段与实现形状）。
+# 该件已随刀⑯ 笔(d)-2 整枚退役出仓 ⇒ Test-Path 恒假 ⇒ 腹内从那一刻起一枚都不执行（不记失败的死臂，不是覆盖）。
+# 下面那 3 枚核侧对面格由「只在件不在时跑」升为无条件跑——件已不在，判据本来就该一直说话。
+Check '模拟器后端那三枚没在现树复活(算端点／拍屏／点一下)' (
+    -not (Get-Command Get-GdMuMuAdbEndpoint -ErrorAction SilentlyContinue) -and
+    -not (Get-Command Save-GdMuMuShot -ErrorAction SilentlyContinue) -and
+    -not (Get-Command Send-GdMuMuTap -ErrorAction SilentlyContinue))
+$gateHostT18 = ''
+try { $gateHostT18 = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'panel-cs\Gate.Host.cs') -Raw -Encoding utf8 } catch { }
+$cliT18 = ''
+try { $cliT18 = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'panel-cs\Cli.cs') -Raw -Encoding utf8 } catch { }
+Check '端点那三条规矩住在核侧(Gate.Host.cs：MuMuManager adb -v 只抠 ip:port／JSON 分字段兜底／拿不到先说跑 setup.ps1)' (
+    $gateHostT18.Length -gt 0 -and $gateHostT18.Contains('adb_host') -and $gateHostT18.Contains('adb_port') -and
+    $gateHostT18.Contains('setup.ps1') -and $gateHostT18.Contains('MuMuManager')) ('Gate.Host.cs=' + $gateHostT18.Length + ' 字符')
+Check '模拟器拍屏与点一下两枚出口仍在核内分派链上(mumu-screen-shot／mumu-screen-click，靶子名走 resolve-rescue-context)' (
+    $cliT18.Length -gt 0 -and $cliT18.Contains('mumu-screen-shot') -and $cliT18.Contains('mumu-screen-click') -and
+    $cliT18.Contains('resolve-rescue-context')) ('Cli.cs=' + $cliT18.Length + ' 字符')
 
 # 刀⑱ 笔(a)「退役不回潮」负锚：Get-M9AConnection 整枚出仓(b5 扫描尺现拍代码面 LIVE=0)，
 # 对面 verb read-m9a-connection。针只取 'function 名 ' 那形，不吃散文。追加在收尾之前＝不动本件既有行号锚。

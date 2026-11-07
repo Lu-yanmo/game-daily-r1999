@@ -10,16 +10,17 @@ $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 # 名单 = 两份模块清单声明的 Libs 的并集(-common/decisions 是两边共用的底座，也一并点)。
 # 这件事以前只在注释里"由 [m3] 钉着"，实际 [m3] 只钉了反方向(清单不许引用别人的库)，于是 2026-09-26
 # 加了 ark-farm.ps1 之后：ark-daily 的掉落记账调用在自检里认不到函数、一路掉进 catch 打一句 WARN 就过了，
-# 全套件照样全绿 —— 那是假绿。现在名单由下面的 $GdTestDotLibs 交给 [m3] 逐条对账，漏一项当场变红。
+# 全套件照样全绿 —— 那是假绿。名单本该由下面的 $GdTestDotLibs 交给 [m3] 逐条对账、漏一项当场变红——这句直到 11-08 刀⑳ 笔(a)-3 才有尺量它(tools\test-modules.ps1 的清单完备性格)，此前 [m3] 只钉了反方向。
 # 仍然带 Test-Path 守卫：单游戏导出仓里另一款的库不在，就少点一份、少一侧能力，不炸。
 # 11-04 转接刀·运行面刀⑦ 笔(c/d)：'ark-daily'／'r1999-daily' 两枚随编排岛整件出仓，本名单自此八枚。
 # 上面那句"名单＝两份清单声明的 Libs 的并集"仍然成立，只是两侧同时少两枚才闭合：只删这一份而清单没删
-# ＝少装载一路(那一路的库认不到函数)，只删清单而这一份没删＝多一个恒不命中的名字、谁也看不出。
+# ＝少装载一路(那一路的库认不到函数)，只删清单而这一份没删＝多一个恒不命中的名字。「谁也看不出」到 11-08 刀⑳ 笔(a)-3 作废：那枚 'mumu' 就是这么活到件退役之后的，如今双向差集当场看出。
 # 上面那条讲"当年 ark-daily 的调用在自检里认不到函数"的史注按仓内口径不改口——它说的那枚件现在在仓外，
 # 故事讲的是[为什么立这条对账]，不是[现在点的是谁]。
 # 11-06 转接刀·运行面刀⑬ 笔(c)：'ark-farm' 整件出仓(判定+记账真身全在核内 Chain.cs／Orchestration.cs)，名单自此不点它。
-# 11-06 转接刀·运行面刀⑮ 笔(d)：'vision-rescue'／'vision-ark'／'vision-mumu' 三枚随三件本体整件出仓，名单自此四枚(与两份清单 Libs 同帧摘——只删清单＝少装载一路，只删名单＝多一个恒不命中的名字，test-modules 那格量两头闭合)。
-$script:GdTestDotLibs = @('decisions', 'maa', 'm9a', 'mumu')
+# 11-06 转接刀·运行面刀⑮ 笔(d)：'vision-rescue'／'vision-ark'／'vision-mumu' 三枚随三件本体整件出仓，名单自此四枚(与两份清单 Libs 同帧摘——只删清单＝少装载一路，只删名单＝多一个恒不命中的名字；test-modules 那格当时还不存在，两头闭合要到 11-08 刀⑳ 笔(a)-3 才立起来)。
+# 11-08 刀⑳ 笔(a)-3：摘名单一名 'mumu'(件已随刀⑯ 笔(d)-2 出仓，Test-Path 守卫让它既不红也不供数)，名单自此三枚＝两份清单 Libs 并集{maa,m9a}∪共用底座{decisions}，由 tools\test-modules.ps1 的清单完备性格双向钉住。
+$script:GdTestDotLibs = @('decisions', 'maa', 'm9a')
 foreach ($lib in $script:GdTestDotLibs) {
     $libPath = Join-Path $root "lib\$lib.ps1"
     if (Test-Path -LiteralPath $libPath) { . $libPath }

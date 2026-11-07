@@ -523,12 +523,10 @@ Check '"这棵树上没有这一路"那句话只由核内说一次，PS 薄壳�
     ((Get-Content -LiteralPath (Join-Path $PSScriptRoot 'panel-cs\Live.cs') -Raw -Encoding utf8) -match '这棵树上没有') -and
     ($askCode -notmatch '这棵树上没有') -and
     ($askCode -match 'resolve-rescue-context'))
-if ($rescueLibOnDisk) {
-    $rescueConvTooth = ($rescueLib -match 'New-GdVisionTarget-' -and $rescueLib -match 'return \$null')
-} else {
-    $rescueConvTooth = (-not (Get-Command Invoke-GdVisionRescue -ErrorAction SilentlyContinue))
-}
-Check '内核按 New-GdVisionTarget-<kind> 的命名约定拼函数名找后端，找不到就返回 $null(件不在改咬编排没复活)' $rescueConvTooth "件=$rescueLibOnDisk"
+# 2026-11-08 刀㉑ 笔(a) 死臂随批摘：上面的守卫件 lib\vision-rescue.ps1 已整枚出仓且名册零登记 ⇒ 真臂恒不执行，
+# 摘真臂、else 支升为唯一形(它本来就在承接)；这不触"摘而不搬"红线——负锚量的"编排没复活"就是现树的活判据。
+$rescueConvTooth = (-not (Get-Command Invoke-GdVisionRescue -ErrorAction SilentlyContinue))
+Check '内核按 New-GdVisionTarget-<kind> 的命名约定拼函数名找后端，找不到就回 $null(刀㉑ 起此格唯一形＝编排没复活)' $rescueConvTooth "复活=$([bool](Get-Command Invoke-GdVisionRescue -ErrorAction SilentlyContinue))"
 # 接线：这一路此前**压根没有**兜底调用点(后端是死代码)。现在按"进程还在不在"分两类接上。
 # ⚠ 10-25 甲档刀①-b 换桌：下面九格原先咬的是 lib\m9a.ps1 的 Invoke-M9ARun 整段循环，而那一刀要把它摘掉。
 #   新桌子两张，都是活码：判据/话术/扣数/分流 = tools\panel-cs\RunLoops.cs 的 decide-m9a-run-tick，

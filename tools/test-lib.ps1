@@ -375,7 +375,7 @@ function Show-GdCommonRunLockChecks {
     Check '测完 state 快照已原样还原' (Test-GdTestStateRestored)
 }
 
-# ---------- 收尾：打印那一行"结果"，并把计数交给调用方(test-decisions.ps1 汇总用) ----------
+# ---------- 收尾：打印那一行"结果"，并把计数交给调用方(调用方取走那个 GdTest 计数对象) ----------
 function Show-GdTestResult {
     param([Parameter(Mandatory)][string]$Tag)
     Write-Host "`n结果：$script:Pass 通过 / $script:Fail 失败" -ForegroundColor $(if ($script:Fail) { 'Red' } else { 'Green' })

@@ -203,13 +203,14 @@ function Backup-GdFile {
 }
 
 # 该催哪几个助手目录 = 这个工程里真的装了哪几路的助手库。
-# 合体工程里三个都在(行为与以前逐字一致)；只发一款时，另一个游戏的库不在树里，
+# 合体工程里三键都催(mumuDir 挂 m9a.ps1：11-07 刀⑯ 'mumu.ps1' 整件出仓后 1999 路的库只剩 m9a.ps1，
+# 但 mumuDir 仍是那一路的必需路径——催装跟路走不跟件走)；只发一款时，另一个游戏的库不在树里，
 # 就不该为一个玩家根本不会去装的路径天天报警 —— 那类警告只会让人以为 setup 没做完。
 function Get-GdRequiredPathKeys {
     param([string]$Root)
     if (-not $Root) { $Root = $global:GD.Root }
     $keys = @()
-    foreach ($pair in @(@{ Key = 'maaDir'; Lib = 'maa.ps1' }, @{ Key = 'm9aDir'; Lib = 'm9a.ps1' }, @{ Key = 'mumuDir'; Lib = 'mumu.ps1' })) {
+    foreach ($pair in @(@{ Key = 'maaDir'; Lib = 'maa.ps1' }, @{ Key = 'm9aDir'; Lib = 'm9a.ps1' }, @{ Key = 'mumuDir'; Lib = 'm9a.ps1' })) {
         if (Test-Path -LiteralPath (Join-Path $Root "lib\$($pair.Lib)")) { $keys += $pair.Key }
     }
     return $keys

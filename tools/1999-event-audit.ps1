@@ -76,13 +76,16 @@ if ($Image) {
     $pkg = [string]$S.re1999.package
     if (-not $pkg) { Write-Host '  settings.re1999.package 没配，连该拉起哪个应用都不知道 → 审不了' -ForegroundColor Red; exit 1 }
     <# 时序实锤(09-30 18:21 首跑)：M9A 队列末尾的「关闭游戏」把**整台虚拟机**也关了 —— 审计跑到
-       MuMuManager 时报 vm not running。所以这里自己保证 VM 在：Start-GdMuMu 幂等(已起就秒过)，
+       MuMuManager 时报 vm not running。所以这里自己保证 VM 在：start-mumu 幂等(已起就秒过)，
        而"不是我们起的"与"是我们起的"要记下来 —— 现场还原的对称原则：谁拉起谁关，用完关的是自己拉的那份。 #>
     $vmWasUp = $false
-    try { $stMm = Get-GdMuMuState -S $S; $vmWasUp = [bool]$stMm.AndroidStarted } catch { }
-    if (-not (Start-GdMuMu -S $S)) { Write-Host '  MuMu 虚拟机起不来 → 审不了' -ForegroundColor Red; exit 1 }
+    try { $vmWasUp = [bool](Invoke-GdCli -Verb 'mumu-state' -Body ([pscustomobject]@{})).AndroidStarted } catch { }
+    # 刀⑯ mumu.ps1 整件出仓(11-07)：start-mumu(Chain.StartMuMu 直身)幂等编排与真身同形——已起就秒回 Started=true，
+    # 起不来回 Started=false；日志话术由核内 Say 直接落(GdLog.Line)，PS 侧不回放 Lines 免得双份。
+    $dSm = Invoke-GdCli -Verb 'start-mumu' -Body ([pscustomobject]@{})
+    if (-not [bool]$dSm.Started) { Write-Host '  MuMu 虚拟机起不来 → 审不了' -ForegroundColor Red; exit 1 }
     $weBootedVm = -not $vmWasUp
-    <# 时序实锤二(09-30 19:10 首跑)：Start-GdMuMu 返回真(MuMuManager 报安卓已起)之后，
+    <# 时序实锤二(09-30 19:10 首跑)：start-mumu 回 Started=true(MuMuManager 报安卓已起)之后，
        `MuMuManager adb -v` 还要再晚几十秒才给得出 ip:port —— 客机里的 adb 守护比"安卓启动"标志起得晚。
        所以落点要有界轮询：每 6 秒问一次、最多 10 次(约一分钟)，问到就走，全空才认审不了。 #>
     $ep = $null
@@ -96,17 +99,19 @@ if ($Image) {
     }
     if (-not $ep.Adb -or -not $ep.Serial) { Write-Host "  拿不到 adb 落点(虚拟机起来后又等了一分钟)：$($ep.Why) → 审不了" -ForegroundColor Red; exit 1 }
     <# 实锤三(09-30 19:20)：拿到落点不等于连得上 —— 宿主机 adb server 列表是空的，直接拿序列号 `-s ip:port` 去 shell
-       会报 device not found。先显式 connect 一次(Connect-GdAdb 自带 connect 后回查 devices，重复调无害)，
+       会报 device not found。先显式 connect 一次(verb adb-connect 自带 connect 后回查 devices，重复调无害)，
        与 m9a.ps1 日常路里那句「ADB 连接」是同一步。 #>
-    if (-not (Connect-GdAdb -S $S -AdbPath $ep.Adb -Serial $ep.Serial)) {
+    $dAc = Invoke-GdCli -Verb 'adb-connect' -Body ([pscustomobject]@{ adb = [string]$ep.Adb; serial = [string]$ep.Serial })
+    if (-not [bool]$dAc.Ok) {
         Write-Host "  adb connect $($ep.Serial) 没连上 → 审不了" -ForegroundColor Red; exit 1
     }
-    if (-not (Get-Gd1999Pid -AdbPath $ep.Adb -Serial $ep.Serial -Package $pkg)) {
+    $gp0 = Invoke-GdCli -Verb 'adb-game-pid' -Body ([pscustomobject]@{ adb = [string]$ep.Adb; serial = [string]$ep.Serial; package = [string]$pkg })
+    if (-not [bool]$gp0.Found) {
         Write-Host '  1999 客户端没在跑(M9A 收尾的「关闭游戏」干的) → adb monkey 拉起来，这是本工具唯一碰游戏的动作'
         $m = Invoke-GdNative -File $ep.Adb -Arguments @('-s', $ep.Serial, 'shell', 'monkey', '-p', $pkg, '-c', 'android.intent.category.LAUNCHER', '1') -TimeoutSeconds 30
         if ($m.Code -ne 0) { Write-Host "  monkey 拉起失败(退出码 $($m.Code))：$((($m.Out + $m.Err) -replace '\s+', ' ').Trim()) → 审不了" -ForegroundColor Red; exit 1 }
         $weLaunched = $true
-        if (-not (Wait-GdCondition -Test { Get-Gd1999Pid -AdbPath $ep.Adb -Serial $ep.Serial -Package $pkg } -TimeoutSeconds 120 -PollSeconds 5 -What '1999 客户端进程')) {
+        if (-not (Wait-GdCondition -Test { [bool](Invoke-GdCli -Verb 'adb-game-pid' -Body ([pscustomobject]@{ adb = [string]$ep.Adb; serial = [string]$ep.Serial; package = [string]$pkg })).Found } -TimeoutSeconds 120 -PollSeconds 5 -What '1999 客户端进程')) {
             Write-Host '  拉了 120 秒进程还没起来 → 审不了' -ForegroundColor Red; exit 1
         }
         <# 进程在 ≠ 进了主界面：客户端还要过启动动画/登录/热更。v1 用定长等待换简单 —— 等少了拍到加载屏，
@@ -206,8 +211,8 @@ try {
         Write-Host '  现场还原：force-stop 掉我们拉起的 1999(M9A 本来也把它关了)' -ForegroundColor DarkGray
     }
     if ($weBootedVm) {
-        <# 只有 VM 确实是我们起的才关它：$pkg 在这个分支里必然有值(同一 else 段)，Stop-GdMuMu 自带"没在跑就无需关闭"。 #>
-        try { Stop-GdMuMu -S $S } catch { Write-Host "  关虚拟机没关成(不影响审计结论)：$($_.Exception.Message)" -ForegroundColor Yellow }
+        <# 只有 VM 确实是我们起的才关它：$pkg 在这个分支里必然有值(同一 else 段)，stop-mumu 自带"没在跑就无需关闭"。 #>
+        try { Invoke-GdCli -Verb 'stop-mumu' -Body ([pscustomobject]@{}) } catch { Write-Host "  关虚拟机没关成(不影响审计结论)：$($_.Exception.Message)" -ForegroundColor Yellow }
         Write-Host '  现场还原：关掉我们自己起的 MuMu 虚拟机' -ForegroundColor DarkGray
     }
 }

@@ -445,7 +445,8 @@ Check 'VisionKind 仍被入口消费(tools\vision-ask.ps1 只问清单，不自�
     $askSrcT.Length -gt 0 -and $askSrcT.Contains('VisionKind')) ('vision-ask.ps1=' + $askSrcT.Length + ' 字符')
 # 框架与工具层不许硬写某一路的 kind：内核只按命名约定拼函数名，外壳只问清单。
 # 判的是"把 kind 当字面量用"的那几种写法(-Target/-Kind/直接调 New-GdVisionTarget-xxx)，
-# 不是"文件里出现过 mumu 这四个字母"—— status.ps1 点 lib\mumu.ps1 那种是库名，另一回事。
+# 不是"文件里出现过 mumu 这四个字母"—— common.ps1 催装对里 Lib = 'm9a.ps1' 那种是库名，另一回事
+# (刀⑯ 起 lib\mumu.ps1 整件出仓，举例换现存的库名)。
 foreach ($f in @('lib\vision-rescue.ps1', 'lib\modules.ps1', 'tools\vision-ask.ps1', 'daily-clear.ps1', 'status.ps1', 'panel.ps1')) {
     $p = Join-Path $root "tools\$f"
     if (-not (Test-Path -LiteralPath $p)) { $p = Join-Path $root $f }

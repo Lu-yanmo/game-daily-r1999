@@ -196,18 +196,18 @@ function Show-GdCommonPathChecks {
     Write-Host "`n[t1b] 该催哪几个助手目录(跟着本仓库装了哪一路走)"
     $here = @(Get-GdRequiredPathKeys)
     Check '有 lib\maa.ps1 才催 maaDir'           (($here -contains 'maaDir') -eq (Test-Path -LiteralPath (Join-Path $root 'lib\maa.ps1'))) ($here -join ',')
-    Check '1999 的库不在本仓库 → 不催 m9aDir/mumuDir' ((($here -contains 'm9aDir') -and ($here -contains 'mumuDir')) -eq (Test-Path -LiteralPath (Join-Path $root 'lib\m9a.ps1'))) ($here -join ',')
+    Check '1999 的库不在本仓库 → 不催 m9aDir/mumuDir(两键都挂 m9a.ps1)' ((($here -contains 'm9aDir') -and ($here -contains 'mumuDir')) -eq (Test-Path -LiteralPath (Join-Path $root 'lib\m9a.ps1'))) ($here -join ',')
     $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ('gd-req-' + [Guid]::NewGuid().ToString('N'))
     try {
         foreach ($case in @(
-                @{ Libs = @('maa.ps1'); Warn = '只发方舟：只要 MAA' },
-                @{ Libs = @('m9a.ps1', 'mumu.ps1'); Warn = '只发 1999：要 M9A + MuMu' },
-                @{ Libs = @('maa.ps1', 'm9a.ps1', 'mumu.ps1'); Warn = '合体工程：三个都催(与拆分前一致)' })) {
+                @{ Libs = @('maa.ps1'); Warn = '只发方舟：只要 MAA'; Want = 'maaDir' },
+                @{ Libs = @('m9a.ps1'); Warn = '只发 1999：要 M9A + MuMu'; Want = 'm9aDir,mumuDir' },
+                @{ Libs = @('maa.ps1', 'm9a.ps1'); Warn = '合体工程：三个都催(与拆分前一致，mumuDir 挂 1999 路的库)'; Want = 'maaDir,m9aDir,mumuDir' })) {
             $one = Join-Path $tmp ([Guid]::NewGuid().ToString('N'))
             New-Item -ItemType Directory -Path (Join-Path $one 'lib') -Force | Out-Null
             foreach ($l in $case.Libs) { Set-Content -LiteralPath (Join-Path $one "lib\$l") -Value '' -Encoding utf8 }
-            $want = @($case.Libs | ForEach-Object { ($_ -replace '\.ps1$', '') + 'Dir' }) -join ','
-            Check "$($case.Warn) → $want" ((@(Get-GdRequiredPathKeys -Root $one) -join ',') -eq $want)
+            # 刀⑯ mumu.ps1 出仓(11-07)后 want 不能再由件名现算(mumuDir 挂 m9a.ps1 那一对)：三案改手写 Want
+            Check "$($case.Warn) → $($case.Want)" ((@(Get-GdRequiredPathKeys -Root $one) -join ',') -eq $case.Want)
         }
         Check '空仓库壳子/不存在的目录返回空列表(不抛)' $((@(Get-GdRequiredPathKeys -Root (Join-Path $tmp 'no-such-root'))).Count -eq 0)
     } finally {

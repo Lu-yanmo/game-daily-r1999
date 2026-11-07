@@ -1,7 +1,7 @@
 ﻿# lib/r1999-module.ps1 — 《重返未来：1999》(MuMu + M9A) 作为框架模块的清单
 #
 # 和 lib\ark-module.ps1 同一套形状，业务逻辑仍留在 lib\m9a.ps1 / r1999-decisions.ps1 /
-# r1999-daily.ps1 / mumu.ps1 / r1999-status.ps1 里，本文件不复制任何实现。
+# r1999-daily.ps1 / mumu.ps1(11-07 刀⑯ 整件出仓，按史注读) / r1999-status.ps1 里，本文件不复制任何实现。
 # ⚠ 改口(11-04 刀④)：上面那句里的 r1999-status.ps1 已整件出仓 —— 名册两枚改问核(见 ark-module.ps1
 #   同处注释，两枚 verb 两路共用)、展示四枚逐字内联进下面的钩子(实例列表那枚连"故意不套 try/catch"也照抄)。
 # ⚠ 改口(11-04 刀⑤)：Resolve／Preview／Run／Stop／Ack／ShopState／SupervisorEvidence 七枚块体同日出仓 ——
@@ -36,7 +36,9 @@ Register-GdModule ([pscustomobject]@{
         # 同 ark-module.ps1：入口在顶层点的业务库，r1999-decisions.ps1 由 lib\decisions.ps1 门面负责点。
         # 11-06 转接刀·运行面刀⑮ 笔(d)：vision-rescue.ps1(两路共用的兜底内核)与 vision-mumu.ps1(New-GdVisionTarget-mumu 的出处)随三件本体整件出仓——
         #   端点/拍屏/点屏三段真身早在 C#(tools\panel-cs\Gate.Host.cs 端点直身＋Live.cs mumu-screen-shot／mumu-screen-click)，闸序住核内 resolve-rescue-context；本清单不再声明 PS 后端。
-        Libs             = @('m9a.ps1', 'mumu.ps1')
+        # 11-07 刀⑯：'mumu.ps1' 整件出仓(六枚里五枚判定+直身全在核：mumu-state/start-mumu/stop-mumu/adb-connect/adb-game-pid)，
+        # 本清单不再声明它；m9a.ps1 那枚回落臂里的 Get-GdMuMu 已内联为 Join-GdPath(mumuDir+mumuAdb)。
+        Libs             = @('m9a.ps1')
         # 11-04 转接刀·运行面刀⑦ 笔(c)：'r1999-daily.ps1' 整件出仓，故此处不再列它。前置现拍＝岛里逐枚点名
         # (Set-GdR1999ShopState／Resolve-GdR1999Decision／Show-GdR1999Preview／Start-GdR1999Daily／
         # Get-GdM9ADriveExe／Invoke-GdR1999DailyRust)岛外零活 PS 调用点逐枚现拍(§11.235)：判定/预览/收尾三门
@@ -82,7 +84,9 @@ Register-GdModule ([pscustomobject]@{
             StatusProcExtra = {
                 param($S)
                 try {
-                    $st = Get-GdMuMuState -S $S
+                    # 刀⑯ mumu.ps1 整件出仓(11-07)：核内 mumu-state(Chain.MuMuState 直身)整枚直答——
+                    # 目录没填回 Available=false 对象不抛(与真身同形)，回执比真身多一枚 Index。
+                    $st = Invoke-GdCli -Verb 'mumu-state' -Body ([pscustomobject]@{})
                     # 读不到就说读不到、并把原因带上(没填 MuMu 目录 / MuMuManager 报错)，别把"没探到"粉饰成"未运行"
                     if (-not $st.Available) { Write-Host "  MuMu：读不到($($st.Raw))" -ForegroundColor Yellow; return }
                     Write-Host "  MuMu VM $($S.mumu.vmIndex)：$(if ($st.AndroidStarted) { '安卓已启动' } elseif ($st.ProcessStarted) { '进程在但安卓未就绪' } else { '未运行' })($($st.Name))"

@@ -68,7 +68,9 @@ function Get-M9AConnection {
     $dev = $cfg.AdbDevice
     if (-not $dev -or -not $dev.AdbSerial) { throw "实例[$($Instance.Name)]里没有 AdbDevice.AdbSerial，无法探活" }
     $adb = [string]$dev.AdbPath
-    if (-not $adb -or -not (Test-Path -LiteralPath $adb)) { $adb = (Get-GdMuMu -S $S).Adb }
+    # 刀⑯ mumu.ps1 整件出仓(11-07)：真身 `(Get-GdMuMu -S).Adb` 就是这一句宽容拼法(Join-GdPath，核侧
+    # read-m9a-connection 回落臂 Chain.cs 同形复刻)，内联照抄、不 Test-Path，照核侧口径。
+    if (-not $adb -or -not (Test-Path -LiteralPath $adb)) { $adb = Join-GdPath $S.paths.mumuDir @($S.paths.mumuAdb) }
     return [pscustomobject]@{ Adb = $adb; Serial = [string]$dev.AdbSerial; Name = [string]$dev.Name }
 }
 

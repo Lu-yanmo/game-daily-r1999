@@ -356,8 +356,8 @@ Check '审计工具的护栏语义在案：只有画面证据明确的 yes 才 a
 Check '审计工具只问不点：点击通道一个字都不许出现，截屏只走核的 mumu-screen-shot 调用行(刀⑮ 笔(c) 起)' (($r1999Audit -notmatch 'input tap') -and ($r1999Audit -notmatch 'Invoke-GdVisionRescue') -and ($r1999AuditCode -match "Invoke-GdCli -Verb 'mumu-screen-shot'"))
 # 18:21/19:10/19:20 三次实锤定下的现场自理三件：VM 自己起自己关(谁拉起谁关)、落点拿到后先显式 connect
 # (adb server 列表为空时 -s 序列号直接 device not found)、序列化拿不到时有界轮询而不是当场判死。
-Check '审计工具自己保虚拟机在场：起 VM、只有我们起的才关回去(对称还原)' (($r1999Audit -match 'Start-GdMuMu') -and ($r1999Audit -match 'Stop-GdMuMu') -and ($r1999Audit -match 'weBootedVm'))
-Check '审计工具拿到落点先 Connect-GdAdb 再走 -s(实锤 09-30 19:20 空列表 device not found)' ($r1999Audit -match 'Connect-GdAdb')
+Check '审计工具自己保虚拟机在场：起 VM、只有我们起的才关回去(对称还原；刀⑯ 起 verb 名——Start-GdMuMu/Stop-GdMuMu 真身随 mumu.ps1 出仓)' (($r1999Audit -match "Verb 'start-mumu'") -and ($r1999Audit -match "Verb 'stop-mumu'") -and ($r1999Audit -match 'weBootedVm'))
+Check '审计工具拿到落点先 adb-connect 再走 -s(实锤 09-30 19:20 空列表 device not found；刀⑯ 起 verb 名)' ($r1999Audit -match "Verb 'adb-connect'")
 # 11-04 刀⑦ 笔(b) 定档改口：审计工具的 ack 那一步不再叫编排岛里那枚壳，改问核(对面 tools\panel-cs\Round.Data.cs::R1999Ack)。
 # 两半都是钉：正向半抓"改指没落地"，反向半(锚翻负)抓"有人把那两句人话又抄回 PS 侧"——话术自此只有一处真身，PS 侧一个字都不许留。
 # 正向半必须**剥注释后按调用行字面**抓(m9a-update 两形照上面 $fnEv 那套，§「锚不是调用」那笔账)：

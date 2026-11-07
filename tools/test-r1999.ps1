@@ -503,13 +503,11 @@ function Get-GdTestCodeOnly {
     return (($Text -replace '(?s)<\#.*?\#>', ' ') -replace '(?m)^\s*#.*$', ' ')
 }
 # 反过来也判：内核既然两路共用，就不许认识任何一端的专有东西(否则 1999 仓库带上它就等于拖着端游的假设跑)
-# 刀⑮ 笔(a)：这枚护栏腹内的读改成两臂——件在按老形咬文本；件不在(编排已进核)不许让正锚空咬恒红，
-# 改咬"兜底编排命令没在现树复活"。这一格就是护栏自身的现读格：静默失守的形在这里被堵掉。
-$rescueLibPath = Join-Path $PSScriptRoot '..\lib\vision-rescue.ps1'
-$rescueLibOnDisk = Test-Path -LiteralPath $rescueLibPath
-$rescueLib = if ($rescueLibOnDisk) { Get-GdTestCodeOnly (Get-Content -LiteralPath $rescueLibPath -Raw -Encoding utf8) } else { '' }
-Check '兜底内核不认识 adb，也不认识端游窗口(截图/点击一律向靶子要)' (
-    $rescueLib -notmatch 'adb |input tap|screencap|PrintWindow|Send-GdArkClick|arknightsExe')
+# 2026-11-08 刀㉑ 笔(c)：那枚「不认识 adb／端游窗口」的格连同三行取数一并摘除——它咬的守卫件
+#   lib\vision-rescue.ps1 已整枚出仓且名册零登记，取数恒空串 ⇒ -notmatch 恒真，是一枚哑合取(在册「空串假绿」那一形)。
+#   语义不埋：承接面是现树活判据两枚——本文件下面那枚「编排没复活」的负锚，与 tools\test-modules.ps1:168-170
+#   那枚「名册不登记 + 命令不复活」的兜底内核格；件若回来，那一族要连臂一起写回来，不许只把文件放回(同帧 modules:160 半迁移红会当场咬)。
+#   门账自此换代 test-r1999 170→169(摘的是恒真格，覆盖率不掉：它本来就一次都没判过任何东西)。
 # 2026-10-28 甲档第二十刀刀③：话术锚「这棵树上没有」的代码面唯一出处在被摘的旧 :325(Invoke-GdVisionRescue
 # 的闸门段)——那一截编排进核后，内核侧只留"按命名约定找靶子、找不到回 $null"这一件事，说不说那句话归调用方。
 # 活着的对面有两份：PS 薄壳 tools\vision-ask.ps1:55、核内 C# tools\panel-cs\Live.cs:809(由 --livetest 盯)。

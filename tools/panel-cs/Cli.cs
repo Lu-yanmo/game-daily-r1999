@@ -233,6 +233,10 @@ namespace GdPanel
                 else if (verb == "read-file-tail") r = Decide(a, Chain.ReadFileTail);
                 else if (verb == "input-desktop-name") r = Decide(a, Live.InputDesktopNameV);
                 else if (verb == "wait-adb-game-pid") r = Decide(a, Chain.WaitAdbGamePid);
+                // ---- 刀⑰ 笔(c)-2 第 1 批(2026-11-07)：B1 文本判定对面，照先例排链尾(注册三处同批：本链＋Cli.Verbs.cs 名册＋枚数) ----
+                //   scan-source-patterns：门脚本族七成「拿 PS 文本当尺」判据的对面(契约格 §11.276)；
+                //   规则正当新增一枚——扫描与判定就是本体的本体，输入闸四枚走拒跑形，PS 门侧只余组参与按格 Check。
+                else if (verb == "scan-source-patterns") r = Decide(a, Chain.ScanSourcePatterns);
                 else throw new GdUsageException("未知子命令：" + verb + "(现有：" + GdCliVerbs.Roster() + "；后续批次见 docs\\ps-migration-batch0.md 与 docs\\ps-migration-live-caliber.md)");
             }
             catch (GdUsageException ex)

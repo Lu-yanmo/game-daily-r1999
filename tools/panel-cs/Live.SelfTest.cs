@@ -795,6 +795,77 @@ namespace GdPanel
                 return !Gd.Truthy(d["Met"]) && ls.Length == 1 && S(ls[0]) == "等待超时(0s)：1999 客户端进程";
             });
 
+            // ---------- 刀⑰ 笔(c)-2 第 1 批(2026-11-07)：B1 scan-source-patterns 出口自检六档 ----------
+            // 与笔(b) 七格不同：本枚规则就住对面本体(扫描＋判定就是本体的本体)，这六格钉回执形状／逐档行号／
+            // 三档 Passed／大小写语义差／输入闸拒跑形。夹具＝临时文件现写(WriteGrayPng/FakeAdbExe 同形)。
+            b.Chk("scan-source-patterns 合法零命中：Count=0、Hits 空、any 档 Passed 真、Expect 原样回,回执恰四键", delegate
+            {
+                string f = Path.Combine(tmp, "ssp-none.txt");
+                File.WriteAllText(f, "alpha\nbeta\n", new UTF8Encoding(false));
+                Dictionary<string, object> d = Row(Chain.ScanSourcePatterns(In("files", new object[] { f }, "pattern", "zzz")));
+                return d.Count == 4 && L(d["Count"]) == 0L && ((object[])d["Hits"]).Length == 0
+                       && Gd.Truthy(d["Passed"]) && S(d["Expect"]) == "any";
+            });
+            b.Chk("scan-source-patterns 多档双文件：命中逐档 Line 自 1 起、Text=行全文、File=传入路径原样", delegate
+            {
+                string f1 = Path.Combine(tmp, "ssp-a.txt");
+                string f2 = Path.Combine(tmp, "ssp-b.txt");
+                File.WriteAllText(f1, "keep\nhit me\nkeep", new UTF8Encoding(false));
+                File.WriteAllText(f2, "line1\nsecond hit\n", new UTF8Encoding(false));
+                Dictionary<string, object> d = Row(Chain.ScanSourcePatterns(In("files", new object[] { f1, f2 }, "pattern", "hit")));
+                object[] hs = (object[])d["Hits"];
+                if (hs.Length != 2 || L(d["Count"]) != 2L) return false;
+                Dictionary<string, object> h0 = (Dictionary<string, object>)hs[0];
+                Dictionary<string, object> h1 = (Dictionary<string, object>)hs[1];
+                return S(h0["File"]) == f1 && L(h0["Line"]) == 2L && S(h0["Text"]) == "hit me"
+                       && S(h1["File"]) == f2 && L(h1["Line"]) == 2L && S(h1["Text"]) == "second hit";
+            });
+            b.Chk("scan-source-patterns zero 档有命中⇒Passed 假(判定住核内，回执码不背)", delegate
+            {
+                string f = Path.Combine(tmp, "ssp-zero.txt");
+                File.WriteAllText(f, "hit me\n", new UTF8Encoding(false));
+                Dictionary<string, object> d = Row(Chain.ScanSourcePatterns(In("files", new object[] { f }, "pattern", "hit", "expect", "zero")));
+                return L(d["Count"]) == 1L && !Gd.Truthy(d["Passed"]) && S(d["Expect"]) == "zero";
+            });
+            b.Chk("scan-source-patterns nonzero 档零命中⇒Passed 假(活正锚形：门要『必须有命中』的格用它)", delegate
+            {
+                string f = Path.Combine(tmp, "ssp-nz.txt");
+                File.WriteAllText(f, "quiet\n", new UTF8Encoding(false));
+                Dictionary<string, object> d = Row(Chain.ScanSourcePatterns(In("files", new object[] { f }, "pattern", "hit", "expect", "nonzero")));
+                return L(d["Count"]) == 0L && !Gd.Truthy(d["Passed"]);
+            });
+            b.Chk("scan-source-patterns 大小写敏感为默认：HIT 不中 hit；要 PS -match 语义把 (?i) 写进 pattern(逐格登记的语义差)", delegate
+            {
+                string f = Path.Combine(tmp, "ssp-case.txt");
+                File.WriteAllText(f, "hit me\n", new UTF8Encoding(false));
+                Dictionary<string, object> d = Row(Chain.ScanSourcePatterns(In("files", new object[] { f }, "pattern", "HIT")));
+                if (L(d["Count"]) != 0L || !Gd.Truthy(d["Passed"])) return false;
+                Dictionary<string, object> ci = Row(Chain.ScanSourcePatterns(In("files", new object[] { f }, "pattern", "(?i)HIT")));
+                return L(ci["Count"]) == 1L;
+            });
+            b.Chk("scan-source-patterns 输入闸五枚逐档拒跑(空 files／空 pattern／缺文件／坏正则／坏 expect，全走 GdRuleException)", delegate
+            {
+                string f = Path.Combine(tmp, "ssp-gate.txt");
+                File.WriteAllText(f, "x\n", new UTF8Encoding(false));
+                object[][] bad = new object[][] {
+                    new object[] { "files", new object[] { }, "pattern", "x" },
+                    new object[] { "files", new object[] { f }, "pattern", "" },
+                    new object[] { "files", new object[] { Path.Combine(tmp, "ssp-nope.txt") }, "pattern", "x" },
+                    new object[] { "files", new object[] { f }, "pattern", "([unclosed" },
+                    new object[] { "files", new object[] { f }, "pattern", "x", "expect", "sideways" }
+                };
+                int caught = 0;
+                foreach (object[] kv in bad)
+                {
+                    Dictionary<string, object> body = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+                    for (int i = 0; i + 1 < kv.Length; i += 2) body[(string)kv[i]] = kv[i + 1];
+                    try { Chain.ScanSourcePatterns(body); }
+                    catch (GdRuleException) { caught++; }
+                    catch { }
+                }
+                return caught == 5;
+            });
+
             int rc = b.Result("--livetest");
             try { if (Directory.Exists(tmp)) Directory.Delete(tmp, true); } catch { }
             return rc;

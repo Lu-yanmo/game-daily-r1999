@@ -327,6 +327,44 @@ namespace GdPanel
             return Gd.Out("Text", t.Text, "Offset", t.Offset);
         }
 
+        // verb: scan-source-patterns —— 刀⑰ 笔(c)-2 第 1 批(2026-11-07) B1：门脚本族「拿 PS 文本当尺」判据的对面。
+        // 契约格见 docs\rust-core-plan.md §11.276：body {files(数组), pattern(正则), expect(缺省 any)}，回执 {Hits,Count,Passed,Expect}。
+        // 本枚与笔(b) 三枚「只复用在场真身」不同——规则正当新增且只新增「扫描与判定」这一条：判定就是本体的本体，
+        // PS 门侧自此只余「组参＋按格 Check」两件事。输入闸四枚全走 GdRuleException＝拒跑非判红(形制随本件既有 throw 族；
+        // §11.276 正文写的 GdUsageException 是话术瑕疵，随下帧 docs 改口)：空 files／空 pattern／缺文件／坏正则。
+        // 合法而零命中是正当读数(Count=0)；大小写敏感为默认——PS -match 原生不敏感的语义差逐格登记，要原语义把 (?i) 写进 pattern。
+        internal static object ScanSourcePatterns(Dictionary<string, object> raw)
+        {
+            Dictionary<string, object> c = View(raw);
+            List<string> files = OptList(c, "files");
+            if (files.Count == 0) throw new GdRuleException("scan-source-patterns：files 缺键或空数组——没问任何文件却交回零命中，不许成立");
+            string pattern = OptStr(c, "pattern", null);
+            if (string.IsNullOrEmpty(pattern)) throw new GdRuleException("scan-source-patterns：pattern 缺键或空串——空正则匹配一切");
+            Regex rx;
+            try { rx = new Regex(pattern, RegexOptions.CultureInvariant); }
+            catch (ArgumentException ex) { throw new GdRuleException("scan-source-patterns：正则编译失败：" + ex.Message); }
+            string expect = OptStr(c, "expect", delegate { return "any"; });
+            foreach (string f in files)
+                if (!File.Exists(f)) throw new GdRuleException("scan-source-patterns：文件不存在：" + f);
+            List<object> hits = new List<object>();
+            foreach (string f in files)
+            {
+                string[] lines;
+                try { lines = File.ReadAllLines(f, new UTF8Encoding(false)); }
+                catch (Exception ex) { throw new GdRuleException("scan-source-patterns：读文件失败：" + f + "(" + ex.Message + ")"); }
+                for (int i = 0; i < lines.Length; i++)
+                    if (rx.IsMatch(lines[i]))
+                        hits.Add(Sub("File", f, "Line", (long)(i + 1), "Text", lines[i]));
+            }
+            long count = hits.Count;
+            bool passed;
+            if (expect == "zero") passed = (count == 0);
+            else if (expect == "nonzero") passed = (count > 0);
+            else if (expect == "any") passed = true;
+            else throw new GdRuleException("scan-source-patterns：expect 只认 zero／nonzero／any，收到：" + expect);
+            return Gd.Out("Hits", hits.ToArray(), "Count", count, "Passed", passed, "Expect", expect);
+        }
+
         // Test-GdProcessRunning(common.ps1:474) 同形：读不到就当没在跑(Get-Process -ErrorAction SilentlyContinue)。
         static bool Running(string name)
         {

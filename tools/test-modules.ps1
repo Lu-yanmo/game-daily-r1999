@@ -142,10 +142,19 @@ foreach ($m in @(Get-GdModules)) {
 }
 $shared = @($sharedLibs.Keys | Where-Object { @($sharedLibs[$_].Keys).Count -ge 2 })
 foreach ($m in @(Get-GdModules)) {
-    $txt = [System.IO.File]::ReadAllText((Join-Path $root "lib\$([string]$m.Id)-module.ps1"))
+    # 刀⑰ 笔(c)-2 第 1 批 B1 换家(§11.276)：老形是 ReadAllText 整本 + 逐枚 -match 手拼，
+    # 读文件与正则判定两步的家自此住核内 scan-source-patterns，PS 侧只组参与按 Passed 记名。
+    # 语义差逐格登记：老形 -match 拿整本字符串比(等价于跨行扫)、核侧逐行比——靶是库名这种不含换行的
+    # 字面量，两形逐格等价；大小写由不敏感收到敏感，库名在清单里恒是小写字面量，现树现读无格翻。
+    $m3Self = Join-Path $root "lib\$([string]$m.Id)-module.ps1"
     $other = @(Get-GdModules | Where-Object { [string]$_.Id -ne [string]$m.Id } | ForEach-Object { @($_.Libs) } |
         ForEach-Object { [string]$_ } | Where-Object { $_ -notin $shared })
-    $leaked = @($other | Where-Object { $txt -match [regex]::Escape($_) })
+    $leaked = @()
+    foreach ($o3 in $other) {
+        $m3Scan = Invoke-GdCli -Verb 'scan-source-patterns' -Body ([pscustomobject]@{
+            files = @($m3Self); pattern = [regex]::Escape($o3); expect = 'zero' })
+        if (-not [bool]$m3Scan.Passed) { $leaked += $o3 }
+    }
     Check "[$([string]$m.Id)] 清单没引用别的模块的业务库" ($leaked.Count -eq 0) ($leaked -join ' / ')
 }
 # 这份自检查原样进两个导出仓库 → 涉及"两路共用"的断言按注册表里有几款判，绝不写死 ark / r1999

@@ -49,7 +49,11 @@ namespace GdPanel
         //   Wait-GdCondition／Get-GdFileTail／Get-GdInputDesktopName 共 58 行随批出仓，$global:GdDeskTypeDef 与
         //   tools\gdinterop\GdDesk.cs 随第三枚涟漪退役(Add-GdInterop 按目录现扫，名册零手改)。
         //   既有 verb 的回执形状一枚没动)。
-        public const int ExpectedCount = 108;
+        // 刀⑰ 笔(c)-2 第 1 批(2026-11-07)：108 → 109，链尾再加 scan-source-patterns
+        //   (门脚本族「拿 PS 文本当尺」判据的对面：body {files,pattern,expect(缺省 any)}、回执 {Hits,Count,Passed,Expect}；
+        //   与笔(b) 的差别＝本枚规则正当新增且只新增「扫描与判定」这一条——判定就是本体的本体，输入闸四枚走拒跑形。
+        //   契约格见 docs\rust-core-plan.md §11.276。既有 verb 的回执形状一枚没动)。
+        public const int ExpectedCount = 109;
 
         // 顺序＝Cli.cs 分派链里的出现顺序（自检只比集合，不比顺序；顺序留着是为了肉眼对照分派链方便）。
         public static readonly string[] Names = new string[]
@@ -191,7 +195,9 @@ namespace GdPanel
             //      (回执 {Met,Lines}，超时 WARN 原话；通用 wait-condition 重入形已拒——见 docs\ps-migration-batch0.md 刀⑰ 笔(b)) ----
             "read-file-tail",
             "input-desktop-name",
-            "wait-adb-game-pid"
+            "wait-adb-game-pid",
+            // ---- 刀⑰ 笔(c)-2 第 1 批(2026-11-07)：B1 文本判定对面(契约格 §11.276；输入闸四枚＝空 files／空 pattern／缺文件／坏正则) ----
+            "scan-source-patterns"
         };
 
         // "未知子命令"那句报错用的名册串：逐枚全名，不再有通配与纯计数。

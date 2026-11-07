@@ -709,36 +709,6 @@ function Show-GdVersionFile {
     } catch { Write-Host "  $Label 版本读取失败：$($_.Exception.Message)" -ForegroundColor Yellow }
 }
 
-function Add-GdHistory {
-    param(
-        [Parameter(Mandatory)][string]$Game,
-        [Parameter(Mandatory)][string]$Status,
-        [string]$Mode = '',
-        [string]$Detail = '',
-        $DurationSec = $null
-    )
-    $file = Join-Path $global:GD.State 'history.csv'
-    if (-not (Test-Path -LiteralPath $file)) {
-        '"time","game","mode","status","duration_sec","detail"' | Set-Content -LiteralPath $file -Encoding utf8
-    }
-    if (Test-GdCoreFn 'Add-GdHistory') {
-        # K2 口径：舍入仍在壳里做(原身就是 [math]::Round，字符串入参的宽容差是运行时的，内核改成"更宽容"就是改语义)；
-        # 内核只把已舍入的数写成串，并钉死 -0 那一格(实测 7 写 "-0"、5.1 写 "0"，存量 history.csv 按 5.1 那支写的)。
-        $dur = ''
-        if ($null -ne $DurationSec) { $dur = [string]([GdCore.Csv]::DurationText([double]([math]::Round($DurationSec)))) }
-        $flat = [string]([GdCore.Csv]::Flatten($Detail))
-        $row = [string]([GdCore.Csv]::BuildRow([string[]]@((Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), [string]$Game, [string]$Mode, [string]$Status, $dur, $flat)))
-    } else {
-        $dur = if ($null -ne $DurationSec) { "$([math]::Round($DurationSec))" } else { '' }
-        $fields = @(
-            (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'),
-            $Game, $Mode, $Status, $dur, ($Detail -replace "`r?`n", ' | ')
-        )
-        $row = ($fields | ForEach-Object { '"' + ([string]$_ -replace '"', '""') + '"' }) -join ','
-    }
-    Add-Content -LiteralPath $file -Value $row -Encoding utf8
-}
-
 # --- 活体标记(跨进程互斥用，面板只读不写) ---
 # 为什么需要它：面板只看得见自己起的子进程。定时任务、命令行、另一个面板窗口起的轮次它一概不知道，
 # 于是"再来一轮"会把两轮叠到同一个助手/端游上(实机撞过：19:11 从命令行点火，面板全程显示空闲)。
@@ -857,10 +827,6 @@ function Set-GdMapValue {
     if ($Map -is [System.Collections.IDictionary]) { $Map[$Key] = $Value; return $Map }
     $Map | Add-Member -NotePropertyName $Key -NotePropertyValue $Value -Force
     return $Map
-}
-
-function New-GdMap {
-    return @{}
 }
 
 function Convert-GdMapToHashtable {
@@ -1162,7 +1128,7 @@ function Start-GdNativeStreamed {
 # 没接线的宿主(setup/install 一次性入口)照旧恒 off = 全走 PS 原身，行为一字不变；panel.ps1 那一路兜底宿主已于 2026-10-23 乙档刀③ 整件删除。
 $script:GdCoreState = 'off'      # off|live|fallback
 $script:GdCoreNote = ''          # 回退时该说的一句话(调用方经 Get-GdCoreStatus 取自印)；live 恒空串
-$script:GdCoreFunctions = @('Join-GdPath', 'Read-GdJson', 'Backup-GdFile', 'Get-GdSettings', 'Get-GdVersion', 'Add-GdHistory', 'Stop-GdRunLock')   # 已内核化白名单(K1a 路径；K1b 序列化三件套的纯规则残余；K2 版本规范/CSV 行/归属判定。出局面按契约 §8/§9 记档：Write-GdJson、Write-GdLog、Show-GdVersionFile)
+$script:GdCoreFunctions = @('Join-GdPath', 'Read-GdJson', 'Backup-GdFile', 'Get-GdSettings', 'Get-GdVersion', 'Stop-GdRunLock')   # 已内核化白名单(K1a 路径；K1b 序列化三件套的纯规则残余；K2 版本规范/CSV 行/归属判定。出局面按契约 §8/§9 记档：Write-GdJson、Write-GdLog、Show-GdVersionFile。Add-GdHistory 本批随刀⑰ 笔(c)-1 整枚出仓——全树零活调用、对面 append-round-history 在场，死名随摘)
 $script:GdCoreOff = @()          # settings.runtime.coreOff 快照，由 Sync-GdCoreOff 灌
 # 接线批(09-29)的性能读数两条：Add-GdCore 只记"编了几毫秒"，子进程计数挂在两个起进程的包装函数上。
 # 为什么在这里数：丙形态的内核是**进程内**的，接线本身一个新进程都不起 —— 要证的就是这件事，

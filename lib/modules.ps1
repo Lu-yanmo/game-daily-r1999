@@ -10,7 +10,7 @@
 # Import-GdModules 扫 lib\*-module.ps1，按文件名排序逐个点进来，各自 Register-GdModule。
 # 单游戏导出仓库里只有那一份模块文件，于是注册表天然只有一款，入口一个字都不用改。
 #
-# 依赖：本文件只用 lib\common.ps1 里的零件(Write-GdLog / Get-GdSettings / Add-GdHistory …)，
+# 依赖：本文件只用 lib\common.ps1 里的零件(Write-GdLog / Get-GdSettings …；Add-GdHistory 曾在此列，已于 11-07 刀⑰ 笔(c)-1 整枚出仓，死名随摘)，
 # 所以调用方必须已经点过 common.ps1；反过来本文件不点任何游戏专有库(那正是模块清单的事)。
 
 # 注册表：[id] -> 清单对象。用全局是因为这些库都是 dot-source 进入口脚本作用域的，

@@ -1012,7 +1012,7 @@ namespace GdPanel
         }
 
         // ==================== verb: append-round-history(R9-a 收编 round-history 两枚) ====================
-        // Add-GdHistory(common.ps1:870-898) 的**整枚**：表头、舍入、`-0` 那一格、detail 折行、落盘字节形状都在这里。
+        // 原 Add-GdHistory(lib/common.ps1 旧 712-740；该 PS 真身已于 11-07 刀⑰ 笔(c)-1 整枚出仓，全树零活调用，去向见 docs\rust-core-plan.md §11.274) 的**整枚**：表头、舍入、`-0` 那一格、detail 折行、落盘字节形状都在这里。
         // 三处形状的真身只有一份 = tools\gdcore\GdCore.Logs.cs 的 `GdCore.Csv`(PS 侧靠 Add-GdInterop 现编同一份)，
         // build.ps1 把它按 GdWin.cs 的先例编进本装配 ⇒ **不在这里抄第二份 CSV 规则**；舍入仍按 `[math]::Round`
         // 那把中点取偶(Math.Round 默认 ToEven)，`-0` 由 DurationText 钉成 "0"(存量 history.csv 按 5.1 那支写的)。

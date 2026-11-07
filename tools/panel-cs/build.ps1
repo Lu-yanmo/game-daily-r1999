@@ -39,7 +39,8 @@ $cs += $gdwin
 #                                   而 Add-GdInterop 是按目录**整份**现编(不一份份列)⇒ GdPower.cs 里"读 SPI 现值"那两枚声明自此在 PS 侧**编而不被调**，真消费者只剩 panel-cs 这一装配。
 #                                   共享声明面不随体收缩 —— 这不是漏删，是不可拆(拆就要在 PS 侧抄第二份，正是本头注上面那条"宁可多带一条路径"反着来的东西)。
 #   ..\tools\gdcore\GdCore.Logs.cs  history.csv 的 CSV 规则(GdCore.Csv.Flatten/BuildRow/DurationText)，
-#                                   新立的 append-round-history 要用；PS 侧 Add-GdHistory 走的是同一份内核真身。
+#                                   新立的 append-round-history 要用；PS 侧那一份真身 Add-GdHistory 已于 11-07 刀⑰ 笔(c)-1 整枚出仓(全树零活调用)，
+#                                   于是 GdCore.Csv 的 CSV 三枚在 PS 侧自此**编而不被调**，真消费者只剩 panel-cs 这一装配——与上面 GdPower.cs 那格同形，共享声明面不随体收缩。
 # 缺文件一律当编译失败(不许静默跳过：跳过了 Round.cs 会编不过，报错点反而更难读)。
 # ⚠ 这一份里还有 GdCore.Versions 与 GdCore.RunLock 两枚类，panel-cs **一格都不消费**(运行锁的 own 判据
 #   在 Round.cs:247 自己那份) —— 带进来是"整份文件同进同出"的代价，登记在此免得将来被当成第二处真身。

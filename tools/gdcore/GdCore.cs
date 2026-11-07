@@ -23,7 +23,7 @@ namespace GdCore
         //                 see GdCore.Json.cs + GdCore.Msgs.cs and tools\probe-kernel-json-golden.ps1.
         //                 Write-GdJson deliberately stays in PowerShell (measured engine-divergence surface,
         //                 docs\gd-core-contract.md section 8); the whitelist entry list is the contract's own scope list.
-        //   GDCore-K2.1 = Versions/Csv/RunLock rule layer (Get-GdVersion, Add-GdHistory, Stop-GdRunLock) --
+        //   GDCore-K2.1 = Versions/Csv/RunLock rule layer (Get-GdVersion, Stop-GdRunLock; Add-GdHistory used to be listed here -- its PowerShell body was retired 11-07 cut17(c)-1, the Csv rule layer itself stays in the kernel and panel-cs is its only consumer now) --
         //                 see GdCore.Logs.cs and tools\probe-kernel-log-golden.ps1. Write-GdLog and Show-GdVersionFile
         //                 are retired the same way; K2 matrix readings are in docs\gd-core-contract.md section 9.
         public static string Contract()

@@ -35,6 +35,19 @@ Check '九键 idle 信封全函数只构造一次(两臂汇流到 $idle；抄第
     ([regex]::Matches($fnEv, "Mode = 'idle'")).Count -eq 1) $(
     'count=' + ([regex]::Matches($fnEv, "Mode = 'idle'")).Count)
 
+# ---- 刀㉓ 笔(a)(2026-11-08)：[t7] 那八枚行为钉换家核侧，本壳只留形状证词 ----
+# 为什么留锚不留行为：Resolve-R1999Plan 是转发壳，行为面在核侧两本已四发 mutation 证牙(对面坐标见 [t7] 头上那段)；
+# 但壳的接线(现问一次取齐、领空吃核交回的那份)一旦断，核侧全绿也照样在跑旧形 ⇒ 这一格留在 PS 侧、放在 [t4] 现场门之前(同上面 $fnEv 三格的道理)。
+$fnRPlan = [string](Get-Command Resolve-R1999Plan -ErrorAction SilentlyContinue).Definition
+$fnRPlan = ($fnRPlan -replace '(?s)<\#.*?\#>', ' ') -replace '(?m)^\s*#.*$', ' '
+Check '㉓(a) 核臂在：Resolve-R1999Plan 现问 compose-decision-inputs 一次取齐(旧三枚读件那次问不再出现在组值半段)' (
+    ($fnRPlan.Contains("Invoke-GdCli -Verb 'compose-decision-inputs'")) -and (-not $fnRPlan.Contains('read-decision-state')) -and
+    (-not $fnRPlan.Contains('Get-GdAckMap')) -and (-not $fnRPlan.Contains('Get-GdShopDoneMap')) -and (-not $fnRPlan.Contains('Test-GdShopDoneEnabled'))) $(
+    if ($fnRPlan.Length -eq 0) { 'Resolve-R1999Plan 不在场(尺没接到电)' } else { 'len=' + $fnRPlan.Length })
+Check '㉓(a) 折算在核：组值半段只传可选入键 ignoreShopDone，领空吃核交回的 $ci.ShopDone(「-IgnoreShopDone 可回看原结论」的行为对面＝roundtest 35)' (
+    ($fnRPlan.Contains('ignoreShopDone = [bool]$IgnoreShopDone')) -and ($fnRPlan.Contains('$ci.ShopDone')) -and
+    (-not $fnRPlan.Contains('FlagEnabled')) -and (-not $fnRPlan.Contains('$ds.ShopDoneGateOpen'))) $('len=' + $fnRPlan.Length)
+
 # [t4] 往后的每一组都要读 M9A 自己的文件(config\instances\*.json、日志)。paths.m9aDir 还没填时
 # 先说人话，别让人对着"参数 'Path' 是空字符串"这种内部报错猜(和 test-ark.ps1 同一处理)。
 if (-not (Test-GdPathReady $S.paths.m9aDir)) {
@@ -105,6 +118,10 @@ if (-not $History) {
 }
 
 Write-Host "`n[t7] 活动商店领空 gate(1999：假数据 + 临时 state，跑完还原)"
+# 诚实登记(刀㉓ 笔(a) 2026-11-08)：这一段原先那八枚行为判定面(未确认→pending／确认后→event／领空→idle／提示语不带
+# verb 名／-IgnoreShopDone 可回看／撤销生效／重复撤销判 miss)整族换家核侧，摘前已过四发 mutation 证牙。逐枚对面坐标＝
+# Decisions.SelfTest.cs::DecTest r1999 族(那四枚取值与防回归，其中领空那枚本批收紧了 Instance 断言)＋Round.SelfTest.cs
+# 第 35) 节(领空折图三枚)与第 18) 节(set-r1999-shop-state 回执格＋本批新增的盘上格：撤销真摘＋重复撤销真不写盘)。
 Save-GdTestState -Names @('r1999-event-ack', 'r1999-shop-done')
 $nowMs = Get-GdNowMs
 try {
@@ -116,29 +133,12 @@ try {
             end_time     = $nowMs + 864000000
             activity     = (New-Object psobject -Property @{ combat = (New-Object psobject -Property @{ start_time = $nowMs - 86400000; end_time = $nowMs + 864000000; event_type = 'MainStory' }) })
         })
-    $x1 = Resolve-R1999Plan -S $S -Data $rData -Now $nowMs
-    Check '1999 主线未确认 → 长草+pending' ($x1.Mode -eq 'event-pending' -and $x1.Instance -eq 'idle') $x1.Reason
-    # 10-30 B-3②-d 刀①：body 摘掉 verbAck／verbShopReset 两枚键 ⇒ 判定层不再往提示语里拼开关名；旧那句"照抄就能跑"的分工自此归入口自己的帮助面。
-    Check '未确认的提示语不再带 verb 名(反向钉：出现 daily-clear 即红)' (($x1.Reason -notmatch 'daily-clear') -and ($x1.Reason -match '本轮跑长草方案')) $x1.Reason
     $x1b = Resolve-R1999Plan -S $S -Data $rData -Now $nowMs
     # 11-01 丙形真转接(§11.176 ⑥)：现场覆盖件退役 ⇒ 这一格不再"先盖一枚长名再看它漏不漏"，改钉"现问到什么名都不许渗进提示语"。
     #   它不再量的是旧那格的"覆盖只影响被写的那一款"——写侧没了，那一形从此不可能出现；跨款隔离这句归 [m6] 的现问面自证。
+    #   (刀㉓(a)：这一枚留在 PS 是因为它钉的是壳侧现问 Get-GdEntryVerb 的那枚名，核侧的防回归格用的是拼出来的文案，量不到这枚现读。)
     $evName1b = [string](Get-GdEntryVerb -Game 'r1999' -Verb 'Ack')
     Check "现问到的开关名 [$($evName1b)] 不渗进未确认的提示语(出现即红)" (($x1b.Reason -notmatch [regex]::Escape($evName1b)) -and ($x1b.Reason -match '本轮跑长草方案')) $x1b.Reason
-    # 刀⑯ 笔(d)-1：写件三枚出仓 ⇒ 夹具写盘改指核侧写 verb（真身 tools\panel-cs\Round.Data.cs::R1999Ack／R1999ShopState）。
-    #   判据换家照 ark 侧同形：Remove-GdShopDoneKey 的 true/false 换成信封 Action（reset＝摘掉了、miss＝本来就没有且不写盘）。
-    Invoke-GdCli -Verb 'set-r1999-ack' -Body ([pscustomobject]@{ eventKey = '9.9-combat'; eventTip = '测试' }) | Out-Null
-    $x2 = Resolve-R1999Plan -S $S -Data $rData -Now $nowMs
-    Check '1999 确认后 → 活动方案' ($x2.Mode -eq 'event' -and $x2.Instance -eq 'event')
-    Invoke-GdCli -Verb 'set-r1999-shop-state' -Body ([pscustomobject]@{ eventKey = '9.9-combat'; done = $true }) | Out-Null
-    $x3 = Resolve-R1999Plan -S $S -Data $rData -Now $nowMs
-    Check '1999 商店领空 → 长草实例' ($x3.Mode -eq 'idle' -and $x3.Instance -eq 'idle' -and $x3.ShopDone) $x3.Reason
-    Check '领空回落的提示语不再带 verb 名(10-30 B-3②-d 刀① 摘掉 body 两枚键，反向钉：出现即红)' (($x3.Reason -notmatch 'daily-clear') -and ($x3.Reason -match '本轮跑长草方案')) $x3.Reason
-    Check '1999 领空后仍可撤销' ((Resolve-R1999Plan -S $S -Data $rData -Now $nowMs -IgnoreShopDone).Mode -eq 'event')
-    $rvReset = Invoke-GdCli -Verb 'set-r1999-shop-state' -Body ([pscustomobject]@{ eventKey = '9.9-combat'; done = $false })
-    Check '1999 撤销标记生效' ($rvReset.Action -eq 'reset' -and (Resolve-R1999Plan -S $S -Data $rData -Now $nowMs).Mode -eq 'event')
-    $rvMiss = Invoke-GdCli -Verb 'set-r1999-shop-state' -Body ([pscustomobject]@{ eventKey = '9.9-combat'; done = $false })
-    Check '1999 重复撤销判 miss(不写盘那一形，DropMapKey 语义换家到 Action)' ($rvMiss.Action -eq 'miss')
 } finally {
     Restore-GdTestState
 }

@@ -442,7 +442,7 @@ namespace GdPanel
                 b.Chk("r1999 商店领空 → idle 但保留 EventKey/EventTip", delegate
                 {
                     Dictionary<string, object> r = Gd.Map(Decisions.R1999(rIn(dataMain, Gd.Out("1.9-combat", true), Gd.Out("1.9-combat", true), true)));
-                    return (string)r["Mode"] == "idle" && (bool)r["ShopDone"] && (string)r["EventKey"] == "1.9-combat"
+                    return (string)r["Mode"] == "idle" && (string)r["Instance"] == "idle" && (bool)r["ShopDone"] && (string)r["EventKey"] == "1.9-combat"
                         && (string)r["Reason"] == "版本 1.9[版本名]活动商店已标记领空 → 本轮跑长草方案";
                 });
                 b.Chk("r1999 防回归：body 里误带 verbAck／verbShopReset 两枚键也不许拼进文案(10-30 B-3②-d 刀① 摘键后)", delegate

@@ -1308,6 +1308,17 @@ namespace GdPanel
                     && S(Key(m, "Action")) == "miss" && Ln(Key(m, "Lines"), 0) == "ev9 本来就没有领空标记"
                     && !File.Exists(shopArk);
             });
+            // 刀㉓ 笔(a)(2026-11-08)：上面那格只钉了两句话术与两枚 Action，**盘上那一半**没钉。
+            // test-r1999 [t7] 的「撤销标记生效」「重复撤销判 miss」两枚行为钉吃的正是盘上那一半(摘完再判一次会回到 event)，
+            // 摘它们之前先把这半搬到本节(纪律＝摘而不搬不许)。ev1 由 18) 首格写入、ev2 由上一格摘掉，故此处 done 应恰好空表。
+            b.Chk("撤销真从盘上摘掉＋重复撤销真不写盘(盘上口径，不是只看回执 Action)", delegate
+            {
+                object r = RoundData.R1999ShopState(In("eventKey", "ev1", "done", false));
+                object m = RoundData.R1999ShopState(In("eventKey", "ev9", "done", false));
+                Dictionary<string, object> done = Row(Gd.Get(Row(GdJson.Read(shopR1999)), "done"));
+                return S(Key(r, "Action")) == "reset" && S(Key(m, "Action")) == "miss"
+                    && done != null && done.Count == 0 && File.Exists(shopR1999);
+            });
 
             // ==================== 19) CLI 接线：这六枚真的挂上了分发链(名册两处同批的自证) ====================
             b.Chk("read-decision-state 走 --in/--out：退出码 0、信封 verb 对、data 里五键齐", delegate
@@ -2829,6 +2840,34 @@ namespace GdPanel
                 object num = RoundData.ComposeDecisionInputs(
                     In("game", "ark", "settings", In("ark", In()), "ignoreShopDone", 1));
                 return Cnt(Key(up, "ShopDone")) == 0 && Cnt(Key(one, "ShopDone")) == 1 && Cnt(Key(num, "ShopDone")) == 1;
+            });
+
+            // ==================== 35) 领空折图的 r1999 对偶(刀㉓ 笔(a)：test-r1999 [t7] 那三枚行为钉的对面) ====================
+            // 折图真身与上面四格是**同一处**四行(Round.Data.cs::ComposeDecisionInputs)，差别只在三件事：
+            // game id 走 "r1999"、盘本叫 r1999-shop-done.json(ShopDoneFile 按 id 拼)、settings 块叫 re1999(BlockName 的第二路)。
+            // 入键宽松口径那种与 game 无关的形制不在此重复立(它量的是 igRaw 那三行，两棵同一条路)。
+            b.Chk("r1999 盘上有领空账 ⇒ ignoreShopDone=true 交空表(-IgnoreShopDone 可回看原结论那一枚的对面)", delegate
+            {
+                GdJson.Write(shopR1999, In("done", In("9.9-combat", "2026-10-13 06:05")));
+                object d = RoundData.ComposeDecisionInputs(
+                    In("game", "r1999", "settings", In("re1999", In()), "ignoreShopDone", true));
+                return Cnt(Key(d, "ShopDone")) == 0 && Key(d, "ShopDone") != null;
+            });
+            b.Chk("r1999 同一枚盘账、入键缺席 ⇒ 照旧交盘上读数(缺省 false＝旧调用方逐字不变)", delegate
+            {
+                GdJson.Write(shopR1999, In("done", In("9.9-combat", "2026-10-13 06:05")));
+                object d = RoundData.ComposeDecisionInputs(In("game", "r1999", "settings", In("re1999", In())));
+                Dictionary<string, object> m = Row(Key(d, "ShopDone"));
+                return Cnt(Key(d, "ShopDone")) == 1 && m != null && S(m["9.9-combat"]) == "2026-10-13 06:05";
+            });
+            b.Chk("r1999 开关轴没被新键顶掉：re1999.shopDoneStopsEvent=false ⇒ 入键缺省也交空表", delegate
+            {
+                GdJson.Write(shopR1999, In("done", In("9.9-combat", "2026-10-13 06:05")));
+                object off = RoundData.ComposeDecisionInputs(In("game", "r1999",
+                    "settings", In("re1999", In("shopDoneStopsEvent", false))));
+                object on = RoundData.ComposeDecisionInputs(In("game", "r1999",
+                    "settings", In("re1999", In("shopDoneStopsEvent", true))));
+                return Cnt(Key(off, "ShopDone")) == 0 && Cnt(Key(on, "ShopDone")) == 1;
             });
 
             // 收尾：临时树整目录删掉(纪律＝门/自检的临时件不落仓内)

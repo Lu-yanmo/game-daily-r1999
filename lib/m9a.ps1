@@ -8,9 +8,9 @@
 #   Resolve-M9AStatus  → verb resolve-m9a-status(所有结论文案/优先级在 C#；
 #                        本壳把 $State.lastLog 换算成 quietSeconds 递进去，Found:false 翻译回 $null)
 # 所以：改日志解析/结论话术请改 Processes.cs 并跑 panel-cs --proctest 对真值，不要在这里加规则。
-# 故意留在 PS 侧的：Get-M9AConnection(读实例 JSON)、Register-M9AEvent(状态累计+日志染色)、
+# 故意留在 PS 侧的：Register-M9AEvent(状态累计+日志染色)、
 # Invoke-M9ARun(起进程与轮询，归批次 5 编排层)。⚠ 本名单自此按史注读、不换算：Set-M9AInstance(11-05 刀⑨)、
-# Get-M9APaths/Get-GdM9ACliEnabled/Get-M9ADailyLog(11-06 刀⑫ 笔(b)(c))、Invoke-M9ARun(10-25 甲档刀②)都已出仓。
+# Get-M9APaths/Get-GdM9ACliEnabled/Get-M9ADailyLog(11-06 刀⑫ 笔(b)(c))、Invoke-M9ARun(10-25 甲档刀②)、Get-M9AConnection(11-07 刀⑱ 笔(a))都已出仓。
 #   ⚠ 10-25 甲档刀②：上面名单里只有这一枚不成立了——Invoke-M9ARun 整段出仓(原 319-528 共 210 行)，"故意留在 PS 侧"
 #   的名单自此只剩前两行那些壳。生产面唯一真做入口 = 核内 m9a_run；逐字副本原钉 probe-m9arun 门，
 #   ⚠ 10-26 甲档第十五刀：该门整件退役(等值面搬进 gdprobe --selftest 第 26 节，§11.151)，副本随门出仓。
@@ -61,18 +61,11 @@
 # Set-M9AInstance 已删(11-05 转接刀·运行面刀⑨)：全仓 AST 零调用点(k853 正则尺＋k854/k855 名册尺同帧对平)，
 # 对面在 tools/panel-cs/Chain.cs::ApplyM9AInstance(verb apply-m9a-instance，Round.SelfTest 第 29 节有格)，
 # 表账档位词「已承接」；本文件头注那份"故意留在 PS 侧"的名单自此少一枚，按史注读不换算。
-function Get-M9AConnection {
-    <# 从实例配置里取 adb 路径 + 序列号，避免把端口写死 #>
-    param([Parameter(Mandatory)]$S, [Parameter(Mandatory)]$Instance)
-    $cfg = Read-GdJson -Path $Instance.Path
-    $dev = $cfg.AdbDevice
-    if (-not $dev -or -not $dev.AdbSerial) { throw "实例[$($Instance.Name)]里没有 AdbDevice.AdbSerial，无法探活" }
-    $adb = [string]$dev.AdbPath
-    # 刀⑯ mumu.ps1 整件出仓(11-07)：真身 `(Get-GdMuMu -S).Adb` 就是这一句宽容拼法(Join-GdPath，核侧
-    # read-m9a-connection 回落臂 Chain.cs 同形复刻)，内联照抄、不 Test-Path，照核侧口径。
-    if (-not $adb -or -not (Test-Path -LiteralPath $adb)) { $adb = Join-GdPath $S.paths.mumuDir @($S.paths.mumuAdb) }
-    return [pscustomobject]@{ Adb = $adb; Serial = [string]$dev.AdbSerial; Name = [string]$dev.Name }
-}
+
+# ===== Get-M9AConnection 已删(11-07 刀⑱ 笔(a))：全树零活调用(b5 扫描尺现拍 SCANNED-FILES=403、代码面
+#   LIVE=0，唯一非注释命中是 docs/r0-keyfacts.json 那句契约散文、不是调用点)。对面在 Chain.cs::
+#   ReadM9AConnection(verb read-m9a-connection，11-03 刀② 从 round-preview:r1999 臂进核)，回落算术同住核内
+#   一处；表账那行随批划除不留墓碑，本史注按史注读、不换算，故针取只活在本体里的形、这里不写那串。
 
 # ===== Get-M9ADailyLog 已删(11-06 转接刀·运行面刀⑫ 笔(c))：家在同件 main.rs 的 m9a_daily_path =====
 #   那句裸 Join-Path(不是宽容的 Join-GdPath)核内注释逐字登记着；唯一 PS 消费面 tools\replay-m9a-log.ps1:26

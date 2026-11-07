@@ -21,7 +21,7 @@
 //      instance 两格与 conn.serial 留空由核内段 5(round_m9a_apply_decision)拿判定回执就地覆盖；
 //      conn.adb **不许留空**——核内 m9a_scen_core 的硬闸是 m9aDir/adb 为空即 Err，而 Err 之后整份载荷
 //      退化成默认体(paths/package/超时全丢，段 5 补不回其余)。回落档取 MuMu 的 Adb 算术(纯路径算术、
-//      不起进程、不读实例配置)，与真身 Get-M9AConnection 缺 AdbPath 时同一处来路。
+//      不起进程、不读实例配置)，与真身 Get-M9AConnection 缺 AdbPath 时同一处来路(那枚 PS 真身已随 11-07 刀⑱ 笔(a) 出仓，回落算术只住核内这一处)。
 //      m9aCliArgs 走三态：settings 里这枚键**没写**＝真身"没填"档＝开命令行入口 ⇒ 干脆不加键，不许塌成 false。
 //
 // 三处口径分岔(照登不粉饰，均登记 unobserved)：

@@ -648,6 +648,11 @@ $fnEp = Get-GdTestCodeOnly (Get-Command Get-GdMuMuAdbEndpoint).Definition
         $cliT18.Contains('resolve-rescue-context')) ('Cli.cs=' + $cliT18.Length + ' 字符')
 }
 
+# 刀⑱ 笔(a)「退役不回潮」负锚：Get-M9AConnection 整枚出仓(b5 扫描尺现拍代码面 LIVE=0)，
+# 对面 verb read-m9a-connection。针只取 'function 名 ' 那形，不吃散文。追加在收尾之前＝不动本件既有行号锚。
+Check '刀⑱ 那枚 Get-M9AConnection 的定义不在 m9a.ps1(探活只住核内 Chain.cs::ReadM9AConnection 一处；回潮＝PS 一份＋核内一份那本双账复活)' (
+    -not $cut9M9APs.Contains('function Get-M9AConnection '))
+
 $res = Show-GdTestResult -Tag 'r1999'
 if ($NoExit) { return $res }
 exit $(if ($res.Fail) { 1 } else { 0 })

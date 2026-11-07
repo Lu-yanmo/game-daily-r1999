@@ -23,7 +23,7 @@ namespace GdPanel
         // 刀① round-gate/stop 四臂直答(2026-11-03)：94 → 95，链尾再加 stop-mumu
         //   (Stop-GdMuMu 的 C# 直身，lib\r1999-module.ps1 Stop 钩子随臂进核的"跑完关模拟器"那半的出口)。
         // 刀② round-preview 两臂直答(2026-11-03)：95 → 97，链尾再加 mumu-state／read-m9a-connection
-        //   (Get-GdMuMuState／Get-M9AConnection 的 C# 直身，round-preview:r1999 直答臂的 ADB 行与 MuMu 行经它们出口)。
+        //   (Get-GdMuMuState／Get-M9AConnection 的 C# 直身，round-preview:r1999 直答臂的 ADB 行与 MuMu 行经它们出口；两枚 PS 真身已分别随 11-07 刀⑯(d)-2／刀⑱ 笔(a) 出仓)。
         // 刀③ round-resolve 判定面进核(2026-11-03)：97 → 99，链尾再加 compose-decision-inputs／resolve-ark-farm-decision
         //   (Resolve-ArkPlan／Resolve-R1999Plan 的组值半段与 Resolve-GdArkFarmDecision 的活层——
         //   核臂组 decide-* body 缺的 settings 通路与 farm 半段的取数四件；既有 verb 的回执形状一枚没动)。

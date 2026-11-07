@@ -204,7 +204,7 @@ namespace GdPanel
                 else if (verb == "format-unix-ms") r = Decide(a, Decisions.UnixMsFmtV);
                 // ---- 刀②(2026-11-03)：round-preview 两臂直答的两枚新出口，照 stop-mumu 先例排链尾 ----
                 //   mumu-state ＝ Get-GdMuMuState 的整枚直身(MuMu 号牌由回执 Index 带)；
-                //   read-m9a-connection ＝ Get-M9AConnection 的同形(探活只读实例自己的 json，appsettings 归 apply-m9a-instance)。
+                //   read-m9a-connection ＝ 已退役的 Get-M9AConnection 的同形(11-07 刀⑱ 笔(a) PS 真身出仓；探活只读实例自己的 json，appsettings 归 apply-m9a-instance)。
                 else if (verb == "mumu-state") r = Decide(a, Chain.MuMuState);
                 else if (verb == "read-m9a-connection") r = Decide(a, Chain.ReadM9AConnection);
                 // ---- 刀④(2026-11-04)：status 体检链改问核的两枚新出口，照 stop-mumu／mumu-state 先例排链尾 ----

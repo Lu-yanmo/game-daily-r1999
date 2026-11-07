@@ -62,7 +62,6 @@ foreach ($libPath in (Get-GdModuleLibPaths)) { . $libPath }
 $S = Get-GdSettings -TellAndExit
 
 # settings.runtime.coreOff：单个内核函数出 bug，改一行配置就把那一件退回 PS 原身(当日止血，不挡其余)
-$null = Sync-GdCoreOff -Settings $S
 
 $gates = @()
 if ($Ack) { $gates += @{ Id = 'r1999'; Verb = 'Ack' } }

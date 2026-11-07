@@ -28,7 +28,6 @@ foreach ($lib in @('common', 'decisions', 'modules', 'maa', 'm9a', 'mumu')) {
 # 内核接线(与 daily-clear 同一套；装载已归一进 lib\common.ps1 段尾，刀⑲ 笔(c))：体检自己就要用 Get-GdVersion/Read-GdJson，先编再读才和真实跑的是同一条路。
 # 编不成不会抛，只会在这屏最后一行显示"内核=fallback"，其余读数照旧。
 $S = Get-GdSettings -Quiet
-$null = Sync-GdCoreOff -Settings $S
 
 $script:sec = 0
 function Show-GdSectionHeader {

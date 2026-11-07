@@ -19,7 +19,7 @@
     "runtime.visionAllowReward: 默认 false = 提示词里硬禁「领取」这类会推进游戏状态的按钮，兜底只准关弹窗。改成 true 才允许模型给「领取日常奖励/一键领取/邮箱领奖」那类点位(仍然禁「前往参与/开始行动/确定/充值」)。判错一次就是拿账号换一次不确定，所以只建议在面板「实验功能」里勾，别直接改这个文件。",
     "这一路不需要管理员权限：MuMu 和 M9A 都在普通权限下跑，所以没有 UAC，计划任务也只是「登录后运行」。",
     "监督 agent(runtime.supervisor / supervisorIntervalSeconds / supervisorQuietMinutes)：真跑一轮时另起一个隐藏子进程全程旁观，每 supervisorIntervalSeconds 秒拍一次现场证据(M9A 日志新鲜度/进程存活/完成信号)，规则先判，连续两拍判到静止才拍一张模拟器画面问视觉模型复核(平时零 token)。这一路的监督**只发通知、不自动干预** —— MuMu 冷启动要好几分钟，误判一次的代价远超多跑一轮。supervisorQuietMinutes 是「两本日志都安静多久算静止」，故意比主流程自己的停滞判据宽。读数在 state\\supervision.json，面板会转达；supervisor 显式写 false 才关掉。",
-    "内核换头开关(runtime.rustOff)：Rust 内核内置件(gdcore.exe)的源码在本包里，但编译产物不入仓。rustOff 是「按件名拦」的名单(字符串数组，本包件名 gdcore，含它即关)，单个件出问题时可以只关这一件。想临时拨回不必改文件：环境变量 GD_RUST_OFF=1 优先于配置。⚠ 这把闸只管内置件上不上路径，管不到「单个内核函数」那族进程内热开关(那一档是 runtime.coreOff，缺键＝全开)，也管不到整轮的宿主 —— 那一档看下面一句。旧的 runtime.rustEnabled(默认关、要显式写 true 才走内核)连同三判据换头主闸已随 2026-10-24 兜底撤除批出仓，写了也没人读；关掉内置件不等于换 PowerShell 跑，那条臂已整段出仓。",
+    "内核换头开关(runtime.rustOff)：Rust 内核内置件(gdcore.exe)的源码在本包里，但编译产物不入仓。rustOff 是「按件名拦」的名单(字符串数组，本包件名 gdcore，含它即关)，单个件出问题时可以只关这一件。想临时拨回不必改文件：环境变量 GD_RUST_OFF=1 优先于配置。⚠ 这把闸只管内置件上不上路径，也管不到整轮的宿主 —— 那一档看下面一句。旧的「单个内核函数」那族进程内热开关(那一档是 runtime.coreOff，缺键＝全开)已随 2026-11-07 刀⑲ 笔(d) 出仓：那一族的 PS 原身臂整批退役，写了也没人读。旧的 runtime.rustEnabled(默认关、要显式写 true 才走内核)连同三判据换头主闸已随 2026-10-24 兜底撤除批出仓，写了也没人读；关掉内置件不等于换 PowerShell 跑，那条臂已整段出仓。",
     "整轮的宿主(2026-10-20 起没有第二档)：入口把十段编排交给内置件 gdcore.exe(--daily-round)，仓库里那一份 PowerShell 十段实现已经退役，所以拿不到内置件、或者主闸把内置件拨下线(GD_RUST_OFF=1 / rustOff 含 gdcore)，这一轮就是拒跑(退出码 2)并落一句人话，不会再换人跑。用 git 克隆本仓库、机器上没有那枚 exe 的，先自己编：pwsh -File tools\\rustcore\\build.ps1(需要 cargo)。",
   ],
   "paths": {

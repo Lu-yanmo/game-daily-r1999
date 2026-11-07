@@ -38,7 +38,6 @@ if ($moduleIds.Count -eq 1) {
     if ($Games -notin @('all', $onlyGame)) { Write-GdLog "本仓库只有 $onlyGame 这一路，-Games $Games 被忽略" -Level WARN }
 }
 $S = Get-GdSettings -Quiet
-$null = Sync-GdCoreOff -Settings $S     # coreOff 热开关要等 settings 到手，"读配置"那一步本身不受它管
 $task = if ($TaskName) { $TaskName } else { "$($S.schedule.taskPrefix)-Manual" }
 $daily = Join-Path $PSScriptRoot 'daily-clear.ps1'
 

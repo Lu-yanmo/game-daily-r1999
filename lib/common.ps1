@@ -43,20 +43,11 @@ function Get-GdVersion {
     if ($File) { $path = $File }
     elseif ($global:GdVersionCache -and -not $Refresh) { return $global:GdVersionCache }
     $v = ''
-    if (Test-GdCoreFn 'Get-GdVersion') {
-        # K2 口径：读盘(含那条吞错的 try)留壳，只管现场；内核收"Trim + 形状校验 + 0.0.0 兜底"这一条纯规则。
-        # 这条规则不是没牙的：实测 .NET 的 \d 认全角与阿拉伯-印度数字(两引擎都判形状对)，而 U+FEFF 不算空白，
-        # BOM 粘头的 VERSION 两引擎都掉进 0.0.0 —— 复刻必须用 Regex，不许改成 '0'..'9' 逐字符判。
-        $raw = ''
-        if (Test-Path -LiteralPath $path) { try { $raw = [string](Get-Content -LiteralPath $path -TotalCount 1) } catch { $raw = '' } }
-        $v = [string]([GdCore.Versions]::Normalize($raw))
-    } else {
-        if (Test-Path -LiteralPath $path) {
-            try { $v = ([string](Get-Content -LiteralPath $path -TotalCount 1)).Trim() } catch { $v = '' }
-        }
-        # 读不到 / 形状不对都不抛：体检和面板是只读的，宁可说"版本号读不出来"也别把整段体检带走。
-        if ($v -notmatch '^\d+\.\d+\.\d+$') { $v = '0.0.0' }
-    }
+    if ($script:GdCoreState -ne 'live') { throw '内核缺席：Get-GdVersion 无 PS 原身可退，本轮拒跑(刀⑲ 笔(d))' }
+    # 刀⑲ 笔(d)：Trim＋形状校验＋0.0.0 兜底这条纯规则只有内核一份(双引擎实编对平，§11.287)。
+    $raw = ''
+    if (Test-Path -LiteralPath $path) { try { $raw = [string](Get-Content -LiteralPath $path -TotalCount 1) } catch { $raw = '' } }
+    $v = [string]([GdCore.Versions]::Normalize($raw))
     if (-not $File) { $global:GdVersionCache = $v }
     return $v
 }
@@ -97,17 +88,10 @@ function Start-GdTranscript {
 
 function Read-GdJson {
     param([Parameter(Mandatory)][string]$Path)
-    if (Test-GdCoreFn 'Read-GdJson') {
-        # K1b 内核路：只收"缺文件文案 + BOM 剥离"两条规则，解析本身照旧交给宿主 cmdlet
-        # (ConvertFrom-Json 的内核化在动工前就被矩阵判出局，理由见 docs\gd-core-contract.md §8)。
-        if (-not (Test-Path -LiteralPath $Path)) { throw ([GdCore.Json]::MissingFileMessage($Path)) }
-        $text = [GdCore.Json]::StripBom([System.IO.File]::ReadAllText($Path))
-        return $text | ConvertFrom-Json
-    }
-    # ---- 原身(内核缺席/被 coreOff 关掉时逐字照跑；不许与上面的内核路各自漂移，改动必重跑 golden) ----
-    if (-not (Test-Path -LiteralPath $Path)) { throw "找不到文件：$Path" }
-    $text = [System.IO.File]::ReadAllText($Path)
-    if ($text.Length -gt 0 -and $text[0] -eq [char]0xFEFF) { $text = $text.Substring(1) }
+    if ($script:GdCoreState -ne 'live') { throw '内核缺席：Read-GdJson 无 PS 原身可退，本轮拒跑(刀⑲ 笔(d))' }
+    # 刀⑲ 笔(d)：缺文件文案 + BOM 剥离只有内核一份；解析照旧交给宿主 cmdlet(契约 §8)。
+    if (-not (Test-Path -LiteralPath $Path)) { throw ([GdCore.Json]::MissingFileMessage($Path)) }
+    $text = [GdCore.Json]::StripBom([System.IO.File]::ReadAllText($Path))
     return $text | ConvertFrom-Json
 }
 
@@ -180,25 +164,16 @@ function Backup-GdFile {
     if (-not (Test-Path -LiteralPath $Path)) { return $null }
     $name = [System.IO.Path]::GetFileName($Path)
     $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-    if (Test-GdCoreFn 'Backup-GdFile') {
-        # K1b 内核路：命名规则(=Paths 的一步 join)与"留 20 份、往后都删"的剪枝计划归内核，
-        # 复制/列举/删除照旧走 cmdlet —— 排序也故意留在壳侧：原身的并列次序取自 Get-ChildItem，
-        # 内核再排一次会改判 tie-break，故 PastKeep 只接"壳已按 LastWriteTime 降序排好"的名字表。
-        $dest = [GdCore.Backup]::BuildPath($global:GD.Backup, $name, $stamp)
-        Copy-Item -LiteralPath $Path -Destination $dest -Force
-        $existing = @(Get-ChildItem -LiteralPath $global:GD.Backup -Filter "$name.*.bak" |
-            Sort-Object LastWriteTime -Descending | ForEach-Object { $_.Name })
-        foreach ($doomed in @([GdCore.Backup]::PastKeep($existing, 20))) {
-            Remove-Item -LiteralPath (Join-Path $global:GD.Backup ([string]$doomed)) -Force
-        }
-        return $dest
-    }
-    # ---- 原身(内核缺席/被 coreOff 关掉时逐字照跑) ----
-    $dest = Join-Path $global:GD.Backup "$name.$stamp.bak"
+    if ($script:GdCoreState -ne 'live') { throw '内核缺席：Backup-GdFile 无 PS 原身可退，本轮拒跑(刀⑲ 笔(d))' }
+    # 刀⑲ 笔(d)：命名规则与剪枝计划只有内核一份；复制/列举/删除照旧走 cmdlet，
+    # 排序故意留在壳侧(内核再排一次会改判 tie-break)，PastKeep 只接"壳已按 LastWriteTime 降序排好"的名字表。
+    $dest = [GdCore.Backup]::BuildPath($global:GD.Backup, $name, $stamp)
     Copy-Item -LiteralPath $Path -Destination $dest -Force
-    # 只保留每个文件最近 20 份备份
-    Get-ChildItem -LiteralPath $global:GD.Backup -Filter "$name.*.bak" |
-        Sort-Object LastWriteTime -Descending | Select-Object -Skip 20 | Remove-Item -Force
+    $existing = @(Get-ChildItem -LiteralPath $global:GD.Backup -Filter "$name.*.bak" |
+        Sort-Object LastWriteTime -Descending | ForEach-Object { $_.Name })
+    foreach ($doomed in @([GdCore.Backup]::PastKeep($existing, 20))) {
+        Remove-Item -LiteralPath (Join-Path $global:GD.Backup ([string]$doomed)) -Force
+    }
     return $dest
 }
 
@@ -230,59 +205,33 @@ function Stop-GdBeforeRun {
 
 function Get-GdSettings {
     param([switch]$Quiet, [string[]]$RequirePaths, [switch]$TellAndExit)
+    if ($script:GdCoreState -ne 'live') { throw '内核缺席：Get-GdSettings 无 PS 原身可退，本轮拒跑(刀⑲ 笔(e) 补笔)' }
     $path = Join-Path $global:GD.Root 'config\settings.json'
     if (-not (Test-Path -LiteralPath $path)) {
-        if (Test-GdCoreFn 'Get-GdSettings') {
-            # K1b 内核路：这句文案的内核版本住在 GdCore.Msgs.cs，而那份 .cs 是从下面原身那一行
-            # 逐字切出来生成的(tools\gen-gdcore-msgs.ps1)—— 两边同不一致由 golden 门判，不靠人眼。
             $msg = [string]([GdCore.Settings]::MissingConfigMessage())
-        } else {
-            $msg = '还没有 config\settings.json。先跑 setup.ps1(自动探测助手安装位置并生成)，或把 config\settings.example.json 复制成 settings.json 后手填 paths。'
-        }
         if ($TellAndExit) { Stop-GdBeforeRun $msg }
         throw $msg
     }
     $s = Read-GdJson -Path $path
     if (-not $RequirePaths) { $RequirePaths = @(Get-GdRequiredPathKeys) }
-    if (Test-GdCoreFn 'Get-GdSettings') {
-        # K1b 内核路：paths 缺项点名 + 三句 WARN/硬停话术 + "非 -Quiet 才硬停"的判据都归内核。
-        # 但 $s.paths.$k 这种动态成员访问和它自带的真假判定必须留在壳侧(C# 拿不到 PS 的动态绑定，
-        # 硬要拿就得引 System.Management.Automation，破 pure-BCL 约束)：内核收到的是已经判过的平行数组。
-        $keys = @($RequirePaths)
-        $vals = @()
-        $exs = @()
-        foreach ($k in $keys) {
-            $raw = $s.paths.$k
-            $vals += ($( if ($raw) { [string]$raw } else { '' }))
-            $exs += [bool](Test-GdPathReady ([string]$raw))
-        }
-        $r = [GdCore.Settings]::Evaluate([string[]]$keys, [string[]]$vals, [bool[]]$exs, [bool](-not $Quiet))
-        foreach ($line in @($r.WarnLines)) {
-            if ($line) { Write-GdLog ([string]$line) -Level WARN -Quiet:$Quiet }
-        }
-        $msg = [string]$r.StopMessage
-        if ($msg) {
-            if ($TellAndExit) { Stop-GdBeforeRun $msg }
-            throw $msg
-        }
-        return $s
+    if ($script:GdCoreState -ne 'live') { throw '内核缺席：Get-GdSettings 无 PS 原身可退，本轮拒跑(刀⑲ 笔(d))' }
+    # 刀⑲ 笔(d)：paths 缺项点名 + 三句 WARN/硬停话术 + "非 -Quiet 才硬停"的判据只有内核一份。
+    # $s.paths.$k 动态成员访问必须留壳侧(C# 拿不到 PS 动态绑定，硬要拿就得引 System.Management.Automation，
+    # 破 pure-BCL 约束)：内核收到的是已经判过的平行数组。
+    $keys = @($RequirePaths)
+    $vals = @()
+    $exs = @()
+    foreach ($k in $keys) {
+        $raw = $s.paths.$k
+        $vals += ($( if ($raw) { [string]$raw } else { '' }))
+        $exs += [bool](Test-GdPathReady ([string]$raw))
     }
-    # ---- 原身(内核缺席/被 coreOff 关掉时逐字照跑) ----
-    $missing = @()
-    foreach ($k in $RequirePaths) {
-        $p = $s.paths.$k
-        if (-not $p) {
-            $missing += $k
-            Write-GdLog "settings.json 的 paths.$k 是空的 → 跑 setup.ps1 自动探测助手安装位置，或把 config\settings.example.json 里那一项手填上" -Level WARN -Quiet:$Quiet
-        }
-        elseif (-not (Test-GdPathReady $p)) { Write-GdLog "settings.json 的 paths.$k 不存在：$p" -Level WARN -Quiet:$Quiet }
+    $r = [GdCore.Settings]::Evaluate([string[]]$keys, [string[]]$vals, [bool[]]$exs, [bool](-not $Quiet))
+    foreach ($line in @($r.WarnLines)) {
+        if ($line) { Write-GdLog ([string]$line) -Level WARN -Quiet:$Quiet }
     }
-    # 空路径 = 这一路压根跑不起来。要干活的入口(daily-clear / install-task 不带 -Quiet)在这里一次点齐所有空项：
-    # 放它们走下去只会变成"无法将自变量绑定到参数 'Base'，因为它是空字符串"那种看不懂的绑定错误
-    # —— 2026-09-24 exe 首跑撞的就是这个(setup 没探测 → dry-run 退出码 1 + 一句 PowerShell 内部报错)。
-    # 只读诊断方(status.ps1 / 探针 / 自检)都是 -Quiet：它们要的就是"把没填的项继续列出来"，不该被这里挡住。
-    if (-not $Quiet -and $missing.Count) {
-        $msg = "paths 里这 $($missing.Count) 项还空着：$($missing -join ' , ') → 先跑 setup.ps1 自动探测助手安装位置(或手填 config\settings.json)"
+    $msg = [string]$r.StopMessage
+    if ($msg) {
         if ($TellAndExit) { Stop-GdBeforeRun $msg }
         throw $msg
     }
@@ -303,20 +252,9 @@ function Join-GdPath {
       真正会拿这个结果去干活的入口由 Get-GdSettings(非 -Quiet)先硬停，所以放宽这里不会把错误咽掉。
     #>
     param([AllowEmptyString()][string]$Base, [Parameter(Mandatory)][string[]]$Parts)
-    if (Test-GdCoreFn 'Join-GdPath') {
-        # K1a 内核路：规则住 tools\gdcore\GdCore.Paths.cs(逐格对拍见 tools\probe-kernel-paths-golden.ps1)。
-        # param 块的 [AllowEmptyString]/[Mandatory][string[]] 绑定校验故意留在壳侧(内核不碰参数绑定语义)，
-        # 内核只负责"空 base→空串 + 跳过空段 + Join-Path 拼接规则"这三件事。
-        return [GdCore.Paths]::Join($Base, @($Parts))
-    }
-    # ---- 原身(内核缺席/被 coreOff 关掉时逐字照跑；不许与上面的内核语义各自漂移，改动必重跑 golden) ----
-    if (-not $Base) { return '' }
-    $p = $Base
-    foreach ($part in @($Parts)) {
-        if (-not $part) { continue }
-        $p = Join-Path $p $part
-    }
-    return $p
+    if ($script:GdCoreState -ne 'live') { throw '内核缺席：Join-GdPath 无 PS 原身可退，本轮拒跑(刀⑲ 笔(d))' }
+    # 刀⑲ 笔(d)：空 base→空串 + 跳过空段 + Join-Path 拼接只有内核一份(param 块绑定校验照旧留壳侧)。
+    return [GdCore.Paths]::Join($Base, @($Parts))
 }
 
 # --- B0(2026-09-29)：P/Invoke 现场件也从 here-string 搬进真 .cs，宿主各自现编 ---
@@ -771,11 +709,12 @@ function Get-GdRunLock {
 function Stop-GdRunLock {
     $file = Join-Path $global:GD.State 'running.json'
     if (-not (Test-Path -LiteralPath $file)) { return }
+    if ($script:GdCoreState -ne 'live') { throw '内核缺席：Stop-GdRunLock 无 PS 原身可退，本轮拒跑(刀⑲ 笔(d))' }
     try {
         # 只删自己登记的那一份：万一别的轮已经覆盖了它，删就等于把别人的撞车保护拆了。
         # K2 实测：-match 不分大小写，所以 {"PID":123} 也算自己的 —— 内核用 RegexOptions.IgnoreCase 复刻这一格。
         $txt = [string](Get-Content -LiteralPath $file -Raw)
-        $mine = if (Test-GdCoreFn 'Stop-GdRunLock') { [bool]([GdCore.RunLock]::OwnsText($txt, $PID)) } else { $txt -match ('"pid"\s*:\s*' + $PID + '[\s,}]') }
+        $mine = [bool]([GdCore.RunLock]::OwnsText($txt, $PID))
         if ($mine) { Remove-Item -LiteralPath $file -Force }
     } catch { }
 }
@@ -1118,18 +1057,16 @@ function Start-GdNativeStreamed {
 
 # ---------- GdCore 进程内内核加载器(K0 收官件，形态=丙·宿主各自现编；契约全文 docs\gd-core-contract.md) ----------
 # 丙案要点：内核源码 tools\gdcore\*.cs 纯 BCL/C#5/纯 ASCII，pwsh7 走 Roslyn、5.1 走 CodeDom 各自 Add-Type -Path 现编，
-# 天然双宿主可载、零 dll 产物、零分发面。加载炸(源码缺/编译被杀软拦/契约号不匹配)一律静默回退逐行冻结的 PS 原身，
-# 内核永不是硬依赖——不许把 06:00 那轮置于死地(方案 §0/§3.2 在案)。
-# K1 起每内核化一个函数才往 $script:GdCoreFunctions 添名(白名单=内核有实现且已对拍过的函数，逐个加，不批量放开)。
-# settings.runtime.coreOff 是函数级热开关(列出即关该函数、缺失=全开，"没显式 false 就是开"同族语义)——
-# 单个内核函数出 bug 改一行 settings 当日止血，不挡其余函数继续跑。
+# 自此装载炸(源码缺/编译被杀软拦/契约号不匹配)不再静默降级：六枚当场拒跑，其余壳侧函数照跑(方案 §0/§3.2 的正面改判，判语见 §11.287)。
+# 刀⑲ 笔(d) 改判：核心六枚纯规则的 PS 原身臂已出仓——「内核永不是硬依赖」的前提(内核可能编不过/形状不对拍)由双引擎实编证伪，
+# 史注(刀⑲ 笔(d) 之前)：曾按 $script:GdCoreFunctions 白名单逐个放开内核化函数，K1 起每内核化一枚才往名单添名；
+# 史注：settings.runtime.coreOff 曾是函数级热开关(列出即关该函数、缺失=全开)，单个内核函数出 bug 改一行 settings 当日止血。
+# 两族已于刀⑲ 笔(d) 同批退役——核心六枚纯规则自此只有内核一份，当日止血由改一行 settings 降级为 git revert 那一批(判语见 §11.287)。
 # 注意：自 2026-09-29 的**接线批**起，生产入口(三个 daily-clear / status / run-via-task)在
 # 读到 settings 之前显式调一次 Add-GdCore，并把一行读数写进日志(见下面的 Get-GdCoreReadout)；
 # 没接线的宿主(setup/install 一次性入口)照旧恒 off = 全走 PS 原身，行为一字不变；panel.ps1 那一路兜底宿主已于 2026-10-23 乙档刀③ 整件删除。
 $script:GdCoreState = 'off'      # off|live|fallback
-$script:GdCoreNote = ''          # 回退时该说的一句话(调用方经 Get-GdCoreStatus 取自印)；live 恒空串
-$script:GdCoreFunctions = @('Join-GdPath', 'Read-GdJson', 'Backup-GdFile', 'Get-GdSettings', 'Get-GdVersion', 'Stop-GdRunLock')   # 已内核化白名单(K1a 路径；K1b 序列化三件套的纯规则残余；K2 版本规范/CSV 行/归属判定。出局面按契约 §8/§9 记档：Write-GdJson、Write-GdLog、Show-GdVersionFile。Add-GdHistory 本批随刀⑰ 笔(c)-1 整枚出仓——全树零活调用、对面 append-round-history 在场，死名随摘)
-$script:GdCoreOff = @()          # settings.runtime.coreOff 快照，由 Sync-GdCoreOff 灌
+# 刀⑲ 笔(d)：白名单与 coreOff 热开关同批退役——核心六枚纯规则自此只有内核一份，路由判据(Test-GdCoreFn)无臂可路由。
 # 接线批(09-29)的性能读数两条：Add-GdCore 只记"编了几毫秒"，子进程计数挂在两个起进程的包装函数上。
 # 为什么在这里数：丙形态的内核是**进程内**的，接线本身一个新进程都不起 —— 要证的就是这件事，
 # 所以出口给的是"宿主自己编了一次、花多少毫秒"+"这一轮真起了多少个外部子进程"。
@@ -1162,29 +1099,6 @@ function Add-GdCore {
     return $script:GdCoreState
 }
 
-function Test-GdCoreFn {
-    <# 壳函数路由判据：内核活着 且 该函数在白名单 且 不在 coreOff —— 否则走逐行冻结的原身。
-       -contains/-notcontains 不分大小写是 PS 运算符本性(批 9 在案)，正好当大小写宽容面用。 #>
-    param([Parameter(Mandatory)][string]$Name)
-    if ($script:GdCoreState -ne 'live') { return $false }
-    if ($script:GdCoreFunctions -notcontains $Name) { return $false }
-    if ($script:GdCoreOff -contains $Name) { return $false }
-    return $true
-}
-
-function Sync-GdCoreOff {
-    <# 入口拿到 settings 后灌一次 coreOff 快照。形状坏/StrictMode 缺属性炸一律当"没配"=全开(缺键宽容在案)。 #>
-    param([Parameter(Mandatory)]$Settings)
-    $off = @()
-    try {
-        if ($Settings.runtime -and $Settings.runtime.coreOff) {
-            $off = @($Settings.runtime.coreOff | ForEach-Object { [string]$_ })
-        }
-    } catch { $off = @() }
-    $script:GdCoreOff = $off
-    return $off
-}
-
 function Get-GdCoreStatus {
     <# 日志就绪后由入口自印的一行读数：live 不吵人(空串)，回退只说'内核：回退PS'。 #>
     if ($script:GdCoreState -eq 'fallback') { return $script:GdCoreNote }
@@ -1192,23 +1106,17 @@ function Get-GdCoreStatus {
 }
 
 function Get-GdCoreReadout {
-    <# 接线批(09-29)的性能读数出口：一句现状 —— 内核状态 / 契约号 / 现编花了几毫秒 / 白名单里真路由了几件 /
+    <# 接线批(09-29)的性能读数出口：一句现状 —— 内核状态 / 契约号 / 现编花了几毫秒 / 内核侧路由了几件(笔(d) 起恒＝核心六枚全走内核) /
        本宿主起过几个外部子进程 / 宿主 PS 版本，入口在起跑与收尾各印一次(-ElapsedSec 只收尾传)。
        与上面那句的分工：Get-GdCoreStatus 是**契约钉死的回退警报**(live 恒空串，门里逐字比过)，
        本函数永远给全量、只进日志不判分 —— 所以想改这句的措辞随时可以，想改那句得先过契约门。 #>
     param([double]$ElapsedSec = -1)
-    $routed = 0
-    if ($script:GdCoreState -eq 'live') {
-        $routed = @($script:GdCoreFunctions | Where-Object { Test-GdCoreFn $_ }).Count
-    }
     $ms = '未编'
     if ($script:GdCoreMs -ge 0) { $ms = [string]$script:GdCoreMs }
     $parts = @()
     $parts += '内核=' + $script:GdCoreState
     $parts += '契约=' + (Get-GdCoreContract)
     $parts += '现编=' + $ms + 'ms'
-    $parts += '路由=' + [string]$routed + '/' + [string]@($script:GdCoreFunctions).Count
-    $parts += '屏蔽=' + [string]@($script:GdCoreOff).Count
     $parts += '子进程=' + [string]$script:GdChildProcs
     $parts += '宿主=ps' + [string]$PSVersionTable.PSVersion
     if ($ElapsedSec -ge 0) { $parts += '挂钟=' + [string]([math]::Round($ElapsedSec, 1)) + 's' }
@@ -1220,5 +1128,5 @@ function Get-GdCoreReadout {
 # 现在收进本文件段尾：谁 dot-source common.ps1，谁收尾就把内核编好或干净回退——覆盖面由 3 处变全量(本仓 30 本消费者)。
 # 代价实测在案(raw/b26-coldstart.txt)：dot-source 173/169/180ms，段尾现编 +555/228/244ms，总计 772/456/488ms；
 # 六枚壳函数 PS/C# 同帧对平 78 格全绿(raw/b27-core-parity.txt)，路由改由内核答不会改变任何一格的观测值。
-# Add-GdCore 幂等且永不向上抛：源码缺 / 编译被拦 / 契约号两舷不一致都只落 state='fallback'，宿主照跑 PS 原身。
+# Add-GdCore 幂等且永不向上抛：源码缺 / 编译被拦 / 契约号两舷不一致都只落 state='fallback'，宿主仍照跑其余壳侧函数，但核心六枚当场拒跑。
 $null = Add-GdCore

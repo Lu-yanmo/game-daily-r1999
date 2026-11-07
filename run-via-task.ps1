@@ -21,9 +21,8 @@ param(
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'lib\common.ps1')
 
-# 内核接线(接线批)：这份文件只用 Get-GdSettings / Join-GdPath / Stop-GdRunLock 那几件，全在 whitelist 里。
+# 内核接线(接线批；装载已归一进 lib\common.ps1 段尾，刀⑲ 笔(c))：这份文件只用 Get-GdSettings / Join-GdPath / Stop-GdRunLock 那几件，全在 whitelist 里。
 # 它是"按下按钮"的短命宿主，所以只在**回退**时吭一声，live 时不给面板添一行噪音。
-$null = Add-GdCore
 $coreNote = Get-GdCoreStatus
 if ($coreNote) { Write-GdLog $coreNote -Level WARN }
 

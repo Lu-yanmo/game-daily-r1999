@@ -1214,3 +1214,11 @@ function Get-GdCoreReadout {
     if ($ElapsedSec -ge 0) { $parts += '挂钟=' + [string]([math]::Round($ElapsedSec, 1)) + 's' }
     return ($parts -join ' ')
 }
+
+# ---------- 装载归一(刀⑲ 笔(c)，2026-11-07) ----------
+# 内核装载原来由 daily-clear / run-via-task / status 三本入口各写一次 `$null = Add-GdCore`(覆盖面 3 处)，
+# 现在收进本文件段尾：谁 dot-source common.ps1，谁收尾就把内核编好或干净回退——覆盖面由 3 处变全量(本仓 30 本消费者)。
+# 代价实测在案(raw/b26-coldstart.txt)：dot-source 173/169/180ms，段尾现编 +555/228/244ms，总计 772/456/488ms；
+# 六枚壳函数 PS/C# 同帧对平 78 格全绿(raw/b27-core-parity.txt)，路由改由内核答不会改变任何一格的观测值。
+# Add-GdCore 幂等且永不向上抛：源码缺 / 编译被拦 / 契约号两舷不一致都只落 state='fallback'，宿主照跑 PS 原身。
+$null = Add-GdCore

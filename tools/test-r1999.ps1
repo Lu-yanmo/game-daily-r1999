@@ -145,18 +145,13 @@ try {
 Check 'state 文件已还原' (Test-GdTestStateRestored)
 
 Write-Host "`n[t10] M9A 日志事件解析(用真实日志行)"
-$P_LONG = '[2026-08-30 12:18:45.984][INF] [cfg=Default][inst=日常-活动/cafebabe][src=Worker][op=ExecuteTaskQueue] >>> 任务 启动任务开始（异步）。'
-Check '启动任务开始 只算连接阶段' ((Read-GdM9ALine -Line $P_LONG).Kind -eq 'connect-start')
-Check '队列任务开始 才算链路开始' ((Read-GdM9ALine -Line ($P_LONG -replace '启动任务开始', '队列任务开始')).Kind -eq 'chain-start')
-Check '任务已全部完成 算链路完成' ((Read-GdM9ALine -Line ($P_LONG -replace '启动任务开始（异步）。', '任务已全部完成！')).Kind -eq 'chain-done')
-Check '启动任务完成 只给中性 finish(含义靠上下文定)' ((Read-GdM9ALine -Line ($P_LONG -replace '启动任务开始', '启动任务完成')).Kind -eq 'finish')
-Check '单任务开始带中文名' ((Read-GdM9ALine -Line '[..][cfg=Default][inst=日常-长草/deadbeef][src=Monitor][op=MonitorLog] 开始任务：收取荒原').Text -eq '收取荒原')
-Check '别的实例的日志行被忽略' ($null -eq (Read-GdM9ALine -Line $P_LONG -InstanceId 'deadbeef'))
-Check '同实例的日志行被采纳' ((Read-GdM9ALine -Line $P_LONG -InstanceId 'cafebabe').Kind -eq 'connect-start')
-Check '无 inst 标记的行不受过滤影响' ((Read-GdM9ALine -Line '[..][cfg=Default] 任务已全部完成！' -InstanceId 'zzz').Kind -eq 'chain-done')
-Check '失败行识别' ((Read-GdM9ALine -Line '[..][inst=x/deadbeef][src=Worker][op=StopTask] 停止前状态：FAILED').Kind -eq 'fail')
-Check '资源更新提示算噪音(会续命但不算进度)' ((Read-GdM9ALine -Line '[..][inst=x/deadbeef][src=Agent][op=StdErr] 如前面有提示新资源版本还请更新').Kind -eq 'noise')
-Check '无关行返回 null' ($null -eq (Read-GdM9ALine -Line '[..][cfg=Default] [内存管理]释放了11.97 MB（21.1%)'))
+# 刀㉓ 笔(b) 第二子批(11-08)：这里原先 11 枚单行判定格整族换家核侧（Processes.SelfTest.cs 的 LineGroup；证牙＝mutation
+#   七发逐字改档名字面量后 --proctest 当场咬中、锚检 OUTER-HITS=0，逐格账见 docs/rust-core-plan.md 本批段与
+#   gdlogs/cut23b2/mutation-run3.txt）。下面两枚是形状锚：接线一旦断（改指别的 verb、信封形状变了），核侧全绿也照样在跑旧形。
+$procCsST = [string](Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot 'panel-cs/Processes.SelfTest.cs'))
+$lineCells = ([regex]::Matches($procCsST, 'b\.Chk\("line(?:s)?/')).Count
+Check "核侧 LineGroup 的 line/ 格枚数不缩水(现拍 $lineCells 枚，门槛 16)" ($lineCells -ge 16) "=$lineCells"
+Check '解析器本体仍只有一处(单行壳与批量同指 Processes.cs 的 ParseM9aLine)' (([regex]::Matches([string](Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot 'panel-cs/Processes.cs')), 'ParseM9aLine')).Count -ge 1)
 Check 'settings 里 1999 起跑超时已收紧' ([int]$S.runtime.r1999StartTimeoutMinutes -le 12) "=$($S.runtime.r1999StartTimeoutMinutes) 分钟"
 
 Show-GdCommonTailChecks
@@ -190,8 +185,7 @@ Check 'settings 里三个 M9A 开关都在' ($null -ne $S.runtime.m9aCliArgs -an
 # 「默认走命令行入口」那格的行为判据随 Get-GdM9ACliEnabled 出仓(11-06 刀⑫ 笔(b))，改指下面 [t16] 段 $rustCore 那张活桌
 
 # 真实日志行(09-23 17:30 用 --autostart 成功提交队列那一段)
-Check '能识别"用户操作：启动任务"' ((Read-GdM9ALine -Line '[2026-09-23 17:30:40.048][INF] [cfg=Default][inst=日常-长草/deadbeef][src=UI][op=StartTask] 用户操作：启动任务 | controller=Adb, resource=官服, device=<none>, selectedTasks=10').Kind -eq 'ui-start')
-Check '能读出战它提交了几个任务' ((Read-GdM9ALine -Line '[..][inst=日常-长草/deadbeef][src=Worker][op=ExecuteTaskQueue] 准备执行任务队列：任务数量=10').Text -eq '10')
+# 刀㉓ 笔(b) 第二子批(11-08)：原先两枚（ui-start 与 queue 的 Text）已换家核侧＝line/ui-start 与 line/queue，账同 [t10]。
 
 function New-M9AState {
     return @{ tasks = @(); chainStarted = $false; chainDone = $false; connectPhase = 'none'; failed = $null;
@@ -430,12 +424,11 @@ $raw17 = @(
     '[2026-09-25 19:26:49.543][INF] [cfg=Default][inst=日常-长草/deadbeef][src=Monitor][op=MonitorLog] 任务失败：收取荒原',
     '[2026-09-25 19:28:50.180][INF] [cfg=Default][inst=日常-长草/deadbeef][src=Worker][op=StopTask] 停止前状态：NOT_STARTED'
 )
-Check '「任务失败：<中文名>」认得，且带出任务名' ((Read-GdM9ALine -Line $raw17[4] -InstanceId 'deadbeef').Kind -eq 'task-fail')
-Check '「当前资源版本」认得' ((Read-GdM9ALine -Line $raw17[0] -InstanceId 'deadbeef').Kind -eq 'res-current')
-Check '「最新资源版本」不再被 noise 按子串吞掉' ((Read-GdM9ALine -Line $raw17[1] -InstanceId 'deadbeef').Kind -eq 'res-latest')
-Check '「初始化控制器失败」算连接失败' ((Read-GdM9ALine -Line '[..][inst=日常-长草/deadbeef][src=Worker][op=ExecuteTaskQueue] 初始化控制器失败：message=连接模拟器时发生错误！' -InstanceId 'deadbeef').Kind -eq 'connect-fail')
-Check '连接失败只留原因，不带时间戳/字段头' ((Read-GdM9ALine -Line '[2026-09-25 19:29:33.726][INF] [cfg=Default] 按指纹匹配到的设备数量：0' -InstanceId 'deadbeef').Text -eq '按指纹匹配到的设备数量：0')
-Check '旧的"新资源版本还请更新"提示仍算噪音(不抢 res-latest)' ((Read-GdM9ALine -Line '[..][inst=x/deadbeef][src=Agent][op=StdErr] 如前面有提示新资源版本还请更新' -InstanceId 'deadbeef').Kind -eq 'noise')
+# ⚠ 刀㉓ 笔(b) 第二子批(11-08)：上面六枚单行判定格(task-fail／res-current／res-latest／connect-fail／连接失败只留原因／
+#   旧提示仍算 noise)换家核侧＝Processes.SelfTest.cs 的 line/task-fail、line/res-c、line/res-l、line/conn-fail、
+#   line/conn-fail2、line/noise 六枚；证牙＝逐字改 Processes.cs 档名字面量后 --proctest 当场咬中(账本
+#   gdlogs/cut23b2/mutation-run3.txt)、锚检 OUTER-HITS=0。$raw17 与下面两枚状态机格保留：那问的是 apply-m9a-events
+#   一族的累计语义(res 差配对、failedTasks 累计)，不是单行解析的档名——家不同，不能跟着这批发家。
 
 $s17 = New-M9AState
 foreach ($l in $raw17) {

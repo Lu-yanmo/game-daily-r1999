@@ -829,18 +829,6 @@ function Stop-GdRunLock {
     } catch { }
 }
 
-# --- 状态文件(活动确认门等) ---
-function Get-GdStateObject {
-    param([Parameter(Mandatory)][string]$Name, $Default = $null)
-    $file = Join-Path $global:GD.State "$Name.json"
-    if (Test-Path -LiteralPath $file) { return Read-GdJson -Path $file }
-    return $Default
-}
-function Set-GdStateObject {
-    param([Parameter(Mandatory)][string]$Name, [Parameter(Mandatory)]$Value)
-    Write-GdJson -Path (Join-Path $global:GD.State "$Name.json") -Object $Value
-}
-
 function Wait-GdCondition {
     param(
         [Parameter(Mandatory)][scriptblock]$Test,

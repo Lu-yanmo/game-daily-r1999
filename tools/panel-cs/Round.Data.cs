@@ -205,7 +205,7 @@ namespace GdPanel
         internal static string ShopDoneFile(string game) { return Path.Combine(StateDir(), game + "-shop-done.json"); }
         const string ProbeFile = "ark-event-probe.json";
 
-        // Get-GdStateObject + Get-GdMapValue + Convert-GdMapToHashtable 三段合成：文件不在→空表、外层键缺→空表、
+        // state 读件(原 Get-GdStateObject，刀⑰(a) 已退役) + Get-GdMapValue + Convert-GdMapToHashtable 三段合成：文件不在→空表、外层键缺→空表、
         // 文件坏了→照 PS 那样抛(那两枚 Get-Gd*Map 没有 try，坏了就该把这一轮拦下来，不许当"没人领过")。
         // 表必须是**不分大小写**的：PS 的 @{} 默认 OrdinalIgnoreCase，于是 $map['CE5'] 与 $map['ce5'] 是同一格，
         // ContainsKey 也按这把尺判 —— 这里若用区分大小写的字典，撤销那一步会在盘上留一格谁也认不出的孤儿。

@@ -272,6 +272,45 @@ namespace GdPanel
                     return (string)r["Mode"] == "event" && (string)r["Stage"] == "LS-5" && (bool)r["ClearSanity"]
                         && (string)r["Reason"] == "活动[测试活动B](09-20 04:00 ~ 09-29 04:00) 今天已自证进得去 LS-5 → 理智全刷 LS-5；另有 1 个活动商店已领空，已跳过";
                 });
+                // ---------- 刀㉑ 笔(b)-2：test-ark 的 t7 段那 19 枚，逐枚对面补齐(其余十四枚由上面既有格承接) ----------
+                // 分工口径照在册：判定层语义(Mode／Stage／StageHint／Reason 话术)归 --dectest；
+                // 「领空表给不给」那一折(IgnoreShopDone／shopDoneStopsEvent)的真身在 compose-decision-inputs⇒归 --roundtest 新节 34)。
+                b.Chk("ark 探针档把活动关卡留在 StageHint(收尾采集照它点名)", delegate
+                {
+                    Dictionary<string, object> r = Gd.Map(Decisions.Ark(ArkIn(SideStory(oneGrp), now, "假数据", null, null, 5)));
+                    return (string)r["Mode"] == "event" && (string)r["StageHint"] == "AI-8";
+                });
+                b.Chk("ark 探针档提示语讲清「为探针」，且整段不出现 Ack 参数名(反向钉：出现即红)", delegate
+                {
+                    string s = (string)Gd.Map(Decisions.Ark(ArkIn(SideStory(oneGrp), now, "假数据", null, null, 5)))["Reason"];
+                    return s.Contains("为探针") && !s.Contains("Ack");
+                });
+                b.Chk("ark 被剪臂提示语三句齐(被 MAA 剪掉／不空试／下一轮自动切回)且不出现 AckArk(反向钉)", delegate
+                {
+                    Dictionary<string, object> r = Gd.Map(Decisions.Ark(
+                        ArkIn(SideStory(oneGrp), now, "假数据", null, null, 5, ProbeToday("zztest-event", false, "名单里没有 AI-8"))));
+                    string s = (string)r["Reason"];
+                    return s.Contains("被 MAA 剪掉") && s.Contains("下一轮自动切回") && !s.Contains("AckArk");
+                });
+                b.Chk("ark 领空回落提示语说「剩余理智改刷长草计划」且不出现 daily-clear(10-30 B-3②-d 刀① 摘 body 两枚键的反向钉)", delegate
+                {
+                    Dictionary<string, object> r = Gd.Map(Decisions.Ark(
+                        ArkIn(SideStory(oneGrp), now, "假数据", null, Gd.Out("zztest-event", true), 5)));
+                    string s = (string)r["Reason"];
+                    return s.Contains("剩余理智改刷长草计划") && !s.Contains("daily-clear");
+                });
+                b.Chk("ark 两活动都领空 → 长草计划且 ShopDone 为真，EventKey 报先结束那枚(供撤销)", delegate
+                {
+                    Dictionary<string, object> grp = Gd.Out(
+                        "zztest-event", EventObj("测试活动A", "2026-09-20 04:00:00", "2026-09-26 18:00:00", Stage("AI-8", "10001")),
+                        "zztest-event2", EventObj("测试活动B", "2026-09-20 04:00:00", "2026-09-29 04:00:00", Stage("LS-5", "3004")));
+                    Dictionary<string, object> r = Gd.Map(Decisions.Ark(ArkIn(SideStory(grp), now, "假数据", null,
+                        Gd.Out("zztest-event", true, "zztest-event2", true), 5)));
+                    return (string)r["Mode"] == "idle" && (bool)r["ShopDone"] && (bool)r["ClearSanity"]
+                        && (string)r["Stage"] == "CE-5,LS-5" && (string)r["EventKey"] == "zztest-event"
+                        && (string)r["Reason"] == "活动[测试活动A、测试活动B]商店已标记领空 → 剩余理智改刷长草计划 CE-5,LS-5(数据源：假数据)";
+                });
+
                 b.Chk("ark 多活动按结束先后排队(先刷快结束的)", delegate
                 {
                     Dictionary<string, object> grp = Gd.Out(

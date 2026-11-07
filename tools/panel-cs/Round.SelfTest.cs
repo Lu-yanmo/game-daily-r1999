@@ -2792,6 +2792,45 @@ namespace GdPanel
                     && !B(Gd.Get(env, "ok")) && S(Gd.Get(env, "error")).Contains("System.Int32");
             });
 
+            // ==================== 34) 领空折图与 IgnoreShopDone(刀㉑ 笔(b)-2：test-ark t7 那两枚行为钉的对面) ====================
+            // 真身＝Round.Data.cs::ComposeDecisionInputs 那四行(igRaw→ignoreShopDone→三元折图→emptyMap 回落)。
+            // 判定层(Decisions.Ark)只吃**折好的表**，所以「-IgnoreShopDone 可回看原结论」与「开关置 false 后不再拦截」
+            // 这两枚行为钉的对面落在本节，不在 --dectest——dectest 里那张表是入参，折图发生在那之前。
+            b.Chk("盘上有领空账 ⇒ ignoreShopDone=true 交空表(回看原结论的那半折在核里，不在壳里)", delegate
+            {
+                GdJson.Write(shopArk, In("done", In("zztest-event", "2026-10-13 06:05")));
+                object d = RoundData.ComposeDecisionInputs(
+                    In("game", "ark", "settings", In("ark", In()), "ignoreShopDone", true));
+                return Cnt(Key(d, "ShopDone")) == 0 && Key(d, "ShopDone") != null;
+            });
+            b.Chk("同一枚盘账、入键缺席 ⇒ 照旧交盘上读数(缺省 false＝旧调用方逐字不变，Rust 核臂两发只传 game 走的正是这一路)", delegate
+            {
+                GdJson.Write(shopArk, In("done", In("zztest-event", "2026-10-13 06:05")));
+                object d = RoundData.ComposeDecisionInputs(In("game", "ark", "settings", In("ark", In())));
+                Dictionary<string, object> m = Row(Key(d, "ShopDone"));
+                return Cnt(Key(d, "ShopDone")) == 1 && m != null && S(m["zztest-event"]) == "2026-10-13 06:05";
+            });
+            b.Chk("ignoreShopDone 与 shopDoneStopsEvent 两轴同向才都空表：true＋开关 false⇒空；false＋开关 false⇒也空(开关轴没被新键顶掉)", delegate
+            {
+                GdJson.Write(shopArk, In("done", In("zztest-event", "2026-10-13 06:05")));
+                object both = RoundData.ComposeDecisionInputs(In("game", "ark",
+                    "settings", In("ark", In("shopDoneStopsEvent", false)), "ignoreShopDone", true));
+                object onlyFlag = RoundData.ComposeDecisionInputs(In("game", "ark",
+                    "settings", In("ark", In("shopDoneStopsEvent", false)), "ignoreShopDone", false));
+                return Cnt(Key(both, "ShopDone")) == 0 && Cnt(Key(onlyFlag, "ShopDone")) == 0;
+            });
+            b.Chk("入键宽松口径只有两档：布尔原样认、字符串不分大小写等于 true 才算真(\"TRUE\"⇒真；\"1\"／数字 1⇒假)", delegate
+            {
+                GdJson.Write(shopArk, In("done", In("zztest-event", "2026-10-13 06:05")));
+                object up = RoundData.ComposeDecisionInputs(
+                    In("game", "ark", "settings", In("ark", In()), "ignoreShopDone", "TRUE"));
+                object one = RoundData.ComposeDecisionInputs(
+                    In("game", "ark", "settings", In("ark", In()), "ignoreShopDone", "1"));
+                object num = RoundData.ComposeDecisionInputs(
+                    In("game", "ark", "settings", In("ark", In()), "ignoreShopDone", 1));
+                return Cnt(Key(up, "ShopDone")) == 0 && Cnt(Key(one, "ShopDone")) == 1 && Cnt(Key(num, "ShopDone")) == 1;
+            });
+
             // 收尾：临时树整目录删掉(纪律＝门/自检的临时件不落仓内)
             try { if (File.Exists(lockFile)) File.Delete(lockFile); } catch { }
             try { Directory.Delete(tmp, true); }

@@ -5,8 +5,8 @@
 # ⚠ 刀⑯ 笔(d)-1(2026-11-06)改口：下面九枚本批出仓——三读件 Get-GdAckMap／Get-GdShopDoneMap／Get-GdArkEventProbe
 # (ark 那侧)、写件三枚 Set-GdAckKey／Set-GdShopDoneKey／Remove-GdShopDoneKey、领空 flag 尺 Test-GdShopDoneEnabled。
 # 读的面自此只有核一把出口：read-decision-state 一次交回 Ack／ShopDone／ShopDoneGateOpen／Probe 四格(原表与
-# "给不给"分两枚键，ShopDoneGateOpen 那枚读值半段＝Round.FlagEnabled)，消费方(Resolve-ArkPlan／Resolve-R1999Plan／
-# Show-GdGateState／门侧夹具)逐枚改指；写的面改指三枚写 verb(set-r1999-ack／set-ark-shop-state／set-r1999-shop-state)。
+# "给不给"分两枚键，读值半段＝Round.FlagEnabled)；消费方两本壳(Resolve-ArkPlan／Resolve-R1999Plan)自刀㉑ 笔(b)-1
+# 起改指 compose-decision-inputs 一次取齐＋可选入键 ignoreShopDone；Show-GdGateState 与门侧夹具仍指 read-decision-state。
 # "核不在场就回落 PS 直读 state 文件"的回落臂随件同亡——核不在场 Invoke-GdCli throw＝这一轮拒跑，不再有
 # "读不到就当空表/还没结论"的假回落(把核坏了化装成合法读数正是登记过的假绿形)。许可与判据的分家照旧：
 # 门格先改指、行为格现出牙，才谈得上摘 PS 本体。

@@ -467,9 +467,9 @@ namespace GdPanel
         // 的 body 里除 data/source 外那几枚键，核臂取走后自己拼。
         // 逐字真身：dow 周日=7(lib\ark-decisions.ps1:56-57 原样，老行为)；now=Get-GdNowMs 同形毫秒
         // (lib\decisions-common.ps1:39 [DateTimeOffset]::Now.ToUnixTimeMilliseconds())；
-        // ack/shopDone 两本门表(ReadGateMap)；领空表"给不给"那一折(PS 侧同折仍在：Resolve-ArkPlan／Resolve-R1999Plan 吃
-        // read-decision-state 交回的 ShopDoneGateOpen＝Round.FlagEnabled(shopDoneStopsEvent)，
-        // 缺省即开启显式 false 才关；1ev.①：链内纯 PS 判据随臂搬家，坐标在此)——核内这里**折好**再交(照 PS 真身 $shopDone 变量)。
+        // ack/shopDone 两本门表(ReadGateMap)；领空表"给不给"那一折真身在核：FlagEnabled(shopDoneStopsEvent)
+        // 缺省即开启、显式 false 才关(Round.cs:166-174 一把尺)＋刀㉑ 笔(b)-1 新收的可选入键 ignoreShopDone(缺省 false)；
+        // 原两本 PS 壳各写两行折算(lib\ark-decisions.ps1:66-67／lib\r1999-decisions.ps1:34-35 旧形)，本批起壳只传键。
         // probe 只喂 decide-ark(Resolve-R1999Plan 的 body 没有 probe 键)，这里统一回，谁用谁自己取。
         internal static object ComposeDecisionInputs(Dictionary<string, object> raw)
         {
@@ -486,7 +486,15 @@ namespace GdPanel
             object ack = ReadGateMap(AckFile(game), "acked");
             object shopDoneRead = ReadGateMap(ShopDoneFile(game), "done");
             Dictionary<string, object> emptyMap = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
-            object shopDone = Round.FlagEnabled(Gd.Get(block, "shopDoneStopsEvent")) ? (object)shopDoneRead : emptyMap;
+            // 刀㉑ 笔(b)-1(2026-11-08)：领空折图多一枚**可选入键** ignoreShopDone(布尔，缺省 false)。
+            // 原形＝两本 PS 壳各写两行(lib\ark-decisions.ps1:66-67／lib\r1999-decisions.ps1:34-35)：
+            // 非 IgnoreShopDone 且 FlagEnabled(shopDoneStopsEvent) 才给盘上表，否则给空表；本批起折算只有核这一处，
+            // 壳只传键。键缺席(Rust 核臂两发只传 game)恒按 false＝旧调用方逐字不变；回执八枚键一枚没动⇒信封形状不变。
+            object igRaw = Gd.Get(c, "ignoreShopDone");
+            bool ignoreShopDone = igRaw is bool ? (bool)igRaw
+                : string.Equals(igRaw as string, "true", StringComparison.OrdinalIgnoreCase);
+            object shopDone = (!ignoreShopDone && Round.FlagEnabled(Gd.Get(block, "shopDoneStopsEvent")))
+                ? (object)shopDoneRead : emptyMap;
 
             return Gd.Out(
                 "Game", game,

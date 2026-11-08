@@ -1,25 +1,12 @@
 ﻿# tools/test-lib.ps1 — 自检脚手架：引擎无关的那半套(计数、假 state 的存与取、公共库检查)
-# 不单独跑，由 test-ark.ps1 / test-r1999.ps1 用 dot-source 引进来，所以这里的
-# $script:Pass / $S 都落在引进它的那一路脚本的作用域里，两路各记各的数。
-#
-# 这一份会原样进两个导出仓库，因此只能"文件在就 dot、不在就少一侧能力"，
-# 绝不能硬 dot 另一个游戏才有的 lib 文件(和 lib\decisions.ps1 同一个道理)。
+# 不单独跑，由 test-ark.ps1 / test-r1999.ps1 dot-source 引进来($script:Pass / $S 落在引进它的那一路脚本作用域里)。
+# 这一份原样进两个导出仓库，因此只能"文件在就 dot、不在就少一侧能力"，绝不能硬 dot 另一个游戏才有的 lib 文件。
 
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 . (Join-Path $root 'lib\common.ps1')
-# 名单 = 两份模块清单声明的 Libs 的并集(-common/decisions 是两边共用的底座，也一并点)。
-# 这件事以前只在注释里"由 [m3] 钉着"，实际 [m3] 只钉了反方向(清单不许引用别人的库)，于是 2026-09-26
-# 加了 ark-farm.ps1 之后：ark-daily 的掉落记账调用在自检里认不到函数、一路掉进 catch 打一句 WARN 就过了，
-# 全套件照样全绿 —— 那是假绿。名单本该由下面的 $GdTestDotLibs 交给 [m3] 逐条对账、漏一项当场变红——这句直到 11-08 刀⑳ 笔(a)-3 才有尺量它(tools\test-modules.ps1 的清单完备性格)，此前 [m3] 只钉了反方向。
+# 名单 = 两份模块清单声明的 Libs 的并集(共用底座 decisions 也一并点)；现为三枚＝{maa,m9a}∪{decisions}。
+# 由 tools\test-modules.ps1 的清单完备性格双向钉住：只删这一份而清单没删＝少装载一路，只删清单而这一份没删＝多一个恒不命中的名字。
 # 仍然带 Test-Path 守卫：单游戏导出仓里另一款的库不在，就少点一份、少一侧能力，不炸。
-# 11-04 转接刀·运行面刀⑦ 笔(c/d)：'ark-daily'／'r1999-daily' 两枚随编排岛整件出仓，本名单自此八枚。
-# 上面那句"名单＝两份清单声明的 Libs 的并集"仍然成立，只是两侧同时少两枚才闭合：只删这一份而清单没删
-# ＝少装载一路(那一路的库认不到函数)，只删清单而这一份没删＝多一个恒不命中的名字。「谁也看不出」到 11-08 刀⑳ 笔(a)-3 作废：那枚 'mumu' 就是这么活到件退役之后的，如今双向差集当场看出。
-# 上面那条讲"当年 ark-daily 的调用在自检里认不到函数"的史注按仓内口径不改口——它说的那枚件现在在仓外，
-# 故事讲的是[为什么立这条对账]，不是[现在点的是谁]。
-# 11-06 转接刀·运行面刀⑬ 笔(c)：'ark-farm' 整件出仓(判定+记账真身全在核内 Chain.cs／Orchestration.cs)，名单自此不点它。
-# 11-06 转接刀·运行面刀⑮ 笔(d)：'vision-rescue'／'vision-ark'／'vision-mumu' 三枚随三件本体整件出仓，名单自此四枚(与两份清单 Libs 同帧摘——只删清单＝少装载一路，只删名单＝多一个恒不命中的名字；test-modules 那格当时还不存在，两头闭合要到 11-08 刀⑳ 笔(a)-3 才立起来)。
-# 11-08 刀⑳ 笔(a)-3：摘名单一名 'mumu'(件已随刀⑯ 笔(d)-2 出仓，Test-Path 守卫让它既不红也不供数)，名单自此三枚＝两份清单 Libs 并集{maa,m9a}∪共用底座{decisions}，由 tools\test-modules.ps1 的清单完备性格双向钉住。
 $script:GdTestDotLibs = @('decisions', 'maa', 'm9a')
 foreach ($lib in $script:GdTestDotLibs) {
     $libPath = Join-Path $root "lib\$lib.ps1"
@@ -39,10 +26,6 @@ $S = Get-GdSettings -Quiet
 # 屏保读数：06:00 方舟连败的根因，判据必须能脱离本机注册表被验完。
 # 刀㉓ 笔(b) 摘格本：原先那九枚"喂构造假 cfg"的行为格自此不在 PS 侧——对面 10-26 甲档第八刀就立在
 #   tools\panel-cs\Decisions.SelfTest.cs(四档顺序那格 + floorSec/字符串读数/Ci 那格 + saver 14 档逐字投影)，
-#   摘之前四发 mutation 当场证其有牙(raw\b186-cut23b1-mutations.py 落账)：改 unknown 短话→verdict-unknown 红 1 格；
-#   改 armed 长话里解除脚本点名→四档那格+逐字 armed/floor 族红 6 格；改"不是终态"→四档那格+off 族红 3 格；
-#   短话前缀变长→floorSec 那格+逐字全族红 8 格；基线与每发还原后均 dectest 69/69，EXE-CHANGED 四发全 True。
-#   同帧锚检 OUTER-HITS=0：全仓(除 docs/raw/ps-map/publish 这些从不出仓的账)没有第二处逐字咬那九枚格名。
 # 本段自此只剩两类：碰本机注册表那一格(只验不抛 + 落四态，不押它是哪一种)＋生产消费面的形状钉。
 function Show-GdCommonScreensaverChecks {
     Write-Host "`n[t1g] 屏保读数(本机真读数 + 消费面形状钉；假 cfg 四档判据的家在 --dectest 屏保族)"
@@ -57,22 +40,12 @@ function Show-GdCommonScreensaverChecks {
     $threw = $false
     try { $live = GdSvLiveVerdict } catch { $threw = $true }
     Check '读本机注册表不抛，且结论落在 none/armed/off/unknown 四种之一' (-not $threw -and @('none','armed','off','unknown') -contains $live.Kind) ($live.Text)
-    # 语义闸的形状钉(转接刀·屏保稳态族)：三处生产消费面那句 Found:false ⇒ 递 cfg=null 必须还在**问那一枚 verb 的同一行**上。
+    # 语义闸的形状钉(转接刀·屏保稳态族)：生产消费面上那句 Found:false ⇒ 递 cfg=null 必须还在**问那一枚 verb 的同一行**上。
     # 为什么只能按形状钉：这台机器注册表恒能读到(Found 真)⇒ 把折算整句摘掉也不会有任何现读格变红，
     # 而摘掉的后果是把"读不到"交给核内读成"没挂 .scr(没事)"—— 那一档话术正是体检要避免的假安心。
     # 只数调用行(带 Invoke-GdCli 那句)，注释里同名的 verb 字面不算账；一行调用都没有／调用行里没那句折算都算这格红。
-    # 分路盲区改口(推仓74 出货面现红)：lib\ark-daily.ps1 是方舟专有件，1999 那棵导出树里本来就没有它，
-    #   旧的"不在即红"把分路差当成本格的罪(导出侧那一趟交回 182 通过／1 失败，主仓侧 183 通过／0 失败)。
-    #   处方照本件头注那套点库的形制(文件在就点、不在就少一侧能力)＋本件那句"有 lib\maa.ps1 才催 maaDir"＝路标分档，
-    #   松的只许是"判的对象"、不许是判据：docs\rust-core-plan.md 在场＝合体工作树，那件不在照样红(真身被删／改名不许静默放过)；
-    #   那本 plan 不在＝单游戏出货树，那一枚消费面本就不在这批货里，明印 [跳过] 而不是静默。
-    #   ⇒ 这一格自此在只带另一路的出货树上少量一枚消费面(方舟那棵树仍三枚全量)；工作树侧的射程一字未减，
-    #     非分路那两件(status.ps1／tools\unarm-screensaver.ps1)在任何一棵树里缺了都照样红。
-    # 11-04 转接刀·运行面刀⑦ 笔(c/d)：上面那枚分路件 lib\ark-daily.ps1 随编排岛整件出仓 ⇒ 本格的靶自三枚改两枚，
-    #   折算的**生产消费面 3→2**(status.ps1／tools\unarm-screensaver.ps1 两枚仍每棵树都在)。判据因此是**收紧**不是放宽：
-    #   $foldPerGame 空了＝分路豁免通道恒不开，任何一棵树里缺这两枚都当场红。那套 [跳过] 形制故意留着(见下面 $foldSkip
-    #   仍在打印)——以后若又长出只属于某一路的消费面，形制还在；把它整段删掉才是把这条路堵死。
-    #   ⚠ 上面那段"分路盲区改口(推仓74)"按史注读，不改口：它记的是当时那次出货面现红的处方，那枚件现在在仓外。
+    # 刀⑦ 后消费面 3→2(status.ps1／tools\unarm-screensaver.ps1)，$foldPerGame 空了＝分路豁免通道恒不开，
+    # 任何一棵树里缺这两枚都当场红；[跳过] 形制留着给以后只属于某一路的消费面。
     $foldFiles = @('status.ps1', 'tools\unarm-screensaver.ps1')
     $foldPerGame = @()
     $foldMiss = @()
@@ -159,8 +132,7 @@ function Show-GdCommonTimeChecks {
     Write-Host "`n[t1] 路径/时间工具"
     Check 'Join-GdPath 拼多层' ((Join-GdPath 'C:\A' @('b', 'c.json')) -eq 'C:\A\b\c.json')
     Check 'Join-GdPath 单段'   ((Join-GdPath 'C:\A' @('b.json')) -eq 'C:\A\b.json')
-    # 时间换算的证性格自 2026-11-03 起问的是核内那一份(verb convert-utc8-to-ms／format-unix-ms)：
-    # PS 侧那两枚真身已出仓，这四格不再量本地实现，改量"出口答得对不对"；输入字面逐字照旧，不趁搬轴改判据。
+# 时间换算的四格自 2026-11-03 起问核内 verb(convert-utc8-to-ms／format-unix-ms)：PS 真身已出仓，输入字面逐字照旧。
     $ms = (Invoke-GdCli -Verb 'convert-utc8-to-ms' -Body ([pscustomobject]@{ text = '2026-09-04 12:00:00' })).Ms
     Check 'UTC+8 时间转换' ($ms -eq ([DateTimeOffset]::new(2026, 9, 4, 4, 0, 0, [TimeSpan]::Zero).ToUnixTimeMilliseconds())) "得到 $ms"
     Check '斜杠日期同样可解析' ($ms -eq (Invoke-GdCli -Verb 'convert-utc8-to-ms' -Body ([pscustomobject]@{ text = '2026-09-04 12:00:00' })).Ms)
@@ -175,8 +147,7 @@ function Show-GdCommonTailChecks {
     Check 'Write-GdLog 允许空消息' $emptyOk $(if (-not $emptyOk) { 'Mandatory 会把空字符串当缺参数，脚本会因此返回退出码 1' })
 }
 
-# 单游戏导出仓库的硬性要求：不能因为"另一个游戏的助手目录没填"就每次报警。
-# Get-GdSettings 的必查清单由 Get-GdRequiredPathKeys 按"lib 里有哪些助手库"推出来，这里把这条规矩钉住。
+# 单游戏导出仓库不能因为"另一个游戏的助手目录没填"每次报警：必查键由 Get-GdRequiredPathKeys 按 lib 里装着哪几路推出，这里钉住。
 function Show-GdCommonPathChecks {
     Write-Host "`n[t1b] 该催哪几个助手目录(跟着本仓库装了哪一路走)"
     $here = @(Get-GdRequiredPathKeys)
@@ -200,13 +171,9 @@ function Show-GdCommonPathChecks {
     }
 }
 
-# 单游戏仓库的提示语必须写它自己的参数名(否则用户照着日志敲 -AckArk，入口根本没这个参数)。
-# 11-01 丙形真转接(§11.176 ⑥)改口：verb 名不再有"进程内可被现场覆盖的那张表"——取名函数每次现问模块注册表，
-# 问不到就回落干净短名。本枚件由 test-ark / test-r1999 点起来，那两本只载 common＋decisions、注册表不在场，
-# 所以这里量到的是回落那一支；"注册表在场⇒清单自己声明的长名"那一支由 tools\test-modules.ps1 [m6] 钉：它装载得起来，
-# 而且拿入口自己的 param() 做对照，两把尺不同轴 —— 把装载面搬过来只会并成一把，反而问不出新东西。
-# 旧那两格(现场覆盖只影响被写的那一款／还原后回到默认)随写侧一起退役：没有那张表就没有"盖了没还原"那一形，
-# 这一路不再量它；改量的是名册来源在不在、回落支逐枚逐款是不是短名、短名按被问的 verb 现拼还是写死。
+# 单游戏仓库的提示语必须写它自己的参数名(否则日志让用户敲 -AckArk，入口根本没这个参数)。
+# verb 名不再有"进程内可覆盖的表"：取名函数每次现问模块注册表，问不到就回落干净短名；本件被 test-ark／test-r1999 点起，
+# 注册表不在场⇒这里量的是回落支；长名那一支由 tools\test-modules.ps1 [m6] 用入口 param() 做对照(两把尺不同轴，不并)。
 function Show-GdCommonVerbChecks {
     Write-Host "`n[t1c] 提示语里的参数名(现问注册表，问不到回落短名)"
     # 两本名册都现读：verb 名册来自取名函数自己的 ValidateSet(那才是名单事实源)，游戏名册来自 Get-GdGameIds。
@@ -237,9 +204,8 @@ function Show-GdCommonVerbChecks {
     Check '[t1c] 回落按被问的 verb 现拼(写死任何一枚就在这里红)' (($perGot -join ',') -eq ($perWant -join ',')) ($perGot -join ' , ')
 }
 
-# 提示语"照抄就能跑"是这一路的用户界面：日志里让用户敲一个本仓库入口没有的参数名，点了就报"找不到参数"。
-# 所以静态扫一遍本仓库的 .ps1，凡是出现"入口脚本名 + 一个参数"的地方，那个参数必须在
-# 本仓库入口脚本的 param() 里真的存在 —— 单游戏导出仓库里冒出合体工程的长参数名会立刻在这里被抓住。
+# 提示语"照抄就能跑"是这一路的用户界面：静态扫一遍本仓库的 .ps1，凡是"入口脚本名 + 一个参数"的地方，
+# 那个参数必须在本仓库入口的 param() 里真的存在(单游戏导出仓库冒出合体工程的长参数名会立刻被抓住)。
 function Show-GdCommonEntryHintChecks {
     Write-Host "`n[t1d] 提示语里敲的命令，本仓库入口真的收这个参数"
     $entry = Join-Path $root 'daily-clear.ps1'
@@ -265,10 +231,8 @@ function Show-GdCommonEntryHintChecks {
     Check '没有提示过本仓库入口不存在的参数' ($bad.Count -eq 0) ($bad -join ' , ')
 }
 
-# PowerShell 参数模式(argument mode)里，-NotePropertyValue 后面直接写 [string]$x 并不会转型：
-# 它把类型字面量当字符串、再把后面的 token 一起吞成值，2026-09-24 就是这样把 settings.json 的 vmIndex
-# 写成了 "[string]System.Collections.Specialized.OrderedDictionary[mumu.vmIndex].Value"。
-# 静态扫一遍本仓库的 .ps1，出现这个写法就报红(写法本身永远不该有，先转成变量再传是对的)。
+# PowerShell 参数模式里 -NotePropertyValue 后面直接写 [string]$x 并不转型：它把类型字面量当字符串、把后面 token 吞成值
+# (2026-09-24 把 settings.json 的 vmIndex 写成了 "[string]System.Collections.Specialized...")。写法本身永远不该有，静态扫出来就红。
 function Show-GdCommonScriptHygieneChecks {
     Write-Host "`n[t1e] 脚本卫生(参数模式伪转型)"
     $pat = '-Note' + 'PropertyValue\s*\['   # 拼起来，免得这条检查自己扫到自己
@@ -283,9 +247,8 @@ function Show-GdCommonScriptHygieneChecks {
     Check '没有把 [类型] 直接写在 -NotePropertyValue 后面的伪转型' ($hits.Count -eq 0) ($hits -join ' , ')
 }
 
-# 第一次跑(exe 双击 → setup 还没探测)时 paths.* 全是空串。这时候两种调用方要的是两件不同的事：
-# 只读诊断(status/探针/自检)得能把"哪几项没填"列出来；要干活的入口必须停下来点名 setup.ps1 ——
-# 2026-09-24 第一次打包 exe 时，空路径是让 daily-clear 抛一句"参数 'Base' 是空字符串"的，玩家看不出该干什么。
+# 第一次跑(exe 双击 → setup 还没探测)时 paths.* 全是空串：只读诊断要能列出"哪几项没填"，
+# 要干活的入口必须停下来点名 setup.ps1(2026-09-24 首次打包时，空路径让 daily-clear 抛"参数 'Base' 是空字符串")。
 function Show-GdCommonEmptyPathChecks {
     Write-Host "`n[t1f] 助手路径还没填时的行为(exe/访客第一次跑)"
     Check 'Join-GdPath base 空 → 返回空串(不抛)' ((Join-GdPath '' @('a', 'b.json')) -eq '')
@@ -310,10 +273,8 @@ function Show-GdCommonEmptyPathChecks {
 }
 
 # ---------- 活体标记(跨进程互斥)：state\running.json 的登记/判活/撤销 ----------
-# 这一组是面板撞车保护的唯一数据源，所以两条反向断言都不能省：
-# 残留必须判成"没在跑"(否则一次硬杀会把面板永久锁死)，别人登记的必须删不掉(否则两轮互相拆保护)。
-# 已知窗口：这一段会临时改写 running.json。真有一轮在跑时跑自检，面板会在那几百毫秒里
-# 把本测试进程看成"在跑的那一轮"，测完快照原样还原 —— 所以别拿自检结果当"此刻有没有在跑"的依据。
+# 面板撞车保护的唯一数据源，两条反向断言不能省：残留必须判成"没在跑"(否则一次硬杀永久锁死)，
+# 别人登记的必须删不掉(否则两轮互相拆保护)。已知窗口：本段会临时改写 running.json，别拿自检结果当"此刻有没有在跑"。
 function Show-GdCommonRunLockChecks {
     Write-Host "`n[t16] 活体标记 running.json"
     Save-GdTestState -Names @('running')

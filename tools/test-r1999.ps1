@@ -194,13 +194,12 @@ function New-M9AState {
 }
 $instS12 = [pscustomobject]@{ Id = 'deadbeef'; Name = '日常-长草' }
 
-$sA = New-M9AState
-Register-M9AEvent -State $sA -Event @{ Kind = 'connect-start'; Text = '' } | Out-Null
-Register-M9AEvent -State $sA -Event @{ Kind = 'finish'; Text = '' }
-Register-M9AEvent -State $sA -Event @{ Kind = 'chain-done'; Text = '' }
-$rA = Resolve-M9AStatus -State $sA -Elapsed 5 -S $S -Instance $instS12 -LogName 'log-test.log'
-Check '连接完就报全部完成、零任务 → empty-queue(不再白等 10 分钟)' ($rA.Status -eq 'empty-queue') "$($rA.Status)"
-Check 'empty-queue 会点名短参数 -a 无效这个坑' ($rA.Detail -match '--autostart 没生效') $rA.Detail
+# 刀㉓ 笔(b) 第三子批 第二刀(11-08)：本节 [t12]/[t13]/[t14] 共 16 枚「问一句答什么」的状态结论格换家核侧＝
+#   Processes.SelfTest.cs 的 res/empty-queue-没收到、res/ok、res/ok带尾警、res/ok-quit、res/notstart-活、
+#   res/notstart-退、res/error-失败、res/还在跑、res/unknowfmt-退、res/unknowfmt-活、res/timeout（整句期望比
+#   PS 侧的 -match 强一档）。留下的两类不搬：①量 PS 侧累计面本身（connectPhase／chainDone／queueCount／
+#   eventCount，含 queueCount=0 那档，家在半数对面还没立的显式 0 值整句）；②核侧无同形对面（显式负锚缺位、
+#   真日志「解析→累计→结论」组合面）。逐枚映射与留格理由＝raw\b209-cut23b3c2-map.txt。
 $sA0 = New-M9AState
 Register-M9AEvent -State $sA0 -Event @{ Kind = 'connect-start'; Text = '' }
 Register-M9AEvent -State $sA0 -Event @{ Kind = 'finish'; Text = '' }
@@ -211,20 +210,6 @@ Register-M9AEvent -State $sA2 -Event @{ Kind = 'chain-done'; Text = '' }
 $rA2 = Resolve-M9AStatus -State $sA2 -Elapsed 5 -S $S -Instance $instS12
 Check '任务数量=0 时 empty-queue 会引用 M9A 自己报的数' ($rA2.Detail -match '任务数量=0') $rA2.Detail
 
-$sB = New-M9AState
-Register-M9AEvent -State $sB -Event @{ Kind = 'chain-start'; Text = '' }
-Register-M9AEvent -State $sB -Event @{ Kind = 'task'; Text = '启动游戏' }
-Register-M9AEvent -State $sB -Event @{ Kind = 'chain-done'; Text = '' }
-$rB = Resolve-M9AStatus -State $sB -Elapsed 40 -S $S -Instance $instS12 -ProcessGone $true
-Check '跑过任务且完成 → ok(进程已因 --quit-after-run 退出也算成功)' ($rB.Status -eq 'ok') "$($rB.Status)"
-Check 'ok 里带任务数' ($rB.Detail -match '1 个任务') $rB.Detail
-
-$sC = New-M9AState
-Register-M9AEvent -State $sC -Event @{ Kind = 'finish'; Text = '' }
-$rC = Resolve-M9AStatus -State $sC -Elapsed 700 -S $S -Instance $instS12 -LogName 'log-test.log'
-Check '只连上不跑队列 → not-started' ($rC.Status -eq 'not-started') "$($rC.Status)"
-Check 'not-started 会点名命令行 --autostart' ($rC.Detail -match '--autostart')
-
 # 真跑复盘(09-23 17:36→17:43 那次实际成功)：--quit-after-run 下 M9A 只打「启动任务完成」就退出，
 # 根本不会有「任务已全部完成！」这一行 → 之前被判成 error，白重试一次
 $sF = New-M9AState
@@ -232,18 +217,6 @@ Register-M9AEvent -State $sF -Event @{ Kind = 'queue-prepared'; Text = '10' }
 foreach ($n in 1..10) { Register-M9AEvent -State $sF -Event @{ Kind = 'task'; Text = "任务$n" } }
 Register-M9AEvent -State $sF -Event @{ Kind = 'finish'; Text = '' }
 Check '跑满队列声明的任务数 + 见到「启动任务完成」→ chainDone' $sF.chainDone
-$rF = Resolve-M9AStatus -State $sF -Elapsed 430 -S $S -Instance $instS12 -ProcessGone $true
-Check '真实成功形态：10/10 任务后进程退出 → ok(不再误判 error)' ($rF.Status -eq 'ok') "$($rF.Status)｜$($rF.Detail)"
-$sG = New-M9AState
-Register-M9AEvent -State $sG -Event @{ Kind = 'queue-prepared'; Text = '10' }
-foreach ($n in 1..9) { Register-M9AEvent -State $sG -Event @{ Kind = 'task'; Text = "任务$n" } }
-$rG = Resolve-M9AStatus -State $sG -Elapsed 430 -S $S -Instance $instS12 -ProcessGone $true -LogName 'log-test.log'
-Check '只差最后一个任务就退出 → 仍判 error(不放过真中断)' ($rG.Status -eq 'error') "$($rG.Status)｜$($rG.Detail)"
-$sH = New-M9AState
-Register-M9AEvent -State $sH -Event @{ Kind = 'finish'; Text = '' }
-$rH = Resolve-M9AStatus -State $sH -Elapsed 30 -S $S -Instance $instS12 -ProcessGone $true -LogName 'log-test.log'
-Check '连接完就退出且零任务 → not-started(不烧 10 分钟)' ($rH.Status -eq 'not-started') "$($rH.Status)｜$($rH.Detail)"
-
 Write-Host "`n[t13] 真实日志逐行复盘(09-23 17:36 那一轮，从提交队列到进程退出)"
 # 这几行是从 M9A 自己 logs\log-20260923.log 里原样摘出来的
 $raw13 = @(
@@ -267,33 +240,17 @@ Check '「启动任务完成」在跑过任务之后就是链路完成' $sI.chai
 $rI = Resolve-M9AStatus -State $sI -Elapsed 445 -S $S -Instance $instS12 -ProcessGone $true -LogName 'log-20260923.log'
 Check '这一轮真实判 ok(曾经误判 error 导致白重试一次)' ($rI.Status -eq 'ok') "$($rI.Status)｜$($rI.Detail)"
 
-$sD = New-M9AState
-Register-M9AEvent -State $sD -Event @{ Kind = 'task'; Text = '常规作战' }
-Register-M9AEvent -State $sD -Event @{ Kind = 'fail'; Text = '任务运行失败！' }
-$rD = Resolve-M9AStatus -State $sD -Elapsed 300 -S $S -Instance $instS12 -ProcessGone $true
-Check '进程消失且有失败 → error 并带上失败原因' ($rD.Status -eq 'error' -and $rD.Detail -match '任务运行失败') "$($rD.Status)"
-$rE = Resolve-M9AStatus -State (New-M9AState) -Elapsed 60 -S $S -Instance $instS12
-Check '还在正常推进时不返回结论' ($null -eq $rE)
-
 Write-Host "`n[t14] 日志标志失配 → unknown-format(不套 not-started/stalled 的猜测)"
-$sJ = New-M9AState
-$rJ = Resolve-M9AStatus -State $sJ -Elapsed 30 -S $S -Instance $instS12 -ProcessGone $true -LogName 'log-test.log'
-Check '进程退出且一条标志都没读到 → unknown-format' ($rJ.Status -eq 'unknown-format') "$($rJ.Status)｜$($rJ.Detail)"
 $sK = New-M9AState
 $rK = Resolve-M9AStatus -State $sK -Elapsed 700 -S $S -Instance $instS12 -LogName 'log-test.log'
-Check '进程还在但过了「该开始」时限仍零标志 → unknown-format' ($rK.Status -eq 'unknown-format') "$($rK.Status)"
-Check 'unknown-format 会点名日志格式/实例 id 两种可能' (($rK.Detail -match '日志文案') -and ($rK.Detail -match '实例')) $rK.Detail
-Check 'unknown-format 给出可执行的排查入口(replay/probe 工具)' (($rK.Detail -match 'replay-m9a-log') -and ($rK.Detail -match 'probe-m9a-history'))
+# 刀㉓ 笔(b) 第三子批 第二刀(11-08)：上面三枚「unknown-format 说什么」的结论格换家核侧＝Processes.SelfTest.cs
+#   的 res/unknowfmt-活(整句含日志文案/实例 id/replay-m9a-log/probe-m9a-history 四种点名)。
+#   下面这枚「不谎称 --autostart 没生效」留下：核侧整句里恰好没写这个词，那不是负向锚(在册判语)。
 Check '零标志时不谎称"--autostart 没生效"' (-not ($rK.Detail -match '--autostart 没生效')) $rK.Detail
 $sCnt = New-M9AState
 Register-M9AEvent -State $sCnt -Event @{ Kind = 'noise'; Text = '' }
 Register-M9AEvent -State $sCnt -Event @{ Kind = 'task'; Text = 'x' }
 Check '事件计数会被 Register-M9AEvent 累加' ([int]$sCnt.eventCount -eq 2) "eventCount=$($sCnt.eventCount)"
-$sL = New-M9AState
-Register-M9AEvent -State $sL -Event @{ Kind = 'queue-prepared'; Text = '10' }
-foreach ($n in 1..3) { Register-M9AEvent -State $sL -Event @{ Kind = 'task'; Text = "任务$n" } }
-$rL = Resolve-M9AStatus -State $sL -Elapsed 5200 -S $S -Instance $instS12
-Check '读到过标志时仍按 timeout 判(不被 unknown-format 抢走)' ($rL.Status -eq 'timeout') "$($rL.Status)"
 $unparsed = Read-GdM9ALine -Line '[2026-xx][INF] [inst=日常-长草/deadbeef] 任务链已全部执行 SUCCESS' -InstanceId 'deadbeef'
 Check '新版文案不认识时 Read-GdM9ALine 返回 $null(而不是硬凑一个事件)' ($null -eq $unparsed) "$($unparsed.Kind)"
 
@@ -439,33 +396,27 @@ Check '两个任务失败都累计进来了' (@($s17.failedTasks).Count -eq 2) "
 Check '读到了版本差' ($s17.resCurrent -eq 'v4.7.1' -and $s17.resLatest -eq 'v4.10.0') "$($s17.resCurrent)/$($s17.resLatest)"
 $r17 = Resolve-M9AStatus -State $s17 -Elapsed 280 -S $S -Instance $instS12 -ProcessGone $true -LogName 'log-20260925.log'
 Check '第一个任务就失败 → blocked(不再报成"进程提前退出"这种没指向的 error)' ($r17.Status -eq 'blocked') "$($r17.Status)｜$($r17.Detail)"
-Check 'blocked 点名是第一个任务失败、后面全是空转' ($r17.Detail -match '第一个任务\[启动游戏\]') $r17.Detail
-Check 'blocked 把版本差说成可行动的整包更新' (($r17.Detail -match 'v4\.10\.0') -and ($r17.Detail -match '整包更新')) $r17.Detail
-Check 'blocked 带上失败任务清单' ($r17.Detail -match '收取荒原') $r17.Detail
-Check 'blocked 不是 ok：这一轮不能算清完体力' ($r17.Status -ne 'ok')
+# 刀㉓ 笔(b) 第三子批 第二刀(11-08)：blocked 话术四枚(点名第一个任务／版本差说成整包更新／失败清单／不是 ok)
+#   换家核侧＝Processes.SelfTest.cs 的 res/blocked(整句期望含这四问，比 -match 强一档)。
+#   上面「真日志端到端判 blocked」这枚留下：它问的是「行解析→事件累计→结论」串接，核侧只有分段格没有同形串接。
 
-# 只有中间某个任务失败(实测「使用兑换码」没码可换就这样)→ 不许整轮判红
-$s17b = New-M9AState
-foreach ($e in @(@{Kind='queue-prepared';Text='10'}, @{Kind='task';Text='启动游戏'}, @{Kind='task';Text='使用兑换码'},
-                 @{Kind='task-fail';Text='使用兑换码'}, @{Kind='chain-done';Text=''})) { Register-M9AEvent -State $s17b -Event $e }
-$r17b = Resolve-M9AStatus -State $s17b -Elapsed 300 -S $S -Instance $instS12 -ProcessGone $true
-Check '中间任务单独失败 → 仍判 ok，但把失败任务写进告警' (($r17b.Status -eq 'ok') -and ($r17b.Detail -match '1 个任务报过')) "$($r17b.Status)｜$($r17b.Detail)"
+# 刀㉓ 笔(b) 第三子批 第二刀(11-08)：「中间任务单独失败→仍判 ok 且把失败任务写进告警」整块换家核侧＝
+#   Processes.SelfTest.cs 的 res/ok-中间失败带告警(同场景：tasks=[启动游戏,使用兑换码]、failedTasks=[使用兑换码]、
+#   queueCount=10；整句钉死「其中 1 个任务报过『任务失败』：使用兑换码」，与 res/ok带尾警 分走两条拼接分支)。
 
-# 19:29 那一轮：声明了 10 个任务却一个没开始，真因是连不上模拟器 —— 旧文案说成"队列为空"
-$s17c = New-M9AState
-foreach ($e in @(@{Kind='queue-prepared';Text='10'}, @{Kind='connect-fail';Text='初始化控制器失败：AdbSerial 为空'}, @{Kind='chain-done';Text=''})) { Register-M9AEvent -State $s17c -Event $e }
-$r17c = Resolve-M9AStatus -State $s17c -Elapsed 30 -S $S -Instance $instS12 -LogName 'log-20260925.log'
-Check '连不上模拟器时 empty-queue 说清是连接失败' ($r17c.Detail -match '连模拟器这一步就失败') "$($r17c.Status)｜$($r17c.Detail)"
-Check '声明了 10 个任务时不再谎称"队列为空"' (-not ($r17c.Detail -match '队列为空')) $r17c.Detail
-Check '连接失败会把 adb/虚拟机指向出来' ($r17c.Detail -match 'MuMu') $r17c.Detail
+# 刀㉓ 笔(b) 第三子批 第二刀(11-08)：19:29 那一轮(声明 10 个却一个没开始，真因连不上模拟器)的三枚结论格整块换家核侧＝
+#   Processes.SelfTest.cs 的 res/empty-queue-连接(整句含「连模拟器这一步就失败」「MuMu 虚拟机没起来或 adb 设备指纹变了」)
+#   ＋res/empty-queue-不说队列为空(显式 Contains==false 负向锚，不靠「整句里恰好没写」蒙混)。
 
 # 老状态包没有新键(比如 replay 工具自己拼的)不许把 @($null) 数成一个失败
 $s17d = @{ tasks = @(); chainStarted = $false; chainDone = $false; connectPhase = 'none'; failed = $null;
            lastLog = (Get-Date); queueCount = $null; startRequested = $false; eventCount = 0 }
 Register-M9AEvent -State $s17d -Event @{ Kind = 'task-fail'; Text = '启动游戏' }
 Check '状态包缺 failedTasks 键时不会把 $null 数成一个失败' (@($s17d.failedTasks).Count -eq 1) "count=$(@($s17d.failedTasks).Count)"
-$r17d = Resolve-M9AStatus -State $s17d -Elapsed 60 -S $S -Instance $instS12 -ProcessGone $true
-Check '零任务+只有失败行 → 不报"开始过的 0 个任务全部失败"这种话' (-not ($r17d.Detail -match '0 个任务全部')) "$($r17d.Status)｜$($r17d.Detail)"
+# 刀㉓ 笔(b) 第三子批 第二刀(11-08)：「零任务+只有失败行 不许说成『开始过的 0 个任务全部失败』」换家核侧＝
+#   Processes.SelfTest.cs 的 res/零任务只有失败行(整句期望＋负向锚两面，allStartedFailed 的 tasks.Length>0 前提在挡)。
+#   上面那枚「状态包缺 failedTasks 键时不把 $null 数成一个失败」留下：它量的是 Register-M9AEvent 的累计面，
+#   与 Resolve-M9AStatus 转发壳同寿命(核侧 :785 钉的是空数组塌缩，不是「键根本没有」这一形)。
 
 Write-Host "`n[t18] 1999 这一路也接上视觉兜底(2026-09-26 加强 AI 干预；全程不联网、不起 adb、不点任何东西)"
 # 为什么 1999 也要接：M9A 和 MAA 得的是同一种病 —— 模板集里没有的界面它看不见。

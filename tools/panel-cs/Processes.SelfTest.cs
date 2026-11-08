@@ -306,6 +306,10 @@ namespace GdPanel
             b.Chk("line/filter-in", delegate { return Line1(PLong, "cafebabe") == "connect-start:"; });
             b.Chk("line/no-inst", delegate { return Line1(@"[..][cfg=Default] 任务已全部完成！", "zzz") == "chain-done:"; });
             b.Chk("line/fail", delegate { return Line1(@"[..][inst=x/deadbeef][src=Worker][op=StopTask] 停止前状态：FAILED", "") == "fail:停止前状态：FAILED"; });
+            // 反例格（刀㉓ 笔(b) 第三子批 第一刀）：SUCCEEDED 是正常收尾行，一条 fail 事件都不许产出。
+            // 旧形只在 PS 侧量（把整轮日志喂进去再问 $sI.failed）——核侧「停止前状态：」这个词只认 FAILED
+            // 这一半，从来没人从核侧答过一次；这格把这半条语义在核侧钉死，将来有人放宽那条正则当场红。
+            b.Chk("line/succeeded", delegate { return Line1(@"[..][inst=x/deadbeef][src=Worker][op=StopTask] 停止前状态：SUCCEEDED", "") == "NULL"; });
             b.Chk("line/noise", delegate { return Line1(@"[..][inst=x/deadbeef][src=Agent][op=StdErr] 如前面有提示新资源版本还请更新", "") == "noise:"; });
             b.Chk("line/null", delegate { return Line1(@"[..][cfg=Default] [内存管理]释放了11.97 MB（21.1%)", "") == "NULL"; });
             b.Chk("line/ui-start", delegate
@@ -373,6 +377,16 @@ namespace GdPanel
                 return ResStr(St("chainStarted", true, "chainDone", true, "tasks", S("任务1"), "failed", "收尾炸了", "eventCount", 3), 40, 0, false, "")
                     == "ok|" + J2(S("任务1")) + "||实例[日常-长草] 完成 1 个任务(收尾阶段有告警：收尾炸了)";
             });
+            // 中间任务单独失败（实测「使用兑换码」没码可换就这样）→ 整轮不许判红，但失败清单必须进告警。
+            // 这格是 res/ok带尾警 的另一半：那格量的是 failed（收尾告警），这格量的是 failedTasks（任务级告警），
+            // 走的是 Processes.cs 里两条不同的拼接分支；PS 侧旧格只在 t17 现场喂事件后问一句 Status，
+            // 整句告警话术「其中 N 个任务报过『任务失败』」核侧此前没人答过。
+            b.Chk("res/ok-中间失败带告警", delegate
+            {
+                return ResStr(St("chainStarted", true, "chainDone", true, "tasks", S("启动游戏", "使用兑换码"),
+                                 "failedTasks", S("使用兑换码"), "queueCount", 10, "eventCount", 5), 300, 0, true, "")
+                    == "ok|" + J2(S("启动游戏", "使用兑换码")) + "||实例[日常-长草] 完成 2 个任务/队列声明 10 个(其中 1 个任务报过『任务失败』：使用兑换码)";
+            });
             b.Chk("res/empty-queue-声明", delegate
             {
                 return ResStr(St("chainDone", true, "queueCount", 10, "eventCount", 2), 5, 0, false, "")
@@ -382,6 +396,15 @@ namespace GdPanel
             {
                 return ResStr(St("chainDone", true, "connectFail", "控制器初始化失败", "queueCount", 10, "eventCount", 3), 90, 0, false, "")
                     == "empty-queue|||M9A 连接完成后直接报『任务已全部完成』，但一条『开始任务：』都没有(用时 1.5 分钟) → M9A 连模拟器这一步就失败了(声明了 10 个任务，一个都没开始)；M9A 连不上模拟器(控制器初始化失败)——多半是 MuMu 虚拟机没起来或 adb 设备指纹变了；实例[日常-长草]";
+            });
+            // 负向锚格（09-25 19:29 那轮定下的口径）：「声明了 10 个却一个没开始」不许说成"队列为空"——
+            // 上面那格的整句里恰好没写这个词，但整句期望不等于负向锚（有人改话术时正好把它加回来，整句照样对不上才红；
+            // 而这格专门盯这个词）。判据是核侧 allQueuedDone/qc 分流那条：qc 在场就走"连模拟器这一步就失败"分支。
+            b.Chk("res/empty-queue-不说队列为空", delegate
+            {
+                return ResStr(St("chainDone", true, "connectFail", "初始化控制器失败：AdbSerial 为空",
+                                 "queueCount", 10, "eventCount", 3), 30, 0, false, "log-20260925.log")
+                    .Contains("队列为空") == false;
             });
             b.Chk("res/empty-queue-下发", delegate
             {
@@ -442,6 +465,16 @@ namespace GdPanel
             {
                 return ResStr(St("chainStarted", true, "tasks", S("任务1"), "eventCount", 4), 5200, 5940, false, "")
                     == "stalled|" + J2(S("任务1")) + "||M9A 日志 99 分钟无输出(已到[任务1])，可能卡在某个界面";
+            });
+            b.Chk("res/零任务只有失败行", delegate
+            {
+                string s = ResStr(St("tasks", S(), "failedTasks", S("启动游戏"), "connectPhase", "none",
+                                     "eventCount", 1), 60, 0, true, "log-t.log");
+                // 整句期望＋负向锚两面：一条 task-fail 却没一条"开始任务"时，既不许套 blocked 的
+                // "开始过的 0 个任务全部识别失败"（那是 allStartedFailed 前提里的 tasks.Length>0 在挡），
+                // 也不许把这轮说成跑过任务——落点只有 not-started 这一家。
+                return s == "not-started|||M9A 连接后就退出了，一个任务都没跑(尚未开始任何任务) → 命令行 --autostart 没生效(短参数 -a 实测无效)，或资源/程序有新版本要更新；日志：log-t.log"
+                    && s.Contains("0 个任务全部") == false;
             });
             b.Chk("res/还在跑", delegate { return ResStr(St("eventCount", 1, "chainStarted", true), 60, 0, false, "") == "NULL"; });
             b.Chk("res/null-安静", delegate { return ResStr(St("chainStarted", true, "tasks", S("任务1"), "eventCount", 4), 700, 0, false, "") == "NULL"; });

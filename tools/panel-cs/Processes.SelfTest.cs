@@ -58,6 +58,7 @@ namespace GdPanel
             ArgsGroup(b);
             LineGroup(b);
             ResGroup(b);
+            E2eGroup(b);
             MuMuGroup(b);
             AdbGroup(b);
             RelaunchGroup(b);
@@ -522,6 +523,92 @@ namespace GdPanel
             List<string> bits = new List<string>();
             foreach (object o in Gd.List(v)) bits.Add(Gd.Str(o));
             return string.Join(",", bits.ToArray());
+        }
+
+        // ---------- M9A 真日志端到端(解析→累计→结论) ----------
+        // 刀㉓ 笔(b) 第三子批 第八刀(11-08)：本组三格顶替 test-r1999 [t13] 四枚＋[t17] 三枚＋[t17] 那枚
+        // 缺键累计格。旧留格理由写的是「拆开各段核侧各自绿不等于组合面有钉」——本组正面把那根链串起来：
+        // 真日志行 → Processes.M9aLines 解析 → RunLoops.M9aEvents 逐拍累计(State 原样中继，与壳的 foreach 同形)
+        // → Processes.M9aStatus 出结论。喂的是 09-23／09-25 两轮真日志原文(实例 id 用 deadbeef，与 PS 侧一致)。
+        // 判据一个字没改：队列=10、SUCCEEDED 不算失败、finish 落 chainDone、两枚任务失败累计、版本差读到、
+        // blocked 结论；缺键那格量的是「键根本不在(不是空数组)」这一形。
+        static void E2eGroup(Box b)
+        {
+            string[] raw0923 = new string[]
+            {
+                "[2026-09-23 17:36:22.736][INF] [cfg=Default][inst=日常-长草/deadbeef][src=Worker][op=ExecuteTaskQueue] 准备执行任务队列：任务数量=10",
+                "[2026-09-23 17:36:22.770][INF] [cfg=Default][inst=日常-长草/deadbeef][src=Worker][op=ExecuteTaskQueue] >>> 任务 启动任务开始（异步）。",
+                "[2026-09-23 17:36:25.126][INF] [cfg=Default][inst=日常-长草/deadbeef][src=Monitor][op=MonitorLog] 开始任务：启动游戏",
+                "[2026-09-23 17:43:18.707][INF] [cfg=Default][inst=日常-长草/deadbeef][src=Monitor][op=MonitorLog] 开始任务：使用兑换码",
+                "[2026-09-23 17:43:33.122][INF] [cfg=Default][inst=日常-长草/deadbeef][src=Monitor][op=MonitorLog] 开始任务：关闭游戏",
+                "[2026-09-23 17:43:33.977][INF] [cfg=Default][inst=日常-长草/deadbeef][src=Worker][op=ExecuteTaskQueue] >>> 任务 启动任务完成（异步）。",
+                "[2026-09-23 17:43:33.978][INF] [cfg=Default][inst=日常-长草/deadbeef][src=Worker][op=StopTask] 停止前状态：SUCCEEDED",
+                "[2026-09-23 17:43:34.286][INF] [cfg=Default] 应用已关闭"
+            };
+            string[] raw0925 = new string[]
+            {
+                "[2026-09-25 19:24:21.177][INF] [cfg=Default][inst=日常-长草/deadbeef][src=Monitor][op=MonitorLog] [Record] 当前资源版本：v4.7.1",
+                "[2026-09-25 19:24:21.185][INF] [cfg=Default][inst=日常-长草/deadbeef][src=Monitor][op=MonitorLog] [Record] 最新资源版本：v4.10.0",
+                "[2026-09-25 19:24:23.165][INF] [cfg=Default][inst=日常-长草/deadbeef][src=Worker][op=ExecuteTaskQueue] 准备执行任务队列：任务数量=10",
+                "[2026-09-25 19:24:25.126][INF] [cfg=Default][inst=日常-长草/deadbeef][src=Monitor][op=MonitorLog] 开始任务：启动游戏",
+                "[2026-09-25 19:26:27.316][INF] [cfg=Default][inst=日常-长草/deadbeef][src=Monitor][op=MonitorLog] 任务失败：启动游戏",
+                "[2026-09-25 19:26:45.511][INF] [cfg=Default][inst=日常-长草/deadbeef][src=Monitor][op=MonitorLog] 开始任务：收取荒原",
+                "[2026-09-25 19:26:49.543][INF] [cfg=Default][inst=日常-长草/deadbeef][src=Monitor][op=MonitorLog] 任务失败：收取荒原",
+                "[2026-09-25 19:28:50.180][INF] [cfg=Default][inst=日常-长草/deadbeef][src=Worker][op=StopTask] 停止前状态：NOT_STARTED"
+            };
+            b.Chk("e2e/0923-命令行成功轮：队列=10、SUCCEEDED 不算失败、finish 落 chainDone、结论=ok", delegate
+            {
+                Dictionary<string, object> st = FreshState();
+                foreach (object eo in EventsOf(raw0923)) st = Evoke(D(eo), st);
+                bool acc = Gd.Int(Gd.Get(st, "queueCount"), -1) == 10 && Gd.Get(st, "failed") == null
+                    && Gd.Truthy(Gd.Get(st, "chainDone"));
+                Dictionary<string, object> d = StatusOf(st, 445, "log-20260923.log");
+                return acc && Gd.Truthy(Gd.Get(d, "Found")) && Gd.Str(Gd.Get(d, "Status")) == "ok";
+            });
+            b.Chk("e2e/0925-更新包卡住轮：两枚任务失败累计(同名同序)、版本差读到、结论=blocked", delegate
+            {
+                Dictionary<string, object> st = FreshState();
+                foreach (object eo in EventsOf(raw0925)) st = Evoke(D(eo), st);
+                List<string> ft = new List<string>();
+                foreach (object o in Gd.List(Gd.Get(st, "failedTasks"))) ft.Add(Gd.Str(o));
+                bool acc = string.Join(",", ft.ToArray()) == "启动游戏,收取荒原"
+                    && Gd.Str(Gd.Get(st, "resCurrent")) == "v4.7.1" && Gd.Str(Gd.Get(st, "resLatest")) == "v4.10.0";
+                Dictionary<string, object> d = StatusOf(st, 280, "log-20260925.log");
+                return acc && Gd.Truthy(Gd.Get(d, "Found")) && Gd.Str(Gd.Get(d, "Status")) == "blocked";
+            });
+            b.Chk("e2e/legacy-状态包没有 failedTasks 键(键根本不在，不是空数组)：task-fail 按累计 1 个算", delegate
+            {
+                Dictionary<string, object> st = St("tasks", new object[0], "chainStarted", false, "chainDone", false,
+                    "connectPhase", "none", "failed", null, "queueCount", null, "startRequested", false, "eventCount", 0);
+                Dictionary<string, object> r = D(RunLoops.M9aEvents(Gd.Map(Gd.Out("state", st, "events",
+                    new object[] { Gd.Out("Kind", "task-fail", "Text", "启动游戏") }))));
+                object[] ft = Gd.List(Gd.Get(D(Gd.Get(r, "State")), "failedTasks"));
+                object[] logs = Gd.List(Gd.Get(r, "Logs"));
+                return ft.Length == 1 && Gd.Str(Gd.Get(D(logs[0]), "Text")) == "M9A 任务失败：启动游戏(累计 1 个)";
+            });
+        }
+        static Dictionary<string, object> FreshState()
+        {
+            return St("tasks", new object[0], "chainStarted", false, "chainDone", false, "connectPhase", "none",
+                "failed", null, "queueCount", null, "startRequested", false, "eventCount", 0,
+                "failedTasks", new object[0], "resCurrent", null, "resLatest", null, "connectFail", null);
+        }
+        static object[] EventsOf(string[] lines)
+        {
+            Dictionary<string, object> d = D(Processes.M9aLines(Gd.Map(Gd.Out(
+                "text", string.Join("\n", lines), "instanceId", "deadbeef"))));
+            return Gd.List(Gd.Get(d, "Events"));
+        }
+        static Dictionary<string, object> Evoke(Dictionary<string, object> ev, Dictionary<string, object> st)
+        {
+            return D(Gd.Get(RunLoops.M9aEvents(Gd.Map(Gd.Out("state", st, "events", new object[] { ev }))), "State"));
+        }
+        static Dictionary<string, object> StatusOf(Dictionary<string, object> st, double elapsed, string log)
+        {
+            return D(Processes.M9aStatus(Gd.Map(Gd.Out(
+                "state", st, "elapsed", elapsed, "quietSeconds", 0.0, "processGone", true, "logName", log,
+                "instanceName", "日常-长草", "instanceId", "deadbeef",
+                "startTimeoutMinutes", 10, "timeoutMinutes", 120, "stallTimeoutMinutes", 22))));
         }
 
         // ==================== MuMu / adb ====================

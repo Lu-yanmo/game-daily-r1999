@@ -164,13 +164,6 @@ Check 'settings 里三个 M9A 开关都在' ($null -ne $S.runtime.m9aCliArgs -an
 # 真实日志行(09-23 17:30 用 --autostart 成功提交队列那一段)
 # 刀㉓ 笔(b) 第二子批(11-08)：原先两枚（ui-start 与 queue 的 Text）已换家核侧＝line/ui-start 与 line/queue，账同 [t10]。
 
-function New-M9AState {
-    return @{ tasks = @(); chainStarted = $false; chainDone = $false; connectPhase = 'none'; failed = $null;
-              lastLog = (Get-Date); queueCount = $null; startRequested = $false; eventCount = 0;
-              failedTasks = @(); resCurrent = $null; resLatest = $null; connectFail = $null }
-}
-$instS12 = [pscustomobject]@{ Id = 'deadbeef'; Name = '日常-长草' }
-
 # 刀㉓ 笔(b) 第三子批 第二刀(11-08)：本节 [t12]/[t13]/[t14] 共 16 枚「问一句答什么」的状态结论格换家核侧＝
 #   Processes.SelfTest.cs 的 res/empty-queue-没收到、res/ok、res/ok带尾警、res/ok-quit、res/notstart-活、
 #   res/notstart-退、res/error-失败、res/还在跑、res/unknowfmt-退、res/unknowfmt-活、res/timeout（整句期望比
@@ -180,32 +173,12 @@ $instS12 = [pscustomobject]@{ Id = 'deadbeef'; Name = '日常-长草' }
 #   Processes.SelfTest.cs「res/empty-queue-零任务引用自报数」（0 是 falsy：Processes.cs:529 写成 qc 真值分流就
 #   当场红而其余五枚 empty-queue 格照绿）、RunLoops.SelfTest.cs「queue-prepared 10 + 十枚 task 累计 + finish」
 #   （走事件累计面出 tasks 账，不是预置数组）。三发 mutation 各恰一枚红＝raw\gdlogs-mut3\。
-#   仍不搬的：①真日志「解析→累计→结论」串接面（拆开各段核侧各自绿不等于组合面有钉）；②[t12] launch-args
-#   六枚——对面是 verb 直答，逐枚同轴性待现读对平后才摘（在册判语「对面必须同形同轴才算覆盖」优先于行数）。
-#   逐枚映射与留格理由原件＝raw\b209-cut23b3c2-map.txt。
-Write-Host "`n[t13] 真实日志逐行复盘(09-23 17:36 那一轮，从提交队列到进程退出)"
-# 这几行是从 M9A 自己 logs\log-20260923.log 里原样摘出来的
-$raw13 = @(
-    '[2026-09-23 17:36:22.736][INF] [cfg=Default][inst=日常-长草/deadbeef][src=Worker][op=ExecuteTaskQueue] 准备执行任务队列：任务数量=10',
-    '[2026-09-23 17:36:22.770][INF] [cfg=Default][inst=日常-长草/deadbeef][src=Worker][op=ExecuteTaskQueue] >>> 任务 启动任务开始（异步）。',
-    '[2026-09-23 17:36:25.126][INF] [cfg=Default][inst=日常-长草/deadbeef][src=Monitor][op=MonitorLog] 开始任务：启动游戏',
-    '[2026-09-23 17:43:18.707][INF] [cfg=Default][inst=日常-长草/deadbeef][src=Monitor][op=MonitorLog] 开始任务：使用兑换码',
-    '[2026-09-23 17:43:33.122][INF] [cfg=Default][inst=日常-长草/deadbeef][src=Monitor][op=MonitorLog] 开始任务：关闭游戏',
-    '[2026-09-23 17:43:33.977][INF] [cfg=Default][inst=日常-长草/deadbeef][src=Worker][op=ExecuteTaskQueue] >>> 任务 启动任务完成（异步）。',
-    '[2026-09-23 17:43:33.978][INF] [cfg=Default][inst=日常-长草/deadbeef][src=Worker][op=StopTask] 停止前状态：SUCCEEDED',
-    '[2026-09-23 17:43:34.286][INF] [cfg=Default] 应用已关闭'
-)
-$sI = New-M9AState
-foreach ($l in $raw13) {
-    $ev = Read-GdM9ALine -Line $l -InstanceId 'deadbeef'
-    if ($ev) { Register-M9AEvent -State $sI -Event $ev }
-}
-Check '队列声明被读到' ($sI.queueCount -eq 10) "queueCount=$($sI.queueCount)"
-Check 'SUCCEEDED 不会被当成失败' ($null -eq $sI.failed) "failed=$($sI.failed)"
-Check '「启动任务完成」在跑过任务之后就是链路完成' $sI.chainDone
-$rI = Resolve-M9AStatus -State $sI -Elapsed 445 -S $S -Instance $instS12 -ProcessGone $true -LogName 'log-20260923.log'
-Check '这一轮真实判 ok(曾经误判 error 导致白重试一次)' ($rI.Status -eq 'ok') "$($rI.Status)｜$($rI.Detail)"
-
+#   第八刀(11-08) 补记：当时留下的第①类「真日志『解析→累计→结论』串接面」已由 Processes.SelfTest.cs 的
+#   E2eGroup 三枚格正面串起来（e2e/0923／e2e/0925／e2e/legacy：同一份 09-23 与 09-25 八行真日志原文，
+#   走 M9aLines→M9aEvents→M9aStatus 全链）；三发 mutation 各咬本格＝raw/gdlogs-mut8/。故 [t13] 与 [t17] 两段
+#   连同只喂它们的 New-M9AState／$instS12 本批出仓——「拆开各段核侧各自绿不等于组合面有钉」由对面同形同轴补齐。
+#   第②类 [t12] launch-args 六枚仍留：对面是 verb 直答，逐枚同轴性待现读对平后才摘（在册判语
+#   「对面必须同形同轴才算覆盖」优先于行数）。逐枚映射与留格理由原件＝raw\b209-cut23b3c2-map.txt。
 Write-Host "`n[t14] 日志标志失配 → unknown-format(不套 not-started/stalled 的猜测)"
 # 刀㉓ 笔(b) 第三子批 第二刀(11-08)：上面三枚「unknown-format 说什么」的结论格换家核侧＝Processes.SelfTest.cs
 #   的 res/unknowfmt-活(整句含日志文案/实例 id/replay-m9a-log/probe-m9a-history 四种点名)。
@@ -315,66 +288,14 @@ Check '刀⑫ 笔(a)(b)(c) 出仓的 Stop-M9A 壳、冻结段体特征串与三�
     $cut12M9ABad.Count -eq 0) ($cut12M9ABad -join ' | ')
 
 Write-Host "`n[t17] 单任务识别失败 / 版本落后 / 连不上模拟器 —— 09-25 19:24 那一轮的复盘"
-<#
-  那一轮的真实形态(证据：M9A logs\log-20260925.log 1336~1766 行 + 我们自己的
-  logs\run-20260925-191135-daily-manual.log 第 36~51 行)：
-    模拟器连上了、截图 11ms 正常，但客户端正在下 1.91G 的 Reverse1999_sub1009 更新包，
-    界面停在安卓下拉通知栏上 → 「启动游戏」失败，之后每个任务约 22 秒各失败一次，共 8 个。
-  我们当时一路报「M9A 进行中[1..8]」，最后只给出「进程提前退出」，然后原样重试一遍又白烧 5 分钟。
-  根因是解析器不认「任务失败：<中文名>」这一行(只认「任务运行失败」，差一个字)，
-  也不认 M9A 自己喊的版本差(「最新资源版本」还被 noise 那条按子串吞了)。
-#>
-# 下面这批日志行是从 09-25 19:24 那一轮原样抄来的，只有 [inst=名字/id] 里的 id 换成了合成值：
-# 真实实例 id 属于"本机专属值"，写进来会被 lib\common.ps1 的 Test-GdExportLeaks 拦下(它扫的就是
-# M9A 实例目录下每个 .json 的文件名)：现在 tools\test-modules.ps1 [m8] 扫源码时就先红一次，
-# 不用等导出那一步才发现。导出的 r1999 仓库发不出去是晚了两轮的代价。解析器只按"传进来的 id 和行内 id 对不对得上"过滤，
-# 用哪个 id 都不影响断言的意义，所以这里固定用 deadbeef(本文件上面那组断言用的也是它)。
-$raw17 = @(
-    '[2026-09-25 19:24:21.177][INF] [cfg=Default][inst=日常-长草/deadbeef][src=Monitor][op=MonitorLog] [Record] 当前资源版本：v4.7.1',
-    '[2026-09-25 19:24:21.185][INF] [cfg=Default][inst=日常-长草/deadbeef][src=Monitor][op=MonitorLog] [Record] 最新资源版本：v4.10.0',
-    '[2026-09-25 19:24:23.165][INF] [cfg=Default][inst=日常-长草/deadbeef][src=Worker][op=ExecuteTaskQueue] 准备执行任务队列：任务数量=10',
-    '[2026-09-25 19:24:25.126][INF] [cfg=Default][inst=日常-长草/deadbeef][src=Monitor][op=MonitorLog] 开始任务：启动游戏',
-    '[2026-09-25 19:26:27.316][INF] [cfg=Default][inst=日常-长草/deadbeef][src=Monitor][op=MonitorLog] 任务失败：启动游戏',
-    '[2026-09-25 19:26:45.511][INF] [cfg=Default][inst=日常-长草/deadbeef][src=Monitor][op=MonitorLog] 开始任务：收取荒原',
-    '[2026-09-25 19:26:49.543][INF] [cfg=Default][inst=日常-长草/deadbeef][src=Monitor][op=MonitorLog] 任务失败：收取荒原',
-    '[2026-09-25 19:28:50.180][INF] [cfg=Default][inst=日常-长草/deadbeef][src=Worker][op=StopTask] 停止前状态：NOT_STARTED'
-)
-# ⚠ 刀㉓ 笔(b) 第二子批(11-08)：上面六枚单行判定格(task-fail／res-current／res-latest／connect-fail／连接失败只留原因／
-#   旧提示仍算 noise)换家核侧＝Processes.SelfTest.cs 的 line/task-fail、line/res-c、line/res-l、line/conn-fail、
-#   line/conn-fail2、line/noise 六枚；证牙＝逐字改 Processes.cs 档名字面量后 --proctest 当场咬中(账本
-#   gdlogs/cut23b2/mutation-run3.txt)、锚检 OUTER-HITS=0。$raw17 与下面两枚状态机格保留：那问的是 apply-m9a-events
-#   一族的累计语义(res 差配对、failedTasks 累计)，不是单行解析的档名——家不同，不能跟着这批发家。
-
-$s17 = New-M9AState
-foreach ($l in $raw17) {
-    $ev = Read-GdM9ALine -Line $l -InstanceId 'deadbeef'
-    if ($ev) { Register-M9AEvent -State $s17 -Event $ev }
-}
-Check '两个任务失败都累计进来了' (@($s17.failedTasks).Count -eq 2) "failedTasks=$($s17.failedTasks -join ',')"
-Check '读到了版本差' ($s17.resCurrent -eq 'v4.7.1' -and $s17.resLatest -eq 'v4.10.0') "$($s17.resCurrent)/$($s17.resLatest)"
-$r17 = Resolve-M9AStatus -State $s17 -Elapsed 280 -S $S -Instance $instS12 -ProcessGone $true -LogName 'log-20260925.log'
-Check '第一个任务就失败 → blocked(不再报成"进程提前退出"这种没指向的 error)' ($r17.Status -eq 'blocked') "$($r17.Status)｜$($r17.Detail)"
-# 刀㉓ 笔(b) 第三子批 第二刀(11-08)：blocked 话术四枚(点名第一个任务／版本差说成整包更新／失败清单／不是 ok)
-#   换家核侧＝Processes.SelfTest.cs 的 res/blocked(整句期望含这四问，比 -match 强一档)。
-#   上面「真日志端到端判 blocked」这枚留下：它问的是「行解析→事件累计→结论」串接，核侧只有分段格没有同形串接。
-
-# 刀㉓ 笔(b) 第三子批 第二刀(11-08)：「中间任务单独失败→仍判 ok 且把失败任务写进告警」整块换家核侧＝
-#   Processes.SelfTest.cs 的 res/ok-中间失败带告警(同场景：tasks=[启动游戏,使用兑换码]、failedTasks=[使用兑换码]、
-#   queueCount=10；整句钉死「其中 1 个任务报过『任务失败』：使用兑换码」，与 res/ok带尾警 分走两条拼接分支)。
-
-# 刀㉓ 笔(b) 第三子批 第二刀(11-08)：19:29 那一轮(声明 10 个却一个没开始，真因连不上模拟器)的三枚结论格整块换家核侧＝
-#   Processes.SelfTest.cs 的 res/empty-queue-连接(整句含「连模拟器这一步就失败」「MuMu 虚拟机没起来或 adb 设备指纹变了」)
-#   ＋res/empty-queue-不说队列为空(显式 Contains==false 负向锚，不靠「整句里恰好没写」蒙混)。
-
-# 老状态包没有新键(比如 replay 工具自己拼的)不许把 @($null) 数成一个失败
-$s17d = @{ tasks = @(); chainStarted = $false; chainDone = $false; connectPhase = 'none'; failed = $null;
-           lastLog = (Get-Date); queueCount = $null; startRequested = $false; eventCount = 0 }
-Register-M9AEvent -State $s17d -Event @{ Kind = 'task-fail'; Text = '启动游戏' }
-Check '状态包缺 failedTasks 键时不会把 $null 数成一个失败' (@($s17d.failedTasks).Count -eq 1) "count=$(@($s17d.failedTasks).Count)"
-# 刀㉓ 笔(b) 第三子批 第二刀(11-08)：「零任务+只有失败行 不许说成『开始过的 0 个任务全部失败』」换家核侧＝
-#   Processes.SelfTest.cs 的 res/零任务只有失败行(整句期望＋负向锚两面，allStartedFailed 的 tasks.Length>0 前提在挡)。
-#   上面那枚「状态包缺 failedTasks 键时不把 $null 数成一个失败」留下：它量的是 Register-M9AEvent 的累计面，
-#   与 Resolve-M9AStatus 转发壳同寿命(核侧 :785 钉的是空数组塌缩，不是「键根本没有」这一形)。
+# 刀㉓ 笔(b) 第三子批 第八刀(11-08)：本段八行真日志与四枚行为格（两枚任务失败累计／版本差读到／
+#   「第一个任务就失败 → blocked」／「状态包缺 failedTasks 键仍按累计 1 个算」）整段出仓。对面＝
+#   Processes.SelfTest.cs 的 e2e/0925（同一份八行原文，两枚失败累计、版本差、结论=blocked 一次钉死）＋
+#   e2e/legacy（状态包根本没有 failedTasks 键 → 仍按累计 1 个算）；M2 改 res-latest 赋值必打 e2e/0925、
+#   M3 去掉 ftNull 复位必打 e2e/legacy，证牙落盘＝raw/gdlogs-mut8/。
+#   本段此前各批的换家账照旧有效：blocked 话术四枚→res/blocked；「中间任务失败仍判 ok」→res/ok-中间失败带告警；
+#   19:29「声明 10 个一个没开始」→res/empty-queue-连接＋res/empty-queue-不说队列为空；「零任务只有失败行」→
+#   res/零任务只有失败行。
 
 Write-Host "`n[t18] 1999 这一路也接上视觉兜底(2026-09-26 加强 AI 干预；全程不联网、不起 adb、不点任何东西)"
 # 为什么 1999 也要接：M9A 和 MAA 得的是同一种病 —— 模板集里没有的界面它看不见。

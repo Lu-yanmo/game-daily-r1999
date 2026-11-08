@@ -28,28 +28,9 @@ $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 . (Join-Path $root 'lib\common.ps1')
 
 # ---------- 只读侧三件 ----------
-
-function Get-GdM9AInstall {
-    <# 装包目录从 settings(paths.m9aDir) 来；版本源 = 该目录 interface.json 的 version；
-       仓库地址也从 interface.json 的 github 字段现学(抠不出 owner/repo 才回落官方仓)。
-       返回 @{Dir; Current; Repo; Exe} —— Exe 是**带扩展名**的文件名：进程闸那用得去扩展名(Get-Process
-       要 'm9a')，Test-Path 校验用得留原样('m9a.exe')。09-30 实弹第一发就栽在把两者混成一个字段：
-       装包里根本没有叫 'm9a' 的文件，校验永远假红、把成功的更新回退掉。 #>
-    $st = Get-GdSettings
-    $dir = [string]$st.paths.m9aDir
-    if (-not $dir -or -not (Test-Path -LiteralPath $dir)) { throw "M9A 装包目录不在：$dir" }
-    $iface = Join-Path $dir 'interface.json'
-    if (-not (Test-Path -LiteralPath $iface)) { throw "M9A 版本源 interface.json 不在：$iface(本工具不猜版本)" }
-    $j = Read-GdJson -Path $iface
-    $cur = [string]$j.version
-    if (-not $cur) { throw 'interface.json 里没有 version 字段，判不了现版本' }
-    $repo = 'MAA1999/M9A'
-    $gh = [string]$j.github
-    if ($gh -and $gh -match 'github\.com/([^/]+/[^/]+)') { $repo = ($Matches[1] -replace '/+$', '') }
-    $exe = [string]$st.paths.m9aExe
-    if (-not $exe) { $exe = 'm9a.exe' }
-    return @{ Dir = $dir; Current = $cur; Repo = $repo; Exe = $exe }
-}
+# ⚠ 刀㉔(2026-11-08) 改口：Get-GdM9AInstall 真身出仓 —— 装包定位＋版本核现读改问核内 read-m9a-install。
+#   「装包目录不在／版本源 interface.json 不在／没有 version 字段」三句拒绝原话逐字随件(核侧同句)；
+#   主流程起手那一发就是唯一调用点。Exe 仍是**带扩展名**的那个(进程闸另用 GetFileNameWithoutExtension)。
 
 function Get-GdM9ALatestTag {
     <# 取 https://github.com/<repo>/releases/latest 的 302 落地地址里的 tag。
@@ -63,14 +44,9 @@ function Get-GdM9ALatestTag {
     return $Matches[1]
 }
 
-function Test-GdM9AVersionGap {
-    <# v 前缀可有可无：各剥掉后比字面。只比"等不等"—— releases/latest 恒为最新，
-       不做日期判断也不解析 semver，不一样就更新(官方整包语义下没有"跳版本"这回事)。 #>
-    param([string]$Current, [string]$Latest)
-    $c = $Current -replace '^[vV]', ''
-    $l = $Latest -replace '^[vV]', ''
-    return ($c -ne $l)
-}
+# ⚠ 刀㉔(2026-11-08)：Test-GdM9AVersionGap 真身出仓 ⇒ 改问核内 compare-version-gap。
+#   语义照抄不收紧：只剥一个 v/V 前缀再比字面，且 PS `-ne` 对字符串**不分大小写**(核侧 OrdinalIgnoreCase)。
+#   只比"等不等"—— releases/latest 恒为最新，不做日期判断也不解析 semver。
 
 # ---------- 写入侧两件 ----------
 
@@ -166,7 +142,7 @@ function Invoke-GdM9AApply {
 
 Write-Host '--- M9A 整包更新器(默认只读，-Apply 真更) ---'
 $install = $null
-try { $install = Get-GdM9AInstall } catch {
+try { $install = Invoke-GdCli -Verb 'read-m9a-install' -Body ([pscustomobject]@{ settings = (Get-GdSettings) }) } catch {
     Write-Host "  装包状态读不出：$($_.Exception.Message)" -ForegroundColor Red
     exit 2
 }
@@ -177,7 +153,8 @@ try { $latest = Get-GdM9ALatestTag -Repo $install.Repo } catch {
     exit 2
 }
 Write-Host "  最新版：$latest"
-if (-not (Test-GdM9AVersionGap -Current $install.Current -Latest $latest)) {
+$gap = (Invoke-GdCli -Verb 'compare-version-gap' -Body ([pscustomobject]@{ current = $install.Current; latest = $latest })).Gap
+if (-not $gap) {
     Write-Host '  已是最新，无事发生'
     exit 0
 }

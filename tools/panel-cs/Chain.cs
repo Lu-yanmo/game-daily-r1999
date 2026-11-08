@@ -2176,6 +2176,51 @@ namespace GdPanel
             return Gd.Out("Farm", fp, "Lines", lines.ToArray());
         }
 
+        // ==================== 刀㉔(2026-11-08)：m9a-update 两枚待承接纯规则进核 ====================
+        // 射程＝tools\m9a-update.ps1 那两枚「读盘＋纯比较」：
+        //   read-m9a-install    ← Get-GdM9AInstall(定义 :32／调用点 :169)：定位装包目录＋现读 interface.json 的 version/github
+        //   compare-version-gap ← Test-GdM9AVersionGap(定义 :66／调用点 :180)：剥 v/V 前缀后比字面
+        // 两句异常话术逐字照抄(装包目录不在／版本源不在／没有 version 字段)——它们是玩家真会看到的那三句。
+        // 语义照抄不收紧：PS `-match` 与 `-ne` 对字符串都**不分大小写**，这里用 IgnoreCase／OrdinalIgnoreCase 对齐；
+        // 标成严格相等看起来更"干净"，但那不是真身。
+        internal static object ReadM9AInstall(Dictionary<string, object> raw)
+        {
+            Dictionary<string, object> c = View(raw);
+            Dictionary<string, object> settings = Gd.Map(Gd.Get(c, "settings"));
+            if (settings == null) throw new GdRuleException("read-m9a-install：settings 缺键(装包目录只能从 settings.paths 来)");
+            Dictionary<string, object> paths = Gd.Map(Gd.Get(settings, "paths"));
+            string dir = paths == null ? "" : StrOf(Gd.Get(paths, "m9aDir"), "");
+            if (dir.Length == 0 || !Directory.Exists(dir)) throw new GdRuleException("M9A 装包目录不在：" + dir);
+            string iface = Path.Combine(dir, "interface.json");
+            if (!File.Exists(iface)) throw new GdRuleException("M9A 版本源 interface.json 不在：" + iface + "(本工具不猜版本)");
+            Dictionary<string, object> m;
+            try { m = Gd.Map(GdJson.Read(iface)); }
+            catch (Exception ex) { throw new GdRuleException("M9A 版本源 interface.json 读不出：" + ex.Message); }
+            string cur = m == null ? "" : StrOf(Gd.Get(m, "version"), "");
+            if (cur.Length == 0) throw new GdRuleException("interface.json 里没有 version 字段，判不了现版本");
+            string repo = "MAA1999/M9A";
+            string gh = m == null ? "" : StrOf(Gd.Get(m, "github"), "");
+            if (gh.Length > 0)
+            {
+                // PS :47 `if ($gh -and $gh -match 'github\.com/([^/]+/[^/]+)') { $repo = ($Matches[1] -replace '/+$', '') }`
+                Match mm = Regex.Match(gh, "github\\.com/([^/]+/[^/]+)", RegexOptions.IgnoreCase);
+                if (mm.Success) repo = Regex.Replace(mm.Groups[1].Value, "/+$", "");
+            }
+            string exe = StrOf(Gd.Get(paths, "m9aExe"), "");
+            if (exe.Length == 0) exe = "m9a.exe";
+            return Gd.Out("Dir", dir, "Current", cur, "Repo", repo, "Exe", exe);
+        }
+
+        internal static object CompareVersionGap(Dictionary<string, object> raw)
+        {
+            Dictionary<string, object> c = View(raw);
+            string cur = StrOf(Gd.Get(c, "current"), "");
+            string latest = StrOf(Gd.Get(c, "latest"), "");
+            string a = Regex.Replace(cur, "^[vV]", "");
+            string b = Regex.Replace(latest, "^[vV]", "");
+            return Gd.Out("Gap", !string.Equals(a, b, StringComparison.OrdinalIgnoreCase));
+        }
+
         // PS 的 `$keys | Sort-Object` 那一把尺：字符串按序排(账本里都是数字 id／英文关卡名，
         // Ordinal 与 CurrentCulture 在这两族上同结果)；unk 名单走的是 `-notcontains`(不分大小写)那一族，
         // 排序仍按 Ordinal，取前 3 的口径与 `Select-Object -First 3` 同形(枚举序 = 排序后的序)。

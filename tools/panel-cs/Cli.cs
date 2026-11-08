@@ -242,6 +242,11 @@ namespace GdPanel
                 //   落码时的四处改判 §11.279)；四键必填＝门侧现问供数(路径键名册/必需钩子名册都在 PS 侧的家)，核内只做读文本＋集合比对，
                 //   一张名册都不抄第二份(§11.186 点名的病灶)。唯一进核的表＝Ack 退场名册(原住 test-modules.ps1:306 那句硬编码)。
                 else if (verb == "check-module-manifests") r = Decide(a, Chain.CheckModuleManifests);
+                // ---- 刀㉔(2026-11-08)：m9a-update 两枚待承接纯规则进核，照先例排链尾(注册三处同批：本链＋Cli.Verbs.cs 名册＋枚数) ----
+                //   read-m9a-install    ← Get-GdM9AInstall：只读 settings.paths 与 interface.json 两个键，不动盘；
+                //   compare-version-gap ← Test-GdM9AVersionGap：纯比较。两枚都不碰 curl／robocopy 那些现场段(那三枚按表账照旧不许动)。
+                else if (verb == "read-m9a-install") r = Decide(a, Chain.ReadM9AInstall);
+                else if (verb == "compare-version-gap") r = Decide(a, Chain.CompareVersionGap);
                 else throw new GdUsageException("未知子命令：" + verb + "(现有：" + GdCliVerbs.Roster() + "；后续批次见 docs\\ps-migration-batch0.md 与 docs\\ps-migration-live-caliber.md)");
             }
             catch (GdUsageException ex)

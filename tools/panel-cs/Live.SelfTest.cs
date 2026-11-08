@@ -866,6 +866,67 @@ namespace GdPanel
                 return caught == 5;
             });
 
+            // ---------- 刀㉔(2026-11-08)：read-m9a-install／compare-version-gap 出口自检五档 ----------
+            // 夹具＝临时装包目录里现写 interface.json(与 B1 的临时文件同形)。两枚都是"读盘＋纯比较"，
+            // 所以格要同时钉回执形状与三句拒绝原话，并钉住 PS `-ne` 对字符串不分大小写这条原生语义
+            // (改成 Ordinal 严格相等看起来更干净，但那不是真身)。
+            b.Chk("read-m9a-install 合规夹具：Dir/Current/Repo/Exe 四键原样、github 抠 owner/repo、Exe 缺键落 m9a.exe", delegate
+            {
+                string dir = Path.Combine(tmp, "m9ai-ok");
+                Directory.CreateDirectory(dir);
+                File.WriteAllText(Path.Combine(dir, "interface.json"),
+                    "{\"version\":\"v4.7.1\",\"github\":\"https://github.com/Acme/foo/\"}", new UTF8Encoding(false));
+                Dictionary<string, object> paths = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+                paths["m9aDir"] = dir;
+                Dictionary<string, object> settings = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+                settings["paths"] = paths;
+                Dictionary<string, object> d = Row(Chain.ReadM9AInstall(In("settings", settings)));
+                return d.Count == 4 && S(d["Dir"]) == dir && S(d["Current"]) == "v4.7.1"
+                       && S(d["Repo"]) == "Acme/foo" && S(d["Exe"]) == "m9a.exe";
+            });
+            b.Chk("read-m9a-install 拒绝三档：settings 缺键／目录不在／interface.json 缺文件(全走 GdRuleException)", delegate
+            {
+                int caught = 0;
+                try { Chain.ReadM9AInstall(new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)); }
+                catch (GdRuleException) { caught++; }
+                Dictionary<string, object> pathsMissing = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+                pathsMissing["m9aDir"] = Path.Combine(tmp, "m9ai-nope");
+                Dictionary<string, object> s1 = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+                s1["paths"] = pathsMissing;
+                try { Chain.ReadM9AInstall(In("settings", s1)); } catch (GdRuleException) { caught++; }
+                string dir2 = Path.Combine(tmp, "m9ai-empty");
+                Directory.CreateDirectory(dir2);
+                Dictionary<string, object> paths2 = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+                paths2["m9aDir"] = dir2;
+                Dictionary<string, object> s2 = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+                s2["paths"] = paths2;
+                try { Chain.ReadM9AInstall(In("settings", s2)); } catch (GdRuleException) { caught++; }
+                return caught == 3;
+            });
+            b.Chk("read-m9a-install 没有 version 字段⇒拒跑(本工具不猜版本)", delegate
+            {
+                string dir = Path.Combine(tmp, "m9ai-nover");
+                Directory.CreateDirectory(dir);
+                File.WriteAllText(Path.Combine(dir, "interface.json"),
+                    "{\"github\":\"https://github.com/Acme/foo\"}", new UTF8Encoding(false));
+                Dictionary<string, object> paths = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+                paths["m9aDir"] = dir;
+                Dictionary<string, object> settings = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+                settings["paths"] = paths;
+                try { Chain.ReadM9AInstall(In("settings", settings)); return false; }
+                catch (GdRuleException ex) { return ex.Message.IndexOf("没有 version 字段", StringComparison.Ordinal) >= 0; }
+            });
+            b.Chk("compare-version-gap v 前缀可省且不分大小写(v4.7.1↔4.7.1↔V4.7.1 都不算差)", delegate
+            {
+                return !Gd.Truthy(Row(Chain.CompareVersionGap(In("current", "v4.7.1", "latest", "4.7.1")))["Gap"])
+                       && !Gd.Truthy(Row(Chain.CompareVersionGap(In("current", "V4.7.1", "latest", "4.7.1")))["Gap"]);
+            });
+            b.Chk("compare-version-gap 字面不同⇒Gap 真(带后缀差异也算新版)", delegate
+            {
+                return Gd.Truthy(Row(Chain.CompareVersionGap(In("current", "4.7.1", "latest", "v4.7.2")))["Gap"])
+                       && Gd.Truthy(Row(Chain.CompareVersionGap(In("current", "4.7.1", "latest", "4.7.1-hf")))["Gap"]);
+            });
+
             // ---------- 刀⑰ 笔(c)-2 第 2 批(2026-11-07)：B2 check-module-manifests 出口自检十档 ----------
             // 夹具＝一棵最小真树(临时目录里的 lib\*-module.ps1 ＋ 入口件)，走的是与现树完全相同的一条通道：
             // 本枚规则读的是文件文本，夹具不落盘就量不到东西(与 B1 的临时文件同形，只是多一层目录)。

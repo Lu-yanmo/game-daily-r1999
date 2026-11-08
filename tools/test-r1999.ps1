@@ -16,7 +16,6 @@ Show-GdCommonRunLockChecks
 Show-GdCommonScreensaverChecks
 
 # ---- B-3②-d 刀①(10-29)静态锚：Get-R1999Event 的取数半段"两臂都在"，钉在 m9aDir 那道现场门之前 ----
-# ⚠ 刀⑰ 笔(c)-2(2026-11-07)改判：上面"两臂都在"按历史引文读——回落臂已出仓，第二格自此翻负(回潮即红)，
 #   核臂格与九键信封格保持。放在 [t4] return 之前：没装 M9A 也要有证词，否则锚成哑尺。剥注释是必须的
 #   (头注也写了 read-r1999-activity，不剥的"正向锚"真身摘后照样绿＝在册「锚不是调用」形；Get-GdTestCodeOnly 此处未定义)。
 $fnEv = [string](Get-Command Get-R1999Event -ErrorAction SilentlyContinue).Definition
@@ -31,8 +30,6 @@ Check '九键 idle 信封全函数只构造一次(两臂汇流到 $idle；抄第
     ([regex]::Matches($fnEv, "Mode = 'idle'")).Count -eq 1) $(
     'count=' + ([regex]::Matches($fnEv, "Mode = 'idle'")).Count)
 
-# ---- 刀㉓ 笔(a)(2026-11-08)：[t7] 那八枚行为钉换家核侧，本壳只留形状证词 ----
-# 为什么留锚不留行为：Resolve-R1999Plan 是转发壳，行为面在核侧两本已四发 mutation 证牙(对面坐标见 [t7] 头上那段)；
 # 但壳的接线(现问一次取齐、领空吃核交回的那份)一旦断，核侧全绿也照样在跑旧形 ⇒ 这一格留在 PS 侧、放在 [t4] 现场门之前(同上面 $fnEv 三格的道理)。
 $fnRPlan = [string](Get-Command Resolve-R1999Plan -ErrorAction SilentlyContinue).Definition
 $fnRPlan = ($fnRPlan -replace '(?s)<\#.*?\#>', ' ') -replace '(?m)^\s*#.*$', ' '
@@ -141,7 +138,6 @@ try {
 Check 'state 文件已还原' (Test-GdTestStateRestored)
 
 Write-Host "`n[t10] M9A 日志事件解析(用真实日志行)"
-# 刀㉓ 笔(b) 第二子批(11-08)：这里原先 11 枚单行判定格整族换家核侧＝Processes.SelfTest.cs 的 LineGroup（证牙＝mutation 七发，锚检 OUTER-HITS=0）。
 # 刀㉕ 笔(d)：原「解析器本体仍只有一处」格出仓——判据只是 ParseM9aLine 出现 ≥1 次，证不了"只有一处"、且只是源文本在场；
 #   行为面由 LineGroup 的 line/ 格与 E2eGroup 真日志链钉着（解析器被删则编不过），证牙＝改 res-current 档名后 --proctest 咬中三格（gdlogs/cut25d/m2-proctest.log）。
 $procCsST = [string](Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot 'panel-cs/Processes.SelfTest.cs'))
@@ -152,29 +148,16 @@ Check 'settings 里 1999 起跑超时已收紧' ([int]$S.runtime.r1999StartTimeo
 Show-GdCommonTailChecks
 
 Write-Host "`n[t12] M9A 命令行脚本化入口 + 结果判定"
-# 刀㉬ 笔(b) 第三子批 第五刀(11-08)：上面五枚启动参数格已换家核侧：Processes.SelfTest.cs 的 args/id(:283)钉整串、args/name(:284)、args/noforce(:285)、args/nocli(:286)；「绝不使用短参数」被整串等值全称负锚吃掂。证牙：raw/gdlogs-mut4 四发全 TEETH(锚唯一、改弱后 --proctest 红行含对应 label、整本还原后 88/88)。ArgsStr 与被摘的 desk 取数壳吃同一枚五键信封→同形同轴。
 Check 'settings 里三个 M9A 开关都在' ($null -ne $S.runtime.m9aCliArgs -and $null -ne $S.runtime.m9aInstanceArg -and $null -ne $S.runtime.m9aForceStart)
 # 「默认走命令行入口」那格的行为判据随 Get-GdM9ACliEnabled 出仓(11-06 刀⑫ 笔(b))，改指下面 [t16] 段 $rustCore 那张活桌
 
-# 真实日志行(09-23 17:30 用 --autostart 成功提交队列那一段)
-# 刀㉓ 笔(b) 第二子批(11-08)：原先两枚（ui-start 与 queue 的 Text）已换家核侧＝line/ui-start 与 line/queue，账同 [t10]。
 
-# 刀㉓ 笔(b) 第三子批 第二刀(11-08)：本节 [t12]/[t13]/[t14] 原先 16 枚「问一句答什么」状态结论格换家核侧＝
-#   Processes.SelfTest.cs 的 res/ 族(empty-queue-没收到／ok／ok带尾警／ok-quit／notstart-活／notstart-退／error-失败／
-#   还在跑／unknowfmt-退／unknowfmt-活／timeout；整句期望比本侧 -match 强一档)。累计面三枚随后补成同形同轴：
-#   RunLoops「connect-start→finish」与「queue-prepared+十枚 task 累计」、Processes「res/empty-queue-零任务自报数」；
-#   真日志串接面由 e2e/0923・0925・legacy 三枚接管；launch-args 六枚由第五刀换家(args/id・name・noforce・nocli
 #   ＋整串等值吃掉「绝不使用短参数」)。unknown-format 两支(新版文案返回 $null→line/unknown-2；零标志不谎称
 #   --autostart 没生效→res/unknowfmt-不谎称autostart)亦已出仓。故 [t13]/[t14]/[t17] 三段整族出仓，
 #   本段只剩 settings 现场值两枚；证牙落盘 raw\gdlogs-mut3\、raw/gdlogs-mut8\。
 
-# 重试策略跟着"跑一轮"搬进 lib\r1999-daily.ps1，10-24 刀② 回退段出仓后判据与话术的家＝Orchestration.cs；
-# 11-04 刀⑦ 笔(c/d) 作废登记＋搬靶：编排岛整件出仓(310 行／六枚真身)，PS 侧不再有驱动档 executor。分档如下：
 #   · 搬靶两格(更新闸／审计闸)刀⑧ 再搬：起子进程＋挑行＋拼串在 Gate.Host.cs(verb run-m9a-update／
 #     run-1999-event-audit)，先后由核内链体 fx.updgate()／fx.audit() 两处调用点决定——判据未改，改的是到哪家问。
-#   · 作废三格(ask 白名单七枚／'run' case 不许复活／信封 role 字面 B2d-drive-m9a-daily)＝**驱动档**的数；
-#     轮档件是另一族的名册，两件头注明写"别把驱动档那十四枚白名单当这枚名册"。'run' 真身在核内，
-#     --drive-m9a-daily 成死出口候选(§11.235 已登记，账记名册侧、不记净行数)。
 #   · 行序那格拆两半："更新闸在 Invoke-GdTakeover 之前"半当场没有桌子(登记为漏钉，归核内侧后续刀)；
 #     还能量的一半＝$rustCore 里 fx.updgate() 在 fx.audit() 之前(Gate.Host.cs 两臂定义序不算判据)。
 $r1999RoundPs = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\lib\rust-round.ps1') -Raw -Encoding utf8
@@ -183,8 +166,6 @@ $rustCore = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'rustcore\src\main
 # 11-06 刀⑫ 笔(b)：m9a.ps1 那枚三态壳出仓后，「没写就算开」这一档全仓只有一处会答，格就打核内那张活桌(不联网、不起进程)
 Check '命令行入口三态判据住在核内 --selftest 第 21 节(壳摘后 PS 侧没有第二份答案；回潮＝两份各答一档)' (
     ($rustCore.Contains('let cli21 = |extra: &str|')) -and ($rustCore.Contains('runtime.m9aCliArgs 的三态塌成一态')))
-# 刀㉕ 笔(d)(11-08)：原「1999 重试会跳过 not-started/empty-queue/unknown-format/blocked」是 Orchestration.cs 的源窗口 -match 格，整枚出仓——
-#   行为面由 Orchestration.SelfTest.cs 的 RetryGroup 11 枚格同形同轴钉死(整句等值，比 -match 强一档)；证牙＝摘掉 baseRetry 的 empty-queue 后 --orchtest 咬中三格（gdlogs/cut25d/m1-orchtest.log）。
 # M9A 自动更新闸(tools\m9a-update.ps1，2026-09-30 用户「检查到更新自己更就行了」)：这里只做静态锚，
 # 不联网、不起子进程 —— 实测链路当晚 12:40 人工 -Apply 走过一次(v4.10.0→v4.11.0)，测试不许依赖网络。
 Check '1999 起跑段挂了 M9A 自动更新闸(调 tools\m9a-update.ps1 -Apply，失败只 WARN；11-04 笔(c/d) 搬靶到轮档件，刀⑧ 再搬进 Gate.Host.cs)' (
@@ -239,14 +220,9 @@ foreach ($cut12Needle in @('function Stop-M9A ', 'switch ($Event.Kind)', 'functi
 Check '刀⑫ 笔(a)(b)(c) 出仓的 Stop-M9A 壳、冻结段体特征串与三枚读配置壳的定义行都不在 m9a.ps1(verb stop-m9a 与 paths／三态各只住一处；回潮＝史注之外再多一具身体)' (
     $cut12M9ABad.Count -eq 0) ($cut12M9ABad -join ' | ')
 
-# [t17](09-25 19:24 复盘段)整段出仓：四枚行为格与八行真日志由 Processes.SelfTest.cs 的 e2e/0925(两枚失败
-#   累计＋版本差＋结论 blocked)与 e2e/legacy(缺 failedTasks 键仍按 1 算)接管，证牙＝raw/gdlogs-mut8/。
 
 Write-Host "`n[t18] 1999 这一路也接上视觉兜底(2026-09-26 加强 AI 干预；全程不联网、不起 adb、不点任何东西)"
 # 为什么 1999 也要接：M9A 和 MAA 得的是同一种病 —— 模板集里没有的界面它看不见。
-# 2026-09-25 19:24 那一轮，1999 客户端在模拟器里下 1.91G 更新包，10 个任务里 8 个「任务失败」，
-# 我们的日志只会说"进程提前退出"，而画面上一眼就能看出是"停在更新界面"。
-# 刀⑮ 笔(a) 曾把这份后端件的读改成「不依赖件在场」＋给下面那枚护栏立现读格；刀⑳ 笔(a)-1 起件已整枚退役，
 # 那份读（$mumuLib）随之零消费者、同批摘掉。护栏照旧两条腿都在：件与 New-GdVisionTarget-mumu 必须同一个事实
 # (同在同不在)，半迁移(命令还在但件被挪走)当场红。
 $mumuLibPath = Join-Path $PSScriptRoot '..\lib\vision-mumu.ps1'
@@ -254,8 +230,6 @@ $mumuLibOnDisk = Test-Path -LiteralPath $mumuLibPath
 Check '模拟器后端件与 New-GdVisionTarget-mumu 命令同一个事实(同在同不在，半迁移红)' (
     $mumuLibOnDisk -eq [bool](Get-Command New-GdVisionTarget-mumu -ErrorAction SilentlyContinue)) "件=$mumuLibOnDisk"
 $m9aLib = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\lib\m9a.ps1') -Raw -Encoding utf8
-# (原来这里还读一份 lib\r1999-daily.ps1 给下面那两格外层重试锚用；10-24 刀② 后那两格打的是 Orchestration.cs，
-#  刀㉕ 笔(d) 起那两格已随 RetryGroup 换家核侧自检，本文件不再读 Orchestration.cs——重试分流的判据与话术只有核内一处)
 # ⚠ 10-25 甲档刀①-b：下面那九格正向文本锚也从 lib\m9a.ps1 搬走了，$m9aLib 只剩最后那格**否定式**在用
 #   ("状态名一律没改"——现树里不许出现新状态名，这一形与真身在不在场无关，摘件的刀② 之后仍要留在现树身上)
 # 2026-11-06 刀⑮ 笔(d)：本节原一枚护栏罩整段，但大半格量的是 RunLoops.cs／main.rs／vision-ask.ps1／

@@ -103,6 +103,7 @@ namespace GdPanel
                 return AsstHintStr(excerpt) == "MAA 内核其实还在跑，卡在子任务 StartUp@GameStart，已重复 316 次(最后点到 629,701)，同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)";
             });
             b.Chk("asst/hint-none", delegate { return AsstHintStr("[INF] asst::Controller::connect 123") == ""; });
+            b.Chk("asst/hint-empty", delegate { return AsstHintStr("") == ""; });
         }
         static string AsstLines(params string[] ls) { return string.Join("\n", ls); }
         static string AsstStateStr(string text)

@@ -177,8 +177,8 @@ Check 'settings 里三个 M9A 开关都在' ($null -ne $S.runtime.m9aCliArgs -an
 #   E2eGroup 三枚格正面串起来（e2e/0923／e2e/0925／e2e/legacy：同一份 09-23 与 09-25 八行真日志原文，
 #   走 M9aLines→M9aEvents→M9aStatus 全链）；三发 mutation 各咬本格＝raw/gdlogs-mut8/。故 [t13] 与 [t17] 两段
 #   连同只喂它们的 New-M9AState／$instS12 本批出仓——「拆开各段核侧各自绿不等于组合面有钉」由对面同形同轴补齐。
-#   第②类 [t12] launch-args 六枚仍留：对面是 verb 直答，逐枚同轴性待现读对平后才摘（在册判语
-#   「对面必须同形同轴才算覆盖」优先于行数）。逐枚映射与留格理由原件＝raw\b209-cut23b3c2-map.txt。
+#   第②类 [t12] launch-args 六枚已由第五刀(e933217)换家核侧(args/id・args/name・args/noforce・args/nocli 四格
+#   ＋整串等值把「绝不使用短参数」那枚吃掉)；本节余下 settings 三开关一枚与各静态锚，不是覆盖缺口（账误照登）。
 Write-Host "`n[t14] 日志标志失配 → unknown-format(不套 not-started/stalled 的猜测)"
 # 刀㉓ 笔(b) 第三子批 第二刀(11-08)：上面三枚「unknown-format 说什么」的结论格换家核侧＝Processes.SelfTest.cs
 #   的 res/unknowfmt-活(整句含日志文案/实例 id/replay-m9a-log/probe-m9a-history 四种点名)。

@@ -145,13 +145,12 @@ try {
 Check 'state 文件已还原' (Test-GdTestStateRestored)
 
 Write-Host "`n[t10] M9A 日志事件解析(用真实日志行)"
-# 刀㉓ 笔(b) 第二子批(11-08)：这里原先 11 枚单行判定格整族换家核侧（Processes.SelfTest.cs 的 LineGroup；证牙＝mutation
-#   七发逐字改档名字面量后 --proctest 当场咬中、锚检 OUTER-HITS=0，逐格账见 docs/rust-core-plan.md 本批段与
-#   gdlogs/cut23b2/mutation-run3.txt）。下面两枚是形状锚：接线一旦断（改指别的 verb、信封形状变了），核侧全绿也照样在跑旧形。
+# 刀㉓ 笔(b) 第二子批(11-08)：这里原先 11 枚单行判定格整族换家核侧＝Processes.SelfTest.cs 的 LineGroup（证牙＝mutation 七发，锚检 OUTER-HITS=0）。
+# 刀㉕ 笔(d)：原「解析器本体仍只有一处」格出仓——判据只是 ParseM9aLine 出现 ≥1 次，证不了"只有一处"、且只是源文本在场；
+#   行为面由 LineGroup 的 line/ 格与 E2eGroup 真日志链钉着（解析器被删则编不过），证牙＝改 res-current 档名后 --proctest 咬中三格（gdlogs/cut25d/m2-proctest.log）。
 $procCsST = [string](Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot 'panel-cs/Processes.SelfTest.cs'))
 $lineCells = ([regex]::Matches($procCsST, 'b\.Chk\("line(?:s)?/')).Count
 Check "核侧 LineGroup 的 line/ 格枚数不缩水(现拍 $lineCells 枚，门槛 16)" ($lineCells -ge 16) "=$lineCells"
-Check '解析器本体仍只有一处(单行壳与批量同指 Processes.cs 的 ParseM9aLine)' (([regex]::Matches([string](Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot 'panel-cs/Processes.cs')), 'ParseM9aLine')).Count -ge 1)
 Check 'settings 里 1999 起跑超时已收紧' ([int]$S.runtime.r1999StartTimeoutMinutes -le 12) "=$($S.runtime.r1999StartTimeoutMinutes) 分钟"
 
 Show-GdCommonTailChecks
@@ -213,13 +212,12 @@ Write-Host "`n[t14] 日志标志失配 → unknown-format(不套 not-started/sta
 #     臂的定义序不算判据——定义谁先谁后不决定跑谁先跑)。
 $r1999RoundPs = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\lib\rust-round.ps1') -Raw -Encoding utf8
 $gateCs = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'panel-cs\Gate.Host.cs') -Raw -Encoding utf8
-$orchCs = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'panel-cs\Orchestration.cs') -Raw -Encoding utf8
 $rustCore = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'rustcore\src\main.rs') -Raw -Encoding utf8
 # 11-06 刀⑫ 笔(b)：m9a.ps1 那枚三态壳出仓后，「没写就算开」这一档全仓只有一处会答，格就打核内那张活桌(不联网、不起进程)
 Check '命令行入口三态判据住在核内 --selftest 第 21 节(壳摘后 PS 侧没有第二份答案；回潮＝两份各答一档)' (
     ($rustCore.Contains('let cli21 = |extra: &str|')) -and ($rustCore.Contains('runtime.m9aCliArgs 的三态塌成一态')))
-$orchRetry = [regex]::Match($orchCs, '(?s)bool baseRetry(?<win>.*?)retryable = true').Groups['win'].Value
-Check '1999 重试会跳过 not-started/empty-queue/unknown-format/blocked' (($orchRetry -match '"ok"') -and ($orchRetry -match '"not-started"') -and ($orchRetry -match '"empty-queue"') -and ($orchRetry -match '"unknown-format"') -and ($orchRetry -match '"blocked"'))
+# 刀㉕ 笔(d)(11-08)：原「1999 重试会跳过 not-started/empty-queue/unknown-format/blocked」是 Orchestration.cs 的源窗口 -match 格，整枚出仓——
+#   行为面由 Orchestration.SelfTest.cs 的 RetryGroup 11 枚格同形同轴钉死(整句等值，比 -match 强一档)；证牙＝摘掉 baseRetry 的 empty-queue 后 --orchtest 咬中三格（gdlogs/cut25d/m1-orchtest.log）。
 # M9A 自动更新闸(tools\m9a-update.ps1，2026-09-30 用户「检查到更新自己更就行了」)：这里只做静态锚，
 # 不联网、不起子进程 —— 实测链路当晚 12:40 人工 -Apply 走过一次(v4.10.0→v4.11.0)，测试不许依赖网络。
 Check '1999 起跑段挂了 M9A 自动更新闸(调 tools\m9a-update.ps1 -Apply，失败只 WARN；11-04 笔(c/d) 搬靶到轮档件，刀⑧ 再搬进 Gate.Host.cs)' (
@@ -310,7 +308,7 @@ Check '模拟器后端件与 New-GdVisionTarget-mumu 命令同一个事实(同�
     $mumuLibOnDisk -eq [bool](Get-Command New-GdVisionTarget-mumu -ErrorAction SilentlyContinue)) "件=$mumuLibOnDisk"
 $m9aLib = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\lib\m9a.ps1') -Raw -Encoding utf8
 # (原来这里还读一份 lib\r1999-daily.ps1 给下面那两格外层重试锚用；10-24 刀② 后那两格打的是 Orchestration.cs，
-#  读面在 [t16] 段的 $orchCs/$orchRetry 已经取好，这里不再重复读同一份文件)
+#  刀㉕ 笔(d) 起那两格已随 RetryGroup 换家核侧自检，本文件不再读 Orchestration.cs——重试分流的判据与话术只有核内一处)
 # ⚠ 10-25 甲档刀①-b：下面那九格正向文本锚也从 lib\m9a.ps1 搬走了，$m9aLib 只剩最后那格**否定式**在用
 #   ("状态名一律没改"——现树里不许出现新状态名，这一形与真身在不在场无关，摘件的刀② 之后仍要留在现树身上)
 # 2026-11-06 刀⑮ 笔(d)：本节原来一枚护栏罩着整段，其中大半格量的根本不是 lib\vision-mumu.ps1，

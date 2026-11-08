@@ -157,30 +157,7 @@ Check 'settings 里 1999 起跑超时已收紧' ([int]$S.runtime.r1999StartTimeo
 Show-GdCommonTailChecks
 
 Write-Host "`n[t12] M9A 命令行脚本化入口 + 结果判定"
-$inst12 = [pscustomobject]@{ Id = 'deadbeef'; Name = '日常-长草' }
-# ⚠ 10-26 甲档第五刀刀① 换桌：下面四格原先真调现树 lib\m9a.ps1 的转发壳 Get-M9ALaunchArgs，而那枚壳生产面零调用
-#   (拼装本体在 tools\panel-cs\Processes.cs 的 verb m9a-launch-args)、本批起出仓。四格判据一字未动，只换取法：
-#   套件按壳原先递进信封的那五键(cliArgs/mode/id/name/forceStart，顺序也照它)直调 Invoke-GdCli ⇒ 拍的仍是那张桌。
-function Get-GdM9ALaunchArgsFromDesk {
-    param($Instance, [string]$Mode = 'id', [bool]$ForceStart = $true, [bool]$CliArgs = $true)
-    $d = Invoke-GdCli -Verb 'm9a-launch-args' -Body ([pscustomobject]@{
-        cliArgs    = [bool]$CliArgs
-        mode       = $Mode
-        id         = [string]$Instance.Id
-        name       = [string]$Instance.Name
-        forceStart = [bool]$ForceStart
-    })
-    return @(foreach ($a in @($d.Args)) { [string]$a })
-}
-$a1 = @(Get-GdM9ALaunchArgsFromDesk -Instance $inst12 -Mode 'id')
-Check '命令行入口用长参数(--instance/--autostart/…)' (($a1 -join ' ') -eq '--instance deadbeef --autostart --quit-after-run --force-start') ($a1 -join ' ')
-Check '绝不使用短参数(-a/-i/-q/-f 实测不可靠)' (-not ($a1 -contains '-a') -and -not ($a1 -contains '-i') -and -not ($a1 -contains '-q') -and -not ($a1 -contains '-f'))
-$a2 = @(Get-GdM9ALaunchArgsFromDesk -Instance $inst12 -Mode 'name')
-Check '--instance 也能按实例中文名传' (($a2 -join ' ') -eq '--instance 日常-长草 --autostart --quit-after-run --force-start') ($a2 -join ' ')
-$a3 = @(Get-GdM9ALaunchArgsFromDesk -Instance $inst12 -Mode 'id' -ForceStart $false)
-Check '关掉 force-start 时只留三项' (($a3 -join ' ') -eq '--instance deadbeef --autostart --quit-after-run') ($a3 -join ' ')
-$a4 = @(Get-GdM9ALaunchArgsFromDesk -Instance $inst12 -CliArgs $false)
-Check '关掉命令行入口时不加任何参数(回退老路子)' ($a4.Count -eq 0)
+# 刀㉬ 笔(b) 第三子批 第五刀(11-08)：上面五枚启动参数格已换家核侧：Processes.SelfTest.cs 的 args/id(:283)钉整串、args/name(:284)、args/noforce(:285)、args/nocli(:286)；「绝不使用短参数」被整串等值全称负锚吃掂。证牙：raw/gdlogs-mut4 四发全 TEETH(锚唯一、改弱后 --proctest 红行含对应 label、整本还原后 88/88)。ArgsStr 与被摘的 desk 取数壳吃同一枚五键信封→同形同轴。
 Check 'settings 里三个 M9A 开关都在' ($null -ne $S.runtime.m9aCliArgs -and $null -ne $S.runtime.m9aInstanceArg -and $null -ne $S.runtime.m9aForceStart)
 # 「默认走命令行入口」那格的行为判据随 Get-GdM9ACliEnabled 出仓(11-06 刀⑫ 笔(b))，改指下面 [t16] 段 $rustCore 那张活桌
 
@@ -197,26 +174,15 @@ $instS12 = [pscustomobject]@{ Id = 'deadbeef'; Name = '日常-长草' }
 # 刀㉓ 笔(b) 第三子批 第二刀(11-08)：本节 [t12]/[t13]/[t14] 共 16 枚「问一句答什么」的状态结论格换家核侧＝
 #   Processes.SelfTest.cs 的 res/empty-queue-没收到、res/ok、res/ok带尾警、res/ok-quit、res/notstart-活、
 #   res/notstart-退、res/error-失败、res/还在跑、res/unknowfmt-退、res/unknowfmt-活、res/timeout（整句期望比
-#   PS 侧的 -match 强一档）。留下的两类不搬：①量 PS 侧累计面本身（connectPhase／chainDone／queueCount／
-#   eventCount，含 queueCount=0 那档，家在半数对面还没立的显式 0 值整句）；②核侧无同形对面（显式负锚缺位、
-#   真日志「解析→累计→结论」组合面）。逐枚映射与留格理由＝raw\b209-cut23b3c2-map.txt。
-$sA0 = New-M9AState
-Register-M9AEvent -State $sA0 -Event @{ Kind = 'connect-start'; Text = '' }
-Register-M9AEvent -State $sA0 -Event @{ Kind = 'finish'; Text = '' }
-Check '「启动任务完成」在没有任务时只算连接完成' ($sA0.connectPhase -eq 'done' -and -not $sA0.chainDone) "chainDone=$($sA0.chainDone)"
-$sA2 = New-M9AState
-Register-M9AEvent -State $sA2 -Event @{ Kind = 'queue-prepared'; Text = '0' }
-Register-M9AEvent -State $sA2 -Event @{ Kind = 'chain-done'; Text = '' }
-$rA2 = Resolve-M9AStatus -State $sA2 -Elapsed 5 -S $S -Instance $instS12
-Check '任务数量=0 时 empty-queue 会引用 M9A 自己报的数' ($rA2.Detail -match '任务数量=0') $rA2.Detail
-
-# 真跑复盘(09-23 17:36→17:43 那次实际成功)：--quit-after-run 下 M9A 只打「启动任务完成」就退出，
-# 根本不会有「任务已全部完成！」这一行 → 之前被判成 error，白重试一次
-$sF = New-M9AState
-Register-M9AEvent -State $sF -Event @{ Kind = 'queue-prepared'; Text = '10' }
-foreach ($n in 1..10) { Register-M9AEvent -State $sF -Event @{ Kind = 'task'; Text = "任务$n" } }
-Register-M9AEvent -State $sF -Event @{ Kind = 'finish'; Text = '' }
-Check '跑满队列声明的任务数 + 见到「启动任务完成」→ chainDone' $sF.chainDone
+#   PS 侧的 -match 强一档）。当时留下不搬的两类里，第一类（量累计面本身：connectPhase／chainDone／queueCount）
+#   的三枚已由第三刀把对面补成同形同轴并随那批出核侧＝RunLoops.SelfTest.cs「connect-start 后 finish：
+#   connectPhase 由 started 迁到 done」（旧 finish 三态格只从 none 直接喂 finish，没经过 started＝半同形）、
+#   Processes.SelfTest.cs「res/empty-queue-零任务引用自报数」（0 是 falsy：Processes.cs:529 写成 qc 真值分流就
+#   当场红而其余五枚 empty-queue 格照绿）、RunLoops.SelfTest.cs「queue-prepared 10 + 十枚 task 累计 + finish」
+#   （走事件累计面出 tasks 账，不是预置数组）。三发 mutation 各恰一枚红＝raw\gdlogs-mut3\。
+#   仍不搬的：①真日志「解析→累计→结论」串接面（拆开各段核侧各自绿不等于组合面有钉）；②[t12] launch-args
+#   六枚——对面是 verb 直答，逐枚同轴性待现读对平后才摘（在册判语「对面必须同形同轴才算覆盖」优先于行数）。
+#   逐枚映射与留格理由原件＝raw\b209-cut23b3c2-map.txt。
 Write-Host "`n[t13] 真实日志逐行复盘(09-23 17:36 那一轮，从提交队列到进程退出)"
 # 这几行是从 M9A 自己 logs\log-20260923.log 里原样摘出来的
 $raw13 = @(
@@ -247,10 +213,6 @@ $rK = Resolve-M9AStatus -State $sK -Elapsed 700 -S $S -Instance $instS12 -LogNam
 #   的 res/unknowfmt-活(整句含日志文案/实例 id/replay-m9a-log/probe-m9a-history 四种点名)。
 #   下面这枚「不谎称 --autostart 没生效」留下：核侧整句里恰好没写这个词，那不是负向锚(在册判语)。
 Check '零标志时不谎称"--autostart 没生效"' (-not ($rK.Detail -match '--autostart 没生效')) $rK.Detail
-$sCnt = New-M9AState
-Register-M9AEvent -State $sCnt -Event @{ Kind = 'noise'; Text = '' }
-Register-M9AEvent -State $sCnt -Event @{ Kind = 'task'; Text = 'x' }
-Check '事件计数会被 Register-M9AEvent 累加' ([int]$sCnt.eventCount -eq 2) "eventCount=$($sCnt.eventCount)"
 $unparsed = Read-GdM9ALine -Line '[2026-xx][INF] [inst=日常-长草/deadbeef] 任务链已全部执行 SUCCESS' -InstanceId 'deadbeef'
 Check '新版文案不认识时 Read-GdM9ALine 返回 $null(而不是硬凑一个事件)' ($null -eq $unparsed) "$($unparsed.Kind)"
 

@@ -416,6 +416,15 @@ namespace GdPanel
                 return ResStr(St("chainDone", true, "eventCount", 1), 60, 0, false, "")
                     == "empty-queue|||M9A 连接完成后直接报『任务已全部完成』，但一条『开始任务：』都没有(用时 1 分钟) → M9A 从未收到\"用户操作：启动任务\" → 命令行 --autostart 没生效(注意：短参数 -a 实测无效，必须用长参数)；实例[日常-长草]";
             });
+            // 刀㉓ 笔(b) 第三子批 第三刀(11-08)：M9A 自报「0 个任务」那一档——PS 侧旧格 [t12]「任务数量=0 时
+            // empty-queue 会引用 M9A 自己报的数」量的是 Processes.cs:529 的 qc 分流，而上面五枚 empty-queue 格
+            // 喂的全是 queueCount=10 或根本没喂 qc ⇒ 0 值整句核侧此前没人答过。这格必须有才谈得上摘 PS 那一格：
+            // 0 是 falsy，谁把 :529 写成「qc 真值才走这臂」，这格当场红而其余五格照绿（旧四枚缺口格同款口径）。
+            b.Chk("res/empty-queue-零任务引用自报数", delegate
+            {
+                return ResStr(St("chainDone", true, "queueCount", 0, "eventCount", 2), 5, 0, false, "")
+                    == "empty-queue|||M9A 连接完成后直接报『任务已全部完成』，但一条『开始任务：』都没有(用时 0.1 分钟) → M9A 自己报的任务数量=0(声明了却没执行，通常是界面没进游戏)；实例[日常-长草]";
+            });
             b.Chk("res/unknowfmt-退", delegate
             {
                 return ResStr(St("eventCount", 0, "connectPhase", "done"), 100, 0, true, "log-z.log")

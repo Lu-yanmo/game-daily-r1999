@@ -771,6 +771,29 @@ namespace GdPanel
                     && Gd.Truthy(SV(b1, "chainDone")) && Gd.Str(SV(b1, "connectPhase")) == "none"
                     && Gd.Truthy(SV(c1, "chainDone"));
             });
+            // 刀㉓ 笔(b) 第三子批 第三刀(11-08) 补两枚「累计面」对面格——PS 侧 [t12] 留着的两枚量的是
+            // ①connect-start→finish 两拍中继后 connectPhase 由 started 迁到 done（上面 765 那格 a 支是从 none
+            //   直接喂 finish，没经过 started ⇒ 半同形，改错 started 这条迁移它不会红）；
+            // ②queue-prepared 10 + 逐枚 task 事件累计出 tasks 账再 finish → chainDone（765 那格 b1 支是预置
+            //   tasks 数组，没走累计面）。两枚都照 PS 的分拍形状喂，State 原样中继回壳（与 774/800/832 同款链路）。
+            b.Chk("connect-start 后 finish：connectPhase 由 started 迁到 done、chainDone 仍假(两拍中继)", () =>
+            {
+                object a = M9E(new object[] { M9Ev("connect-start", "") }, M9State(null));
+                if (Gd.Str(SV(a, "connectPhase")) != "started") return false;
+                object f = M9E(new object[] { M9Ev("finish", "") }, GState(a));
+                return Gd.Str(SV(f, "connectPhase")) == "done" && !Gd.Truthy(SV(f, "chainDone"))
+                    && Gd.Int(SV(f, "eventCount"), -1) == 2;
+            });
+            b.Chk("queue-prepared 10 + 十枚 task 累计 + finish → chainDone（走累计面，不是预置账）", () =>
+            {
+                object q = M9E(new object[] { M9Ev("queue-prepared", "10") }, M9State(null));
+                object[] ts = new object[10];
+                for (int i = 0; i < 10; i++) ts[i] = M9Ev("task", "任务" + (i + 1));
+                object t = M9E(ts, GState(q));
+                object f = M9E(new object[] { M9Ev("finish", "") }, GState(t));
+                return Gd.Int(SV(f, "queueCount"), -1) == 10 && Gd.List(SV(f, "tasks")).Length == 10
+                    && Gd.Truthy(SV(f, "chainDone")) && Gd.Int(SV(f, "eventCount"), -1) == 12;
+            });
             b.Chk("task-fail 累计：failedTasks 一条一报、failed 只认第一条、WARN 带累计数", () =>
             {
                 object r1 = M9E(new object[] { M9Ev("task-fail", "启动游戏") }, M9State(null));

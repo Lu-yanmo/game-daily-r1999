@@ -312,6 +312,11 @@ namespace GdPanel
             b.Chk("line/succeeded", delegate { return Line1(@"[..][inst=x/deadbeef][src=Worker][op=StopTask] 停止前状态：SUCCEEDED", "") == "NULL"; });
             b.Chk("line/noise", delegate { return Line1(@"[..][inst=x/deadbeef][src=Agent][op=StdErr] 如前面有提示新资源版本还请更新", "") == "noise:"; });
             b.Chk("line/null", delegate { return Line1(@"[..][cfg=Default] [内存管理]释放了11.97 MB（21.1%)", "") == "NULL"; });
+            // 对面格（刀㉓ 笔(b) 第三子批 第六刀）：本格原在 PS 侧 test-r1999 的 [t14] 段（「新版文案不认识时
+            // Read-GdM9ALine 返回 $null」）。游戏新版本若改口说「任务链已全部执行」，解析器要么显式立格认它，
+            // 要么按不认识算——不许硬凑一个事件。打红它的唯一改法是放宽 Processes.cs 的 chain-done 那一行，
+            // 把这句也认成整条链路完成，那正是本格钉住的东西。
+            b.Chk("line/unknown-2", delegate { return Line1(@"[2026-xx][INF] [inst=日常-长草/deadbeef] 任务链已全部执行 SUCCESS", "deadbeef") == "NULL"; });
             b.Chk("line/ui-start", delegate
             {
                 return Line1(@"[2026-09-23 17:30:40.048][INF] [cfg=Default][inst=日常-长草/deadbeef][src=UI][op=StartTask] 用户操作：启动任务 | controller=Adb, resource=官服, device=<none>, selectedTasks=10", "") == "ui-start:";

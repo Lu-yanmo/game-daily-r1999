@@ -207,12 +207,10 @@ $rI = Resolve-M9AStatus -State $sI -Elapsed 445 -S $S -Instance $instS12 -Proces
 Check '这一轮真实判 ok(曾经误判 error 导致白重试一次)' ($rI.Status -eq 'ok') "$($rI.Status)｜$($rI.Detail)"
 
 Write-Host "`n[t14] 日志标志失配 → unknown-format(不套 not-started/stalled 的猜测)"
-$sK = New-M9AState
-$rK = Resolve-M9AStatus -State $sK -Elapsed 700 -S $S -Instance $instS12 -LogName 'log-test.log'
 # 刀㉓ 笔(b) 第三子批 第二刀(11-08)：上面三枚「unknown-format 说什么」的结论格换家核侧＝Processes.SelfTest.cs
 #   的 res/unknowfmt-活(整句含日志文案/实例 id/replay-m9a-log/probe-m9a-history 四种点名)。
-#   下面这枚「不谎称 --autostart 没生效」留下：核侧整句里恰好没写这个词，那不是负向锚(在册判语)；再下面那枚「新版文案不认识时返回 $null」第六刀(11-08)已出仓，对面格＝Processes.SelfTest.cs 的 line/unknown-2（以 Processes.cs 的 chain-done 那行证牙）。
-Check '零标志时不谎称"--autostart 没生效"' (-not ($rK.Detail -match '--autostart 没生效')) $rK.Detail
+#   本段余下两枚已全部出仓：第六刀「新版文案不认识时返回 $null」→ line/unknown-2（以 Processes.cs 的 chain-done 那行证牙）；
+#   第七刀「零标志时不谎称 --autostart 没生效」→ res/unknowfmt-不谎称autostart（显式负向锚，以 unknownDetail 那条共享串证牙）。
 
 # 重试策略跟着"跑一轮"一起搬进了 lib\r1999-daily.ps1，入口脚本只剩参数分发；10-24 刀② 把回退段
 # 整段出仓后这三格的桌子跟着换：跳过清单与 rescued 翻案的家在 tools\panel-cs\Orchestration.cs 的

@@ -440,6 +440,15 @@ namespace GdPanel
                 return ResStr(St("eventCount", 0), 700, 0, false, "log-z.log")
                     == "unknown-format|||启动已 11.7 分钟，日志里一条认识的标志都没解析出来(实例[日常-长草] id=deadbeef，日志：log-z.log) → 多半是 M9A 更新后改了日志文案，或实例重新导入后 id 变了(行内 [inst=名字/id] 过滤把整批行排除了)，也可能是 M9A 压根没往这个文件里写(进程卡在启动/日志目录改了)。这轮结果不可信，别按它判定体力是否清完：先跑 tools\\probe-m9a-history.ps1 看实例 id、再用 tools\\replay-m9a-log.ps1 对着这份日志复现，然后更新 lib\\m9a.ps1 的 Read-GdM9ALine";
             });
+            // 负向锚（刀㉓ 笔(b) 第三子批 第七刀）：本格原在 PS 侧 test-r1999 的 [t14] 段。
+            // 「整句里恰好没写」不是负向锚（在册判语）——这里显式钉住：unknown-format 的详情不许声称
+            // --autostart 没生效；那句只属于 not-started／empty-queue 两家的诊断。把 unknownDetail 掺进
+            // 这个词（或把本档改去复用别家的诊断串），本格当场红，而整句格也会一起红——异值同句，照登。
+            b.Chk("res/unknowfmt-不谎称autostart", delegate
+            {
+                string s = ResStr(St("eventCount", 0), 700, 0, false, "log-test.log");
+                return s.StartsWith("unknown-format|||") && s.Contains("--autostart 没生效") == false;
+            });
             b.Chk("res/error-失败", delegate
             {
                 return ResStr(St("chainStarted", true, "tasks", S("常规作战"), "failed", "任务运行失败！", "eventCount", 2), 300, 0, true, "")

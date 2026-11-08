@@ -1805,6 +1805,83 @@ namespace GdPanel
                     && Len(Key(d, "ExpectedChains")) == 0 && S(Key(d, "Stage")) == "CE-5";
             });
 
+            // 2026-11-08 刀㉓ 笔(b) 第三子批 第十一刀：test-ark [t3] 那九枚 apply-maa-daily-config 行为格(与 [t2] 三枚
+            //   check-stages 拆分/合计/未知格)换家到本节——下面五枚逐枚对平 PS 旧判据：keepOn/turnOff 按任务类型、预览
+            //   一字节不落盘(SHA-256 前后同)、event-pending 不烧理智、event 档照刷活动关、坏关卡代号整句抛出。
+            b.Chk("日常链路都在启用集、停用链路一枚都不进：keepQueuesEnabled 全在 ExpectedChains、disableQueues 按任务类型拦下", delegate
+            {
+                object d = Chain.ApplyMaaDailyConfig(In("settings", StArk(In("finishAllSanityWith", "战斗",
+                    "keepQueuesEnabled", new object[] { "StartUp", "Award" },
+                    "disableQueues", new object[] { "Roguelike" })),
+                    "paths", allPaths, "running", new object[0], "table", In("CE-5", 6, "SR-8", 21),
+                    "config", MaaTree(Queue("战斗", "Fight", true, "CE-5"), Queue("开始唤醒", "StartUp", true, null),
+                        Queue("领取奖励", "Award", false, null), Queue("自动肉鸽", "Roguelike", true, null)),
+                    "decision", In("Mode", "idle", "ClearSanity", true, "Stage", "CE-5")));
+                object[] ch = Gd.List(Key(d, "ExpectedChains"));
+                if (ch.Length != 3 || S(ch[0]) != "Fight" || S(ch[1]) != "StartUp" || S(ch[2]) != "Award") return false;
+                foreach (object o in ch) if (S(o) == "Roguelike") return false;
+                bool award = false, rogue = false;
+                foreach (object o in Gd.List(Key(d, "Changes")))
+                {
+                    string sc = S(o);
+                    if (sc == "领取奖励 → IsEnable=True") award = true;
+                    if (sc == "自动肉鸽 → IsEnable=False") rogue = true;
+                }
+                return award && rogue;
+            });
+            b.Chk("预览一字节不落盘：config.json 的 SHA-256 前后相同，且 Changes 非空(算出了改动、只是没写)", delegate
+            {
+                Wf(maaDir, "config.json", MaaCfgText);
+                string before = Convert.ToBase64String(System.Security.Cryptography.SHA256.Create().ComputeHash(File.ReadAllBytes(maaCfgFile)));
+                object d = Chain.ApplyMaaDailyConfig(In("settings", StArk(In("finishAllSanityWith", "战斗")),
+                    "paths", allPaths, "running", new object[0], "table", In("CE-5", 6),
+                    "decision", In("Mode", "idle", "ClearSanity", true, "Stage", "CE-5")));
+                string after = Convert.ToBase64String(System.Security.Cryptography.SHA256.Create().ComputeHash(File.ReadAllBytes(maaCfgFile)));
+                return before == after && !B(Key(d, "Applied")) && Len(Key(d, "Changes")) > 0;
+            });
+            b.Chk("不烧理智的形状(event-pending + ClearSanity=false)：Fight 被停、ExpectedChains 为空、StagePlan 一个字都不写", delegate
+            {
+                object d = Chain.ApplyMaaDailyConfig(In("settings", StArk(In("finishAllSanityWith", "战斗")),
+                    "paths", allPaths, "running", new object[0], "table", In("SR-8", 21),
+                    "config", MaaTree(Queue("战斗", "Fight", true, "CE-5")),
+                    "decision", In("Mode", "event-pending", "ClearSanity", false, "Stage", "SR-8")));
+                bool stop = false, stagePlan = false;
+                foreach (object o in Gd.List(Key(d, "Changes")))
+                {
+                    string sc = S(o);
+                    if (sc == "战斗 → IsEnable=False") stop = true;
+                    if (sc.Contains("StagePlan")) stagePlan = true;
+                }
+                return stop && !stagePlan && Len(Key(d, "ExpectedChains")) == 0;
+            });
+            b.Chk("event 档 + ClearSanity=true：Fight 进启用集且 StagePlan = SR-8(活动关照刷)", delegate
+            {
+                object d = Chain.ApplyMaaDailyConfig(In("settings", StArk(In("finishAllSanityWith", "战斗")),
+                    "paths", allPaths, "running", new object[0], "table", In("SR-8", 21),
+                    "config", MaaTree(Queue("战斗", "Fight", false, null)),
+                    "decision", In("Mode", "event", "ClearSanity", true, "Stage", "SR-8")));
+                object[] ch = Gd.List(Key(d, "ExpectedChains"));
+                bool enable = false, stagePlan = false;
+                foreach (object o in Gd.List(Key(d, "Changes")))
+                {
+                    string sc = S(o);
+                    if (sc == "战斗 → IsEnable=True") enable = true;
+                    if (sc == "战斗 → StagePlan = SR-8") stagePlan = true;
+                }
+                return ch.Length == 1 && S(ch[0]) == "Fight" && enable && stagePlan;
+            });
+            b.Chk("长草档坏关卡代号 ⇒ 整句抛出「长草计划里的关卡代号不被 MAA 识别：NOT-A-STAGE → 请改 settings.json 的 ark 计划」", delegate
+            {
+                object msg = ThrownMsg(delegate
+                {
+                    return Chain.ApplyMaaDailyConfig(In("settings", St(), "paths", allPaths,
+                        "running", new object[0], "table", In("CE-5", 6),
+                        "config", MaaTree(Queue("战斗", "Fight", false, null)),
+                        "decision", In("Mode", "idle", "ClearSanity", true, "Stage", "NOT-A-STAGE")));
+                });
+                return S(msg) == "长草计划里的关卡代号不被 MAA 识别：NOT-A-STAGE → 请改 settings.json 的 ark 计划";
+            });
+
             // ==================== 29) apply-m9a-instance：点号字面键那两格 ＋ 三句原话 ====================
             b.Chk("M9A 在跑且 m9aCliArgs 缺键(null⇒开) ⇒ 那句 WARN ＋ Changes 只一格「交给命令行 -i 转发」", delegate
             {

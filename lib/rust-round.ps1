@@ -184,12 +184,7 @@ function Invoke-GdDailyRoundRust {
     $sinkOffset = [long]0
     Write-GdJson -Path $ctxFile -Object $Ctx
 
-    # R9-a：提权那一发的**入程参数**(可选)。拼参语义仍住 PS 侧(`Get-GdRelaunchArgList` 是事实源、不搬)，
-    #   这里只把"入口脚本路径＋已经拼好的参数数组"写成一份临时 JSON 交给核，核原样转交 start-elevated-round。
-    # ⚠ 这一份文件里是本机绝对路径 ⇒ 落 `%TEMP%`、会话结束即删，**绝不进 journal／ctx／ask 信封／侧信道**
-    #   (与核内那句"Paths 的值绝不进 journal"同源)。
-    # ⚠ 拼不出来就不交这一枚：核那一臂答 `None` ⇒ 照旧出 ask ⇒ 下面那臂代答(老路一字未动)，
-    #   把"入参没递到"升级成整轮拒跑是把一条降级通道拆成一条硬依赖，那一刀本批不许。
+    # R9-a：提权那一发的**入程参数**(可选)。拼参语义仍住 PS 侧(`Get-GdRelaunchArgList` 是事实源、不搬)……（细节见该帧）
     $entryFile = ''
     try {
         $entryArgs = @(Get-GdRelaunchArgList -Script $ElevateScript -Bound $BoundParams -Force @('-NoElevate'))
@@ -201,10 +196,6 @@ function Invoke-GdDailyRoundRust {
     }
 
     # 外层硬闸(10-20，与两枚现出口同源同形)：这一档手上**没有**专用的"round 超时"，取两路业务超时里宽的那枚 +15。
-    # 转接层一段最多做的现场动作不会超过单路那一路的内层超时 ⇒ 外层只会比它更宽、不抢判据；
-    # 又必须留在计划任务 PT3H 之内，否则外层闸形同虚设(宽的那枚是 1999 那一路，加 15 分钟仍在上限之内)。
-    # ⚠ 故意不把两枚键的现值抄进注释 —— 它们是活账(10-20 上午"取数帧"那笔账的反方向)。
-    # 两枚键都没填时兜底 85，不许兜底成 0(那等于 15 分钟就砍)。
     $hardMin = [int]$S.runtime.arkTimeoutMinutes
     $m9aMin = [int]$S.runtime.r1999TimeoutMinutes
     if ($m9aMin -gt $hardMin) { $hardMin = $m9aMin }
@@ -236,20 +227,16 @@ function Invoke-GdDailyRoundRust {
                     $lvl = [string]$r.Level
                     $txt = [string]$r.Text
                     if ($lvl -and ($lvl -ne 'INFO')) { Write-GdLog $txt -Level $lvl } else { Write-GdLog $txt }
-                    # 刀⑩：段 8 睡眠屏蔽的触发点。核内那句「已临时禁止系统睡眠(跑完自动恢复)」是**段 8 自己
-                    # 设位并自证过**才印的(main.rs 段 8)，侧信道按字节实时排空 ⇒ 这一行落地的那一刻就是补位的时刻。
-                    # 只补一次($esBox.Value 已真就不再问)；dry-run／门只记录那几档段 8 根本不出场 ⇒ 那句不落地 ⇒ 不误设。
+                    # 刀⑩：段 8 睡眠屏蔽的触发点。核内那句「已临时禁止系统睡眠(跑完自动恢复)」是**段 8 自己…（细节见该帧）
                     if (-not $esBox.Value -and ([string]$r.Text).Contains('已临时禁止系统睡眠')) { $esBox.Value = Start-GdRoundHostNoSleep -S $S }
                 } -HardWaitMs $hardMs
                 $envText = ''
                 if ([int]$cap.StreamTimeouts -gt 0) {
-                    # 口径照两枚现出口(lib\ark-daily.ps1 那处 #473 定档)：这一格每轮必现、不是异常也不是回归，
-                    # 持端的是外部常驻服务(adb server 一类)，真日志走 --log-sink、进度判据走 journal ⇒ INFO 一行。
+                    # 口径照两枚现出口(lib\ark-daily.ps1 那处 #473 定档)：这一格每轮必现、不是异常也不是回归……（细节见该帧）
                     Write-GdLog "转接层：收流按有界等待放弃 $([int]$cap.StreamTimeouts) 路 stdout/stderr(外部常驻服务持写端，stdout 兜底那一路本轮不可用；真日志见 --log-sink)"
                 }
                 if ($cap.WaitTimedOut) {
-                    # 第三种病(10-20，与两枚现出口同形)：核没退出、被外层硬闸收尸。这一支往下必然走
-                    # "没给出信封"那条拒跑(Stop-GdBeforeRun 的人面形状)，所以本轮**有行可归因**而不是无声缺勤。
+                    # 第三种病(10-20，与两枚现出口同形)：核没退出、被外层硬闸收尸。这一支往下必然走…（细节见该帧）
                     Write-GdLog "转接层：核 $([int]($hardMs / 1000))s 仍没退出，已按外层硬闸结束它(它是没答，不是答错) —— 本轮按失败收" -Level WARN
                 }
                 if (Test-Path -LiteralPath $envFile) { $envText = [System.IO.File]::ReadAllText($envFile) }
@@ -276,11 +263,7 @@ function Invoke-GdDailyRoundRust {
                     return [int]$dr.code
                 }
                 if ($kind -eq 'fail') {
-                    # Fail 信封＝核内**进十段之前**那两句 throw(段 1 选人／段 2 之前 ctx 坏)，
-                    # 真身对应的形状是"terminating error 冒到入口 catch ⇒ 一句 ERROR ＋ 退 1"(§11.64 ⑥ 末段、
-                    # 门的 X1 里 bad-id／unregistered 两档的 Z|1| 就是它)——**不是** 2 号"这一轮没跑"。
-                    # 转接层若在这里走 Stop-GdBeforeRun，就把"点了没注册的那一路"从 1 悄悄升成 2 ⇒ 计划任务
-                    # 的告警口径跟着变。所以这一格只把原文照原级别落一行，再把 1 交回入口去 exit。
+                    # Fail 信封＝核内**进十段之前**那两句 throw(段 1 选人／段 2 之前 ctx 坏)……（细节见该帧）
                     Write-GdLog ([string]$envelope.error) -Level ERROR
                     return 1
                 }
@@ -288,11 +271,9 @@ function Invoke-GdDailyRoundRust {
 
                 $seq = [int]$envelope.seq
                 $act = [string]$envelope.action
-                # 刀⑩：信封的 params 面在壳侧**再无消费者**(唯一活着的 round-elevate 只回 Code，监督臂那枚
-                # games／ownerPid 的入程键随臂一起进核) ⇒ 读它的那行同批摘净，不留一枚没人读的赋值。
+                # 刀⑩：信封的 params 面在壳侧**再无消费者**(唯一活着的 round-elevate 只回 Code，监督臂那枚…（细节见该帧）
                 if ($act -notin $outer) {
-                    # 白名单之外走拒跑通道而不是 throw：不认识的动作＝协议不同源，既不许被当成"动作失败"吞掉，
-                    # 也不该给敲日常的人一屏内部报错(§11.64 ⑦：转接之后答错的典型形状就是"整轮拒跑")。
+                    # 白名单之外走拒跑通道而不是 throw：不认识的动作＝协议不同源，既不许被当成"动作失败"吞掉……（细节见该帧）
                     Stop-GdBeforeRun "转接层：收到不认识的动作 '$act'(seq=$seq) —— 先改 main.rs 再改这里，不许放行"
                 }
                 $ok = $true
@@ -301,30 +282,11 @@ function Invoke-GdDailyRoundRust {
                 try {
                     switch ($act) {
                         'round-elevate' {
-                            # R9-a 之后这一臂是**回落通道**：入程参数递到了就由核内直答(改调 start-elevated-round，
-                            # 回执只取 Code)，没递到(拼参炸／文件坏)才走到这里 ⇒ 老路一字未动。
-                            # 入口路径/命令行那半仍是外侧的事(本机路径不进信封)：重跑的还是入口自己。
+                            # R9-a 之后这一臂是**回落通道**：入程参数递到了就由核内直答(改调 start-elevated-round……（细节见该帧）
                             $ec = Start-GdElevatedSelf -Script $ElevateScript -Bound $BoundParams -Force @('-NoElevate')
                             $data = [pscustomobject]@{ Code = [int]$ec }
                         }
-                        # ---- 刀⑩ 收编(2026-11-05)：`round-supervisor-start`／`round-supervisor-stop` 两臂摘净——
-                        #      监督那一族的"谁来答"改核内直答：main.rs 段 7 问 start-supervisor／stop-supervisor
-                        #      两枚 verb(真身 tools\panel-cs\Supervisor.Host.cs 一字未动)，回执两枚键 Available/Err
-                        #      与段 7 的读法照旧；信封仍只喂四枚 runtime 原始值，那条取键裁决随臂一起进核。
-                        #      ⚠ Available=false 那一档的语义又换了一次答方：刀① 之前答"PS 命令在不在场"、
-                        #      刀① 之后答"核不可达"、现在答"panel-cs 那两枚 verb 没办成"——三档读数在人面上同形，
-                        #      那句 WARN 仍由写手侧落盘(判语随臂进核，不在这里复读)。
-                        #      ⚠ 段 8 的睡眠屏蔽原本钉在"看到 round-supervisor-start 那一发 ask"上，随臂一起改指
-                        #      侧信道那句「已临时禁止系统睡眠(跑完自动恢复)」(见 Start-GdRoundHostNoSleep 头注)。
-                        # ---- 刀⑧ 收编(2026-11-04)：`updgate`／`audit` 两臂摘净——两枚闸的"起工具子进程＋
-                        #      挑行＋全量拼串"整段搬进 tools\panel-cs\Gate.Host.cs，核内 round_answer 问
-                        #      run-m9a-update／run-1999-event-audit 两枚 verb 直答，落账仍是小写三枚
-                        #      {code,line,joined}(键名与键序照本文件当年那两臂逐字同形)。
-                        #      ⚠ **一次删两侧**：核若还答 None 而这里留着臂，死臂会遮住"收到不认识的动作"拒跑；
-                        #      反过来核先答了这里还留名册，ask 会走拒跑 ⇒ 整轮没跑(2)。这条对账由核内 --selftest
-                        #      §28 的 S28_ROSTER(与本文件那枚名册同数，数不在这里抄)＋R-outer 白名单钉着，不靠人记得。
-                        #      刀①②③⑧⑩ 各摘了哪几臂、账为什么这样落——那份史注在 main.rs 的 round_answer 尾部
-                        #      「其余一律外发」那一段(一源)与 docs 各帧；本文件不另存一份副本(19 行死臂史注随批摘)。
+                        # ---- 刀⑩ 收编(2026-11-05)：`round-supervisor-start`／`round-supervisor-stop` 两臂摘净——…（细节见该帧）
                     }
                 } catch {
                     $ok = $false
@@ -387,15 +349,7 @@ function Invoke-GdDailyRoundDispatch {
     }
     $ctx = $null
     try {
-        # 刀⑪(2026-11-06)：轮 ctx 的装配整块进核(panel-cs 的 build-round-ctx 直身)，壳这一侧只递**壳才拿得动**的
-        # 三枚旋钮——logPath＝本进程正在写的那本日志、ownerPid＝本进程号(撤锁只撤自己登记那一份，
-        # 核自己的进程号在第一发 ask 之后就不是它了)、以及 ids/gates/opt 与四枚开关；
-        # settings **不再递**：直身自己现读 config\settings.json，与 PS 原身读的是同一份、同一把尺。
-        # 同帧等值证据(逐字节，不是"结构差不多")＝ship 账本 raw\k948-cut11-parity-ps51.log
-        # (BYTE-EQ=True／SHA-EQ=True／PS-BYTES=CS-BYTES=3334)＋raw\k948-cut11-compare.log
-        # (STRUCT-DIFFS=0／ORDER-EQ=True／LEAK-NAME-WORD=False／FAILS=0，判据体沿用母件 k940 一字未动)；
-        # 语义面由 panel-cs --roundtest 段 33 十五枚钉住，那十五枚的牙由 raw\k947-cut11-selftest-mutation-report.txt
-        # 十七发 mutation 逐格自证(CELLS-UNCOVERED=NONE)。
+        # 刀⑪(2026-11-06)：轮 ctx 的装配整块进核(panel-cs 的 build-round-ctx 直身)，壳这一侧只递**壳才拿得动**的…（细节见该帧）
         $ctx = Invoke-GdCli -Verb 'build-round-ctx' -Body @{
             ids         = $Ids
             gates       = $Gates

@@ -25,7 +25,6 @@ try { $loaded = @(Import-GdModules -Quiet) } catch { $loadErr = $_.Exception.Mes
 Check 'Import-GdModules 全程不抛(清单体检通过)' ($loadErr -eq '') $loadErr
 Check '注册表非空' ($loaded.Count -gt 0) "$($loaded.Count) 款：$($loaded -join ' / ')"
 # 入口那三行的顺序也在这里演一遍：注册表只存清单，业务库要在顶层 dot 才留得下函数定义。
-# 少了这一步，下面那格"顶层点库后清单声明的 N 个函数全在"会红，而清单里任何一句业务调用(StatusPlan 问
 foreach ($libPath in (Get-GdModuleLibPaths)) { . $libPath }
 foreach ($m in @(Get-GdModules -AvailableOnly)) {
     $id = [string]$m.Id
@@ -65,8 +64,7 @@ Check '清单没 Id 时注册直接抛' $(try { [void](Register-GdModule -Manife
 Check '取不存在的模块返回 $null(不抛，由调用方决定怎么说)' ($null -eq (Get-GdModule -Id '不存在的模块'))
 
 Write-Host "`n[m2] 每份清单的完备性(11-07 SC-C 刀⑰ 笔(c)-2 第 2 批 B2：判定面整段换家 check-module-manifests)"
-# 换家史注(按在册「判据不删只换家」＋「改弱了的钉要写下它不再量什么」)：这一段原本 40 行、11 枚逐条 Check，
-# 判定面(读清单文本＋跨文件集合比对)自本批起整段住 tools\panel-cs\Chain.cs 的 CheckModuleManifests，
+# 换家史注(按在册「判据不删只换家」＋「改弱了的钉要写下它不再量什么」)：这一段原本 40 行、11 枚逐条 Check……（细节见该帧）
 $b2Body = [pscustomobject]@{
     root             = $root
     entry            = (Join-Path $root 'daily-clear.ps1')
@@ -183,11 +181,6 @@ foreach ($m in @(Get-GdModules -AvailableOnly)) {
     Check "[$id] 探测项的值都落在 paths.* 上(框架不猜路径)" (@($labels).Count -eq @($rows.Values | Where-Object { $_ -is [string] -or $null -eq $_ }).Count)
 }
 # 11-04 刀⑤ 作废登记：这一段原来还点了 Resolve(带 -Force，前后各存/还原一次 state)与 Preview 两发真调。
-# 下面这格是"缝跟着答方走"的兑现，也是 EnvProbes 仍留在 modules.ps1:24 那本名册里的唯一理由：
-# 它的对面不是函数调用而是**源文本解析**——面板按一行正则去清单里抠那段 '标签' = 表达式。
-# 钉法只钉形状不钉结果(读 Panel.Summary.cs，问它认段的字面量还在不在)：
-#   本格红 ＝ 面板换了取段方式或整件退役 ⇒ 那一刻 EnvProbes 才真的没有对面，名册最后一枚自由了；
-#   反过来若名册先被删而本格没红 ⇒ 装载期不会炸、面板「环境」段却少几行且谁都不报错——那才是它要拦的那一档。
 $panelSrc = ''
 try { $panelSrc = [System.IO.File]::ReadAllText((Join-Path $root 'tools\panel-cs\Panel.Summary.cs')) } catch { }
 Check '面板仍按「^\s*EnvProbes\s*=\s*\{\s*$」在清单里取环境探测段(EnvProbes 唯一活着的对面)' (
@@ -209,8 +202,7 @@ foreach ($m in @(Get-GdModules)) {
 }
 
 Write-Host "`n[m6] 入口动词与真参数对得上(菜单/面板印的开关名不能是编的；11-07 B2 换家)"
-# 换家史注：这一段原本 44 行(现读 daily-clear.ps1 的参数表 + 逐枚开关名正查 + ark×Ack 反向负锚)，
-# 判定面自本批起住核内(Chain.cs 入口侧：读 param 块 → 逐枚 FlagFor 对照 → 负锚)。不再量什么：
+# 换家史注：这一段原本 44 行(现读 daily-clear.ps1 的参数表 + 逐枚开关名正查 + ark×Ack 反向负锚)……（细节见该帧）
 $b6 = $null
 $b6Err = ''
 try { $b6 = Invoke-GdCli -Verb 'check-module-manifests' -Body $b2Body } catch { $b6Err = $_.Exception.Message }
@@ -271,9 +263,7 @@ $gateDef = ''
 if (Get-Command Get-GdPythonExe -ErrorAction SilentlyContinue) { $gateDef = (Get-Command Get-GdPythonExe).Definition }
 Check '找 Python 会跳过 WindowsApps 那个商店占位程序' ($gateDef -match 'WindowsApps')
 Check '找到的解释器要真 import 得动 ask.py 要用的那几个库' ($gateDef -match 'Test-GdPythonUsable')
-# 2026-10-28 甲档第二十刀刀③：这一格原来现读 Invoke-GdVisionRescue 的定义文本比两个 IndexOf，那枚壳
-# 真跑一遍 ask.py 的离线自检。这台机器上没 Python 就如实报"没跑"，不算红 ——
-# 缺不缺解释器是机器现场状态，不该把只读自检弄红(见项目记忆那条"只读自检不许要求机器现场状态")。
+# 2026-10-28 甲档第二十刀刀③：这一格原来现读 Invoke-GdVisionRescue 的定义文本比两个 IndexOf，那枚壳…（细节见该帧）
 $pyExe = ''
 if (Get-Command Get-GdPythonExe -ErrorAction SilentlyContinue) { $pyExe = Get-GdPythonExe }
 if ($pyExe -and (Test-Path -LiteralPath $askPy)) {
@@ -287,9 +277,7 @@ if ($pyExe -and (Test-Path -LiteralPath $askPy)) {
 }
 
 Write-Host "`n[m10] 兜底后端与清单对账(kind 是清单上的字段，不是外壳里的一张表)"
-# 为什么单独一段：2026-09-26 把兜底后端泛化成两套(端游 ark / 模拟器 mumu)之后，"这一路该找哪个后端"
-# 变成了一条**业务知识** —— 写在外壳里就是框架污染，写错了也不会报错，只会"兜底静默不生效"(从来不问模型)。
-# 所以这条知识只在清单的 VisionKind 上存一份，这里逐路对账。
+# 为什么单独一段：2026-09-26 把兜底后端泛化成两套(端游 ark / 模拟器 mumu)之后，"这一路该找哪个后端"…（细节见该帧）
 foreach ($m in @(Get-GdModules -AvailableOnly)) {
     $id = [string]$m.Id
     $kind = if ($m.PSObject.Properties.Name -contains 'VisionKind') { [string]$m.VisionKind } else { '' }
@@ -317,8 +305,7 @@ foreach ($f in @('lib\vision-rescue.ps1', 'lib\modules.ps1', 'tools\vision-ask.p
             $code -match 'New-GdVisionTarget-(ark|mumu)\b'
     Check "$(Split-Path -Leaf $p) 没有把兜底 kind 当字面量硬写(-Target/-Kind/New-GdVisionTarget-xxx)" (-not $hard)
 }
-# 三份模板都得有那个领奖白名单键：导出闸门(Test-GdTemplateCoversCode)要等到打发布包才查得到，
-# 而"代码读了 settings 里没有的键"这件事在本地就该红。
+# 三份模板都得有那个领奖白名单键：导出闸门(Test-GdTemplateCoversCode)要等到打发布包才查得到……（细节见该帧）
 foreach ($tpl in @('config\settings.example.json', 'publish\src\ark\config\settings.example.json', 'publish\src\r1999\config\settings.example.json')) {
     $p = Join-Path $root $tpl
     if (-not (Test-Path -LiteralPath $p)) {
@@ -332,16 +319,6 @@ foreach ($tpl in @('config\settings.example.json', 'publish\src\ark\config\setti
 
 Write-Host "`n[sv] 监督 agent(11-02 刀③ 后只剩轮档静态锚，PS 两件已出仓)"
 # 这一段现在只剩源级静态锚(量的是 lib\rust-round.ps1 的接线形状)：不喂字典、不起进程、不碰现场状态。
-# 原来那批行为级断言(三段纯函数喂字典判决策表／临时文件真演采集／临时目录落记录再归还 $global:GD)的去向见下面那笔账。
-# ---- 刀③ 摘件笔(11-02)的账：这一段原来还有 $supLib／$supLoop 两枚在场格，以及它们门内那批行为级断言 ----
-# 在场格先让门红一次(实跑交回「202 通过 / 2 失败」，红的恰是这两格)再按门落账，不是改完就宣称绿。
-# 门内那批随墙一起拆，判语分三类登记，免得日后当成"静默消失"：
-#   ①配置语义/状态表/动作表/详情文本(共约 40 格)——对面早已搬到 tools\panel-cs\Supervisor.cs，期望串逐字同源，
-#     行为级断言的家换成 panel-cs.exe --svtest(刀② 11-02 已把采集/记录两族 12 格接进去，现量 85 格)。
-#   ②「入口点 lib\supervisor.ps1」那格——它钉的是 dot-source 接线，入口那行已改成一句注释(不装载)，靶子本身出局。
-#   ③纯洁性那两格(监督两件代码面无游戏名)——PS 层没了，尺改钉 Supervisor.cs 自己，落在 --svtest(本格批新增)。
-# 为什么这段注释留在 [sv] 段头而不另起一节：下面的静态锚仍活在这一棵树上，日后有人想给 PS 侧"补回"监督断言，
-# 先在这里撞见判语，比在 git 里考古便宜。
 
 # ---- 监督族刀①(11-02 接线)静态锚 → 刀⑩(11-05 进核)按新轴翻形：轮档件不再答监督，钉的是"确实不再答" ----
 $rrSrc = ''

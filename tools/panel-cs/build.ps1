@@ -20,30 +20,14 @@ $here = $PSScriptRoot
 $cs   = @(Get-ChildItem -LiteralPath $here -Filter '*.cs' -File | Sort-Object Name | ForEach-Object { $_.FullName })
 if ($cs.Count -eq 0) { throw "本目录里没有 .cs 源码：$here" }
 
-# B-2b(2026-10-08)：Live.cs 那七枚现场 verb 要用的那批 user32 声明，**真身仍只有一份** =
-# ..\tools\gdinterop\GdWin.cs(端游视觉兜底迁移 B0③b 时从 lib\vision-ark.ps1 的 here-string 搬出来的那份，
-# PowerShell 侧靠 lib\common.ps1 的 Add-GdInterop 现编)。这里多带一条路径把它编进同一份装配，
-# 不在 panel-cs 里抄第二份签名 —— 于是改那份 .cs 从此要过两套装配：PS 现编那侧的门 tools\test-ark.ps1 t14
-# 与这条编译。缺文件就当编译失败(不许静默跳过：跳过了 Live.cs 会编不过，报错点反而更难读)。
+# B-2b(2026-10-08)：Live.cs 那七枚现场 verb 要用的那批 user32 声明，**真身仍只有一份** =…（细节见该帧）
 $gdwin = Join-Path (Split-Path $here) 'gdinterop\GdWin.cs'
 if (-not (Test-Path -LiteralPath $gdwin)) {
     if ($Quiet) { exit 4 }
     throw ('缺 tools\gdinterop\GdWin.cs(现场 verb 的 user32 声明，真身只这一份)：' + $gdwin)
 }
 $cs += $gdwin
-# R9-a(2026-10-17)：轮骨架四格收编之后，panel-cs 要多带两份**别处已有唯一真身**的 .cs，
-# 理由与上面那条完全同形 —— 宁可在装配里多带一条路径，也不在 tools\panel-cs 抄第二份：
-#   ..\tools\gdinterop\GdPower.cs   屏保 SPI 那两枚 P/Invoke(Get-/Set-GdScreensaverActive 的声明本体)，
-#                                   新立的 disable-screensaver-for-round 要用；PS 侧靠 Add-GdInterop 现编同一份。
-#   ⚠ 10-22 丙档落码刀② 之后这一句的现状：PS 侧那两枚转发壳里 `Get-GdScreensaverActive` 已删(连同 `Get-GdScreensaverStateFile`)，只有 `Set-GdScreensaverActive` 在场；
-#                                   而 Add-GdInterop 是按目录**整份**现编(不一份份列)⇒ GdPower.cs 里"读 SPI 现值"那两枚声明自此在 PS 侧**编而不被调**，真消费者只剩 panel-cs 这一装配。
-#                                   共享声明面不随体收缩 —— 这不是漏删，是不可拆(拆就要在 PS 侧抄第二份，正是本头注上面那条"宁可多带一条路径"反着来的东西)。
-#   ..\tools\gdcore\GdCore.Logs.cs  history.csv 的 CSV 规则(GdCore.Csv.Flatten/BuildRow/DurationText)，
-#                                   新立的 append-round-history 要用；PS 侧那一份真身 Add-GdHistory 已于 11-07 刀⑰ 笔(c)-1 整枚出仓(全树零活调用)，
-#                                   于是 GdCore.Csv 的 CSV 三枚在 PS 侧自此**编而不被调**，真消费者只剩 panel-cs 这一装配——与上面 GdPower.cs 那格同形，共享声明面不随体收缩。
-# 缺文件一律当编译失败(不许静默跳过：跳过了 Round.cs 会编不过，报错点反而更难读)。
-# ⚠ 这一份里还有 GdCore.Versions 与 GdCore.RunLock 两枚类，panel-cs **一格都不消费**(运行锁的 own 判据
-#   在 Round.cs:247 自己那份) —— 带进来是"整份文件同进同出"的代价，登记在此免得将来被当成第二处真身。
+# R9-a(2026-10-17)：轮骨架四格收编之后，panel-cs 要多带两份**别处已有唯一真身**的 .cs……（细节见该帧）
 $gdpower = Join-Path (Split-Path $here) 'gdinterop\GdPower.cs'
 if (-not (Test-Path -LiteralPath $gdpower)) {
     if ($Quiet) { exit 4 }
@@ -71,8 +55,7 @@ $args = @(
     '/nologo', '/target:winexe', '/optimize+', '/codepage:65001',   # 源码是无 BOM 的 UTF-8，别按机器 ANSI 码页猜中文
     "/out:$exe",
     '/reference:System.Windows.Forms.dll', '/reference:System.Drawing.dll',
-    # 批次 0(Core.Json.cs)破例上 JavaScriptSerializer：那次 Panel.Settings.cs 说"为一处自检不值当加引用"判断不变，
-    # 但迁移地基上的 JSON 不能靠手写近似。System.Web.Extensions 是 .NET Framework 自带装配(GAC)，玩家机器零新增依赖。
+    # 批次 0(Core.Json.cs)破例上 JavaScriptSerializer：那次 Panel.Settings.cs 说"为一处自检不值当加引用"判断不变……（细节见该帧）
     '/reference:System.Web.Extensions.dll'
 )
 if (Test-Path -LiteralPath $icon) { $args += "/resource:$icon,gdpanel.icon.png" }
@@ -86,16 +69,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 if (-not $Quiet) { Write-Host ('产物: ' + $exe + ' (' + (Get-Item -LiteralPath $exe).Length + ' bytes)') }
 
-# ---------- 跑 panel-cs.exe 的那把尺(2026-10-23 乙档刀② 立) ----------
-# ⚠ 为什么非有这一枚助手不可：panel-cs.exe 是 /target:winexe(上面那条编译命令行)，而 PowerShell 用 `&`
-#   起 winexe **不等它跑完**、也不更新 $LASTEXITCODE。本机 2026-10-23 现测(仓外 gd-gate/probe-amp-vs-sp.log)：
-#   `& $exe --coretest` 之后 RC=0、只收到 2 行(真身印三十来行)、再等 5 秒和 20 秒读 $LASTEXITCODE 仍是 0。
-#   ⇒ 这一文件在此之前那十四段「& $exe --xxx / if ($LASTEXITCODE -ne 0) { throw }」从头到尾没咬到过任何东西：
-#     自检真身红成什么样这里都照样印 "OK"。docs\rust-core-plan.md §11.123 记的「coretest 3/24 红、
-#     build.ps1 -Verify 仍印 panel-cs --coretest OK」那件在册怪事，根因就是这一条(不是"那句印错了")。
-#   正解 = Start-Process -NoNewWindow -Wait -PassThru(下面这枚助手就是这么写的；早先那道摘要等值门的取数件
-#   也是同一形)，再拿"退出码读不出来当场 throw"兜住 Windows PowerShell 5.1(-PassThru 在 5.1 取不到
-#   ExitCode)：在那台引擎上这一档判红，绝不容它蒙成 rc=0 的假绿。
+# ---------- 跑 panel-cs.exe 的那把尺(2026-10-23 乙档刀② 立) ----------…（细节见该帧）
 function Invoke-GdPanelCsExe {
     <# 起一枚自检动词、等到它退、把 stdout 读回来。返回 @{Rc;Text;Last}。
         2026-10-23 版号轮起 Panel.cs 的 Main 在任何输出前按"已被重定向"装 UTF-8 写手(Cli.cs 的 UseUtf8IfRedirected)，stdout 自此落 UTF-8
@@ -194,13 +168,7 @@ if ($Verify -or $ConsoleTest -or $ExpTest -or $HeadlessTest) {
             Invoke-GdPanelCsSuite -Steps @(@{ Flag = '--exptest'; Note = '实验功能三键' }) -SinkDir $sink
         }
         if ($HeadlessTest) {
-            # 面板链路自证：真起一次预演(薄入口 -DryRun，不启动任何游戏/助手)，验"子进程输出→重定向文件→
-            # 定时器泵→忙碌复位"这条链在**这一棵树**上成立。乙档刀③ 之前这一档由 `tools\panel.ps1 -HeadlessCheck`
-            # 承担，判定面进核后由这份 C# 的 `--headless` 承担(统计六格逐字转写自那边，见 Panel.cs 的
-            # CaptureHeadlessStats)—— 这里换的是**跑法**(winexe 不能靠 `&` 取退出码)，不是判据。
-            # ⚠ 红的时候必须把面板自己印的那一整段交出去：验收链在"这棵树没有内置件"那一档靠的是输出里的话术
-            #   (结论行 TIMEOUT ＋ 末 20 行日志里那句"拿不到内置件")把"预演等不到结论"和"跑挂了"分开，
-            #   只把 throw 那一行转上去会丢掉第二把锁。
+            # 面板链路自证：真起一次预演(薄入口 -DryRun，不启动任何游戏/助手)，验"子进程输出→重定向文件→…（细节见该帧）
             $r = Invoke-GdPanelCsExe -Flag '--headless' -SinkDir $sink
             if ($r.Rc -ne 0) {
                 Write-Host $r.Text

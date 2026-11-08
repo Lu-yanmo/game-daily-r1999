@@ -29,12 +29,7 @@ foreach ($d in @($global:GD.Logs, $global:GD.State, $global:GD.Backup)) {
 function Get-GdRoot { $global:GD.Root }
 function Get-GdDir  { param([string]$Name) $global:GD.$Name }
 
-# ---------- 版本号：全工程只有一处写着它，就是仓库根那个 VERSION 文件 ----------
-# 为什么要单独一个文件：以前版本只活在 git tag 上(v2026.09.26 那次临时起的)，代码里、exe 上、面板上
-# 都没有"这是哪一版"的读数 —— 玩家报问题时第一句"你用的哪版"就没法答。做成文件之后：
-# PowerShell 读它(Get-GdVersion)、C# 面板读它(标题栏 + 诊断包里的 版本.txt)、exe 读它(--version)、
-# build-exe 拿它盖进产物的文件属性(AssemblyVersion / AssemblyFileVersion)，打 tag 也用它。
-# 五个下游同一个来源；tools\test-modules.ps1 的 [m12] 钉住"不许有第二处写死版本号"(注释里写一遍也算第二处)。
+# ---------- 版本号：全工程只有一处写着它，就是仓库根那个 VERSION 文件 ----------…（细节见该帧）
 $global:GdVersionCache = $null
 function Get-GdVersion {
     param([string]$File, [switch]$Refresh)
@@ -257,14 +252,7 @@ function Join-GdPath {
     return [GdCore.Paths]::Join($Base, @($Parts))
 }
 
-# --- B0(2026-09-29)：P/Invoke 现场件也从 here-string 搬进真 .cs，宿主各自现编 ---
-# 与下面 Add-GdCore(本文件末尾)的分工：内核 GdCore 装的是**纯规则**(路径/序列化/版本行/历史行)，
-# 编不过可以回退逐行冻结的 PS 原身；interop 装的是 **P/Invoke 签名**，PS 侧没有原身可退(类型只能现编)，
-# 所以这里的"回退"= 让调用方拿到它本来就写好的那条"读不到/失败"语义：Add-GdInterop 永不向上抛、只落状态，
-# 由调用方按状态各走各的分支(Add-GdSleepTypeDef 仍会抛：转接层 Start-GdRoundHostNoSleep 的 catch 吞成"没设位、本轮照跑"，
-# Set-GdScreensaverActive 自己不接、原样上抛；Get-GdInputDesktopName 已删(刀⑰ 笔(b)，docs\rust-core-plan.md §11.272)，
-# "读不到返回空串"那半三态搬到 verb input-desktop-name 的回执 Name 上，由 unarm-screensaver 消费面现折)。
-# 内核与 interop 都不是硬依赖——不许把 06:00 那轮置于死地。
+# --- B0(2026-09-29)：P/Invoke 现场件也从 here-string 搬进真 .cs，宿主各自现编 ---…（细节见该帧）
 $script:GdInteropState = 'off'    # off|live|fallback
 $script:GdInteropMs = -1          # 本进程现编 interop 花了几毫秒(-1 = 没编过)
 function Add-GdInterop {
@@ -298,28 +286,9 @@ function Add-GdSleepTypeDef {
     if ((Add-GdInterop) -ne 'live') { throw "interop 现编失败(GdPower 不可用)，状态=$script:GdInteropState" }
     $global:GdSleepHandle = $true
 }
-# Get-GdScreensaverConfig 已删(转接刀·屏保稳态族，docs\rust-core-plan.md §11.215)：只读注册表那半段的真身在核内
-# tools\panel-cs\Round.cs::ScreensaverConfig，现问 verb read-screensaver-config(键开不了答 Found:false，不再返 $null)。
-# 旧那句"读不到返回 $null，调用方按不知道处理"的规矩自此搬到调用方折算：Found:false ⇒ 递 cfg=null，
-# 让 verdict 说"判断不了"，**绝不许读成"没装屏保"(none)** —— status.ps1／lib\ark-daily.ps1／
-# tools\unarm-screensaver.ps1／tools\test-lib.ps1 四处各自现折，这一句是语义闸不是风格问题。
-# Get-GdScreensaverWho 已删(同批)：归因规则(WE 代理名归一／产品名优先／回退 .scr 文件名)的唯一事实源在核内
-# tools\panel-cs\Decisions.cs::Decisions.ScreensaverWhoV，现问 verb resolve-screensaver-who，取回执 Text。
-# Get-GdScreensaverVerdict 已删(同批)：四档判据顺序(unknown→none→armed→off)与全部面板/体检话术的唯一事实源在核内
-# tools\panel-cs\Decisions.cs::Decisions.ScreensaverVerdict，现问 verb resolve-screensaver-verdict
-# (吃 cfg／floorSec，回 Kind/Risk/Text/Detail —— 回执形状就是原来的 hashtable 形状，属性访问同形)。
-# 改规则或文案请改 C# 并跑 panel-cs --dectest 的屏保档(期望串在 Decisions.SelfTest.cs)，不要在这里加回去；
-# 原头注点名的老调用方 tools\panel.ps1 已于 10-23 刀③ 删除，此处留作历史引文，别当活锚读。
+# Get-GdScreensaverConfig 已删(转接刀·屏保稳态族，docs\rust-core-plan.md §11.215)：只读注册表那半段的真身在核内…（细节见该帧）
 
 # Get-GdScreensaverStateFile 已删(丙档落码刀②，docs\rust-core-plan.md §11.118)：唯一调用方随 Enter-GdNoSleep 一起退役，screensaver.restore 那本 state 自此没有 PS 侧的读写者。
-# Get-GdInputDesktopName 已删(刀⑰ 笔(b)，docs\rust-core-plan.md §11.272)：三态(读到/读不到/编译不成)整枚搬到核侧，
-# 真身在 tools\panel-cs\GdWin.cs::InputDesktopName(拿不到回空串)，出口是 verb input-desktop-name(处理器 Live.cs::InputDesktopNameV，
-# 回执只有 Name 一格)。消费面 tools\unarm-screensaver.ps1 已改问 verb；"不知道"那半折法(空串≠锁屏)留在消费面，不进核。
-# 原头注的两条教训照登(别再踩)：现编类型不许给 -ErrorAction SilentlyContinue("编译成功但不落地")；
-# -Name+-MemberDefinition 在函数体内同样不落地，形态必须是完整 -TypeDefinition。签名本体 tools\gdinterop\GdDesk.cs 随批整枚退役
-# ——Add-GdInterop 按目录现扫全量编译，不点名 GdDesk.cs，删了不会被"少一个文件"咬到。
-# Get-GdScreensaverActive 已删(丙档落码刀②，docs\rust-core-plan.md §11.118)：生产面零调用方，它唯一的调用方随 Enter-GdNoSleep 一起退役(§11.116)。
-# SPI 武装位那一格现由核内 verb disable-screensaver-for-round 现读(Round.cs::ScreensaverOff 里的 GdPower.SPIGetActive)；本枚"读不到返回 null"那半三态随体退场。
 function Set-GdScreensaverActive {
     param([Parameter(Mandatory)][bool]$Active)
     Add-GdSleepTypeDef
@@ -328,15 +297,13 @@ function Set-GdScreensaverActive {
                                          [GdPower]::SPIF_SENDWININICHANGE)
 }
 # Enter-GdNoSleep／Exit-GdNoSleep 两枚真身已删(丙档落码刀①，docs\rust-core-plan.md §11.116)：生产面零调用方。
-# 睡眠屏蔽与"只关不复"那两档现由核内段 8 与转接层 lib\rust-round.ps1 的 Start-/Stop-GdRoundHostNoSleep 那一对补位件做。
 
 # --- 进程工具 ---
 function Test-GdProcessRunning {
     param([Parameter(Mandatory)][string]$Name)
     return [bool](Get-Process -Name $Name -ErrorAction SilentlyContinue)
 }
-# Stop-GdProcessTree 真身已删(11-06 转接刀·运行面刀⑭ 笔(a))：PS 面最后一处消费点随刀⑫ 笔(a) 摘 Stop-M9A 壳归零，
-#   表账第六列自此 0:0 整行划除不留墓碑；唯一出口＝stop-process-tree verb(tools/panel-cs/Round.cs::Round.ProcTree 直身)。
+# Stop-GdProcessTree 真身已删(11-06 转接刀·运行面刀⑭ 笔(a))：PS 面最后一处消费点随刀⑫ 笔(a) 摘 Stop-M9A 壳归零……（细节见该帧）
 
 function Invoke-GdNative {
     <# 运行外部命令，返回 @{Code;Out;Err} #>
@@ -509,19 +476,9 @@ function Install-GdPythonEmbeddable {
     }
 }
 
-# Invoke-GdTakeover 已删(11-05 转接刀·运行面刀⑨)：原段头那句"日常编排通用两件：接管关闭 / 单步包异常"里两件
-# 都已出仓(单步那枚见下面那段 10-25 史注，接管这枚在本行)。对面在
-# tools/panel-cs/Chain.cs::Takeover(verb takeover-processes，Round.SelfTest 第 20 节有格)，表账档位词「已承接」，
-# 全仓 AST 零调用点(k853 正则尺＋k854/k855 名册尺同帧对平)。
+# Invoke-GdTakeover 已删(11-05 转接刀·运行面刀⑨)：原段头那句"日常编排通用两件：接管关闭 / 单步包异常"里两件…（细节见该帧）
 
-# Invoke-GdStep 已删(10-25 甲档摘件，docs\rust-core-plan.md §11.132)：生产面自 10-24 刀③ 起整词 0 命中；
-# 三座等值门那八发调用(probe-live-golden ⑥路 3／probe-arkskip 老侧 3／probe-m9adrive 旧侧 2，第三发在钉位
-# 那份 r1999-daily.ps1 里本就注释掉)自 10-25 补尺笔起改咬各门自带的逐字副本——三座门现已全部退役
-# (第九/十三刀，m9adrive 随 10-27 第十六刀整件退役、等值面搬进 gdprobe --selftest 第 27 节)；
-# 核内等价体在 tools/rustcore/src/main.rs::ark_daily_step ⇒ **全仓**再无读者，上一版的⚠(m9adrive 的钉位
-# blob 经 child dot-source 现树拿真身、静态尺读不到那一形)自此结清。
-# 它体内那一发 Write-GdLog 随它出仓，本件第六列由门现量代改。
-# --- 网络：Windows PowerShell 5.1 默认不启用 TLS 1.2，走 HTTPS 前必须先打开 ---
+# Invoke-GdStep 已删(10-25 甲档摘件，docs\rust-core-plan.md §11.132)：生产面自 10-24 刀③ 起整词 0 命中；…（细节见该帧）
 function Enable-GdTls12 {
     <#
       5.1 的 ServicePointManager 默认只到 TLS 1.0/1.1，多数 CDN 直接握手失败；PowerShell 7 默认就带 TLS 1.2+，
@@ -719,18 +676,9 @@ function Stop-GdRunLock {
     } catch { }
 }
 
-# Wait-GdCondition 已删(刀⑰ 笔(b)，docs\rust-core-plan.md §11.272)：真身是 tools\panel-cs\Chain.cs::WaitUntil 的逐字复刻，
-# 出口是 verb wait-adb-game-pid(处理器 Chain.WaitAdbGamePid＝单用途形，拒开通用重入形：scriptblock 进不了 JSON 契约)。
-# 先判再睡／超时那句 WARN「等待超时(Ns)：what」逐字与旧件同形；WARN 由核内 Say 落日志，壳侧不回放 Lines(mumu 批定谳)。
-# 消费面 tools\1999-event-audit.ps1 已改问 verb。
-# Get-GdFileTail 已删(同批)：真身是 tools\panel-cs\Chain.cs::ReadTail 的逐字复刻，出口是 verb read-file-tail
-# (处理器 Chain.ReadFileTail，回执 Text/Offset 两键与旧 hashtable 同形)。三条口径随面对在位：不在⇒('',0)、
-# offset 越界⇒归零全读(日志轮转那一支)、Offset 恒为读完时的文件尾；FileShare.ReadWrite 与无 BOM UTF8 也照抄。
-# 消费面 run-via-task.ps1 的续读已改问 verb。
+# Wait-GdCondition 已删(刀⑰ 笔(b)，docs\rust-core-plan.md §11.272)：真身是 tools\panel-cs\Chain.cs::WaitUntil 的逐字复刻……（细节见该帧）
 
-# Get-GdWindowByTitle 已删(11-05 转接刀·运行面刀⑨)：按主窗口标题找进程那把闸的对面在
-# tools/panel-cs/Chain.cs::FindByTitle(start-ark-client 链体内用，含 msedge 误报那道进程名过滤)，表账档位词「已承接」，
-# 全仓 AST 零调用点(k853／k854／k855 三把尺同帧)。
+# Get-GdWindowByTitle 已删(11-05 转接刀·运行面刀⑨)：按主窗口标题找进程那把闸的对面在…（细节见该帧）
 
 # --- 计划任务(免 UAC 的管理员通道) ---
 function Get-GdTaskState {
@@ -780,10 +728,7 @@ function Convert-GdMapToHashtable {
     return $h
 }
 
-# ---------- 本机专属值：两道扫描共用的判据(2026-09-25 从 tools\publish-split.ps1 挪上来) ----------
-# 为什么在这儿：原来只有导出那一步扫得到，于是要等 publish-split 跑起来才看得见"源码里粘了本机路径"。
-# 同一套判据挪进 lib\ 之后，tools\test-modules.ps1 [m8] 也能用它扫源码 —— 早一步红，就少一轮返工。
-# 两个函数都不含任何一条本机字面量(值全部运行时从 settings.json / 注册表目录里取)，所以扫自己的时候不会命中自己。
+# ---------- 本机专属值：两道扫描共用的判据(2026-09-25 从 tools\publish-split.ps1 挪上来) ----------…（细节见该帧）
 
 function Get-GdLocalOnlyValues {
     <# 只有这台机器才成立的东西：settings.json 里的绝对路径、MuMu 虚拟机名、M9A 给每个实例生成的短 hash。
@@ -847,11 +792,7 @@ function Test-GdExportLeaks {
     return @($hits | Sort-Object -Unique)
 }
 
-# ---------- 新宿主(Rust 核)出货链：壳侧期望契约号 + 二进制逐字节泄漏门 ----------
-# 2026-10-01 落，判据原文在 docs\r0-adrs.md §5.3(第 3/4/5 处)。上面那道文本门**按扩展名跳过** .exe/.dll/.zip，
-# 所以二进制今天不受它保护 —— 文本门绿不等于包干净。下面两道件就是把这一格补上：
-# 期望契约号有一份(壳侧)、要扫的东西有一份(仍走 Get-GdLocalOnlyValues 这个唯一口径 + 从环境现推的短串)、
-# 逐字节扫法有一份(两副眼镜：cargo 产物里是 UTF-8/ASCII，csc 产物里是 UTF-16，只看一副就有半边盲区)。
+# ---------- 新宿主(Rust 核)出货链：壳侧期望契约号 + 二进制逐字节泄漏门 ----------…（细节见该帧）
 function Get-GdRustContract { 'RustCore-R11.0' }   # 与 tools\rustcore\src\main.rs 的 const CONTRACT 同改；同一轮内不许单侧动
 
 function Get-GdBinaryLeakSet {
@@ -869,11 +810,7 @@ function Get-GdBinaryLeakSet {
     $usersRoot = ''
     if ($env:USERPROFILE) { $usersRoot = [string](Split-Path -Parent ([string]$env:USERPROFILE)) }
     if ($usersRoot) { $set += [pscustomobject]@{ Label = 'env.USERSROOT'; Value = $usersRoot; Kind = 'text'; Word = $false } }
-    # 10-26 推仓55 在案纠正：本形不加词边界时，会把 rodata 里**相邻字符串字面量的跨界拼接**误判成密钥——
-    #   K15_NAMES 那 28 枚槽名 rustc 无分隔合并后，"…task-failed"＋"m9as03-…" 拼出 sk-failedm9as03，
-    #   出货链第 0 步当场红(gdcore.exe ← key-shape)；源码面 0 命中(证据 ship-1026\raw\keyshape-fp-evidence.txt)。
-    #   处方与上面短串 Word 同族：前向词边界守卫(左侧邻字符是字母数字就不许成针)；三例真形仍咬、跨界拼形不咬
-    #   (证据 raw\keyshape-prescription.txt)。文本面没有这枚针(它只住在二进制门)，故唯一改口点在此。 #>
+    # 10-26 推仓55 在案纠正：本形不加词边界时，会把 rodata 里**相邻字符串字面量的跨界拼接**误判成密钥——…（细节见该帧）
     $set += [pscustomobject]@{ Label = 'key-shape'; Value = '(?<![A-Za-z0-9])sk-[A-Za-z0-9]{12}'; Kind = 'regex'; Word = $false }
     return @($set)
 }
@@ -994,9 +931,7 @@ function Start-GdNativeStreamed {
         [scriptblock]$OnSinkRow,
         # 第二道保险的等待上限(毫秒)：只在"子进程已退、管道却没等到 EOF"这一支生效，健康路径上 Wait 当场为真。
         [int]$StreamDrainTimeoutMs = 5000,
-        # 第三道保险(10-20)：子进程**没退出**的硬上限(毫秒)。0 = 照旧无界(三门的夹具桩与其余调用点行为一字不变)；
-        # 生产三处按各自 settings 的超时传值。等满就 Kill 并交回 WaitTimedOut=$true —— 结束它是调用方的决断，
-        # 这一枚只提供"等满"这个事实与收尸动作，不替调用方判成败。
+        # 第三道保险(10-20)：子进程**没退出**的硬上限(毫秒)。0 = 照旧无界(三门的夹具桩与其余调用点行为一字不变)；…（细节见该帧）
         [int]$HardWaitMs = 0
     )
     $psi = New-Object System.Diagnostics.ProcessStartInfo
@@ -1037,11 +972,7 @@ function Start-GdNativeStreamed {
     # Kill 那一支上 ExitCode 也可能读不到(收尸没等到)，读不到按 -1 交回，不许让这一行自己炸掉整轮。
     $code = -1
     try { $code = $p.ExitCode } catch { }
-    # 第二道保险(10-13 现场定因)：子进程已退，但**被它起的进程继承了 stdout/stderr 管道的写端** ⇒ EOF 永不到，
-    # 旧码在这里取 `.Result` 那一句能把整轮钉死到计划任务按执行时限砍班(读数见 docs\b2e-eventstream-feasibility.md §6)。
-    # 现在每路只等有界：等满就放弃那一路的**兜底文本** —— 信封的正常落点是 --out 那个文件，不依赖 stdout，
-    # 只有"信封写不下去、退 stdout 末行"那一条备用路会受影响，所以放弃计数必须随返回值交出去、由调用方自己印 WARN。
-    # 不许静默：卡住、被放弃、真的没输出，是三种病，得能分档读。
+    # 第二道保险(10-13 现场定因)：子进程已退，但**被它起的进程继承了 stdout/stderr 管道的写端** ⇒ EOF 永不到……（细节见该帧）
     $timeouts = 0
     $lines = @()
     foreach ($tk in @($outTask, $errTask)) {
@@ -1055,21 +986,9 @@ function Start-GdNativeStreamed {
     return [pscustomobject]@{ ExitCode = $code; Lines = @($lines); StreamTimeouts = $timeouts; WaitTimedOut = $waitTimedOut }
 }
 
-# ---------- GdCore 进程内内核加载器(K0 收官件，形态=丙·宿主各自现编；契约全文 docs\gd-core-contract.md) ----------
-# 丙案要点：内核源码 tools\gdcore\*.cs 纯 BCL/C#5/纯 ASCII，pwsh7 走 Roslyn、5.1 走 CodeDom 各自 Add-Type -Path 现编，
-# 自此装载炸(源码缺/编译被杀软拦/契约号不匹配)不再静默降级：六枚当场拒跑，其余壳侧函数照跑(方案 §0/§3.2 的正面改判，判语见 §11.287)。
-# 刀⑲ 笔(d) 改判：核心六枚纯规则的 PS 原身臂已出仓——「内核永不是硬依赖」的前提(内核可能编不过/形状不对拍)由双引擎实编证伪，
-# 史注(刀⑲ 笔(d) 之前)：曾按 $script:GdCoreFunctions 白名单逐个放开内核化函数，K1 起每内核化一枚才往名单添名；
-# 史注：settings.runtime.coreOff 曾是函数级热开关(列出即关该函数、缺失=全开)，单个内核函数出 bug 改一行 settings 当日止血。
-# 两族已于刀⑲ 笔(d) 同批退役——核心六枚纯规则自此只有内核一份，当日止血由改一行 settings 降级为 git revert 那一批(判语见 §11.287)。
-# 注意：自 2026-09-29 的**接线批**起，生产入口(三个 daily-clear / status / run-via-task)在
-# 读到 settings 之前显式调一次 Add-GdCore，并把一行读数写进日志(见下面的 Get-GdCoreReadout)；
-# 没接线的宿主(setup/install 一次性入口)照旧恒 off = 全走 PS 原身，行为一字不变；panel.ps1 那一路兜底宿主已于 2026-10-23 乙档刀③ 整件删除。
+# ---------- GdCore 进程内内核加载器(K0 收官件，形态=丙·宿主各自现编；契约全文 docs\gd-core-contract.md) ----------…（细节见该帧）
 $script:GdCoreState = 'off'      # off|live|fallback
 # 刀⑲ 笔(d)：白名单与 coreOff 热开关同批退役——核心六枚纯规则自此只有内核一份，路由判据(Test-GdCoreFn)无臂可路由。
-# 接线批(09-29)的性能读数两条：Add-GdCore 只记"编了几毫秒"，子进程计数挂在两个起进程的包装函数上。
-# 为什么在这里数：丙形态的内核是**进程内**的，接线本身一个新进程都不起 —— 要证的就是这件事，
-# 所以出口给的是"宿主自己编了一次、花多少毫秒"+"这一轮真起了多少个外部子进程"。
 $script:GdCoreMs = -1            # 本进程现编一次花了多少毫秒(-1 = 没编过)
 $script:GdChildProcs = 0         # 本进程经 Invoke-GdNative / Invoke-GdChild 起过的外部子进程累计
 

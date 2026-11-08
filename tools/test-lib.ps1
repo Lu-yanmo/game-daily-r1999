@@ -24,9 +24,6 @@ function Check {
 $S = Get-GdSettings -Quiet
 
 # 屏保读数：06:00 方舟连败的根因，判据必须能脱离本机注册表被验完。
-# 刀㉓ 笔(b) 摘格本：原先那九枚"喂构造假 cfg"的行为格自此不在 PS 侧——对面 10-26 甲档第八刀就立在
-#   tools\panel-cs\Decisions.SelfTest.cs(四档顺序那格 + floorSec/字符串读数/Ci 那格 + saver 14 档逐字投影)，
-# 本段自此只剩两类：碰本机注册表那一格(只验不抛 + 落四态，不押它是哪一种)＋生产消费面的形状钉。
 function Show-GdCommonScreensaverChecks {
     Write-Host "`n[t1g] 屏保读数(本机真读数 + 消费面形状钉；假 cfg 四档判据的家在 --dectest 屏保族)"
     # 本机真读数走的那半段：现问 read-screensaver-config，Found:false 必须折成 cfg=null(读不到那一档)，
@@ -41,11 +38,6 @@ function Show-GdCommonScreensaverChecks {
     try { $live = GdSvLiveVerdict } catch { $threw = $true }
     Check '读本机注册表不抛，且结论落在 none/armed/off/unknown 四种之一' (-not $threw -and @('none','armed','off','unknown') -contains $live.Kind) ($live.Text)
     # 语义闸的形状钉(转接刀·屏保稳态族)：生产消费面上那句 Found:false ⇒ 递 cfg=null 必须还在**问那一枚 verb 的同一行**上。
-    # 为什么只能按形状钉：这台机器注册表恒能读到(Found 真)⇒ 把折算整句摘掉也不会有任何现读格变红，
-    # 而摘掉的后果是把"读不到"交给核内读成"没挂 .scr(没事)"—— 那一档话术正是体检要避免的假安心。
-    # 只数调用行(带 Invoke-GdCli 那句)，注释里同名的 verb 字面不算账；一行调用都没有／调用行里没那句折算都算这格红。
-    # 刀⑦ 后消费面 3→2(status.ps1／tools\unarm-screensaver.ps1)，$foldPerGame 空了＝分路豁免通道恒不开，
-    # 任何一棵树里缺这两枚都当场红；[跳过] 形制留着给以后只属于某一路的消费面。
     $foldFiles = @('status.ps1', 'tools\unarm-screensaver.ps1')
     $foldPerGame = @()
     $foldMiss = @()
@@ -172,12 +164,9 @@ function Show-GdCommonPathChecks {
 }
 
 # 单游戏仓库的提示语必须写它自己的参数名(否则日志让用户敲 -AckArk，入口根本没这个参数)。
-# verb 名不再有"进程内可覆盖的表"：取名函数每次现问模块注册表，问不到就回落干净短名；本件被 test-ark／test-r1999 点起，
-# 注册表不在场⇒这里量的是回落支；长名那一支由 tools\test-modules.ps1 [m6] 用入口 param() 做对照(两把尺不同轴，不并)。
 function Show-GdCommonVerbChecks {
     Write-Host "`n[t1c] 提示语里的参数名(现问注册表，问不到回落短名)"
     # 两本名册都现读：verb 名册来自取名函数自己的 ValidateSet(那才是名单事实源)，游戏名册来自 Get-GdGameIds。
-    # 写在这里的枚数不作数(旧那句「Sync 一次改的是六格」就是这么一笔陈旧数，§11.176 ⑧ 登记的正是这一形)。
     $verbAttr = @((Get-Command Get-GdEntryVerb).Parameters['Verb'].Attributes |
         Where-Object { $_ -is [System.Management.Automation.ValidateSetAttribute] })
     $verbRoster = @()
@@ -187,8 +176,7 @@ function Show-GdCommonVerbChecks {
     Check '[t1c] 游戏名册现读自 Get-GdGameIds(注册表不在场时它给本仓库一直认的那几枚 id)' (($gRoster.Count -ge 2) -and (@($gRoster) -contains 'ark')) ($gRoster -join ' / ')
     $dArk = @((Get-GdEntryVerb -Game ark -Verb Ack), (Get-GdEntryVerb -Game ark -Verb ShopReset))
     Check '[t1c] 默认提示用单游戏入口的干净短名' (($dArk -join ',') -eq '-Ack,-ShopReset') ($dArk -join ' , ')
-    # 这一格是本枚件的射程边界，不是对机器现场的要求：注册表不在场才走得到回落支。哪天这两本也点 modules.ps1，
-    # 这一格会红 —— 那不是坏消息，是"两把尺并成一把"的信号，届时把 [m6] 的对照面搬过来再动这里。
+    # 这一格是本枚件的射程边界，不是对机器现场的要求：注册表不在场才走得到回落支。哪天这两本也点 modules.ps1……（细节见该帧）
     Check '[t1c] 本进程未装载模块注册表(回落支在此，长名那一支归 [m6] 钉)' ($null -eq (Get-Command Get-GdModules -ErrorAction SilentlyContinue))
     $combos = 0
     $longHits = 0
@@ -204,8 +192,7 @@ function Show-GdCommonVerbChecks {
     Check '[t1c] 回落按被问的 verb 现拼(写死任何一枚就在这里红)' (($perGot -join ',') -eq ($perWant -join ',')) ($perGot -join ' , ')
 }
 
-# 提示语"照抄就能跑"是这一路的用户界面：静态扫一遍本仓库的 .ps1，凡是"入口脚本名 + 一个参数"的地方，
-# 那个参数必须在本仓库入口的 param() 里真的存在(单游戏导出仓库冒出合体工程的长参数名会立刻被抓住)。
+# 提示语"照抄就能跑"是这一路的用户界面：静态扫一遍本仓库的 .ps1，凡是"入口脚本名 + 一个参数"的地方……（细节见该帧）
 function Show-GdCommonEntryHintChecks {
     Write-Host "`n[t1d] 提示语里敲的命令，本仓库入口真的收这个参数"
     $entry = Join-Path $root 'daily-clear.ps1'
@@ -216,8 +203,7 @@ function Show-GdCommonEntryHintChecks {
     Check "入口 $($entry | Split-Path -Leaf) 声明了 $(($flags | Sort-Object -Unique).Count) 个参数" ($flags.Count -ge 3) (($flags | Sort-Object -Unique) -join ',')
     $pat = 'daily-clear\.ps1\s+(-[A-Za-z][A-Za-z0-9]*)'
     $bad = @()
-    # publish\src 下那些是"给导出仓库用的入口"，它们自己的参数由导出仓库跑这一条时校验；
-    # 在本地合体工程里拿它们的 -Ack 去对 -AckArk 的入口，只会假报警。
+    # publish\src 下那些是"给导出仓库用的入口"，它们自己的参数由导出仓库跑这一条时校验；…（细节见该帧）
     foreach ($f in (Get-ChildItem -LiteralPath $root -Recurse -Filter '*.ps1' | Where-Object { $_.FullName -notmatch '\\(logs|state|backups|publish)\\' })) {
         $n = 0
         foreach ($line in (Get-Content -LiteralPath $f.FullName -Encoding utf8)) {
@@ -231,8 +217,7 @@ function Show-GdCommonEntryHintChecks {
     Check '没有提示过本仓库入口不存在的参数' ($bad.Count -eq 0) ($bad -join ' , ')
 }
 
-# PowerShell 参数模式里 -NotePropertyValue 后面直接写 [string]$x 并不转型：它把类型字面量当字符串、把后面 token 吞成值
-# (2026-09-24 把 settings.json 的 vmIndex 写成了 "[string]System.Collections.Specialized...")。写法本身永远不该有，静态扫出来就红。
+# PowerShell 参数模式里 -NotePropertyValue 后面直接写 [string]$x 并不转型：它把类型字面量当字符串、把后面 token 吞成值…（细节见该帧）
 function Show-GdCommonScriptHygieneChecks {
     Write-Host "`n[t1e] 脚本卫生(参数模式伪转型)"
     $pat = '-Note' + 'PropertyValue\s*\['   # 拼起来，免得这条检查自己扫到自己
@@ -247,8 +232,7 @@ function Show-GdCommonScriptHygieneChecks {
     Check '没有把 [类型] 直接写在 -NotePropertyValue 后面的伪转型' ($hits.Count -eq 0) ($hits -join ' , ')
 }
 
-# 第一次跑(exe 双击 → setup 还没探测)时 paths.* 全是空串：只读诊断要能列出"哪几项没填"，
-# 要干活的入口必须停下来点名 setup.ps1(2026-09-24 首次打包时，空路径让 daily-clear 抛"参数 'Base' 是空字符串")。
+# 第一次跑(exe 双击 → setup 还没探测)时 paths.* 全是空串：只读诊断要能列出"哪几项没填"……（细节见该帧）
 function Show-GdCommonEmptyPathChecks {
     Write-Host "`n[t1f] 助手路径还没填时的行为(exe/访客第一次跑)"
     Check 'Join-GdPath base 空 → 返回空串(不抛)' ((Join-GdPath '' @('a', 'b.json')) -eq '')

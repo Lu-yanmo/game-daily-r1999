@@ -1,0 +1,16 @@
+{
+  "id": "r1999",
+  "name": "重返未来：1999（M9A + MuMu 模拟器）",
+  "version": "1.5.0",
+  "files": [
+    "lib/m9a.ps1",
+    "lib/r1999-decisions.ps1",
+    "lib/r1999-module.ps1",
+    "tools/test-r1999.ps1",
+    "tools/probe-m9a-history.ps1",
+    "tools/replay-m9a-log.ps1",
+    "tools/m9a-update.ps1",
+    "tools/1999-event-audit.ps1"
+  ],
+  "settings": "config/settings.example.json"
+}

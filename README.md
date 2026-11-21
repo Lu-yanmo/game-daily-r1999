@@ -1,13 +1,28 @@
-# 重返未来：1999 每日清体力（M9A + MuMu 模拟器 12，无人值守）
+# 重返未来：1999 · gd-ops 插件（M9A + MuMu 模拟器）
 
-每天定时把 1999 的日常跑完：**启动模拟器 → 拉起 M9A → 按当前版本自动选方案（长草 / 当期活动 / 复刻）→ 跑完任务队列 → 关游戏、关 M9A、关模拟器**。
+这是 [gd-ops](https://github.com/Lu-yanmo/gd-ops) 的可选插件：**只含 1999 这一款的业务件**
+（M9A 实例切换与判定转发壳、1999 判定壳、模块清单、这一路的自检与工具、配置片段）。
+面板、Rust 核、公共库、入口、计划任务都在主仓 —— 本仓不能单独运行，装上之后才长出 1999 这一段。
 
+装上以后，每天定时把 1999 的日常跑完：**启动模拟器 → 拉起 M9A → 按当前版本自动选方案（长草 / 当期活动 / 复刻）→ 跑完任务队列 → 关游戏、关 M9A、关模拟器**。
 用的还是 **M9A** 本身 —— 这里只做「今天该用哪个方案 → 切实例 → 用 M9A 自己的命令行入口启动 → 看它的日志判断结果 → 收尾」，
 不需要点按钮、不需要热键、不需要 UI 自动化。
 
-**怎么上手最快**：去 [Releases](https://github.com/Lu-yanmo/game-daily-r1999/releases) 下载 `game-daily-r1999.exe` 和
-`game-daily-r1999-engine.zip` 这一对附件，放同一个文件夹，双击 exe 就直接进主控台（零依赖，不用装任何东西）。
-之后的日常全在面板里点，见 [第 1 节](#1-日常操作双击-panelcmd-就够了)。从源码跑、或者想接自动化，见 1.2 / 1.3。
+**装法**（先把 gd-ops 克隆下来，再在 gd-ops 根目录跑）：
+
+```powershell
+git clone https://github.com/Lu-yanmo/game-daily-r1999.git
+pwsh -File tools\install-plugin.ps1 -From ..\game-daily-r1999
+pwsh -File setup.ps1                 # 探测 M9A / MuMu 装在哪、列虚拟机索引
+pwsh -File daily-clear.ps1 -DryRun   # 先看今天会怎么跑
+```
+
+装的时候会把 `plugin.json` 点名的件搬进主仓、把本仓的 `config\settings.example.json`
+作为片段并进主仓的 `config\settings.json`（只补不覆盖，改前备份）。卸载：
+`pwsh -File tools\install-plugin.ps1 -Uninstall r1999`。
+
+> **下文语境**：第 1～6 节讲的是"装进 gd-ops 之后的日常用法/判定规则/排障"，里面说的「本仓库」指装好插件的主仓树；
+> 面板、入口、内置件、计划任务都是主仓的件，不在本仓。本仓自己的文件清单见[第 7 节](#7-文件结构)。
 
 ---
 
@@ -25,7 +40,7 @@
 面板是**面向用户的主控台**：从今天跑哪个方案、为什么这么判，到改配置、改时间点、翻历史、打包诊断，
 都在界面里点，不需要记命令。（命令行还在，但位置是「兜底与自动化」，见 [1.2](#12-兜底与自动化命令行)。）
 
-双击 `panel.cmd`（或不带参数打开打包好的 exe）会先用 **Windows 自带的 .NET 编译器**把
+双击 `panel.cmd`（在主仓 gd-ops 根目录；或不带参数打开打包好的 exe）会先用 **Windows 自带的 .NET 编译器**把
 `tools\panel-cs\` 里那一组 `.cs` 现编成 `tools\panel-cs\panel-cs.exe`（几秒钟，不用装任何东西）再打开它 ——
 那组文件是**同一份程序**的分工：GUI 面板、判定面、命令行动词表、以及各自配套的离线自检，`Panel.cs` 是入口那份。
 这是一份**黑白双主题**的 C# 面板，右上角可以切深/浅。极精简系统上编不出来就明说编不出来、给命令行出路 ——
@@ -82,28 +97,25 @@ C# 面板有三个不弹窗的自检：`tools\panel-cs\panel-cs.exe --selftest`�
 这一路**不需要管理员权限**（不像端游那一路要提权）。退出码：`0` 完成 / `1` 部分完成 / `2` 失败。
 运行日志在 `logs\`，历史汇总在 `state\history.csv`。
 
-### 1.3 用 git 克隆的人：先决定「内置件」从哪来（拿不到就整轮拒跑）
+### 1.3 内置件从哪来（拿不到就整轮拒跑）
 
-**每天那一轮的默认实现只有一份，住在内置件 `gdcore.exe` 里**（核内十段骨架，源码在 `tools\rustcore\src\main.rs`，
-`lib\rust-round.ps1` 是入口和它之间的转接层）。本仓库按「源码进仓、产物不入仓」的口径**只带 Rust 源码，
-不带编好的 `gdcore.exe`**。而 PowerShell 那条十段兜底已于 2026-10-20 退役（真身删了），所以入口拿不到内置件时
-**不再"换人跑"**，而是整轮拒跑：日志一句 `这一轮没跑：转接层拿不到内置件 gdcore.exe`，退出码 `2`。
+**每天那一轮的默认实现只有一份，住在主仓的内置件 `gdcore.exe` 里**（核内十段骨架，源码在 `tools\rustcore\src\main.rs`，
+`lib\rust-round.ps1` 是入口和它之间的转接层）。主仓按「源码进仓、产物不入仓」的口径**只带 Rust 源码，
+不带编好的 `gdcore.exe`**；本插件仓更不带。PowerShell 那条十段兜底已于 2026-10-20 退役（真身删了），
+所以入口拿不到内置件时**不再"换人跑"**，而是整轮拒跑：日志一句 `这一轮没跑：转接层拿不到内置件 gdcore.exe`，退出码 `2`。
 面板上点「开始跑一轮」得到的是同一句 —— 面板不自己判定，也不自己补跑。
 
-三条有出口的拿法，按省事程度排：
+两条有出口的拿法，都在 gd-ops 根目录里做：
 
-1. **走下载页那对附件（推荐给不碰命令行的人）**：`game-daily-r1999.exe` 里内嵌整棵脚本树**和内置件**
-   （打包链第 0 步就现场编 Rust，缺内置件宁可不打这枚 exe），第一次运行解到
-   `%LOCALAPPDATA%\game-daily-r1999\app\`，之后双击就行，不需要 cargo、不需要自己编任何东西。
-2. **现场编**：`pwsh -File tools\rustcore\build.ps1`（要 Rust 工具链 `cargo`，普通玩家机器一般没有；
+1. **现场编**：`pwsh -File tools\rustcore\build.ps1`（要 Rust 工具链 `cargo`，普通玩家机器一般没有；
    找不到工具链它会把装它的命令印出来）。产物落在 `tools\rustcore\target\release\gdcore.exe`，
    那正是转接层找内置件的第二个位置。
-3. **从跑过的机器上拷**：把同版本的 `gdcore.exe` 放到 `tools\rustcore\gdcore.exe`（转接层候选序的第一档，
+2. **从跑过的机器上拷**：把同版本的 `gdcore.exe` 放到 `tools\rustcore\gdcore.exe`（转接层候选序的第一档，
    就是"随包走"那个位置），放好这一轮就起得来。
 
 两条例行要说清的，免得照着老印象敲：
 
-- **只想看今天会怎么判、不真跑一轮**：`pwsh -File status.ps1` 不碰内置件，克隆下来直接能看；
+- **只想看今天会怎么判、不真跑一轮**：`pwsh -File status.ps1` 不碰内置件，装好插件就能看；
   但 `daily-clear.ps1 -DryRun` 走的是同一把闸，同样整轮拒跑（退出码 `2`）。
 - **`GD_RUST_OFF=1` 或 `runtime.rustOff` 现在不再是「退回 PowerShell」**：那把主闸把内置件拨下线之后，
   这条路上已经没有 PS 十段可退，效果同样是拒跑并说清原因。要让这台机器别再来这一轮，按第 5 节卸掉计划任务。
@@ -220,6 +232,7 @@ M9A 认界面同样靠它自己那套匹配，**没收录的东西它就看不�
 
 ## 4. 首次使用（新机器上一次性）
 
+> 命令都在**主仓 gd-ops 根目录**里跑（插件已经装好之后）。
 > 不想记命令：面板「配 置」页的**自动扫描并保存**就是下面第 0 步的 `setup.ps1`，**保存路径改动**等于手工带那几个参数
 > （M9A 目录 / MuMu 目录 / 虚拟机序号）；「定 时」页的**按现在的时间点注册**就是第 5 节的 `install-task.ps1`。
 > 下面写命令本身，是为了知道按钮按下去到底跑了什么。
@@ -300,45 +313,31 @@ pwsh -File install-task.ps1 -Uninstall
 
 ## 7. 文件结构
 
+**本仓（插件）只有这些**，装进 gd-ops 时按相同相对路径落到主仓树里：
+
 ```
-  setup.ps1            第一次用：探测 M9A / MuMu 装在哪、列虚拟机索引 → 生成 config\settings.json
-  daily-clear.ps1      入口：装配上下文 → 整轮交给内置件（§1.3）；命令行参数见 1.2
-  run-via-task.ps1     普通权限点火按需计划任务（手动跑一轮）
-  status.ps1           只读体检
-  install-task.ps1     计划任务注册/卸载
-  run-daily.cmd        双击手动跑
-  panel.cmd            双击打开主控台（现编 C# 面板；编不出来就明说编不出来、给命令行出路，见第 1 节）
-  VERSION              唯一的版本号来源（就一行 x.y.z）：status 的「版本」行、面板标题栏、诊断包里的 版本.txt、exe 的 --version 全读它（见第 6 节）
-  config\settings.example.json  配置模板（入仓）
-  config\settings.json  唯一需要配的文件（不入仓）
-  lib\common.ps1       日志/JSON/备份/防睡眠/进程/通知 —— 还负责把 tools\gdcore 与 tools\gdinterop 现编进进程
-  lib\rust-round.ps1   入口转接层：daily-clear 与内置件 gdcore.exe 之间的那一段（§1.3）
-  lib\decisions.ps1    判定门面：仓库里有哪些判定文件就点哪些（聚合件）
-  lib\decisions-common.ps1 / lib\r1999-decisions.ps1  共用底座与 1999 侧判定壳 —— 取数与规则的真身在核（Rust）和 tools\panel-cs（C#）里，逐件头注就是指路
-  lib\m9a.ps1          M9A 实例切换 + 命令行启动 + 日志判定的转发壳（冻结；规则真身在 tools\panel-cs 与核内，头注里写着每枚搬到哪了）
-  lib\modules.ps1 / lib\r1999-module.ps1  框架层模块注册表 + 1999 这一路的模块声明
-  tools\rustcore\      内置件 gdcore.exe 的源码（Rust；源码进仓、产物不入仓，build.ps1 现场编，见 1.3）
-  tools\panel-cs\      C# 主控台本体：GUI 面板 + 同一枚 exe 的命令行动词表（判定/取数/实例切换/拉起/监督/兜底全在这里，各自带离线自检 *.SelfTest.cs）
-  tools\gdcore\ tools\gdinterop\  进程内现编的 C# 内核支撑与 Win32 现场手脚（adb 拍屏/tap 那几段的真身在 panel-cs 的 Live.cs / Gate.Host.cs）
-  tools\vision\ask.py  "问模型"那一层（收请求文件、回模型原文）；截图与点击都不在这里
-  tools\vision-ask.ps1 只问不点：把虚拟机现屏交给模型、原样打印回答，一次点击都不做
-  tools\probe-m9a-history.ps1 / replay-m9a-log.ps1  实例任务计数统计 / 真日志回放（见第 6 节）
-  tools\m9a-update.ps1 M9A 整包更新器（见第 6 节）
-  tools\1999-event-audit.ps1 活动打没打完的视觉三态审计（明确 yes 才自动 ack，见第 3 节门 1）
-  tools\unarm-screensaver.ps1 屏保体检/断根（默认只读；-Apply 删注册表挂的 .scr，-Restore 装回，见第 4 节第 3 条）
-  tools\reschedule-daily.ps1  改每日时间点（等当前轮跑完再生效）
-  tools\check-ps51.ps1 编码与行尾守卫
-  tools\test-r1999.ps1 / test-lib.ps1 / test-modules.ps1  三本离线自检（见第 6 节）
-  tools\gdagent\ + tools\kb.py / kb_notices.py  可选的 agent 与游戏知识库工具层（对话回路 + 知识库，不在日常主链上）
-  tools\assets\icon.png  面板与 exe 的图标
-  logs\ state\ backups\  运行时生成（不入仓）
+  plugin.json                    插件协议：id=r1999 / name / version / files / settings
+  config\settings.example.json   1999 这一路的配置片段(装的时候并进主仓 config\settings.json，只补不覆盖)
+  lib\m9a.ps1                    M9A 实例切换 + 命令行启动 + 日志判定的转发壳（冻结；规则真身在 panel-cs 与核内，头注里写着每枚搬到哪了）
+  lib\r1999-decisions.ps1        1999 侧判定壳（判定真身同样在核与 panel-cs）
+  lib\r1999-module.ps1           1999 这一路的模块声明（入口动词、环境探针、体检段）
+  tools\test-r1999.ps1           1999 这一路的离线自检
+  tools\probe-m9a-history.ps1    实例任务计数统计（见第 6 节）
+  tools\replay-m9a-log.ps1       真日志离线回放（见第 6 节）
+  tools\m9a-update.ps1           M9A 整包更新器（见第 6 节）
+  tools\1999-event-audit.ps1     活动打没打完的视觉三态审计（明确 yes 才自动 ack，见第 3 节门 1）
 ```
 
-依赖：MuMu 模拟器 12（自带 `MuMuManager.exe` 和 `adb.exe`，不需要你另装 adb）。
-**下载页的 exe 零依赖** —— 自带官方 PowerShell 运行时（跟 exe 一对的那枚 `game-daily-r1999-engine.zip` 附件；
-两枚放同一文件夹，首次双击自动释放到本机用户目录；机器上装没装 PowerShell、装的哪个版本，都不影响）。
-**从这份仓库直接跑**（双击 `.cmd`、或 `pwsh -File …`）要 PowerShell 7（`pwsh`）——本仓库只支持 7。`run-daily.cmd` 会自己找 pwsh（PATH 或装机版），一个都找不到会提示装法：
-`winget install Microsoft.PowerShell`（或到官网下载装上）。下文命令一律用 `pwsh`。
+**主仓 gd-ops 提供其余一切**：`daily-clear.ps1`（合体入口）、`setup.ps1`、`status.ps1`、`install-task.ps1`、
+`run-via-task.ps1`、`run-daily.cmd`、`panel.cmd`、`lib\common.ps1`、`lib\modules.ps1`、`lib\decisions*.ps1`、
+`lib\rust-round.ps1`、`tools\install-plugin.ps1`、`tools\panel-cs\`、`tools\rustcore\`（内置件源码）、
+`tools\gdcore\`、`tools\gdinterop\`、`tools\vision\ask.py`、`tools\test-lib.ps1` / `test-modules.ps1`、
+`VERSION`、`config\settings.example.json`（内核模板）。运行产物 `logs\ state\ backups\` 与 `config\settings.json`
+由主仓生成、都不入仓。
+
+依赖：MuMu 模拟器（自带 `MuMuManager.exe` 和 `adb.exe`，不需要你另装 adb）；**M9A** 是 AGPL-3.0 的第三方软件，
+也由你自己装（本仓不含它）。`pwsh` 只支持 PowerShell 7（`pwsh`）：`run-daily.cmd` 会自己找 pwsh（PATH 或装机版），
+一个都找不到会提示装法：`winget install Microsoft.PowerShell`（或到官网下载装上）。下文命令一律用 `pwsh`。
 
 ## 8. 许可、免责与隐私
 

@@ -25,11 +25,11 @@
 //      m9aCliArgs 走三态：settings 里这枚键**没写**＝真身"没填"档＝开命令行入口 ⇒ 干脆不加键，不许塌成 false。
 //
 // 三处口径分岔(照登不粉饰，均登记 unobserved)：
-//   · adb 那一步真身问的是 `Get-Command Get-GdMuMu -EA SilentlyContinue`，C# 侧没有命令表，翻成同源的
-//     **在位性**判据 `<root>\lib\mumu.ps1` 在不在(装载面＝入口顶层那句
-//     `foreach ($libPath in (Get-GdModuleLibPaths)) { . $libPath }`，而 mumu.ps1 只列在 r1999-module 的 Libs 里，
-//     ark 那一路的导出名册也没有它)。手工往树上塞一枚 lib\mumu.ps1 而不塞 r1999-module.ps1 时两侧分岔——
-//     非生产形态，不补闸。
+//   · 第一处分岔**已消**(11-16 摘闸)：原文登记的是 11-06 刀⑪ 把真身那句
+//     `Get-Command Get-GdMuMu -EA SilentlyContinue` 在没有命令表的 C# 侧翻成**在位性**判据
+//     `<root>\lib\mumu.ps1`。11-07 刀⑯ 笔(d)-2 退役那本模块时把该文件从树上删了，闸没随动，
+//     于是这处分岔在生产上不是"两侧各漂一半"而是**恒退化**(adb 恒空)——账见下面 AdbOf 的史注。
+//     现两侧同源：回落档只看 settings 的 paths 算术，与 PS 装载面无关。
 //   · `[bool]`／`[int]` 的转换语义按 PS 口径实现(逐档见下面两枚助手的注释)；清单/对象这类真身本来到不了的形
 //     一律抛，抛到 Cli 的通用 catch，由 Invoke-GdCli 那句"ok 否则 throw error 原话"送回 dispatch 的**同一个**
 //     catch ⇒ 话术不因换核分岔。
@@ -141,13 +141,18 @@ namespace GdPanel
 
         // 回落档那枚 adb：复用 Gate.Host.cs 里 Get-GdMuMu 的直身(MuMuPaths 的 Adb 格)，不另抄一份路径算术。
         // 真身那侧 try/catch 只包"调用"这一步：拿不到就回空串，不抛(空串的账由核内 m9a_scen_core 结)。
+        // ⚠ 改口(11-16 现场缺陷修复)：此处原有第二道闸 `if (!File.Exists(<root>\lib\mumu.ps1)) return "";`
+        //   —— 它是 11-06 刀⑪ 把真身那句 `Get-Command Get-GdMuMu` 翻成在位性判据而来。11-07 刀⑯ 笔(d)-2
+        //   把 lib\mumu.ps1 整本退役(文件从树上删除)时这道闸没随动：生产树上它恒假 ⇒ conn.adb 恒空 ⇒
+        //   核内 m9a_scen_core 恒 Err ⇒ 段 5 之前整份载荷塌成默认体 ⇒ r1999 连班 error(11-07 06:15 首班起)。
+        //   摘闸不留换靶：MuMuPaths 是纯路径算术、不起进程、不读实例配置，对 PS 装载面已零依赖，
+        //   任何"换一枚仍在那儿的文件来挡"都是给退役壳换靶续命。GdEnv.Init 仍要留——现读 config\settings.json 吃 Root。
         static string AdbOf(Dictionary<string, object> s)
         {
             try
             {
                 GdEnv.Init(null);
-                if (!File.Exists(Path.Combine(GdEnv.Root, @"lib\mumu.ps1"))) return "";
-                return Gd.Str(Gd.Get(GateHost.MuMuPaths(s), "Adb"));
+                return Gd.Str(Gd.Get(GateHost.MuMuPaths(s), "Adb")) ?? "";
             }
             catch { return ""; }
         }

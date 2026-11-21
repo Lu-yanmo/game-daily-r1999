@@ -5,13 +5,17 @@
 用的还是 **M9A** 本身 —— 这里只做「今天该用哪个方案 → 切实例 → 用 M9A 自己的命令行入口启动 → 看它的日志判断结果 → 收尾」，
 不需要点按钮、不需要热键、不需要 UI 自动化。
 
+**怎么上手最快**：去 [Releases](https://github.com/Lu-yanmo/game-daily-r1999/releases) 下载 `game-daily-r1999.exe` 和
+`game-daily-r1999-engine.zip` 这一对附件，放同一个文件夹，双击 exe 就直接进主控台（零依赖，不用装任何东西）。
+之后的日常全在面板里点，见 [第 1 节](#1-日常操作双击-panelcmd-就够了)。从源码跑、或者想接自动化，见 1.2 / 1.3。
+
 ---
 
 ## 0. 用之前先看这三条
 
-- **本仓库只有 PowerShell 脚本，不含 M9A、不含 MuMu、不含游戏客户端或素材。** M9A 是 AGPL-3.0 的第三方软件，MuMu 是网易商业软件，都要你自己从官方渠道装（许可见 [第 8 节](#8-许可免责与隐私)）。脚本只是启动它们、读它们的日志和配置文件。
+- **本仓库只有我原创的脚本与源码（PowerShell / C# / Rust，少量 Python），不含 M9A、不含 MuMu、不含游戏客户端或素材。** M9A 是 AGPL-3.0 的第三方软件，MuMu 是网易商业软件，都要你自己从官方渠道装（许可见 [第 8 节](#8-许可免责与隐私)）。脚本只是启动它们、读它们的日志和配置文件。
 - **游戏用户协议禁止脚本/自动化。** 被默认容忍 ≠ 官方许可；处罚风险由使用者自行承担，建议只在个人账号上用。
-- **判定逻辑和 M9A 版本强耦合。** M9A 升级后改了日志文案、或实例重新导入导致实例 id 变了，判定就会失效。所以脚本在「一条认识的标志都没读到」时明确报 `unknown-format`，并且**不会**据此判定体力已清完 —— 按 [第 6 节](#6-出问题怎么查) 对一遍日志再更新 `lib\m9a.ps1` 里的正则。
+- **判定逻辑和 M9A 版本强耦合。** M9A 升级后改了日志文案、或实例重新导入导致实例 id 变了，判定就会失效。所以脚本在「一条认识的标志都没读到」时明确报 `unknown-format`，并且**不会**据此判定体力已清完 —— 按 [第 6 节](#6-出问题怎么查) 对一遍日志，再改判定规则。规则的真身已经不在 `lib\m9a.ps1` 里（那份文件现在是冻结的转发壳，它头注里写着指路），而是在 `tools\panel-cs\` 与 Rust 核 `tools\rustcore\` 里；改完不用重跑十几分钟游戏，用 `tools\replay-m9a-log.ps1` 拿已经发生过的那一轮真日志离线回放验证（见第 6 节）。
 
 **还有一条硬编码偏好**：出了新活动但你还没手动通一遍时，脚本**不会**自动进未确认的新主线/活动，
 本轮回落到长草方案（第 3 节门 1）。
@@ -22,7 +26,8 @@
 都在界面里点，不需要记命令。（命令行还在，但位置是「兜底与自动化」，见 [1.2](#12-兜底与自动化命令行)。）
 
 双击 `panel.cmd`（或不带参数打开打包好的 exe）会先用 **Windows 自带的 .NET 编译器**把
-`tools\panel-cs\` 里那几份 `.cs`（同一个 `partial class` 按职责拆的 11 份，`Panel.cs` 是入口那份）现编成 `tools\panel-cs\panel-cs.exe`（几秒钟，不用装任何东西）再打开它。
+`tools\panel-cs\` 里那一组 `.cs` 现编成 `tools\panel-cs\panel-cs.exe`（几秒钟，不用装任何东西）再打开它 ——
+那组文件是**同一份程序**的分工：GUI 面板、判定面、命令行动词表、以及各自配套的离线自检，`Panel.cs` 是入口那份。
 这是一份**黑白双主题**的 C# 面板，右上角可以切深/浅。极精简系统上编不出来就明说编不出来、给命令行出路 ——
 面板只有 C# 这一份实现，没有「回落 PowerShell 面板」那一路（2026-10-23 定案）。
 
@@ -38,19 +43,18 @@
 
 这一仓是 1999 单路，但**配 置 页里有视觉模型 / 视觉 Key 那两行** —— 这一路也接上了视觉兜底（见 [2.1](#21-卡在弹窗上时的视觉兜底可选默认开着)）：
 它拍的是 MuMu 虚拟机的屏、点的也是虚拟机，用的却是**同一个模型、同一把 key**。
-这两行以前按"是不是方舟"门控，1999 仓里干脆不出现；现在按"这棵树上有没有兜底后端"给 —— 门控条件写错一次的后果是"这一路的 key 永远没地方填"，所以宁可露出来。
+这两行按"这棵树上有没有兜底后端"给 —— 门控条件写错一次的后果是"这一路的 key 永远没地方填"，所以宁可露出来。
 
-**面板外壳不做第二个判定**：界面上每一行结论都来自判定面那一份 `BuildDumpSummary`（真身 `tools\panel-cs\Panel.Summary.cs`，2026-10-23 起在面板自己进程里算，不再起子进程问 PowerShell；它产的就是过去 `panel.ps1 -DumpSummary` 那套机器协议行，
-以及判定层逐字写进 `state\history.csv` 的那句原因），面板只转达、不改写。所以面板里看到的和命令行跑出来的是同一个。
+**面板外壳不做第二个判定**：界面上每一行结论都来自判定面那一份 `BuildDumpSummary`（真身 `tools\panel-cs\Panel.Summary.cs`，在面板自己进程里算；
+它产的就是判定层逐字写进 `state\history.csv` 的那套机器协议行，以及那句原因），面板只转达、不改写。所以面板里看到的和命令行跑出来的是同一个。
 「开始跑一轮」要连点两次才真的开跑。
 读数第一行是 `PROTO|<版本>`：判定层和面板对不上版本时，面板会在日志区明说「判定层协议 v几 / 我只认 v几」，
 而不是让某个格子静默变空 —— 读不懂必须说出来。
 
-不想用鼠标的人不需要 PowerShell 版面板（2026-10-23 定案整件退役，也没有回落那一路）；
 C# 面板有三个不弹窗的自检：`tools\panel-cs\panel-cs.exe --selftest`（布局/主题链）、`--consoletest`
 （四页取数、写配置的转义与备份、代跑参数怎么拼、诊断包里搜不搜得到敏感值 —— 全程只在 `settings.json` 的**临时副本**上写，
-跑完逐字节比对确认原件没动）和 `--exptest`（「实验功能」那三个布尔键的读写回环：翻一次读得回来、只有那一行动过、
-补出来的那一行要让 `ConvertFrom-Json` 复述一遍、`runtime` 形状认不出时必须拒着不写 —— 同样只打在临时副本上）。打包成 exe 的场合对应动词是 `--panel`。
+跑完逐字节比对确认原件没动）和 `--exptest`（「实验功能」那几个布尔键的读写回环：翻一次读得回来、只有那一行动过、
+补出来的那一行要能被 JSON 解析器复述、形状认不出时必须拒着不写 —— 同样只打在临时副本上）。打包成 exe 的场合对应动词是 `--panel`。
 
 ### 1.2 兜底与自动化（命令行）
 
@@ -106,7 +110,7 @@ C# 面板有三个不弹窗的自检：`tools\panel-cs\panel-cs.exe --selftest`�
 
 ## 2. 每天到底刷什么（自动判定 + M9A 命令行入口）
 
-**方案判定**：读 M9A 自带的活动日历 `data\activity\cn.json`，按当前版本窗口判断，然后自动选 M9A 实例：
+**方案判定**：核内每轮现读 M9A 自带的活动日历 `data\activity\cn.json`，按当前版本窗口判断，然后自动选 M9A 实例：
 
 | 判定 | 用的 M9A 实例 |
 | --- | --- |
@@ -143,7 +147,7 @@ M9A 已经在跑时这条命令会被**转发**给正在跑的实例，所以冷
 ### 2.1 卡在弹窗上时的视觉兜底（可选，默认开着）
 
 M9A 认界面同样靠它自己那套匹配，**没收录的东西它就看不见**：一张更新横幅盖住入口、一个活动弹窗吃不掉，队列就停在那儿不动。
-2026-09-26 这一路也接上了视觉兜底 —— 和方舟那一路**共用同一套判定与点位换算**，只有"怎么拍屏、怎么点一下"换成了 MuMu 的两条 adb 命令：
+这一路接上了视觉兜底 —— 和方舟那一路**共用同一套判定与点位换算**，只有"怎么拍屏、怎么点一下"换成了 MuMu 的两条 adb 命令：
 
 | | 方舟（端游窗口） | 1999（MuMu 虚拟机，本仓库只有这一路） |
 | --- | --- | --- |
@@ -160,11 +164,12 @@ M9A 认界面同样靠它自己那套匹配，**没收录的东西它就看不�
 - **开关**：面板「实验功能」卡上「模拟器兜底」那颗勾 = `runtime.mumuVisionRescue`，**没写这一行就是开**（老 settings 里没有这行，
   这一仓只有 1999 一路，所以卡上不会出现端游那颗勾；按名字找，别按第几颗找）。这一行不存在时面板会替你在 `runtime` 段补出来：
   落盘前先核对整份文件的形状（引号配平、括号配平、不留收尾逗号），形状认不出来就**不写**；写完再把这一行读回来核对，
-  对不上就当没改、把勾退回原位并说明原因（补出来的行能不能被 JSON 解析器读回来，是面板自检 `--exptest` 替你验的，见第 6 节）。
+  对不上就当没改、把勾退回原位并说明原因（补出来的行能不能被 JSON 解析器读回来，是面板自检 `--exptest` 替你验的）。
 - **要配两样东西**：一把视觉模型 key（`runtime.visionApiKey` 或环境变量 `DASHSCOPE_API_KEY`，**没有 key 就不兜底**，只说明原因、不卡住），
   和一个能跑的 Python 3 —— `pwsh -File setup.ps1 -WithPython` 下载一个 embeddable 包到 `state\python\`（不进仓库），
-  你自己装过就把 `runtime.pythonExe` 指过去。Python 只负责"把图发出去、把回答收回来"（`tools\vision\ask.py`），
-  **截图和点击都还在 PowerShell 这边**；没有可用的 Python 时兜底说明原因后放弃，日常主流程不受影响。
+  你自己装过就把 `runtime.pythonExe` 指过去。Python 只负责"把图发出去、把回答收回来"（`tools\vision\ask.py`）；
+  **截图、解析回话、换算点位、点下去，全部在主控进程这边**（C# 现编的现场手脚，见 `tools\gdinterop\`）；
+  没有可用的 Python 时兜底说明原因后放弃，日常主流程不受影响。
 - **救过几次、救活没有，是记下来的**：每次兜底往 `state\rescue.json` 追加一条（哪一路、什么时候、结果那句原话，保留最近 60 条）。
 - **想知道它到底看见了什么**：`pwsh -File tools\vision-ask.ps1 -Game r1999` 把虚拟机现屏交给模型、把回答原样打出来，
   **一次点击都不做**（面板「实验功能」卡上那颗「只问不点」就是代跑这一条）。
@@ -174,7 +179,8 @@ M9A 认界面同样靠它自己那套匹配，**没收录的东西它就看不�
 ### 2.2 全程盯一轮的第三方：监督 agent（可选，默认开着）
 
 上面那套兜底判"卡没卡住"的，正是干活的那个等待循环自己 —— 它要是以我们没想到的方式挂死，没有第二个声音会响。
-监督 agent 补的就是这个位置：真跑一轮时另起一个隐藏子进程（`tools\supervise.ps1`），每 60 秒拍一次现场证据
+监督 agent 补的就是这个位置：真跑一轮时，核内另起一个隐藏子进程（面板那枚现编程序的另一种身份：前台入口 `supervise-loop`，
+规则与记账的真身是 `tools\panel-cs\Supervisor.cs` / `Supervisor.Host.cs`），每 60 秒拍一次现场证据
 （M9A 日志多久没动、本轮主日志多久没动、M9A 进程还在不在、完成信号出现过没有），规则先判；
 **只有连续两拍判到静止**才拍一张模拟器画面问一句"有没有东西挡着主流程"（两次提问至少隔 5 分钟，正常一轮一个请求都不发）。
 
@@ -197,6 +203,8 @@ M9A 认界面同样靠它自己那套匹配，**没收录的东西它就看不�
 ```
 
 确认状态存在 `state\r1999-event-ack.json`（按活动 id 记）。不想用这道门：`re1999.mainStoryRequiresAck` 改 `false`。
+不想自己判断"打没打完"的话，`tools\1999-event-audit.ps1` 走的是另一条路：拍模拟器画面 → 视觉三态判定 →
+**只有明确 yes 才自动打 ack**（拿不准就当没打过，等你自己来）。
 
 **门 2：商店领空** —— 活动还在开、但代币商店已经被你搬空时，再刷就是纯浪费体力。
 
@@ -258,20 +266,23 @@ pwsh -File install-task.ps1 -Uninstall
   `status.ps1` 环境段的「版本」行、面板标题栏与启动日志、诊断页那个 zip 里的 `版本.txt`、打包好的 exe 的 `--version`
   （只印一行「仓库名 + 版本号」，不动任何程序、不弹界面）。形状不对或文件不在就统一退成 `0.0.0` —— 那是"读不出来"，不是"版本 0"。
   反馈问题时把这一行带上，比截图整屏快。
-- `pwsh -File tools\test-r1999.ps1` —— 纯逻辑自检（只读：不改配置、不启动任何程序），163 条断言。
-  改过 settings 或判定代码后跑一遍最放心。另有 `-History` 一组（7 条）会回放**作者本机**某天的真实 M9A 日志，
+- `pwsh -File tools\test-r1999.ps1` —— 纯逻辑自检（只读：不改配置、不启动任何程序），断言条数由它自己的末行自报
+  （改动越多条数会变，不在这里抄死）。改过 settings 或判定代码后跑一遍最放心。另有 `-History` 一组会回放**作者本机**某天的真实 M9A 日志，
   断言的是那一次真跑的内容，别人的机器上内容不同，所以默认不跑。
 - `pwsh -File tools\test-modules.ps1` —— 框架层自检（这一路的游戏模块清单齐不齐、入口开关名对不对、判定/预览钩子调不调得动，
   外加一条"源码/文案里不许出现只在这台机器成立"的扫描：安装路径、虚拟机名、M9A 实例 id、视觉 Key、webhook、`%USERPROFILE%`，
   值全部运行时从本机 `config\settings.json` 里取，所以这条不会自己命中自己；红了只报"哪个文件 <- 哪一项"，值不进日志），
-  只读。这份仓库里只有 1999 一路，所以是 188 条；它和上面那 163 条是两套东西，缺哪个都不算过。
+  只读。它和上面那份是两套东西，缺哪个都不算过；断言条数同样以它自己的末行自报为准。
   里面有几条是"钉打包那一侧"的（exe 外壳 `--version`、`build-exe` 盖文件属性、导出归属表），那三个文件本来就不在这棵树里，
   它们会明说"跳过：……不进导出仓库"而不是跟着计数装绿 —— 看到 PASS 后面带"跳过"是设计，不是漏测。
+- `pwsh -File tools\test-lib.ps1` —— 共用底座的离线自检（日志/JSON/备份/进程那几层）。
 - `pwsh -File tools\probe-m9a-history.ps1` —— 统计 M9A 历史日志里每个实例真正开始过几个任务（卡住时先看这个，实例 id 变了也在这里露出来）。
 - `pwsh -File tools\replay-m9a-log.ps1` —— 把某一轮的真实 M9A 日志按时间窗口回放给判定逻辑（默认整份「今天的日志」全量回放；`-Log` 换历史日志，
   `-From`/`-To` 只写时刻就按那份日志当天算。**实例 id 不用你知道**：日志每行带 `[inst=实例名/id]`，脚本取窗口里出现最多的那个并在开头打印，
   认错了再用 `-InstanceId` 指名）。
   **改了判定之后不用重跑十几分钟游戏**，用已经发生过的那一轮的字节流验证结论。
+- `pwsh -File tools\m9a-update.ps1` —— M9A 整包更新器：按装包 `interface.json` 里的版本对 GitHub 最新发布，检测到新版自己更，
+  不用去 M9A 界面里点更新（M9A 4.x 是「程序+资源」整包更新，命令行没有更新入口）。
 - M9A 自己的日志：`<m9aDir>\logs\log-YYYYMMDD.log`（目录见 `config\settings.json` 的 `paths`）。
 - 被脚本改过的配置都在 `backups\` 留了最近 20 份，出问题直接覆盖回去即可。
 
@@ -291,7 +302,8 @@ pwsh -File install-task.ps1 -Uninstall
 
 ```
   setup.ps1            第一次用：探测 M9A / MuMu 装在哪、列虚拟机索引 → 生成 config\settings.json
-  daily-clear.ps1      编排：判定 → 切实例 → 起模拟器 + M9A → 重试 → 收尾 → 通知
+  daily-clear.ps1      入口：装配上下文 → 整轮交给内置件（§1.3）；命令行参数见 1.2
+  run-via-task.ps1     普通权限点火按需计划任务（手动跑一轮）
   status.ps1           只读体检
   install-task.ps1     计划任务注册/卸载
   run-daily.cmd        双击手动跑
@@ -299,19 +311,26 @@ pwsh -File install-task.ps1 -Uninstall
   VERSION              唯一的版本号来源（就一行 x.y.z）：status 的「版本」行、面板标题栏、诊断包里的 版本.txt、exe 的 --version 全读它（见第 6 节）
   config\settings.example.json  配置模板（入仓）
   config\settings.json  唯一需要配的文件（不入仓）
-  lib\common.ps1       日志/JSON/备份/防睡眠/进程/通知
-  （2026-11-06 转接刀·运行面刀⑮ 笔(a) 起本行不再是目录项：lib\detect.ps1 已整件删除、本仓库不再带这一枚文件；探测判据的真身只住 tools\panel-cs\Detect.cs 一份，setup.ps1 直点 verb detect-installs／parse-mumu-vms）
-  lib\decisions.ps1    今天用哪个方案：版本窗口、确认门、实例选择
-  lib\m9a.ps1          M9A 实例切换 + 命令行启动 + logs\log-*.log 判定
-  lib\mumu.ps1         MuMuManager 启停、adb 探活
-  （11-06 刀⑮ 笔(d)：lib\vision-rescue.ps1／lib\vision-mumu.ps1 已整件出仓 —— 兜底判据住核内(resolve-rescue-context)，adb 拍屏／tap／端点三段的真身在 tools\panel-cs\Live.cs／Gate.Host.cs；第 2.1 节讲的行为一字未变，不想要照旧关开关）
-  lib\supervisor.ps1  监督 agent（见第 2.2 节）：证据→状态→动作三段纯函数 + 起停/记账；这一路只通知，不碰模拟器
-  tools\supervise.ps1 监督的心跳子进程本体（真跑一轮时自动隐藏起；-Once 手动拍一拍）
+  lib\common.ps1       日志/JSON/备份/防睡眠/进程/通知 —— 还负责把 tools\gdcore 与 tools\gdinterop 现编进进程
+  lib\rust-round.ps1   入口转接层：daily-clear 与内置件 gdcore.exe 之间的那一段（§1.3）
+  lib\decisions.ps1    判定门面：仓库里有哪些判定文件就点哪些（聚合件）
+  lib\decisions-common.ps1 / lib\r1999-decisions.ps1  共用底座与 1999 侧判定壳 —— 取数与规则的真身在核（Rust）和 tools\panel-cs（C#）里，逐件头注就是指路
+  lib\m9a.ps1          M9A 实例切换 + 命令行启动 + 日志判定的转发壳（冻结；规则真身在 tools\panel-cs 与核内，头注里写着每枚搬到哪了）
+  lib\modules.ps1 / lib\r1999-module.ps1  框架层模块注册表 + 1999 这一路的模块声明
+  tools\rustcore\      内置件 gdcore.exe 的源码（Rust；源码进仓、产物不入仓，build.ps1 现场编，见 1.3）
+  tools\panel-cs\      C# 主控台本体：GUI 面板 + 同一枚 exe 的命令行动词表（判定/取数/实例切换/拉起/监督/兜底全在这里，各自带离线自检 *.SelfTest.cs）
+  tools\gdcore\ tools\gdinterop\  进程内现编的 C# 内核支撑与 Win32 现场手脚（adb 拍屏/tap 那几段的真身在 panel-cs 的 Live.cs / Gate.Host.cs）
+  tools\vision\ask.py  "问模型"那一层（收请求文件、回模型原文）；截图与点击都不在这里
   tools\vision-ask.ps1 只问不点：把虚拟机现屏交给模型、原样打印回答，一次点击都不做
-  tools\vision\ask.py "问模型"那一层（收 PowerShell 写的请求文件、回模型原文）；截图与点击都不在这里
-  （2026-10-23 乙档刀③ 起本行不再是目录项：tools\panel.ps1 已整件删除、本仓库不再带这一枚文件；它是退役的 PowerShell 版面板本体，判定面真身见下面那一份 Panel.Summary.cs）
-  tools\panel-cs\      C# 主控台本体（Panel.cs 是入口，其余 Panel.*.cs 是同一个 partial class 的分工；build.ps1 按目录扫 *.cs 用系统自带 csc 现编；判定面就是这份里的 Panel.Summary.cs(BuildDumpSummary)，外壳只转达、不另判一次）
-  tools\               自检 / 探测脚本（含 replay-m9a-log）
+  tools\probe-m9a-history.ps1 / replay-m9a-log.ps1  实例任务计数统计 / 真日志回放（见第 6 节）
+  tools\m9a-update.ps1 M9A 整包更新器（见第 6 节）
+  tools\1999-event-audit.ps1 活动打没打完的视觉三态审计（明确 yes 才自动 ack，见第 3 节门 1）
+  tools\unarm-screensaver.ps1 屏保体检/断根（默认只读；-Apply 删注册表挂的 .scr，-Restore 装回，见第 4 节第 3 条）
+  tools\reschedule-daily.ps1  改每日时间点（等当前轮跑完再生效）
+  tools\check-ps51.ps1 编码与行尾守卫
+  tools\test-r1999.ps1 / test-lib.ps1 / test-modules.ps1  三本离线自检（见第 6 节）
+  tools\gdagent\ + tools\kb.py / kb_notices.py  可选的 agent 与游戏知识库工具层（对话回路 + 知识库，不在日常主链上）
+  tools\assets\icon.png  面板与 exe 的图标
   logs\ state\ backups\  运行时生成（不入仓）
 ```
 
@@ -320,11 +339,10 @@ pwsh -File install-task.ps1 -Uninstall
 两枚放同一文件夹，首次双击自动释放到本机用户目录；机器上装没装 PowerShell、装的哪个版本，都不影响）。
 **从这份仓库直接跑**（双击 `.cmd`、或 `pwsh -File …`）要 PowerShell 7（`pwsh`）——本仓库只支持 7。`run-daily.cmd` 会自己找 pwsh（PATH 或装机版），一个都找不到会提示装法：
 `winget install Microsoft.PowerShell`（或到官网下载装上）。下文命令一律用 `pwsh`。
-编码与行尾守卫：`pwsh -File tools\check-ps51.ps1`。
 
 ## 8. 许可、免责与隐私
 
-**许可**：本仓库脚本按 MIT 发布（见 `LICENSE`），只含原创 PowerShell 代码。
+**许可**：本仓库按 MIT 发布（见 `LICENSE`），只含原创脚本与源码（PowerShell / C# / Rust / Python）。
 
 **不含第三方程序**：M9A（AGPL-3.0）、MuMu 模拟器（网易商业软件）、重返未来：1999 客户端及素材/名称
 都**不**在本仓库内，也不由本仓库分发，请自行从官方渠道安装。M9A 的许可条款以它自己的仓库为准，
@@ -339,6 +357,10 @@ pwsh -File install-task.ps1 -Uninstall
 `state\`（历史汇总、你参与过的活动 id 与版本号）、`backups\`（M9A 配置历史副本，可能含账号字段）。
 克隆下来只会得到模板，跑 `setup.ps1` 生成自己的配置。**别把这些目录重新加进版本库，也别把日志原样贴进 issue**，
 需要贴的先自己打码（M9A 实例名、绝对路径、活动 id）。
-源码这一侧也有一道闸：`tools\test-modules.ps1` 的 `[m8]` 会拿"只在这台机器成立"的值（四条安装路径、MuMu 虚拟机名、
-M9A 实例 id、通知 webhook、`%USERPROFILE%`）扫一遍源码和文案，防止某次改动顺手把你机器的路径写进了注释或样本；
+源码这一侧也有一道闸：`tools\test-modules.ps1` 里的泄漏扫描，会拿"只在这台机器成立"的值（安装路径、MuMu 虚拟机名、
+M9A 实例 id、视觉 Key、通知 webhook、`%USERPROFILE%`）扫一遍源码和文案，防止某次改动顺手把你机器的路径写进了注释或样本；
 红了只报「哪个文件 <- 哪一项」，值本身不进日志（日志会进诊断包递给人看）。
+
+**这个仓库往外发的东西一共三处**，都不带密钥：① 你填了 `notify.webhook` 才发的每轮结果；
+② [第 2.1 节](#21-卡在弹窗上时的视觉兜底可选默认开着)兜底时的一张模拟器画面截图（要你自己配了模型 key 才会有，没配就是不发）；
+③ `tools\m9a-update.ps1` 主动查 M9A 新版本时对 GitHub 发布页的一次 GET。除这三处之外脚本不联网。

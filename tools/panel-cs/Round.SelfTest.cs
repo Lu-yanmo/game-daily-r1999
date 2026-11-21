@@ -2823,12 +2823,18 @@ namespace GdPanel
                     && I(r6["r1999StartTimeoutMinutes"]) == 12 && I(r6["r1999TimeoutMinutes"]) == 60
                     && I(r6["stallTimeoutMinutes"]) == 8;
             });
-            b.Chk("adb 回落档的装载闸两相位：临时树有 lib\\mumu.ps1 ⇒ MuMu 的 adb 算术出数；没有 ⇒ 空串(分岔照登：Get-Command 翻成在位性)", delegate
+            b.Chk("adb 回落档与装载面无关(11-16 摘除已退役的在位闸，两相位改判同值)：临时树没有 lib\\mumu.ps1 照样出数，塞一枚进去出的还是同一个数", delegate
             {
                 string mumuPs = Path.Combine(tmp, @"lib\mumu.ps1");
-                // 第一相位要"在位"，而临时树建仓时只造了 lib\maa.ps1 —— 这枚得自己塞进去，
-                // 收尾随整棵临时树一起删(不落仓内)。GdEnv.Init(null) 的幂等那档在这里生效：
-                // Root 仍是临时树，所以本件读的正是这枚 tmp\lib\mumu.ps1。
+                // 第一相位按生产形态来：先把这枚文件清掉(11-07 刀⑯ 起它在真树上本就不存在)，
+                // 断言回落档仍然出数——这一发钉的就是这次连班 error 的那道恒假闸，它回来本格就红。
+                // 第二相位再手工塞一枚进临时树(收尾删掉，不落仓内)，证明摘闸没换成反向的另一道闸。
+                // GdEnv.Init(null) 的幂等那档仍在这里生效：Root 是临时树，本件读的正是这枚 tmp\lib\mumu.ps1。
+                try { if (File.Exists(mumuPs)) File.Delete(mumuPs); } catch { }
+                Dictionary<string, object> e = Row(RoundHost.BuildCtx(CtxBody(ctxFx)));
+                Dictionary<string, object> em = Row(Key(e, "m9aRun"));
+                Dictionary<string, object> econn = Row(em["conn"]);
+                string withoutFile = S(econn["adb"]);
                 try
                 {
                     Directory.CreateDirectory(Path.GetDirectoryName(mumuPs));
@@ -2840,11 +2846,7 @@ namespace GdPanel
                 Dictionary<string, object> conn = Row(mc["conn"]);
                 string withFile = S(conn["adb"]);
                 try { if (File.Exists(mumuPs)) File.Delete(mumuPs); } catch { }
-                Dictionary<string, object> e = Row(RoundHost.BuildCtx(CtxBody(ctxFx)));
-                Dictionary<string, object> em = Row(Key(e, "m9aRun"));
-                Dictionary<string, object> econn = Row(em["conn"]);
-                string withoutFile = S(econn["adb"]);
-                return withFile == @"T:\mumu\nx_main\adb.exe" && withoutFile == "";
+                return withoutFile == @"T:\mumu\nx_main\adb.exe" && withFile == withoutFile;
             });
             b.Chk("整块 settings 绝不进 ctx：runtime.visionApiKey 的名字与哨兵值在序列化回执里都搜不到", delegate
             {

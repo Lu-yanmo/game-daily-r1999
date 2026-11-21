@@ -381,10 +381,19 @@ try {
     Check '坏值(带 v / 段数不对 / 空 / 文件不在)全退成 0.0.0，且不抛' (@($bad | Where-Object { $_ -ne '0.0.0' }).Count -eq 0) ($bad -join ' ')
 } finally { Remove-Item -LiteralPath $verTmp -Recurse -Force -ErrorAction SilentlyContinue }
 # 第二处写死：拿同一个扫描函数扫工作副本，命中只允许是 VERSION 自己
+# 依赖锁文件豁免(2026-11-21)：Cargo.lock / package-lock.json 里的版本是第三方 crate / npm 包
+# 的版本，不是"第二处写死仓库版本"；豁免只认这三种文件名的路径末尾，源码面照钉。
+# 判据自身带正反例自证——放行的名字若写成会漏源码面的形状，那一格当场红。
+$verLockRe = '(?i)(^|[\\/])(Cargo\.lock|package-lock\.json|npm-shrinkwrap\.json) <-'
+Check '版本号扫描的依赖锁豁免针只认三类锁文件名(正例咬住 / 反例不误伤)' (
+    ('tools\gdops\src-tauri\Cargo.lock <- 版本号' -match $verLockRe) -and
+    ('tools\panel-cs\Panel.cs <- 版本号' -notmatch $verLockRe) -and
+    ('package-lock.json <- 版本号' -match $verLockRe))
 if ($verNow -and $verNow -ne '0.0.0') {
-    $verHits = @(Test-GdExportLeaks -Dir $root -Values @([pscustomobject]@{ Label = '版本号'; Value = $verNow }) |
+    $verRaw = @(Test-GdExportLeaks -Dir $root -Values @([pscustomobject]@{ Label = '版本号'; Value = $verNow }) |
         Where-Object { $_ -notmatch '^VERSION <-' })
-    Check "全仓只有 VERSION 自己写着 '$verNow'(没有第二处写死版本号)" ($verHits.Count -eq 0) (@($verHits) -join ' ｜ ')
+    $verHits = @($verRaw | Where-Object { $_ -notmatch $verLockRe })
+    Check "全仓只有 VERSION 自己写着 '$verNow'(没有第二处写死版本号；依赖锁豁免 $($verRaw.Count - $verHits.Count) 条)" ($verHits.Count -eq 0) (@($verHits) -join ' ｜ ')
 }
 # 三个读数各自接上来源(源级钉法：改了来源却忘了下游，这里红，而不是等玩家截图里两个版本打架)。
 function Read-GdSrcIfPresent {

@@ -46,7 +46,7 @@ export class DemoBridge implements Bridge {
     return '<div class="sec">ARK · 方案 event</div>活动 SideStory · 全刷 <code>TL-9</code>；队列 <code>StartUp/Recruit/Infrast/Mall/Award</code> + <code>Fight</code>；长草轮追加 <code>farmTargets</code> 材料补刷。<div class="sec">R1999 · 方案 idle</div>实例日常十项：常规作战 / 银行购物 / 智能均衡刷材料 / … / 关闭游戏；末尾活动审计闸。<div class="sec">门</div>活动门自证（ark-event-probe）· 商店标记 · 1999 主线 ack。<br>真实实现：daily-clear.ps1 -DryRun，只预演不点火。';
   }
   async health(): Promise<string> {
-    return '<div class="sec">环境</div>三态 ok · 屏保已 unarm · 版本 K2.1 · 内核 live<div class="sec">进程</div>MAA 未跑 · MuMu 未跑 · 监督 pid 4321<div class="sec">今日判定</div>ark ok / r1999 ok（18:00 轮）<div class="sec">模块 / 门 / 历史</div>模块注册表 2 路在位 · 活动门绿 · history.csv 尾 5 行见历史页<br>演示读数，真实实现调 status.ps1。';
+    return '<div class="sec">环境</div>三态 ok · 屏保已 unarm · 版本 K2.1 · 内核 live<div class="sec">进程</div>MAA 未跑 · MuMu 未跑 · 监督 pid 4321<div class="sec">今日判定</div>ark ok / r1999 ok（19:30 轮）<div class="sec">模块 / 门 / 历史</div>模块注册表 2 路在位 · 活动门绿 · history.csv 尾 5 行见历史页<br>演示读数，真实实现调 status.ps1。';
   }
   async openLogDir(): Promise<string> {
     return '<code>logs/</code> · 命名 <code>run-YYYYMMDD-HHMMSS-daily-{auto|manual}.log</code><br>真实实现：Process.Start explorer.exe logs（panel 现有按钮同行为）。<br>演示环境不真正打开资源管理器。';

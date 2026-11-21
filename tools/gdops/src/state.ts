@@ -43,7 +43,7 @@ export const live = {
   vcap: 'state/rescue/ark-stall1-1109-181204-before.png（演示占位）',
   vcalls: 'qwen-vl · 200 · 1.8s',
 };
-export let lastRoundHtml = '上一轮：<b>今日 18:00 · 全成</b> · 24m12s · ark ok / r1999 ok（history.csv 尾行·演示）';
+export let lastRoundHtml = '上一轮：<b>今日 19:30 · 全成</b> · 24m12s · ark ok / r1999 ok（history.csv 尾行·演示）';
 
 let evq: Ev[] = [];
 let evTimer: number | null = null;
